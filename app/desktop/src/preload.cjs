@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("lore", {
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {number} id */
+  deleteMemory: (id) => ipcRenderer.invoke("memory:delete", id),
   /** @param {{title: string, content: string}} input */
   pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
@@ -40,7 +42,6 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
   push: () => ipcRenderer.invoke("store:push"),
-  schedule: () => ipcRenderer.invoke("schedule:install"),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
@@ -88,12 +89,65 @@ contextBridge.exposeInMainWorld("lore", {
   readSource: (name) => ipcRenderer.invoke("sources:read", name),
   /** @param {string} name @param {boolean} keep */
   removeSource: (name, keep) => ipcRenderer.invoke("sources:remove", name, keep),
+  /** @param {string} name @param {boolean} on */
+  switchSource: (name, on) => ipcRenderer.invoke("sources:switch", name, on),
+  agents: () => ipcRenderer.invoke("agents:list"),
+  /** @param {{app: AgentApp, name: string}} input */
+  connectAgent: (input) => ipcRenderer.invoke("agents:connect", input),
+  /** @param {string} source */
+  agentKey: (source) => ipcRenderer.invoke("agents:key", source),
+  /** @param {string} source @param {boolean} keep */
+  disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
+  checkAgents: () => ipcRenderer.invoke("agents:check"),
+  agentAddress: () => ipcRenderer.invoke("agents:address"),
+  /** @param {{id: string, app?: AgentApp, name?: string}} input */
+  allowSignIn: (input) => ipcRenderer.invoke("agents:allow", input),
+  /** @param {string} id */
+  denySignIn: (id) => ipcRenderer.invoke("agents:deny", id),
+  agentApps: () => ipcRenderer.invoke("agents:installed"),
+  /** @param {AgentApp} id */
+  openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
+  firstRun: () => ipcRenderer.invoke("firstrun:read"),
+  /** @param {FirstRunState} next */
+  setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  appearance: () => ipcRenderer.invoke("appearance:read"),
+  /** @param {AppearanceChoice} choice */
+  setAppearance: (choice) => ipcRenderer.invoke("appearance:set", choice),
+  storeOnline: () => ipcRenderer.invoke("store:online"),
+  reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
+  cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),
+  /** @param {string} text */
+  copy: (text) => ipcRenderer.invoke("clipboard:write", text),
+  readyRuns: () => ipcRenderer.invoke("ready:runs"),
+  seenMemories: () => ipcRenderer.invoke("ready:seen"),
+  clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  /** @param {ReadyKey[]} runs */
+  dismissMemories: (runs) => ipcRenderer.invoke("ready:dismiss", runs),
+  /** @param {number} newest */
+  memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
+  /** @param {number[]} arrivals */
+  markSeen: (arrivals) => ipcRenderer.invoke("memory:seen", arrivals),
+  checkIn: () => ipcRenderer.invoke("checkin:waiting"),
+  routines: () => ipcRenderer.invoke("routines:list"),
+  noticedRoutines: () => ipcRenderer.invoke("routines:noticed"),
+  /** @param {string} id */
+  runRoutine: (id) => ipcRenderer.invoke("routines:run", id),
+  /** @param {string} id @param {string} action @param {RoutineTime} [when] */
+  changeRoutine: (id, action, when) => ipcRenderer.invoke("routines:change", id, action, when),
+  /** @param {string} text @param {RoutineTime} when @param {string} [title] */
+  addRoutine: (text, when, title) => ipcRenderer.invoke("routines:add", text, when, title),
+  /** @param {string} id @param {string} text @param {string} [title] */
+  editRoutine: (id, text, title) => ipcRenderer.invoke("routines:edit", id, text, title),
+  dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
   microphone: () => ipcRenderer.invoke("dictation:permission"),
   /** @param {ArrayBuffer} wav */
   transcribe: (wav) => ipcRenderer.invoke("dictation:transcribe", wav),
+  update: () => ipcRenderer.invoke("update:status"),
+  checkUpdate: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
   /** @param {(event: AgentEvent) => void} listener */
   onAgentEvent: (listener) => {
     /** @param {import("electron").IpcRendererEvent} _event @param {AgentEvent} value */

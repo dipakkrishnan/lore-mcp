@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -52,3 +52,5 @@ Spans the publish skill (`plugins/lore/skills/lore-publish`), the
 publication draft schema in Python, and the desktop card, hence
 cross-cutting. The tests are stated in the "Lore Buyer Thesis" artifact of
 2026-09-06.
+
+**Review 2026-10-19:** not completed. Not done. No three answers, undated-public-evidence line or CLI review-prompt lines exist. All 4 criteria unmet.

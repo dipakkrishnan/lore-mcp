@@ -44,6 +44,11 @@ the approval prompt on the owner's behalf.
   recorded.
 - **Defer at decision points.** Which topic, which candidates, and whether to
   approve are the owner's calls — only they can approve a publication.
+- **Say why before you ask.** When the memory you start from looks too weak
+  to sell, first say why in one plain sentence ("This is a personal
+  preference, so a stranger wouldn't pay for it."), then offer the options.
+  Never ask a question whose premise the owner hasn't been told. If the owner
+  says they want to draft it anyway, draft it.
 
 ## 1. Understand the intent
 

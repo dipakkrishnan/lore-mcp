@@ -3,6 +3,7 @@ const $ = (selector) => /** @type {HTMLElement} */ (document.querySelector(selec
 const welcome = $("#welcome");
 const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
+const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
@@ -14,7 +15,14 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
+const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
+const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
+const accountMenu = $("#account-menu");
+const darkMode = $("#dark-mode");
+const accountLine = $("#account-line");
+const signOutBtn = /** @type {HTMLButtonElement} */ ($("#sign-out"));
+const updateBtn = /** @type {HTMLButtonElement} */ ($("#update"));
 const captureArea = $("#capture");
 const composer = /** @type {HTMLFormElement} */ ($("#composer"));
 const input = /** @type {HTMLTextAreaElement} */ ($("#capture-input"));
@@ -35,19 +43,56 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "memories" | "store" | "collection" | "connectors" | "faq" | "settings"} View */
+/** @typedef {"today" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
 let apps = [];
+/** What the owner's personal agents have saved, as their store counts it; null until Connectors asks. @type {AgentEntry[] | null} */
+let agents = null;
+/** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
+let agentAfterStore = false;
+/** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
+let signingIn = false;
+/** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
+ * owner's agents. @type {Set<(reads: SourceRead[]) => void>} */
+const agentWaiting = new Set();
+/** XC-068: a setup sheet waiting on its app's sign-in, which takes the first that asks; and the sign-ins the owner
+ * already answered, so one is never asked about twice. @type {Set<(asking: SignInRequest) => void>} */
+const signInWaiting = new Set();
+/** @type {Set<string>} */
+const answeredSignIns = new Set();
+/** What Lore does on its own, as the CLI lists it. @type {Routine[]} */
+let routines = [];
+/** The routines the owner started that are still going. @type {Set<string>} */
+const running = new Set();
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
 let view = "today";
+/** Which of Inventory's tabs is open. @type {Shelf} */
+let shelf = "all";
+/** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
+let inventoryFrom = null;
+/** The collection open in its own view. @type {number | null} */
+let openCollectionId = null;
+/** Text pasted into the open collection and not added yet; kept across renders. */
+let collectionDraft = "";
+/** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
+let collectionBusy = "";
+let editingCollectionPrice = false;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
 let taskItems = [];
+/** What Lore read from connected apps, newest first, until the owner clears it. @type {ReadyRun[]} */
+let readyRuns = [];
+/** The evening check-in waiting for the owner; null on every day Lore found nothing worth asking. @type {CheckIn | null} */
+let checkIn = null;
+/** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
+ * so one that started before a "Not today" never brings the card back. */
+let loads = 0;
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -76,26 +121,21 @@ let pushing = false;
 let switchingCards = false;
 /** @type {string | false} */
 let pushedNote = false;
-/** Whether the For Sale price row is open as an editor. */
-let editingPrice = false;
-let savingPrice = false;
-let accountMenuOpen = false;
-/** The collection open in its own view. @type {number | null} */
-let openCollectionId = null;
-/** Text pasted into the open collection and not added yet; kept across renders. */
-let collectionDraft = "";
-/** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
-let collectionBusy = "";
-let editingCollectionPrice = false;
 /** The node's ledger, read each time For Sale opens: rows, the reason it could not be read, or null while it loads. @type {Sale[] | Error | null} */
 let sales = null;
 /** Page views per piece, by public id; empty until read. @type {Record<string, number>} */
 let views = {};
 let salesAsked = false;
+/** This copy's version and whether a newer one is on its way, from the main process. @type {AppUpdate | null} */
+let appUpdate = null;
+/** How Lore is drawn, as the owner chose in Settings. @type {AppearanceChoice} */
+let appearance = "system";
 /** The task whose turn is open, while one is. @type {AgentTask | null} */
 let busy = null;
 /** The card awaiting the owner. A memory card also carries `current`, its entries as edited, so the composer can send a spoken or typed correction with them; `pinned` cards stay in view as the thread re-renders. @type {{id: string, task: AgentTask | null, box: HTMLElement, pinned: boolean, current?: () => ProposedMemory[]} | null} */
 let request = null;
+/** APP-226: the sheet a store update waits on, by its request; `drop` closes it without answering. @type {{id: string, sheet: FormSheet, drop: () => void} | null} */
+let changing = null;
 /**
  * The one blueprint panel node for the current setup thread: a read-only
  * ghost while propose_blueprint's fields are still streaming in, then the
@@ -120,8 +160,12 @@ function resetBlueprintGhost() {
 const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
+const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
+const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>`;
+const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="18.5" cy="12" r="1.6"></circle></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
@@ -135,13 +179,15 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
+const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
+const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
 const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
-const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store" };
+const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in", checkin: "Look over today", evening: "Evening check-in" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
 const waiting = el("div", "card pad lead composer-wait");
@@ -149,7 +195,9 @@ const waitingText = el("span");
 waiting.append(el("span", "dot"), waitingText, button("Open", "secondary", () => { if (waitingTask) void openTask(waitingTask); }));
 waiting.hidden = true;
 composer.insertAdjacentElement("afterend", waiting);
-const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…" };
+/** Lore's own work between the owner's turns: never a thread on Today. @type {ReadonlySet<AgentTask>} */
+const QUIET_TASKS = new Set(["synthesize", "checkin"]);
+const THINKING = { setup: "Thinking…", publish: "Drafting…", capture: "Reading this…", deploy: "Setting up your store…", synthesize: "Reading…", checkin: "Reading…", evening: "Reading this…" };
 const TASK_STATES = { needs_you: "Needs you", working: "Working", stopped: "Waiting for you", done: "Done" };
 
 /**
@@ -188,6 +236,29 @@ function mark(className = "mark") {
   return node;
 }
 
+/** Who said a chat line, for a screen reader: the page shows it by where the line sits. @param {boolean} owner */
+function speaker(owner) {
+  return el("span", "sr-only", owner ? "You: " : "Lore: ");
+}
+
+/** APP-218: a chat's lines come in once each, a beat apart, by their data-say; a line already on screen never comes in
+ * again, and more than a few at once is history coming back, shown at once. */
+class Entrance {
+  /** @type {Set<string>} */
+  said = new Set();
+
+  /** @param {HTMLElement[]} shown */
+  play(shown) {
+    const fresh = shown.filter((line) => !this.said.has(line.dataset.say ?? ""));
+    for (const [beat, line] of fresh.entries()) {
+      this.said.add(line.dataset.say ?? "");
+      if (fresh.length > 3) continue;
+      line.classList.add("enter");
+      line.style.animationDelay = `${beat * 90}ms`;
+    }
+  }
+}
+
 /** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
 function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
@@ -224,17 +295,18 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
-async function publishMemory(memory, from) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
+ * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
+async function publishMemory(memory, from, anyway = false) {
   closeSheet();
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".${anyway ? " Lore judged it not worth selling, and I want to draft it anyway." : ""}`, from, memory.id);
 }
 
-/** @param {number | string} id @param {string} title @param {string} detail */
-function memoryRow(id, title, detail) {
+/** @param {number | string} id @param {string} title @param {string} detail @param {boolean} [sell] Whether it offers Draft for sale. */
+function memoryRow(id, title, detail, sell = true) {
   const node = el("div", "row");
   const open = el("button", "task-link");
   open.type = "button";
@@ -243,7 +315,7 @@ function memoryRow(id, title, detail) {
   open.append(text);
   open.addEventListener("click", () => openMemory(Number(id)));
   peekable(open, Number(id));
-  node.append(open, button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title })));
+  node.append(open, ...(sell ? [button("Draft for sale", "quiet", () => void publishMemory({ id: Number(id), title }))] : []));
   return node;
 }
 
@@ -291,18 +363,72 @@ async function openMemory(id) {
   const head = el("div", "sheet-head");
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
-  const from = snapshot?.library.sources.find((source) => source.name === memory.source);
-  const origin = apps.find((app) => app.id === from?.connector)?.name ?? from?.label;
-  text.append(titleLabel, el("span", "", [...new Set([memory.project, origin, when(memory.updated_at)])].filter(Boolean).join(" · ")));
+  text.append(titleLabel, provenanceLine(memory));
+  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
+  // step away, except for work, which is never offered for sale.
+  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+  if (kept) {
+    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
+    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+    text.append(note);
+  }
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  const actions = el("div");
-  actions.style.display = "flex";
-  actions.style.gap = "8px";
+  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
+  // its width and Delete is never a click away from selling.
+  const actions = el("div", "sheet-actions");
+  const menu = el("div", "menu sheet-menu");
+  menu.popover = "auto";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "More");
+  /** @param {string} label @param {string} icon @param {() => void} onClick */
+  const item = (label, icon, onClick) => {
+    const node = el("button", "", label);
+    node.type = "button";
+    node.setAttribute("role", "menuitem");
+    node.insertAdjacentHTML("afterbegin", icon);
+    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
+    return node;
+  };
+  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
+  removeItem.classList.add("danger");
+  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
+  menu.addEventListener("toggle", (event) => {
+    const open = /** @type {ToggleEvent} */ (event).newState === "open";
+    more.setAttribute("aria-expanded", String(open));
+    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
+  });
+  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
+  const iconButton = (label, icon, onClick) => {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.setAttribute("aria-label", label);
+    node.title = label;
+    node.insertAdjacentHTML("afterbegin", icon);
+    if (onClick) node.addEventListener("click", onClick);
+    return node;
+  };
+  const more = iconButton("More", MORE_ICON, undefined);
+  more.classList.add("sheet-more");
+  more.setAttribute("aria-haspopup", "menu");
+  more.popoverTargetElement = menu;
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
+    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
+  }
+  function startDelete() {
+    // The question sits under the title like the sale note, so asking never squeezes the title.
+    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
+    const back = () => { asking.remove(); showActions(); };
+    const remove = button("Delete", "quiet", () => void act(async () => {
+      await window.lore.deleteMemory(memory.id);
+      closeSheet();
+      tell(`Deleted ${memory.title}.`);
+    }).then((done) => { if (!done) back(); }));
+    remove.classList.add("destructive");
+    text.append(asking);
+    actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -371,7 +497,7 @@ async function openMemory(id) {
   showActions();
   head.append(text, actions, close);
   panel.append(head, body);
-  sheet.append(panel);
+  sheet.append(panel, menu);
   // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   sheet.addEventListener("close", () => sheet.remove());
@@ -385,79 +511,26 @@ function closeSheet() {
 }
 
 function openFeedbackDialog() {
-  closeSheet();
-  const sheet = el("dialog", "sheet narrow");
-  sheet.setAttribute("aria-label", "Report Feedback");
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  head.append(el("b", "", "Report Feedback"));
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  // This dialog, not whichever one is open: a report can still be in flight
-  // when the owner opens something else, and closeSheet() would close that.
-  close.addEventListener("click", () => sheet.close());
-  head.append(close);
-
-  const form = el("form", "feedback-form");
-  const titleField = /** @type {HTMLInputElement} */ (draftField(form, "Title", "", true));
-  const emailField = /** @type {HTMLInputElement} */ (draftField(form, "Email (optional)", "", true));
-  const descriptionField = draftField(form, "Description", "");
-  form.append(el("p", "hint", "This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there."));
-  const actions = el("div", "actions");
-  const cancel = el("button", "btn secondary sm", "Cancel");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => sheet.close());
-  const send = el("button", "btn primary sm", "Send");
-  send.type = "submit";
-  send.disabled = true;
-  actions.append(cancel, send);
-  form.append(actions);
-
-  // One report per Send, however the owner gets there. Without `sending` in
-  // this predicate, the input listener re-enables Send the moment both
-  // fields are non-empty again — including mid-request — and a second click
-  // files a second public issue from one owner action.
-  let sending = false;
-  const canSend = () => !sending && Boolean(titleField.value.trim() && descriptionField.value.trim());
-  form.addEventListener("input", () => { send.disabled = !canSend(); });
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (canSend()) void submit();
-  });
-
-  async function submit() {
-    sending = true;
-    cancel.disabled = send.disabled = true;
-    send.textContent = "Sending…";
-    try {
-      const receipt = await window.lore.reportFeedback({
-        title: titleField.value,
-        email: emailField.value,
-        description: descriptionField.value
-      });
-      sheet.close();
+  const form = new FormSheet("Report feedback");
+  form.form.classList.add("feedback-form");
+  const titleField = form.title("Title");
+  const descriptionField = form.prompt("Description", "What happened, and what did you expect?");
+  const email = form.field("Email", { type: "email", placeholder: "Optional", ariaLabel: "Email (optional)" });
+  form.group("", [email.row]);
+  form.text("This becomes a public GitHub issue; anything you write here, and your email if you give one, is visible there.", "hint");
+  form.button("Cancel", "secondary", () => form.close());
+  // One report per Send, however the owner gets there: the sheet holds Send while one is out, and closes only
+  // itself when it lands, never a sheet the owner opened since.
+  form.open({
+    primary: "Send",
+    working: "Sending…",
+    valid: () => Boolean(titleField.value.trim() && descriptionField.value.trim()),
+    failed: "Lore could not send that.",
+    submit: async () => {
+      const receipt = await window.lore.reportFeedback({ title: titleField.value, email: email.control.value, description: descriptionField.value });
       tell(`Filed as ${receipt.url}`);
-    } catch (error) {
-      tell(reason(error, "Lore could not send that."), true);
-      sending = false;
-      // Escape or the backdrop can dismiss this dialog while the request is
-      // out, and the close handler below detaches it. Restoring the buttons
-      // is then pointless, so check first, as approvalForm() does.
-      if (sheet.isConnected) {
-        cancel.disabled = false;
-        send.disabled = !canSend();
-        send.textContent = "Send";
-      }
     }
-  }
-
-  panel.append(head, form);
-  sheet.append(panel);
-  sheet.addEventListener("click", (event) => { if (event.target === sheet) sheet.close(); });
-  sheet.addEventListener("close", () => sheet.remove());
-  document.body.append(sheet);
-  sheet.showModal();
+  });
   titleField.focus();
 }
 
@@ -496,18 +569,25 @@ function price(value) {
   return typeof value === "number" ? money.format(value) : "Not set";
 }
 
-/** What buyers are charged, one entry per thing on offer; nothing when no price is set. @param {Snapshot} s @returns {Array<[string, string]>} */
-function offers(s) {
-  /** @type {Array<[string, string]>} */
-  const list = [];
-  if (typeof s.pricing.publication_usd === "number") list.push([price(s.pricing.publication_usd), "a publication"]);
-  if (s.pricing.answer_enabled) list.push([price(s.pricing.answer_usd), "an answer"]);
-  return list;
+/** A price with no trailing ".00": "$1", "$0.10", "$0.005". @param {number} value */
+function dollars(value) {
+  return price(value).replace(/\.00$/, "");
 }
 
-/** @param {string} iso */
+/** A state as a dot and a word, the way tiles say it. @param {string} text @param {"ok" | "attention" | "off"} [tone] */
+function runState(text, tone = "off") {
+  const node = el("span", "run-state");
+  node.append(el("span", `dot ${tone === "attention" ? "" : tone}`.trim()), text);
+  return node;
+}
+
+/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso */
+const recent = (iso) => Date.now() - new Date(iso).getTime() < 86_400_000;
+
+/** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
-  const date = new Date(iso);
+  const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = day ? new Date(Number(day[1]), Number(day[2]) - 1, Number(day[3])) : new Date(iso);
   return Number.isNaN(date.getTime()) ? "" : shortDate.format(date);
 }
 
@@ -516,27 +596,33 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
 /** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
 const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
-/** Recent owner runs, newest first. Absent when the installed CLI predates them.
+/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
  * @param {Snapshot} s */
 function recentRuns(s) {
   if (!s.jobs) return null;
   const all = s.jobs.items;
-  const items = all.slice(0, 5);
-  if (!items.length) return null;
-  return section("Recent runs", card(items.map((item, index) => {
-    const detail = [pushDetail(all, index) ?? item.summary, when(item.started_at), typeof item.cost_usd === "number" ? money.format(item.cost_usd) : ""].filter(Boolean);
+  /** @type {Array<{item: JobItem, summary: string, times: number}>} */
+  const runs = [];
+  all.forEach((item, index) => {
+    const summary = pushDetail(all, index) ?? item.summary;
+    const last = runs.at(-1);
+    if (last && last.item.kind === item.kind && last.item.status === item.status && last.item.title === item.title && last.summary === summary) last.times++;
+    else runs.push({ item, summary, times: 1 });
+  });
+  if (!runs.length) return null;
+  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
+    const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
     const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
-    const status = chip(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "succeeded" ? "" : "attention");
-    // A plain success has nothing more to show than this row already does; anything
-    // else showing real cost or a confusing state should be openable, when there is
-    // a thread behind it to open.
-    const task = item.status === "succeeded" ? undefined : JOB_TASK[item.kind];
-    if (!task) return row(label, detail.join(" · "), status);
+    const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
+    // A plain success has nothing more to show than this row already does; a run still going, or one that went wrong
+    // today, opens its thread when there is one. Older than that, it is history.
+    const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at)) ? JOB_TASK[item.kind] : undefined;
+    if (!task) return row(label, detail.join(" · "), status, false);
     const node = el("div", "row");
     const open = el("button", "task-link");
     open.type = "button";
     const text = el("div", "t");
-    text.append(el("b", "", label), el("span", "", detail.join(" · ")));
+    text.append(el("b", "sans", label), el("span", "", detail.join(" · ")));
     open.append(text, status);
     // A job whose owning session never reached a terminal state (e.g. it was
     // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
@@ -561,9 +647,10 @@ function pushDetail(items, index) {
   return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
-/** @param {Snapshot["node"]["live"]["state"]} state */
-function nodeLabel(state) {
-  return state === "online" ? "Live" : state === "unreachable" ? "Offline" : "Not set up";
+/** Online for the owner's agents only is not live: nothing is for sale (XC-069). @param {Snapshot["node"]} node */
+function nodeLabel(node) {
+  const state = node.live.state;
+  return state === "online" ? (node.selling === false ? "Online" : "Live") : state === "unreachable" ? "Offline" : "Not set up";
 }
 
 /** @param {string | null} network */
@@ -592,21 +679,26 @@ function explorer(network) {
   return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
-/** @param {Snapshot["node"]["live"]} live */
-function payoutLink(live) {
-  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`) : null;
+/** @param {Snapshot["node"]["live"]} live @param {string} [className] */
+function payoutLink(live, className) {
+  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`, className) : null;
 }
 
 /** @param {Snapshot["node"]} node */
 function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
-  box.append(el("span", "mono", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console));
-  const payouts = payoutLink(node.live);
+  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
+}
+
+/** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
+function forSale(s) {
+  return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
 function greeting() {
@@ -614,42 +706,251 @@ function greeting() {
   return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
-/** @param {Snapshot} s */
-function needsYou(s) {
-  /** @type {HTMLElement[]} */
-  const rows = [];
-  const add = (/** @type {string} */ label, /** @type {string} */ detail, /** @type {HTMLElement} */ action) => {
-    const lead = el("div", "lead");
-    lead.append(el("span", "dot"));
-    const text = el("div", "t");
-    text.append(el("b", "sans", label), el("span", "", detail));
-    lead.append(text);
-    const node = el("div", "row");
-    node.append(lead, action);
-    rows.push(node);
-  };
-  if (!s.library.sources.some((source) => source.connector)) add("Bring in what you've written", "Notes, posts, or AI conversations from apps you already use.", button("Connect", "secondary", () => show("connectors")));
-  if (!s.setup.sources_configured) {
-    if (s.library.sources.some((source) => !source.owned)) add("Connect your agents", "Let Lore read what Claude Code and Codex already remember.", button("Start", "secondary", startSetup));
-  } else if (!s.setup.blueprint_configured) add("Shape your Lore", "Review one proposal based on what your agents already know.", button("Start", "secondary", startSetup));
-  else if (!s.setup.profile_configured) add("Set the rhythm", "Choose which model writes new memories, and how often.", button("Start", "secondary", startSetup));
-  // The store rung waits for approved work, whatever rung setup is on: the
-  // payout address is asked last, once there is something worth being paid for.
-  if (s.publications.counts.active && !s.node.url && !pushOffer) add("Open your store", `${s.publications.counts.active === 1 ? "Your approved piece is" : `Your ${s.publications.counts.active} approved pieces are`} ready to sell. Pick a price and where payments go.`, button("Open", "secondary", () => void startDeploy()));
-  const publishing = candidates.length || extraDrafts.length || taskItems.some((item) => item.kind === "publish");
-  if (!publishing) add("Sell something you wrote", "Paste a post, a postmortem or notes. Lore drafts the piece and shows you its page.", button("Paste", "secondary", openPasteSheet));
-  if (s.library.counts.private && !publishing) add("Publish something", "Lore drafts up to three things to sell; you approve each one.", button("Publish", "secondary", () => void startPublish()));
-  // Approved work a buyer cannot see yet, or a price they are not yet paying, is actionable whatever rung setup is on.
-  const stale = stalePrice(s);
-  if (stale !== null && !pushing) add("Your new price isn't live yet", `Your store still charges ${price(stale)}. Update it to start charging ${price(s.pricing.publication_usd)}.`, button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)));
-  const waiting = unpushed(s);
-  if (waiting.length && !pushOffer && !pushing) add("Update your store", `${pendingLabel(waiting)}.`, button("Update store", "secondary", pushNow));
-  return rows;
+/** A line icon from its strokes. @param {string} paths */
+function lineIcon(paths) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
-/** Unfinished threads, without the store's once the store is open: nothing is left to finish there. */
+/** Each of Today's next steps by its mark. */
+const STEP_ICONS = {
+  connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
+  sell: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
+  store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
+  publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
+  update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
+  memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
+};
+
+/** A small rounded tile holding a mark: a line icon, or an app's own logo. @param {string | HTMLElement} mark */
+function markTile(mark) {
+  // Lore's own mark fills its tile in Lore's colours, as in the sidebar, rather than a grey glyph on a grey tile.
+  const node = el("span", mark === RING ? "routine-mark lore" : "routine-mark");
+  if (typeof mark === "string") node.innerHTML = mark;
+  else node.append(mark);
+  return node;
+}
+
+/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+function named(names) {
+  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+/** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
+ * a page for a file they brought in, and Lore's own for what Lore wrote. @param {MemorySource} source */
+function sourceMark(source) {
+  if (source.kind === "agent") return agentMark(/** @type {AgentApp} */ (source.mark), source.label);
+  // Only a mark Lore ships is drawn; anything else gets the same plain one.
+  if (source.kind === "app") return Object.hasOwn(AGENT_MARKS, source.mark) ? brand(AGENT_MARKS[source.mark], source.label) : apps.some((app) => app.id === source.mark) ? brand(source.mark, source.label) : STEP_ICONS.connect;
+  if (source.kind === "routine") return CLOCK_ICON;
+  if (source.kind === "capture") return source.mark === "file" ? STEP_ICONS.memory : EDIT_ICON;
+  return RING;
+}
+
+/** APP-213: where a memory came from, drawn the same wherever it shows: each contributor's mark, newest first and
+ * overlapping, three at most then "+N", and the line that names them. Nobody on record means Lore wrote it.
+ * @param {MemorySource[] | undefined} sources */
+function provenance(sources) {
+  const from = sources?.length ? sources : [{ kind: /** @type {const} */ ("lore"), id: "lore", label: "Lore", mark: "lore", at: null }];
+  const marks = el("span", "mark-stack");
+  for (const source of from.slice(0, 3)) marks.append(markTile(sourceMark(source)));
+  if (from.length > 3) marks.append(el("span", "routine-mark more", `+${from.length - 3}`));
+  const line = from[0].kind === "lore" ? "Written by Lore" : `From ${named(from.map((source) => source.label))}`;
+  return { marks, line };
+}
+
+/** A memory's row that leads with where it came from. @param {{id: number, title: string, sources?: MemorySource[]}} memory
+ * @param {string[]} rest What else the row says, after where it came from. @param {boolean} [sell] */
+function sourcedRow(memory, rest, sell) {
+  const { marks, line } = provenance(memory.sources);
+  const node = memoryRow(memory.id, memory.title, [line, ...rest].filter(Boolean).join(" · "), sell);
+  node.prepend(marks);
+  return node;
+}
+
+/** The line under a memory's title in its sheet and its preview: its marks, where it came from, and its date.
+ * @param {Memory} memory */
+function provenanceLine(memory) {
+  const { marks, line } = provenance(memory.sources);
+  const node = el("span", "provenance");
+  node.append(marks, [line, when(memory.updated_at)].filter(Boolean).join(" · "));
+  return node;
+}
+
+/** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
+ * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
+ * the store is being opened, repaired or updated.
+ * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
+function nextStep(s) {
+  if (pushOffer || pushing || underWay("deploy")) return null;
+  if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
+  const waiting = unpushed(s);
+  const stale = stalePrice(s);
+  const changes = waiting.length + (stale === null ? 0 : 1);
+  if (changes) {
+    const detail = [pendingLabel(waiting), stale === null ? "" : `Your store still charges ${price(stale)}, not ${price(s.pricing.publication_usd)}`].filter(Boolean).join(" · ");
+    return { mark: "update", label: `${plural(changes, "change")} ${changes === 1 ? "isn't" : "aren't"} live yet`, detail, action: "Update store", run: waiting.length ? pushNow : resume("deploy", () => startDeploy(REDEPLOY_PRICE)) };
+  }
+  const approved = s.publications.counts.active;
+  if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
+  if (candidates.length || extraDrafts.length) return "drafts";
+  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  // An open publish thread is the step itself, under Unfinished.
+  if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
+  if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
+  return null;
+}
+
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
+function underWay(kind) {
+  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+}
+
+/** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
+ * @param {AgentTask} kind @param {() => Promise<void>} start */
+function resume(kind, start) {
+  return () => void (underWay(kind) ? openTask(kind) : start());
+}
+
+/** Today's next step as one card, opened by a click anywhere on it. @param {Exclude<ReturnType<typeof nextStep>, "drafts" | null>} step */
+function nextStepCard(step) {
+  const node = row(step.label, step.detail, cell(button(step.action, "primary", step.run)), false);
+  node.prepend(markTile(STEP_ICONS[step.mark]));
+  node.classList.add("routine", "next-step");
+  node.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element && event.target.closest("button"))) node.querySelector("button")?.click();
+  });
+  const list = el("div", "routines today-cards");
+  list.append(node);
+  return section("Next step", list);
+}
+
+/** Unfinished threads, without the store's once the store is open, or once a finished thread put it online for the
+ * owner's agents, unless it is at work (a repair, a reprice): nothing is left to finish there. Quiet work is no thread,
+ * a check-in waiting on its card is not one yet, and one left more than a day ago is history. */
 function displayTasks() {
-  return taskItems.filter((item) => !(item.kind === "deploy" && snapshot?.node.url)).slice(0, 3);
+  const storeDone = (/** @type {TaskRecord} */ item) => item.state !== "working" && (forSale(snapshot) || (Boolean(snapshot?.node.url) && item.state === "done"));
+  return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn) && (item.state === "working" || recent(item.updatedAt))).slice(0, 3);
+}
+
+/** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
+function checkInCard(asked) {
+  const answer = button("Answer", "primary", () => void openTask("evening"));
+  const later = button("Not today", "quiet", () => {
+    loads++;
+    checkIn = null;
+    render();
+    void window.lore.dismissCheckIn();
+  });
+  const [first, ...rest] = asked.questions;
+  return section("Check in", card([
+    row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
+    ...rest.map((each) => row(each.question, `About ${each.title}`, cell(), false))
+  ]));
+}
+
+/** A reading under way, as one quiet row. @param {TaskRecord} item */
+function readingRow(item) {
+  const reading = row(`${item.phase}…`, "Lore will tell you when your memories are ready.", runState("Working", "ok"), false);
+  reading.querySelector("b")?.classList.add("shimmer");
+  return card([reading]);
+}
+
+/** Today's groups of new memories the owner has opened, by who they came from; each starts folded. @type {Set<string>} */
+const openGroups = new Set();
+
+const DISCLOSE = lineIcon(`<path d="M9 6l6 6-6 6"></path>`);
+
+/** What Lore made of what came in, one folded group per agent, app or routine: who, how many, and the memories inside
+ * a click away, so Today stays short and its next step in view. @param {ReadyRun[]} runs */
+function memoriesReady(runs) {
+  /** What the library has on record for a memory, or, until the reading's own credit lands (it is recorded last), who the
+   * reading was. @param {number} id @param {Contributor} [by] */
+  const sources = (id, by) => {
+    const kept = snapshot?.library.items.find((item) => item.id === id)?.sources;
+    return by && (!kept || kept[0]?.kind === "lore") ? [{ ...by, at: null }] : kept;
+  };
+  /** @type {Map<string, ReadyRun[]>} */
+  const groups = new Map();
+  for (const run of runs) {
+    const key = run.by?.id ?? run.title;
+    groups.set(key, [...(groups.get(key) ?? []), run]);
+  }
+  const list = el("div", "routines today-cards");
+  for (const [key, group] of groups) list.append(readyGroup(key, group, sources));
+  noticeReady();
+  const clear = button("Clear", "quiet", () => void window.lore.clearMemories().then(() => { readyRuns = []; render(); }));
+  return section("New memories", list, clear);
+}
+
+/** One contributor's new memories: a row that says who and how many, opening onto the memories themselves.
+ * @param {string} key @param {ReadyRun[]} runs @param {(id: number, by?: Contributor) => MemorySource[] | undefined} sources */
+function readyGroup(key, runs, sources) {
+  const [latest] = runs;
+  const memories = runs.flatMap((run) => run.memories.map((memory) => ({ ...memory, by: run.by })));
+  const selling = memories.filter((memory) => memory.sell).length;
+  const by = latest.by;
+  const heading = latest.from ? `From ${latest.from}` : latest.title;
+  // An agent's saves that only added to memories already kept still say they arrived, and where to find them.
+  const read = runs.reduce((sum, run) => sum + run.read, 0);
+  const detail = memories.length ? [plural(memories.length, "new memory"), selling ? `${selling} worth selling` : ""].filter(Boolean).join(" · ") : `${plural(read, "save")} · already in your memories`;
+  const box = el("div", "ready-group");
+  const head = el("div", "row routine ready-head");
+  const toggle = el("button", "task-link");
+  toggle.type = "button";
+  const text = el("div", "t");
+  text.append(el("b", "sans", heading), el("span", "", detail));
+  toggle.append(text);
+  const marks = el("span", "mark-stack");
+  marks.append(markTile(by ? sourceMark({ ...by, at: null }) : RING));
+  head.append(marks, toggle);
+  if (by?.kind === "agent") head.append(inline("See them →", () => seeFrom({ id: by.id, label: by.label })));
+  const open = openGroups.has(key);
+  if (memories.length) {
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(chevron);
+    toggle.setAttribute("aria-expanded", String(open));
+    head.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button.inline")) return;
+      if (openGroups.has(key)) openGroups.delete(key);
+      else openGroups.add(key);
+      render();
+    });
+  } else head.classList.add("still");
+  const dismiss = el("button", "dismiss", "×");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", `Dismiss ${heading}`);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    /** @type {ReadyKey[]} */
+    const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+    loads++;
+    readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+    openGroups.delete(key);
+    render();
+    void window.lore.dismissMemories(keys);
+  });
+  head.append(dismiss);
+  box.classList.toggle("open", open);
+  box.append(head);
+  if (open && memories.length) {
+    const items = el("div", "ready-items");
+    for (const memory of memories) {
+      // The group already says who; a memory says only what it is to the owner, unless more than one wrote it.
+      const kept = sources(memory.id, memory.by);
+      const status = memory.sell ? `Worth selling · ${memory.why}` : memory.work ? "Work · stays private" : "Private";
+      items.append((kept?.length ?? 0) > 1 ? sourcedRow({ id: memory.id, title: memory.title, sources: kept }, [status], memory.sell) : memoryRow(memory.id, memory.title, status, memory.sell));
+    }
+    box.append(items);
+  }
+  return box;
+}
+
+/** The owner is looking at the new memories, so the dock stops counting them. */
+function noticeReady() {
+  if (view !== "today" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
+  readyRuns = readyRuns.map((run) => ({ ...run, seen: true }));
+  void window.lore.seenMemories();
 }
 
 function draftsPhase() {
@@ -658,76 +959,668 @@ function draftsPhase() {
 }
 
 /** Threads whose agent can stage a publication draft. */
-const DRAFTING = new Set(["publish", "capture"]);
+const DRAFTING = new Set(["publish", "capture", "evening"]);
 
-/** @param {Snapshot} s */
-function renderToday(s) {
+/** Drafts to approve, and the push after approving. @param {Snapshot} s */
+function drafts(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  // Drafts and the push after approving show on Today and in the threads that draft.
-  if (!detailTask || DRAFTING.has(detailTask)) {
-    if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
-    if (pushOffer || pushing) parts.push(seamCard());
-    if (pushedNote) parts.push(pushReceipt(s));
-  }
-  if (detailTask) {
-    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
-    return parts;
-  }
-  const attention = needsYou(s);
-  if (attention.length) parts.push(section("Needs you", card(attention)));
-  if (Array.isArray(sales) && sales.length) parts.push(earned(sales));
-  const shown = displayTasks();
-  if (shown.length) {
-    parts.push(section("Unfinished", card(shown.map((item) => {
-      const row = el("div", "row");
-      const open = el("button", "task-link");
-      open.type = "button";
-      const text = el("div", "t");
-      text.append(el("b", "", item.title), el("span", "", item.phase));
-      open.append(text, chip(TASK_STATES[item.state], item.state === "working" ? "ok" : ""));
-      open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(open);
-      return row;
-    }))));
-  }
-  const runs = recentRuns(s);
-  if (runs) parts.push(runs);
-  const strip = el("div", "strip");
-  /** @type {Array<[string, string] | null>} */
-  const facts = [
-    [String(s.library.counts.private), `${s.library.counts.private === 1 ? "memory" : "memories"}, only on this Mac`],
-    [String(s.publications.counts.active), "for sale"],
-    ["Store", nodeLabel(s.node.live.state).toLowerCase()],
-    ...offers(s)
-  ];
-  for (const fact of facts) {
-    if (!fact) continue;
-    const item = el("span");
-    if (fact[0] === "Store") item.append(document.createTextNode("Store "), el("b", "", fact[1]));
-    else item.append(el("b", "", fact[0]), document.createTextNode(` ${fact[1]}`));
-    strip.append(item);
-  }
-  parts.push(strip);
+  if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+  if (pushOffer || pushing) parts.push(seamCard());
+  if (pushedNote) parts.push(pushReceipt(s));
   return parts;
 }
 
-/** @param {Snapshot} s */
-function memoriesCountLabel(s) {
-  const count = privateMemories(s).length;
-  return `${count} ${count === 1 ? "memory" : "memories"} · only on this Mac`;
+/** What came in, and the one thing to do next. @param {Snapshot} s */
+function renderToday(s) {
+  if (firstRun.active && !detailTask) return firstRun.parts(s);
+  /** @type {HTMLElement[]} */
+  const parts = [];
+  // A check-in leads Today, on the rare day there is one.
+  if (detailTask) {
+    // Drafts and the push after approving show in the threads that draft, as on Today.
+    if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
+    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+    if (detailTask === "deploy" && signingIn) parts.push(signInCard());
+    return parts;
+  }
+  // A check-in leads Today, on the rare day there is one.
+  if (checkIn) parts.push(checkInCard(checkIn));
+  if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
+  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
+  if (reading) parts.push(readingRow(reading));
+  if (readyRuns.length) parts.push(memoriesReady(readyRuns));
+  const step = nextStep(s);
+  if (step === "drafts") parts.push(...drafts(s));
+  else if (step) parts.push(nextStepCard(step));
+  const shown = displayTasks();
+  if (shown.length) {
+    const list = el("div", "routines today-cards");
+    for (const item of shown) {
+      const row = el("div", "row routine");
+      const open = el("button", "task-link");
+      open.type = "button";
+      const text = el("div", "t");
+      text.append(el("b", "sans", item.title), el("span", "", item.phase));
+      open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
+      open.addEventListener("click", () => void openTask(item.kind, item));
+      row.append(markTile(ROUTINE_ICONS.ask), open);
+      list.append(row);
+    }
+    parts.push(section("Unfinished", list));
+  }
+  if (step !== "drafts") parts.push(...drafts(s));
+  return parts;
 }
+
+/** Today's way into the FAQ for a new owner, until their first memory, their first paid sale, or until they close it. */
+class HowItWorks {
+  key = "lore.how-it-works.closed";
+
+  shown() {
+    const paid = Array.isArray(sales) && sales.some((sale) => sale.network !== "free");
+    try {
+      return !paid && !localStorage.getItem(this.key);
+    } catch {
+      return !paid;
+    }
+  }
+
+  line() {
+    const node = el("div", "how-it-works");
+    const close = el("button", "dismiss", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Dismiss");
+    close.addEventListener("click", () => {
+      try {
+        localStorage.setItem(this.key, "1");
+      } catch {}
+      node.remove();
+    });
+    node.append(el("span", "", "New to Lore?"), button("How it works", "quiet", () => show("faq")), close);
+    return node;
+  }
+}
+
+const howItWorks = new HowItWorks();
+
+/** While Cloudflare's sign-in waits on the browser: its page opened again, or the wait stopped. */
+function signInActions() {
+  const actions = el("div", "actions");
+  actions.append(button("Cancel", "secondary", () => void window.lore.cancelSignIn()), button("Open sign-in again", "secondary", () => void window.lore.reopenSignIn()));
+  return actions;
+}
+
+/** The deploy thread's sign-in, waiting on the browser. */
+function signInCard() {
+  const box = el("div", "card request sign-in-wait");
+  box.append(el("p", "hint", "Finish signing in to Cloudflare in your browser, then come back here."), signInActions());
+  return box;
+}
+
+/** What a place macOS keeps Lore out of throws, so the first run asks for the access rather than another try. */
+const MAC_SAYS_NO = "macOS hasn't let Lore read it";
+
+/** Throws, in words the first run can tell apart, unless the place reads. @param {SourceState | undefined} state */
+function readOrThrow(state) {
+  if (state === "needs_permission") throw new Error(MAC_SAYS_NO);
+  if (!CONNECTION_STATES[state ?? "connected"].ok) throw new Error("Lore can't read it yet");
+}
+
+/** How long Lore waits on where the first run stands before going on without it. */
+const FIRST_RUN_READ_MS = 5000;
+
+/** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
+ * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+
+/** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
+ * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
+ * anything is asked of the owner (APP-223); then which AI they talk to most, then (only for an agent online, and only
+ * if the store isn't) to put the store online, then what to paste into that agent, waiting live for its first save.
+ * Every step is the app's own, not the model's; where it stands is kept so a relaunch resumes it, and Skip for now
+ * always lands on Today. */
+class FirstRunChat {
+  /** Where it stands, as kept across launches; null before it ever started. @type {FirstRunState | null} */
+  kept = null;
+  /** On screen now, in place of Today. */
+  active = false;
+  /** @type {"ask" | "store" | "connect" | "saved" | "end"} */
+  stage = "ask";
+  /** Past the apps on this Mac: connected, set aside, or none found. */
+  appsDone = false;
+  /** The sources the apps step connected, to say what they brought in. @type {string[]} */
+  brought = [];
+  /** The agent the owner picked. @type {[AgentApp, string] | null} */
+  picked = null;
+  /** Its link, shown this launch only: the key is never shown again. @type {AgentKey | null} */
+  handed = null;
+  /** How many memories the first save brought. */
+  saved = 0;
+  /** The agent apps on this Mac (APP-216). @type {AgentApp[]} */
+  installed = [];
+  /** Whether macOS kept Lore out of a place it tried. */
+  walled = false;
+  /** The places found on this Mac, each to connect, until the owner connects them. @type {Array<{label: string, mark: string, detail: string, on: boolean, connect: (run: number) => Promise<string | undefined>}> | null} */
+  found = null;
+  /** What the one tap connected. @type {string[]} */
+  connected = [];
+  /** What it could not connect, said plainly over the places left to try again. */
+  unconnected = "";
+  /** What went wrong at the current step, said under it. */
+  problem = "";
+  /** A step under way: its button waits. */
+  working = false;
+  /** A new link on its way: one at a time, so a revoked one never shows last. */
+  rotating = false;
+  stop = () => {};
+  /** Moves on when the owner leaves or signs out, so a step still under way from before stops where it is. */
+  #run = 0;
+  /** Moves on with each ask for a link, and when the owner chooses another agent: only the latest ask is shown. */
+  #asks = 0;
+  /** Whether where it stands has been read this sign-in: until then nothing starts it. */
+  #known = false;
+
+  /** Whether a step begun in `run` still belongs on screen. @param {number} run */
+  current(run) {
+    return run === this.#run && this.active;
+  }
+  entrance = new Entrance();
+
+  /** Read where it stands, before the first snapshot lands, so Today never flashes first. A read that doesn't answer
+   * in a few seconds counts as none, so Lore never waits on it; its late answer is not taken. */
+  async read() {
+    const run = this.#run;
+    const late = new Promise((done) => setTimeout(() => done(null), FIRST_RUN_READ_MS));
+    const kept = await Promise.race([window.lore.firstRun().catch(() => null), late]);
+    // A sign-out since, or a choice made meanwhile, is newer than what was read.
+    if (run !== this.#run || this.#known) return;
+    this.kept = kept;
+    this.#known = true;
+  }
+
+  /** With the snapshot in: a new owner (nothing kept, nothing connected) starts it; one already started resumes.
+   * @param {Snapshot} s */
+  consider(s) {
+    if (this.active || appShell.hidden || !this.#known) return;
+    const fresh = !s.library.counts.private && !s.publications.counts.active && !s.library.sources.some((source) => source.enabled || source.connector);
+    if (!this.kept && fresh) void this.keep({ state: "started" });
+    if (this.kept?.state !== "started") return;
+    this.active = true;
+    void window.lore.agentApps().then((installed) => { this.installed = installed; this.redraw(); }).catch(() => undefined);
+    const waiting = this.kept.source && s.library.sources.find((source) => source.name === this.kept?.source);
+    if (waiting) this.resume(waiting);
+    else void this.look();
+  }
+
+  /** @param {FirstRunState} next */
+  async keep(next) {
+    this.kept = next;
+    await window.lore.setFirstRun(next).catch(() => undefined);
+  }
+
+  redraw() {
+    if (this.active && view === "today" && !detailTask) render();
+  }
+
+  /** Back after a relaunch, still waiting on the agent picked: its link was shown once, so a new one is a tap away.
+   * @param {SourceEntry} source */
+  async resume(source) {
+    const app = /** @type {AgentApp} */ (source.app ?? "other");
+    this.picked = [app, source.label];
+    this.stage = "connect";
+    this.appsDone = true;
+    const run = this.#run;
+    const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source.name);
+    if (!this.current(run)) return;
+    if (entry?.saved) return this.heard(entry.saved);
+    this.wait({ source: source.name, agent: { id: "", name: source.label, app, saved: entry?.saved ?? 0 } });
+  }
+
+  /** @param {AgentApp | "coding" | "none"} choice @param {string} label */
+  async choose(choice, label) {
+    if (this.working) return;
+    // With nothing online to connect, the apps already brought in are the whole first run; with none, as before.
+    if ((choice === "none" || choice === "coding") && this.brought.length) {
+      this.picked = [/** @type {AgentApp} */ ("other"), label];
+      this.stage = "end";
+      void this.keep({ state: "done" });
+      return this.redraw();
+    }
+    if (choice === "none") return this.leave("done", () => input.focus({ preventScroll: true }));
+    if (choice === "coding") return this.leave("done", () => void startSetup());
+    this.picked = [choice, label];
+    this.problem = "";
+    if (snapshot?.node.url) return this.connect();
+    this.stage = "store";
+    this.redraw();
+  }
+
+  /** The store online for the owner's agents, on the owner's tap: the deploy and, if it must, the Cloudflare sign-in. */
+  async putOnline() {
+    const run = this.#run;
+    this.working = true;
+    this.problem = "";
+    this.redraw();
+    try {
+      await window.lore.storeOnline();
+      // Asked of the store itself: a refresh already under way (an app's reading) can leave the window's copy stale.
+      const online = Boolean((await window.lore.snapshot()).node.url);
+      void load();
+      // Skipped while it went online: the store stays online, and nothing goes on to connect.
+      if (!this.current(run)) return;
+      if (!online) throw new Error();
+      this.working = false;
+      await this.connect();
+    } catch (error) {
+      if (!this.current(run)) return;
+      this.working = false;
+      // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
+      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      this.problem = said === "Cancelled" ? "" : said;
+      this.redraw();
+    }
+  }
+
+  async connect() {
+    // One ask at a time; its error goes as it starts again.
+    if (!this.picked || this.working) return;
+    const run = this.#run;
+    const ask = ++this.#asks;
+    this.working = true;
+    this.problem = "";
+    this.redraw();
+    try {
+      const [app, name] = this.picked;
+      const handed = await window.lore.connectAgent({ app, name });
+      // Skipped while the link was on its way: the agent shows in Connectors, and the chat stays closed.
+      if (!this.current(run) || ask !== this.#asks) return;
+      this.handed = handed;
+      this.stage = "connect";
+      void this.keep({ state: "started", source: handed.source });
+      this.wait(handed);
+      void load();
+      setTimeout(() => this.reveal(), 0);
+    } catch (error) {
+      if (!this.current(run) || ask !== this.#asks) return;
+      this.problem = reason(error, `Lore couldn't connect ${this.picked[1]}. Try again.`);
+    }
+    this.working = false;
+    this.redraw();
+  }
+
+  /** @param {Pick<AgentKey, "source" | "agent">} handed */
+  wait(handed) {
+    this.stop();
+    this.stop = firstSave(handed, () => this.active, (saved) => this.heard(saved));
+  }
+
+  /** @param {number} saved */
+  heard(saved) {
+    this.saved = saved;
+    this.stage = "saved";
+    void this.keep({ state: "done", source: this.kept?.source });
+    void load();
+    this.redraw();
+    this.reveal();
+  }
+
+  /** The newest of the chat in view. */
+  reveal() {
+    if (this.active && view === "today" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+  }
+
+  /** Its link was lost: a new one, shown here, and the wait goes on with it. */
+  async newLink() {
+    const source = this.kept?.source;
+    if (!source || this.rotating) return;
+    const run = this.#run;
+    this.rotating = true;
+    this.redraw();
+    try {
+      const handed = await window.lore.agentKey(source);
+      if (!this.current(run)) return;
+      this.handed = handed;
+      this.wait(handed);
+    } catch (error) {
+      if (!this.current(run)) return;
+      this.problem = reason(error, "Lore couldn't reach your store. Try again.");
+    }
+    this.rotating = false;
+    this.redraw();
+  }
+
+  /** The apps on this Mac Lore can read without asking anything: Obsidian vaults, and Claude Code's or Codex's memory.
+   * Only what Lore already reads is left out: one it knows but couldn't read, even from before a relaunch, is offered
+   * again. */
+  async look() {
+    if (this.found) return;
+    const run = this.#run;
+    const sources = snapshot?.library.sources ?? [];
+    /** @param {SourceEntry | undefined} source */
+    const reading = (source) => Boolean(source?.enabled && CONNECTION_STATES[source.state ?? "connected"].ok);
+    const byPlace = new Map(sources.map((source) => [source.locator, source]));
+    const vaults = (await window.lore.sourceChoices("obsidian").catch(() => /** @type {SourceChoice[]} */ ([]))).filter((vault) => !reading(byPlace.get(vault.locator)));
+    if (!this.current(run)) return;
+    const histories = sources.filter((source) => !source.connector && !reading(source));
+    this.found = [
+      ...vaults.map((vault) => {
+        /** Once Lore knows the vault, even one it couldn't read, trying again reads it afresh. @type {string | null} */
+        let known = byPlace.get(vault.locator)?.name ?? null;
+        return { label: `Obsidian · ${vault.label}`, mark: "obsidian", detail: "Your notes", on: true, connect: async () => {
+          if (known) {
+            const name = known;
+            readOrThrow((await window.lore.readSource(name)).find((read) => read.name === name)?.state ?? "unreachable");
+            return known;
+          }
+          const added = await window.lore.connectSource({ connector: "obsidian", locator: vault.locator });
+          known = added.name;
+          readOrThrow(added.state);
+          return known;
+        } };
+      }),
+      // Connected once its first read has gone through and found it readable, so the chat never says Lore is reading
+      // what it can't.
+      // Claude Code's or Codex's memory is switched on first; a folder the owner added is only read again.
+      ...histories.map((source) => ({ label: source.label, mark: AGENT_MARKS[source.name] ?? source.name, detail: source.owned ? "A folder you added" : "What it remembers about your work", on: true, connect: async (/** @type {number} */ run) => {
+        if (!source.owned) await window.lore.switchSource(source.name, true);
+        // Skipped while it was being switched on: it is not read after the owner left.
+        if (!this.current(run)) return;
+        readOrThrow((await window.lore.readSource(source.name)).find((read) => read.name === source.name)?.state ?? "unreachable");
+        return source.name;
+      } }))
+    ];
+    if (!this.found.length) this.appsDone = true;
+    this.redraw();
+  }
+
+  /** One tap connects every place still ticked; any that fail stay, ticked, to try again. */
+  async connectFound() {
+    const chosen = (this.found ?? []).filter((place) => place.on);
+    /** @param {{label: string}} place */
+    const short = (place) => place.label.replace(/ · .*/, "");
+    const run = this.#run;
+    this.working = true;
+    this.redraw();
+    const failed = [];
+    let walled = false;
+    for (const place of chosen) {
+      /** @type {string | undefined} */
+      let name;
+      let ok = true;
+      try {
+        name = await place.connect(run);
+      } catch (error) {
+        ok = false;
+        if (/** @type {Error} */ (error).message === MAC_SAYS_NO) walled = true;
+      }
+      if (!this.current(run)) return;
+      if (ok) this.connected.push(short(place));
+      else failed.push(place);
+      if (name) this.brought.push(name);
+    }
+    this.found = failed;
+    // A folder macOS keeps Lore out of never reads on another try: the owner allows Lore first.
+    this.walled = walled;
+    this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
+    if (!failed.length) this.appsDone = true;
+    this.working = false;
+    await load();
+  }
+
+  /** Done or skipped: Today, with its one next step. @param {"skipped" | "done"} state @param {() => void} [then] */
+  leave(state, then) {
+    this.stop();
+    this.#run++;
+    this.active = false;
+    void this.keep({ state, ...(this.kept?.source ? { source: this.kept.source } : {}) });
+    show("today");
+    then?.();
+  }
+
+  /** Signed out: nothing on screen, and the next sign-in reads it again. */
+  reset() {
+    this.stop();
+    this.#run++;
+    this.#known = false;
+    Object.assign(this, { kept: null, active: false, stage: "ask", appsDone: false, brought: [], picked: null, handed: null, found: null, connected: [], unconnected: "", problem: "", working: false, rotating: false, entrance: new Entrance() });
+  }
+
+  /** The chat as it stands, Lore first. @param {Snapshot} s */
+  parts(s) {
+    const chat = el("div", "log first-run");
+    /** @param {...(string | HTMLElement)} said */
+    const lore = (...said) => {
+      const line = el("div", "line");
+      line.dataset.say = said.map((part) => (typeof part === "string" ? part : part.className)).join(" ");
+      line.append(speaker(false), ...said.map((part) => (typeof part === "string" ? el("p", "", part) : part)));
+      chat.append(line);
+    };
+    /** @param {string} text */
+    const owner = (text) => {
+      const line = el("div", "line owner");
+      line.dataset.say = `owner ${text}`;
+      line.append(speaker(true), el("p", "", text));
+      chat.append(line);
+    };
+    lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
+    // APP-223: first what's already on this Mac, so something comes in before anything is asked of the owner.
+    if (!this.appsDone && !this.found) {
+      lore(el("p", "hint", "Looking on this Mac…"));
+      return this.shown(chat);
+    }
+    if (this.connected.length) lore(this.cameIn(s));
+    if (!this.appsDone) {
+      if (!this.connected.length && !this.unconnected) lore("First, I found these on this Mac. Connect them, and Lore reads them in a few seconds.");
+      lore(this.foundCard());
+      const more = el("p", "hint");
+      more.append("Your ChatGPT or Claude history, and newsletters, connect from a file or an address in ", inline("Connectors", () => show("connectors")), ".");
+      lore(more);
+      return this.said(chat, lore);
+    }
+    lore("Which AI do you talk to most?");
+    if (!this.picked) {
+      lore(this.choices());
+      return this.said(chat, lore);
+    }
+    const [app, who] = this.picked;
+    owner(who);
+    if (this.stage === "end") {
+      lore(this.savedCard(s, who));
+      this.closing(chat, lore, "What it brought in");
+      return this.said(chat, lore);
+    }
+    if (this.stage === "store") {
+      lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
+      const box = el("div", "card request");
+      const waiting = this.working && signingIn;
+      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
+      if (this.problem) box.append(el("p", "problem", this.problem));
+      if (waiting) box.append(signInActions());
+      else {
+        const actions = el("div", "actions");
+        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
+        go.disabled = this.working;
+        actions.append(go);
+        box.append(actions);
+      }
+      lore(box);
+      return this.shown(chat);
+    }
+    if (this.stage === "ask") {
+      // Its link is on its way, or didn't come: try again, or pick another.
+      if (!this.problem) {
+        lore(el("p", "hint", `Getting ${who}'s link…`));
+        return this.shown(chat);
+      }
+      const box = el("div", "card request");
+      const actions = el("div", "actions");
+      const other = button("Choose another", "secondary", () => {
+        this.#asks++;
+        Object.assign(this, { picked: null, problem: "", working: false });
+        this.redraw();
+      });
+      const again = button("Try again", "primary", () => void this.connect());
+      other.disabled = again.disabled = this.working;
+      actions.append(other, again);
+      box.append(el("p", "problem", this.problem), actions);
+      lore(box);
+      return this.shown(chat);
+    }
+    if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
+    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
+    if (this.stage === "saved") {
+      lore(this.savedCard(s, who));
+      this.closing(chat, lore, "What it saves");
+    }
+    return this.said(chat, lore);
+  }
+
+  /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
+   * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
+  closing(chat, lore, what) {
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    const actions = el("div", "actions first-run-actions");
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    chat.append(actions);
+  }
+
+  /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
+   * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
+  said(chat, lore) {
+    const said = notices.filter((item) => item.key);
+    if (said.length) {
+      lore(el("p", "hint", said.map((item) => item.text).join(" ")));
+      for (const item of said) if (item.key) remember(item.key);
+    }
+    return this.shown(chat);
+  }
+
+  /** What the apps on this Mac brought in, once it's in. @param {Snapshot} s */
+  cameIn(s) {
+    const count = privateMemories(s).filter((item) => item.sources?.some((each) => this.brought.includes(each.id))).length;
+    return count ? `Connected ${named(this.connected)}. ${plural(count, "memory")} came in.` : `Connected ${named(this.connected)}. Lore is reading them now…`;
+  }
+
+  /** @param {HTMLElement} chat */
+  shown(chat) {
+    this.entrance.play(/** @type {HTMLElement[]} */ ([...chat.children]));
+    return [chat];
+  }
+
+  /** Each answer one tap; the agent apps on this Mac first, and the one found already picked. */
+  choices() {
+    const list = el("div", "choices first-choices");
+    const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
+    const only = this.installed.length === 1 ? this.installed[0] : null;
+    for (const [choice, label] of ordered) {
+      const option = el("button", choice === only ? "choice picked" : "choice");
+      option.type = "button";
+      const soon = choice === "muse";
+      option.disabled = soon;
+      const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
+      option.append(icon, el("span", "", label));
+      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      if (hint) option.append(el("small", "", hint));
+      option.addEventListener("click", () => void this.choose(choice, label));
+      list.append(option);
+    }
+    return list;
+  }
+
+  /** The connect card, one calm surface: the agent's own steps, the message to copy with its key masked, Open <agent>
+   * when it's on this Mac, and the agent's note. After a relaunch the link is gone, so it offers a new one. @param {AgentApp} app @param {string} who */
+  connectCard(app, who) {
+    const box = el("div", "card first-connect");
+    const guide = AGENT_GUIDES[app]?.first;
+    if (this.handed) {
+      if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
+      else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
+      box.append(...afterConnect(app, who));
+    }
+    if (this.problem) box.append(el("p", "problem", this.problem));
+    const foot = el("div", "first-connect-foot");
+    if (!this.handed) {
+      const again = button("Get a new link", "secondary", () => void this.newLink());
+      again.disabled = this.rotating;
+      foot.append(again);
+    }
+    if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    if (this.handed) {
+      const hint = el("span", "quiet-hint");
+      hint.innerHTML = LOCK_ICON;
+      hint.append(el("span", "", "Private link, shown once"));
+      foot.append(hint);
+    }
+    if (foot.childElementCount) box.append(foot);
+    // What the agent's plan must allow, or how many connectors it takes, said quietly under the steps.
+    const note = AGENT_GUIDES[app]?.note;
+    if (this.handed && note) box.append(el("p", "hint", note));
+    return box;
+  }
+
+  /** What the first save brought, titles and marks, one click from all of it. @param {Snapshot} s @param {string} who */
+  savedCard(s, who) {
+    // The agent's first save, and what the apps on this Mac brought in before it; with no agent, the apps' alone. Read
+    // from the library, so it holds after a relaunch: everything a new owner has came from one or the other.
+    const source = this.stage === "saved" ? this.kept?.source ?? "" : "";
+    const kept = privateMemories(s);
+    const mine = kept.filter((item) => source && item.sources?.some((each) => each.id === source));
+    const others = kept.filter((item) => !mine.includes(item));
+    const apps = named([...new Set(others.flatMap((item) => item.sources?.map((each) => each.label) ?? []))]) || "Your apps";
+    const box = el("div", "card first-saved");
+    const head = el("div", "row");
+    head.append(el("b", "", source ? `${who} saved ${plural(this.saved, "memory")}` : `${apps} brought in ${plural(others.length, "memory")}`), inline("See them →", () => {
+      this.leave("done");
+      if (source && !others.length) seeFrom({ id: source, label: who });
+      else show("memories");
+    }));
+    box.append(head);
+    if (source && others.length) box.append(el("p", "hint first-saved-apps", `${apps} brought in ${plural(others.length, "memory")} too.`));
+    const items = [...mine, ...others].slice(0, 5);
+    for (const item of items) {
+      const { marks } = provenance(item.sources);
+      const node = row(item.title, when(item.updated_at), undefined, true);
+      node.prepend(marks);
+      box.append(node);
+    }
+    if (!items.length) box.append(el("p", "hint first-saved-wait", "Bringing them in…"));
+    return box;
+  }
+
+  /** The places found, each ticked, and one tap for all of them. */
+  foundCard() {
+    const box = el("div", "card request");
+    const list = el("div", "choices");
+    for (const place of this.found ?? []) {
+      const option = el("label", "choice");
+      const tick = el("input");
+      tick.type = "checkbox";
+      tick.checked = place.on;
+      tick.addEventListener("change", () => { place.on = tick.checked; this.redraw(); });
+      const name = el("span", "first-place");
+      name.append(brand(place.mark, place.label), el("span", "", place.label));
+      option.append(tick, name, el("small", "", place.detail));
+      list.append(option);
+    }
+    if (this.unconnected) box.append(el("p", "problem", this.unconnected));
+    const actions = el("div", "actions");
+    const count = (this.found ?? []).filter((place) => place.on).length;
+    const go = button(this.working ? "Connecting…" : this.unconnected ? "Try again" : count > 1 ? "Connect these" : "Connect", "primary", () => void this.connectFound());
+    go.disabled = this.working || !count;
+    const later = button("Not now", "secondary", () => { this.appsDone = true; this.redraw(); });
+    later.disabled = this.working;
+    actions.append(later, ...(this.walled && !this.working ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())] : []), go);
+    box.append(list, actions);
+    return box;
+  }
+}
+
+const firstRun = new FirstRunChat();
 
 /** @param {Snapshot} s */
 function privateMemories(s) {
   return s.library.items.filter((item) => item.status === "private");
-}
-
-/** @param {Snapshot} s */
-function renderMemories(s) {
-  const items = privateMemories(s).map((item) => memoryRow(item.id, item.title, [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")));
-  const body = items.length ? card(items) : emptyState("Nothing kept yet. Say what you learned and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
-  return [section("", body)];
 }
 
 /** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
@@ -735,13 +1628,16 @@ function priceRow(s) {
   // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
   // would spread its hover background across the whole bar.
   const item = el("div", "price-row");
-  const open = el("button", "price-open");
-  open.type = "button";
-  open.title = "Change what a buyer pays per publication";
-  if (typeof s.pricing.publication_usd === "number") open.append(document.createTextNode(`${price(s.pricing.publication_usd)} `), el("span", "", ["a publication", freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ")));
-  else open.append("Not set");
-  open.addEventListener("click", () => { editingPrice = true; render(); });
-  item.append(open);
+  const { publication_usd: piece, answer_usd: answer, answer_enabled: answers, free_copies: copies } = s.pricing;
+  if (typeof piece === "number") {
+    const open = el("button", "price-open");
+    open.type = "button";
+    open.title = "Change what a buyer pays per publication";
+    open.append(`${dollars(piece)} `, el("span", "", ["a piece", copies ? freeCopies(copies) : ""].filter(Boolean).join(" · ")));
+    open.addEventListener("click", openPriceSheet);
+    item.append(open);
+  } else if (s.node.url && s.node.live.state !== "unreachable") item.append(inline("Set a price", openPriceSheet));
+  if (answers && typeof answer === "number") item.append(el("span", "", " · "), `${dollars(answer)} `, el("span", "", "an answer"));
   return item;
 }
 
@@ -772,81 +1668,57 @@ function stalePrice(s) {
   return typeof live === "number" && typeof s.pricing.publication_usd === "number" && live !== s.pricing.publication_usd ? live : null;
 }
 
-/** @param {Snapshot} s */
-function priceEditor(s) {
-  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
-  const [field, input] = priceField(typeof s.pricing.publication_usd === "number" ? String(s.pricing.publication_usd) : "");
-  const actions = el("div", "actions");
-  const cancel = el("button", "btn quiet sm", "Cancel");
-  cancel.type = "button";
-  cancel.addEventListener("click", () => { editingPrice = false; render(); });
-  const save = el("button", "btn primary sm", savingPrice ? "Saving…" : "Save");
-  save.type = "submit";
-  cancel.disabled = savingPrice;
-  save.disabled = savingPrice;
-  actions.append(cancel, save);
-  form.append(field, el("span", "", "a publication"));
-  /** @type {HTMLInputElement | null} */
-  let copies = null;
-  if (typeof s.pricing.free_copies === "number") {
-    const box = el("div", "price-field copies");
-    copies = el("input");
-    copies.type = "text";
-    copies.inputMode = "numeric";
-    copies.setAttribute("aria-label", "Free copies of each piece");
-    copies.value = String(s.pricing.free_copies);
-    box.append(copies);
-    form.append(box, el("span", "", "free copies"));
-  }
-  form.append(actions);
-  form.addEventListener("submit", (submitEvent) => {
-    submitEvent.preventDefault();
-    void savePrice(input.value, copies?.value);
+/** The one editor for what a buyer pays: the price per piece and, from a CLI that has them, its free copies. */
+function openPriceSheet() {
+  const pricing = snapshot?.pricing;
+  const form = new FormSheet("Price");
+  const amount = form.field("Price per piece", { inputMode: "decimal", placeholder: "0.01", ariaLabel: "Price per publication in US dollars", value: typeof pricing?.publication_usd === "number" ? String(pricing.publication_usd) : "" }, "$");
+  const copies = typeof pricing?.free_copies === "number" ? form.field("Free copies", { inputMode: "numeric", ariaLabel: "Free copies of each piece", value: String(pricing.free_copies) }) : null;
+  form.group("", [amount.row, ...(copies ? [copies.row] : [])]);
+  form.note("Buyers pay this for each piece, by card or through their AI agent.");
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Save",
+    working: "Saving…",
+    valid: () => Boolean(amount.control.value.trim() && (!copies || copies.control.value.trim())),
+    submit: () => savePrice(amount.control.value, copies?.control.value)
   });
-  queueMicrotask(() => input.focus());
-  return form;
+  amount.control.select();
 }
 
 const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
 
-/** @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies. */
+/** Save what the price sheet says; a refusal is thrown, so the sheet says it in place. @param {string} raw
+ * @param {string} [rawCopies] Absent when the CLI predates free copies. */
 async function savePrice(raw, rawCopies) {
   const amount = parsePrice(raw);
-  if (amount === null) {
-    tell(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`, true);
-    return;
-  }
+  if (amount === null) throw new Error(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`);
   const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
-  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) {
-    tell(`${WHOLE_COPIES}.`, true);
-    return;
-  }
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) throw new Error(`${WHOLE_COPIES}.`);
   const before = snapshot?.pricing;
   const newCopies = copies !== null && copies !== before?.free_copies;
-  savingPrice = true;
-  render();
-  const saved = await act(async () => {
+  pushOffer = false;
+  pushedNote = false;
+  try {
     if (amount !== before?.publication_usd) await window.lore.setPrice(amount);
     if (newCopies && copies !== null) await window.lore.setFreeCopies(copies);
-  });
-  if (saved) {
-    editingPrice = false;
-    drop((item) => item.text.startsWith(ABOVE_ZERO) || item.text.startsWith(WHOLE_COPIES));
+  } finally {
+    await load();
   }
-  savingPrice = false;
-  render();
-  if (saved && (newCopies || amount !== before?.publication_usd)) await goLive();
+  if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
-/** @param {Snapshot} s */
-function renderStore(s) {
+/** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
+function storeBar(s) {
   const live = s.node.live;
+  const selling = forSale(s);
   const bar = el("div", "card store-bar");
   const lead = el("div", "lead");
-  lead.append(el("span", `dot ${live.state === "online" ? "ok" : live.state === "unreachable" ? "" : "off"}`));
+  lead.append(el("span", `dot ${live.state === "online" && selling ? "ok" : live.state === "unreachable" ? "" : "off"}`));
   const text = el("div", "t");
-  text.append(el("b", "sans", live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : live.state === "unreachable" ? "Your store isn't responding" : "No store yet"));
-  if (s.node.url) {
+  const state = !s.node.url ? "No store yet" : live.state === "unreachable" ? "Your store isn't responding" : !selling ? "Nothing for sale yet" : live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : "No store yet";
+  text.append(el("b", "sans", state));
+  if (selling) {
     text.append(storeAddress(s.node));
   } else {
     const open = el("span");
@@ -855,73 +1727,234 @@ function renderStore(s) {
   }
   lead.append(text);
   const prices = el("div", "prices");
-  prices.append(editingPrice ? priceEditor(s) : priceRow(s));
-  if (s.pricing.answer_enabled) {
-    const answers = el("div");
-    answers.append(document.createTextNode(`${price(s.pricing.answer_usd)} `), el("span", "", "an answer"));
-    prices.append(answers);
-  }
+  prices.append(priceRow(s));
   const stale = stalePrice(s);
   if (stale !== null && !pushing) {
     const note = el("div", "stale-price");
-    note.append(el("span", "", `Your store still charges ${price(stale)}.`), button("Update store", "quiet", () => void startDeploy(REDEPLOY_PRICE)));
+    note.append(el("span", "", `Your store still charges ${price(stale)}.`));
     prices.append(note);
   }
   bar.append(lead, prices);
-  if (unpushed(s).length && !pushOffer) {
-    const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
-    push.disabled = pushing;
-    bar.append(push);
+  // One Update store at a time: pieces waiting to go on or come off are pushed first; a new price is redeployed after.
+  if (unpushed(s).length) {
+    if (!pushOffer) {
+      const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
+      push.disabled = pushing;
+      bar.append(push);
+    }
+  } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
+  return bar;
+}
+
+/** One piece on sale: what it's about, how it's doing, and taking it down. @param {PublicationItem} item */
+function saleItem(item) {
+  const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
+  const seen = views[item.public_id] ?? 0;
+  const detail = [seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ") || "No views yet";
+  const badge = item.live === false ? chip("Not on your store yet") : el("span");
+  const trailing = el("div", "v");
+  const ask = button("Take down", "quiet", () => {
+    trailing.replaceChildren(
+      el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
+      button("Keep", "secondary", () => trailing.replaceChildren(badge, ask)),
+      button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
+    );
+    trailing.classList.add("asking");
+  });
+  trailing.append(badge, ask);
+  return row(item.title, detail, trailing);
+}
+
+/** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
+function renderInventory(s) {
+  const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
+  const from = inventoryFrom;
+  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
+  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
+  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
+  unseen.forget();
+  if (shelf === "down" && !down.length) shelf = "all";
+
+  const tabs = el("div", "shelves");
+  tabs.setAttribute("role", "tablist");
+  // Approved pieces wait for the store to open for sale before anyone can buy them (XC-069).
+  const saleLabel = forSale(s) ? "On sale" : "Ready to sell";
+  const waitingNote = forSale(s) ? undefined : el("span", "hint", "Ready to sell once your store opens.");
+  /** @type {[Shelf, string, number][]} */
+  const shelves =[["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", saleLabel, onSale.length]];
+  if (down.length) shelves.push(["down", "Taken down", down.length]);
+  for (const [id, label, count] of shelves) {
+    const tab = el("button", "shelf");
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(shelf === id));
+    tab.append(label, el("span", "shelf-count", String(count)));
+    tab.addEventListener("click", () => { shelf = id; render(); });
+    tabs.append(tab);
   }
-  const approved = s.publications.items.filter((item) => item.state === "approved");
-  const waiting = unpushed(s);
-  const revoked = s.publications.items.filter((item) => item.state === "revoked");
-  /** @param {PublicationItem} item */
-  const sold = (item) => {
-    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
-    const seen = views[item.public_id] ?? 0;
-    return [item.topic, seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
-  };
-  // One chip per row only when rows differ; a list all in one state says it once in the heading.
-  const mixed = approved.some((item) => item.live !== approved[0].live);
-  /** @param {PublicationItem} item */
-  const state = (item) => mixed ? [item.live === true ? chip("Live", "ok") : item.live === false ? chip("Not live yet") : chip("Approved")] : [];
-  /** @param {PublicationItem} item */
-  const controls = (item) => {
-    const trailing = el("div", "v");
-    const ask = button("Take down", "secondary", () => {
-      trailing.replaceChildren(
-        el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
-        button("Keep", "secondary", () => trailing.replaceChildren(...state(item), ask)),
-        // The CLI's reason for a push that did not land names commands and paths; the list below shows whether the store still has it.
-        button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
-      );
-    });
-    trailing.append(...state(item), ask);
-    return trailing;
-  };
-  const aside = el("div", "section-aside");
-  const adds = waiting.filter((item) => item.state === "approved").length;
-  const onStore = adds === 0 ? "all on your store" : adds < approved.length ? `${adds} not on your store yet` : approved.length === 1 ? "not on your store yet" : "none on your store yet";
-  if (approved.length) aside.append(el("span", "hint", `${approved.length} ${approved.length === 1 ? "publication" : "publications"}${live.state === "online" ? ` · ${onStore}` : ""}`));
-  if (waiting.length) {
-    const push = button(pushing ? "Updating…" : "Update store", "quiet", pushNow);
-    push.disabled = pushing;
-    aside.append(push);
+
+  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
+  const known = new Map();
+  for (const item of kept) {
+    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
   }
+  /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
+  const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
+    const box = el("div", "card rows inv-group");
+    const head = el("div", "inv-group-head");
+    const app = agentApp(name);
+    const source = known.get(name);
+    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
+    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    box.append(head, ...rows);
+    return box;
+  });
+  /** @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => HTMLElement} make */
+  const groupBy = (items, key, make) => {
+    /** @type {Map<string, HTMLElement[]>} */
+    const groups = new Map();
+    for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
+    return grouped(groups);
+  };
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
+  const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
+  const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
+  const stack = (/** @type {HTMLElement[]} */ cards) => {
+    const node = el("div", "inv-stack");
+    node.append(...cards);
+    return node;
+  };
+
   /** @type {HTMLElement[]} */
-  const parts = [bar];
+  const parts = [storeBar(s)];
   if (pushOffer) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
-  parts.push(collectionsSection(s));
-  parts.push(section("For sale", approved.length
-    ? card(approved.map((item) => row(item.title, sold(item), controls(item))))
-    : emptyState("Nothing for sale yet.", button("Draft your first piece", "quiet", () => show("memories"))),
-    aside));
-  if (revoked.length) parts.push(section("Taken down", card(revoked.map((item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down"))))));
-  parts.push(renderSales());
+  const filters = el("div", "inv-filters");
+  filters.append(tabs);
+  if (from) {
+    const only = el("span", "chip source-filter", from.label);
+    const all = el("button", "dismiss", "×");
+    all.type = "button";
+    all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
+    all.addEventListener("click", () => {
+      inventoryFrom = null;
+      render();
+    });
+    only.append(all);
+    filters.append(only);
+  }
+  parts.push(filters);
+  const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
+  const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
+  if (shelf === "all") {
+    if (!kept.length && !onSale.length) parts.push(nothingKept);
+    if (onSale.length) parts.push(section(saleLabel, stack(saleGroups()), waitingNote));
+    if (kept.length) parts.push(section("Private", stack(privateGroups())));
+  } else if (shelf === "private") {
+    parts.push(kept.length ? stack(privateGroups()) : nothingKept);
+  } else if (shelf === "sale") {
+    if (onSale.length && waitingNote) parts.push(waitingNote);
+    parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
+  } else {
+    parts.push(stack(downGroups()));
+  }
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(collectionsSection(s));
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
+
+/** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
+ * @param {{id: string, label: string}} source */
+function seeFrom(source) {
+  inventoryFrom = source;
+  if (detailTask) closeTask();
+  show("memories");
+}
+
+/** APP-212: which memories Inventory marks New: arrived since Lore began keeping track, and not on screen before this
+ * visit. A row counts as seen once it has been on screen while Lore is in front; it keeps its mark until the next visit.
+ * Memories are known here by arrival, never by id, which the store can hand out again after a delete. */
+class Unseen {
+  since = Number.POSITIVE_INFINITY;
+  /** @type {Set<number>} */
+  seen = new Set();
+  /** What had been seen when this visit began. @type {Set<number>} */
+  before = new Set();
+  loaded = false;
+  /** Rows on screen now, by memory. @type {Map<Element, number>} */
+  #showing = new Map();
+  /** @type {Set<number>} */
+  #telling = new Set();
+  #timer = 0;
+  #observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (entry.isIntersecting) this.#showing.set(entry.target, Number(/** @type {HTMLElement} */ (entry.target).dataset.memory));
+      else this.#showing.delete(entry.target);
+    }
+    this.#look();
+  });
+
+  constructor() {
+    window.addEventListener("focus", () => this.#look());
+    document.addEventListener("visibilitychange", () => this.#look());
+  }
+
+  /** @param {number} newest The newest memory, where "since" starts the first time. */
+  async load(newest) {
+    const kept = await window.lore.memoriesSeen(newest);
+    this.since = kept.since;
+    for (const arrival of kept.arrivals) this.seen.add(arrival);
+    if (!this.loaded) this.visit();
+    this.loaded = true;
+  }
+
+  /** A new visit: what was seen before it loses its mark. */
+  visit() {
+    this.before = new Set(this.seen);
+  }
+
+  /** @param {number} id */
+  fresh(id) {
+    return id > this.since && !this.before.has(id);
+  }
+
+  /** Inventory is drawn again: the rows it drew before are gone. */
+  forget() {
+    this.#observer.disconnect();
+    this.#showing.clear();
+  }
+
+  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  watch(row, id) {
+    if (!this.fresh(id)) return row;
+    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    if (!this.seen.has(id)) {
+      row.dataset.memory = String(id);
+      this.#observer.observe(row);
+    }
+    return row;
+  }
+
+  #look() {
+    if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+    for (const id of this.#showing.values()) {
+      if (this.seen.has(id)) continue;
+      this.seen.add(id);
+      this.#telling.add(id);
+    }
+    if (!this.#telling.size) return;
+    window.clearTimeout(this.#timer);
+    this.#timer = window.setTimeout(() => {
+      const ids = [...this.#telling].slice(0, 500);
+      for (const id of ids) this.#telling.delete(id);
+      void window.lore.markSeen(ids).catch(() => undefined);
+      if (this.#telling.size) this.#look();
+    }, 300);
+  }
+}
+
+const unseen = new Unseen();
 
 /** @returns {CollectionItem | undefined} */
 function openCollection() {
@@ -1146,7 +2179,7 @@ function renderCollection(s) {
 }
 
 function renderSales() {
-  if (sales instanceof Error) return section("Sales", emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
+  if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
   if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
   if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
   return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
@@ -1164,27 +2197,22 @@ function tally(rows) {
 
 /** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
 function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "mono", "Free")));
+  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")), false);
   const byCard = sale.network === "stripe";
   const trailing = el("div", "v");
   const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
-  const receipt = outLink("↗", href, "link-btn glyph");
-  receipt.title = `See this payment on ${where} · ${sale.tx}`;
-  receipt.setAttribute("aria-label", `See this payment on ${where}`);
+  const receipt = outLink("Receipt", href, "receipt");
+  receipt.title = `See this payment on ${where}`;
   if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
-  trailing.append(el("span", "mono", price(sale.price_usd)), receipt);
+  trailing.append(el("span", "value", price(sale.price_usd)), receipt);
   // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
   const why = byCard ? "taken down before delivery" : "not answered";
   const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
   const owed = sale.refund_owed ? ` · ${why}${who}` : "";
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing);
+  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing, false);
 }
 
-/** Today: what the store has earned, and the latest few sales. @param {Sale[]} rows */
-function earned(rows) {
-  const head = row(`${price(total(rows))} earned`, `${tally(rows)} · paid straight to you; Lore never holds it`, cell(button("See all", "quiet", () => show("store"))), false);
-  return section("Earned", card([head, ...rows.slice(0, 3).map(saleRow)]));
-}
+const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
 
 /** Read the ledger for the open store; without one there is nothing to read. */
 async function loadSales() {
@@ -1193,7 +2221,8 @@ async function loadSales() {
   try {
     [sales, views] = snapshot?.node.url ? await Promise.all([window.lore.sales(), window.lore.views().catch(() => views)]) : [[], {}];
   } catch (error) {
-    sales = new Error(reason(error, "Lore could not read your sales."));
+    // A store opened from another Mac has no ledger to read here; anything else is worth another try.
+    sales = new Error(/no deployed node/.test(reason(error, "")) ? SALES_ELSEWHERE : "Lore couldn't read your sales. Try again in a minute.");
   }
   render();
 }
@@ -1201,22 +2230,6 @@ async function loadSales() {
 /** A credential's plain name and icon; the signed-in one when none is given. @param {{providerId: string} | null} [credential] @returns {[string, string]} */
 function provider(credential = auth?.credentials[0] ?? null) {
   return credential ? PROVIDERS[credential.providerId] ?? [credential.providerId, ""] : ["Your AI provider", ""];
-}
-
-const EXECUTORS = { claude: "Claude", codex: "Codex" };
-
-/** The rhythm as the owner would say it: "Every day at 9 PM". @param {NonNullable<Snapshot["setup"]["schedule"]>} schedule */
-function rhythm(schedule) {
-  const hour = schedule.hour ?? 21;
-  return `Every ${schedule.cadence === "weekly" ? "Monday" : "day"} at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
-}
-
-/** What the last synthesis run did, from the same history Today shows. @param {Snapshot} s */
-function lastSynthesis(s) {
-  const run = s.jobs?.items.find((item) => item.kind === "synthesis");
-  if (!run) return "Hasn't run yet.";
-  const date = when(run.started_at);
-  return run.status === "running" ? "Running now." : run.status === "succeeded" ? `Last ran ${date}.` : run.status === "failed" ? `Last run failed, ${date}.` : `Last run, ${date}, never finished.`;
 }
 
 /** A Settings row's trailing cell. @param {(string | HTMLElement)[]} parts */
@@ -1231,17 +2244,14 @@ function pill(label, tone = "") {
   return el("span", `status-pill ${tone}`.trim(), label);
 }
 
-/** Settings → How often Lore reads them: the scheduler's answer, not the profile's. A saved rhythm that nothing runs says so and offers the fix. @param {Snapshot} s */
+/** Settings → How often Lore reads them: the rhythm Lore keeps while it is open. @param {Snapshot} s */
 function scheduleRow(s) {
   const label = "How often Lore reads them";
   const schedule = s.setup.schedule;
-  if (!s.setup.profile_configured || schedule === undefined) {
-    return row(label, "New memories are written from what your agents learned.", cell(pill(s.setup.profile_configured ? "Set" : "Not set", s.setup.profile_configured ? "ok" : ""), ...(s.setup.profile_configured ? [] : [button("Start", "secondary", startSetup)])), false);
-  }
-  if (!schedule?.executor) return row(label, "Your rhythm is saved, but no model was chosen to run it.", cell(pill("Not scheduled", "attention"), button("Start", "secondary", startSetup)), false);
-  const who = `${rhythm(schedule)} with ${EXECUTORS[schedule.executor]}`;
-  if (schedule.installed) return row(label, `${who}. ${lastSynthesis(s)}`, cell(pill("Scheduled", "ok")), false);
-  return row(label, `Set for ${who.charAt(0).toLowerCase()}${who.slice(1)}, but nothing on this Mac is running it.`, cell(pill("Not scheduled", "attention"), button("Schedule", "secondary", () => void act(window.lore.schedule))), false);
+  if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
+  if (schedule.paused) return row(label, `${runsWhen(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
+  const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
+  return row(label, `${runsWhen(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
 }
 
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
@@ -1285,7 +2295,7 @@ function cardWay(s) {
     const done = await act(async () => {
       await window.lore.switchCards(account);
       cards = null;
-      tell(account ? (s.node.url ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
+      tell(account ? (forSale(s) ? "Card payments are on. Lore is updating your store so buyers see Buy by card." : "Card payments are on. They start when your store opens.") : "Card payments are off.");
     });
     if (done) await goLive();
   };
@@ -1323,7 +2333,7 @@ function cardMinimum(s) {
 function walletWay(s) {
   const by = "To your wallet";
   const payout = s.node.live.payout;
-  if (!payout) return way(by, s.node.url ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
+  if (!payout) return way(by, forSale(s) ? "Lore can't see your store's wallet right now." : "You choose a wallet when your store opens.");
   const value = el("span", "way-value");
   value.append("Agents can pay it directly · ", el("span", "mono", `${payout.slice(0, 6)}…${payout.slice(-4)}`));
   return way(by, value, outLink("View ↗", `${explorer(s.node.live.network)}/address/${payout}`));
@@ -1367,12 +2377,12 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  return row("Address", detail, cell(pill(nodeLabel(live.state), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
 function loadListing(s) {
-  if (!s.node.url || listingFor === s.node.url) return;
+  if (!s.node.url || !forSale(s) || listingFor === s.node.url) return;
   listingFor = s.node.url;
   listing = null;
   window.lore.listingStatus().then((state) => {
@@ -1395,7 +2405,7 @@ async function changeListing(action) {
 
 /** Settings → Your store → Marketplace: one row, read from the public list and the store's own switch. @param {Snapshot} s */
 function marketplaceRow(s) {
-  if (!s.node.url) return [];
+  if (!forSale(s)) return [];
   loadListing(s);
   const label = "Marketplace";
   const shares = "It shows only what your store already shows: your name, topics, and prices.";
@@ -1421,6 +2431,9 @@ const CONNECTION_STATES = {
   off: { ok: false, label: "Off", line: () => "Not reading." }
 };
 
+/** Said once an app brings something new in: Lore reads it through in the background. */
+const READING = "Lore is turning them into memories now.";
+
 /** An app Lore signs in to fails one way as far as the owner can act on it: sign in again. */
 const SIGNED_OUT = { ok: false, label: "Signed out", line: (/** @type {SourceApp} */ app) => `${app.name} didn't answer. Sign in again.` };
 
@@ -1442,7 +2455,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  const node = el("img", "logo");
+  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
+  const node = el("img", asset === "grok" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
@@ -1466,11 +2480,14 @@ function verb(app) {
 /** Connectors: the agents, then every app in the catalog, connected or on offer. @param {Snapshot} s */
 function sourceRows(s) {
   const rows = s.library.sources.filter((source) => !source.connector).map((source) => {
-    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "Not connected", cell(pill(source.enabled ? "Connected" : "Off", source.enabled ? "ok" : "")), false);
+    const action = source.enabled ? button("Manage", "quiet", () => openHistory(source)) : button("Connect", "secondary", () => openHistory(source));
+    const node = row(source.label, source.enabled ? `${plural(source.imported, "memory")} imported` : "What it remembers about your work", cell(...(source.enabled ? [pill("Connected", "ok")] : []), action), false);
     node.prepend(brand(AGENT_MARKS[source.name] ?? source.name, source.label));
     return node;
   });
   for (const app of apps) {
+    // The owner's personal agents have a group of their own.
+    if (app.id === "agent") continue;
     const connected = s.library.sources.filter((source) => source.connector === app.id);
     for (const source of connected) {
       const state = stateOf(app, source);
@@ -1488,29 +2505,234 @@ function sourceRows(s) {
   return rows;
 }
 
-/** A narrow modal: a title, the app's mark, and whatever follows. It opens on the first thing to
- * fill in or do, not on ×. @param {string} title @param {HTMLElement} mark @param {HTMLElement[]} body */
-function sheet(title, mark, ...body) {
-  closeSheet();
-  const node = el("dialog", "sheet narrow");
-  node.setAttribute("aria-label", title);
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  const text = el("div", "t");
-  text.append(el("b", "", title));
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  close.addEventListener("click", () => node.close());
-  head.append(mark, text, close);
-  panel.append(head, ...body);
-  node.append(panel);
-  node.addEventListener("click", (event) => { if (event.target === node) node.close(); });
-  node.addEventListener("close", () => node.remove());
-  document.body.append(node);
-  node.showModal();
-  /** @type {HTMLElement | null} */ (panel.querySelector("input") ?? panel.querySelector(".btn.primary:not(:disabled), .btn.secondary") ?? panel.querySelector(".actions .btn"))?.focus();
-  return node;
+const CHEVRON = `<svg class="form-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 10l4-4 4 4M8 14l4 4 4-4"></path></svg>`;
+
+/** APP-201: the one sheet for setting a value anywhere in the app. An optional borderless title, a prompt that grows
+ * as it fills, grouped rows of label and control, and a footer whose primary waits until the form is valid. A native
+ * modal, so Escape closes it and focus stays inside; ⌘↩ submits from any field. */
+class FormSheet {
+  /** @param {string} heading @param {HTMLElement} [icon] */
+  constructor(heading, icon) {
+    closeSheet();
+    this.dialog = el("dialog", "sheet form-sheet");
+    this.dialog.setAttribute("aria-label", heading);
+    this.form = el("form", "form-panel");
+    // Lore says what is wrong with a field in its own words, in the sheet; the browser's bubbles would say it twice.
+    this.form.noValidate = true;
+    const head = el("header", "form-head");
+    const close = el("button", "icon-btn", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close");
+    close.addEventListener("click", () => this.close());
+    head.append(...(icon ? [icon] : []), el("h2", "", heading), close);
+    this.body = el("div", "form-body");
+    this.problem = problemLine();
+    this.aside = el("div", "form-aside");
+    this.actions = el("div", "actions");
+    const foot = el("footer", "form-foot");
+    foot.append(this.aside, this.actions);
+    this.form.append(head, this.body, foot);
+    this.dialog.append(this.form);
+    /** @type {HTMLButtonElement | null} */
+    this.primary = null;
+    this.valid = () => true;
+    /** @type {() => unknown} */
+    this.submit = () => undefined;
+    this.failed = "";
+    /** @type {string | undefined} */
+    this.working = undefined;
+    this.busy = false;
+    this.form.addEventListener("input", () => this.refresh());
+    // ⌘↩ anywhere, and ↩ in a one-line field, as a native form would.
+    this.form.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.defaultPrevented) return;
+      if (!(event.metaKey || event.ctrlKey || event.target instanceof HTMLInputElement)) return;
+      event.preventDefault();
+      this.form.requestSubmit();
+    });
+    this.form.addEventListener("submit", (event) => { event.preventDefault(); void this.run(); });
+    // The form fills the dialog, so a click that lands on the dialog itself came from the backdrop.
+    this.dialog.addEventListener("click", (event) => { if (event.target === this.dialog) this.close(); });
+    this.dialog.addEventListener("close", () => this.dialog.remove());
+  }
+
+  /** A large borderless name; Enter moves on to the prompt. @param {string} placeholder */
+  title(placeholder) {
+    const field = this.watch(el("input", "form-title"));
+    field.type = "text";
+    field.placeholder = placeholder;
+    field.setAttribute("aria-label", placeholder);
+    field.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" || event.metaKey || event.ctrlKey) return;
+      event.preventDefault();
+      /** @type {HTMLElement | null} */ (this.body.querySelector("textarea"))?.focus();
+    });
+    this.body.append(field);
+    return field;
+  }
+
+  /** @param {string} label @param {string} [placeholder] */
+  prompt(label, placeholder = label) {
+    const area = this.watch(el("textarea", "form-prompt"));
+    area.placeholder = placeholder;
+    area.setAttribute("aria-label", label);
+    this.body.append(area);
+    return area;
+  }
+
+  /** A line of explanation above the rows. @param {string} text @param {string} [className] */
+  text(text, className = "form-lead") {
+    const node = el("p", className, text);
+    this.body.append(node);
+    return node;
+  }
+
+  /** Rows inside one rounded container, under a muted heading. @param {string} heading @param {HTMLElement[]} rows */
+  group(heading, rows) {
+    const node = el("section", "form-group");
+    if (heading) node.append(el("h3", "", heading));
+    const list = el("div", "form-rows");
+    list.append(...rows);
+    node.append(list);
+    this.body.append(node);
+    return node;
+  }
+
+  /** @param {string} label @param {...HTMLElement} controls */
+  row(label, ...controls) {
+    const node = el("label", "form-row");
+    node.append(el("span", "form-label", label), ...controls);
+    return node;
+  }
+
+  /** The value and a chevron, with the real select laid over the whole row, so the keyboard and screen readers get
+   * the platform's own. @param {string} label @param {Array<[string, string]>} options @param {string} value */
+  select(label, options, value) {
+    const control = this.watch(el("select"));
+    control.setAttribute("aria-label", label);
+    for (const [key, text] of options) {
+      const option = el("option", "", text);
+      option.value = key;
+      control.append(option);
+    }
+    control.value = value;
+    const shown = el("span", "form-value");
+    const show = () => { shown.textContent = control.selectedOptions[0]?.textContent ?? ""; };
+    control.addEventListener("change", show);
+    show();
+    const node = this.row(label, shown, control);
+    node.classList.add("pick");
+    shown.insertAdjacentHTML("afterend", CHEVRON);
+    return { row: node, control };
+  }
+
+  /** A row edited in place on its right.
+   * @param {string} label @param {{type?: string, placeholder?: string, inputMode?: string, value?: string, ariaLabel?: string}} props @param {string} [prefix] */
+  field(label, { type = "text", placeholder = "", inputMode = "", value = "", ariaLabel = label }, prefix = "") {
+    /** @type {HTMLInputElement} */
+    const control = this.watch(el("input"));
+    Object.assign(control, { type, placeholder, inputMode, value });
+    control.setAttribute("aria-label", ariaLabel);
+    const entry = el("span", "form-entry");
+    if (prefix) entry.append(el("span", "form-prefix", prefix));
+    entry.append(control);
+    return { row: this.row(label, entry), control };
+  }
+
+  /** Muted words beside the buttons. @param {string} text */
+  note(text) {
+    this.aside.append(el("p", "hint", text));
+  }
+
+  /** A button that is not the primary: quiet ones sit left, by the note. @param {string} label @param {"secondary" | "quiet"} kind @param {() => void} run */
+  button(label, kind, run) {
+    const node = button(label, kind, run);
+    (kind === "quiet" ? this.aside : this.actions).append(node);
+    return node;
+  }
+
+  /** Show it, with `primary` waiting on `valid` and doing `submit`. The sheet closes once `submit` settles, unless it
+   * answers false; what it throws is said in the sheet, under the rows.
+   * @param {{primary?: string, working?: string, valid?: () => boolean, submit?: () => unknown, failed?: string}} [spec] */
+  open(spec) {
+    this.arm(spec);
+    return this.show();
+  }
+
+  show() {
+    document.body.append(this.dialog);
+    this.dialog.showModal();
+    this.focus();
+    return this;
+  }
+
+  /** The footer's primary and what it does, as `open` takes them; a sheet that goes through steps arms each one.
+   * @param {{primary?: string, working?: string, valid?: () => boolean, submit?: () => unknown, failed?: string}} [spec] */
+  arm({ primary, working, valid = () => true, submit = () => undefined, failed = "Lore couldn't do that. Try again." } = {}) {
+    Object.assign(this, { valid, submit, failed, working });
+    this.body.append(this.problem);
+    if (primary) {
+      this.primary = el("button", "btn primary sm", primary);
+      this.primary.type = "submit";
+      this.actions.append(this.primary);
+    }
+    this.refresh();
+  }
+
+  /** Clear the sheet for its next step, in place. */
+  /** A new heading and mark for a sheet that moves on to its next step. @param {string} text @param {HTMLElement} icon */
+  heading(text, icon) {
+    const head = /** @type {HTMLElement} */ (this.form.querySelector(".form-head"));
+    head.querySelector("img.logo, .mark")?.replaceWith(icon);
+    /** @type {HTMLElement} */ (head.querySelector("h2")).textContent = text;
+    this.dialog.setAttribute("aria-label", text);
+  }
+
+  reset() {
+    this.body.replaceChildren();
+    this.aside.replaceChildren();
+    this.actions.replaceChildren();
+    this.primary = null;
+    this.problem.textContent = "";
+  }
+
+  focus() {
+    /** @type {HTMLElement | null} */ (this.body.querySelector("input:not([type=radio]), textarea") ?? this.form.querySelector(".btn.primary:not(:disabled)") ?? this.form.querySelector(".actions .btn:not(:disabled)") ?? this.form.querySelector(".form-foot .btn:not(:disabled)"))?.focus();
+  }
+
+  close() {
+    this.dialog.close();
+  }
+
+  refresh() {
+    if (this.primary) this.primary.disabled = this.busy || !this.valid();
+  }
+
+  async run() {
+    const primary = this.primary;
+    if (!primary || primary.hidden || this.busy || !this.valid()) return;
+    const label = primary.textContent;
+    this.busy = true;
+    this.refresh();
+    this.problem.textContent = "";
+    if (this.working) primary.textContent = this.working;
+    try {
+      if (await this.submit() !== false) this.close();
+    } catch (error) {
+      if (this.dialog.isConnected) this.problem.textContent = reason(error, this.failed);
+    }
+    this.busy = false;
+    primary.textContent = label;
+    this.refresh();
+  }
+
+  /** A control that re-checks the form as it changes, even from an event that does not bubble.
+   * @template {HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement} T @param {T} control */
+  watch(control) {
+    control.addEventListener("input", () => this.refresh());
+    control.addEventListener("change", () => this.refresh());
+    return control;
+  }
 }
 
 /** A quiet line in a sheet for what went wrong there, so the owner corrects it in place. */
@@ -1521,9 +2743,9 @@ function problemLine() {
 }
 
 /** Connect from a sheet: it closes once the app is read, says in place why not, and closing it first
- * stops the connect. @param {HTMLDialogElement} dialog @param {HTMLElement} problem @param {SourceApp} app
+ * stops the connect. @param {FormSheet} form @param {SourceApp} app
  * @param {() => Promise<SourceEntry>} work @returns {Promise<boolean>} Whether it connected. */
-async function connectIn(dialog, problem, app, work) {
+async function connectIn({ dialog, problem }, app, work) {
   const stop = () => void window.lore.cancelConnect();
   dialog.addEventListener("close", stop);
   problem.textContent = "";
@@ -1531,7 +2753,7 @@ async function connectIn(dialog, problem, app, work) {
     const added = await work();
     dialog.removeEventListener("close", stop);
     dialog.close();
-    tell(`${app.name} is connected. ${stateOf(app, added).line(app, added)}`, false, added.imported ? sellAction(added) : undefined);
+    tell(`${app.name} is connected. ${stateOf(app, added).line(app, added)}${added.added ? ` ${READING}` : ""}`, false, added.imported ? sellAction(added) : undefined);
     return true;
   } catch (error) {
     if (dialog.isConnected) problem.textContent = reason(error, `${app.name} didn't answer. Try again.`);
@@ -1549,55 +2771,50 @@ async function openConnect(app, current) {
   if (app.kind === "mcp") return openSignIn(app);
   const { name, unit, kind } = app;
   let locator = "";
-  const list = el("div", "choices");
-  const lead = el("p", "", `Choose a ${unit}.`);
-  const actions = el("div", "actions");
-  const problem = problemLine();
-  const connect = button(kind === "export" ? "Import" : `Connect ${name}`, "primary", async () => {
-    if (!locator) return;
-    connect.disabled = true;
-    connect.disabled = await connectIn(dialog, problem, app, () => window.lore.connectSource({ connector: app.id, locator, ...(current ? { replace: current.name } : {}) }));
-  });
-  connect.disabled = true;
-  /** @param {SourceChoice} choice @param {boolean} checked */
-  function option(choice, checked) {
-    const label = el("label", "choice");
-    const radio = el("input");
-    radio.type = "radio";
-    radio.name = "choice";
-    radio.checked = checked;
-    radio.addEventListener("change", () => { locator = choice.locator; connect.disabled = false; });
-    label.append(radio, el("b", "", choice.label), el("span", "hint mono", choice.locator));
-    list.append(label);
-    if (checked) radio.dispatchEvent(new Event("change"));
-  }
-  if (kind === "feed") {
-    lead.textContent = `Where is your ${unit}?`;
-    const field = el("input");
-    field.type = "url";
-    field.placeholder = app.placeholder;
-    field.setAttribute("aria-label", `${name} address`);
-    field.addEventListener("input", () => { locator = field.value.trim(); connect.disabled = !locator; });
-    field.addEventListener("keydown", (event) => { if (event.key === "Enter") connect.click(); });
-    list.append(field);
-  } else {
-    /** @type {SourceChoice[]} */
-    let choices = [];
+  /** What Lore is to read: the choice picked, or the address typed. */
+  let chosen = () => locator;
+  /** @type {SourceChoice[]} */
+  let choices = [];
+  if (kind !== "feed") {
     try {
       choices = await window.lore.sourceChoices(app.id);
     } catch (error) {
       tell(reason(error, "Lore could not look for that."), true);
       return;
     }
-    for (const choice of choices) option(choice, false);
-    if (!choices.length) lead.textContent = kind === "folder" ? `No ${many(unit)} found on this Mac.` : `Choose the ${unit} you downloaded.`;
-    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
-    actions.append(button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
-      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
-    })));
   }
-  actions.append(connect);
-  const dialog = sheet(name, logo(app), lead, ...(app.guide ? [el("p", "hint", app.guide)] : []), list, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
+  const form = new FormSheet(name, logo(app));
+  const lead = form.text(kind === "feed" ? `Where is your ${unit}?` : choices.length ? `Choose a ${unit}.` : kind === "folder" ? `No ${many(unit)} found on this Mac.` : `Choose the ${unit} you downloaded.`);
+  if (app.guide) form.text(app.guide, "hint");
+  const rows = /** @type {HTMLElement} */ (form.group("", []).querySelector(".form-rows"));
+  /** @param {SourceChoice} choice @param {boolean} checked */
+  function option(choice, checked) {
+    const radio = el("input");
+    radio.type = "radio";
+    radio.name = "choice";
+    radio.addEventListener("change", () => { locator = choice.locator; form.refresh(); });
+    const row = form.row(choice.label, el("span", "hint mono", choice.locator), radio);
+    row.classList.add("form-option");
+    rows.append(row);
+    if (checked) { radio.checked = true; radio.dispatchEvent(new Event("change")); }
+  }
+  if (kind === "feed") {
+    const { row, control } = form.field("Address", { type: "url", placeholder: app.placeholder, ariaLabel: `${name} address` });
+    chosen = () => control.value.trim();
+    rows.append(row);
+  } else {
+    for (const choice of choices) option(choice, false);
+    const pick = kind === "folder" ? () => window.lore.pickFolder() : () => window.lore.pickFiles().then((paths) => paths[0] ?? null);
+    form.button(kind === "folder" ? "Choose a folder…" : "Choose a file…", "quiet", () => void pick().then((path) => {
+      if (path) option({ label: path.split("/").at(-1) ?? path, locator: path, open: false }, true);
+    }));
+  }
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: kind === "export" ? "Import" : `Connect ${name}`,
+    valid: () => Boolean(chosen()),
+    submit: () => connectIn(form, app, () => window.lore.connectSource({ connector: app.id, locator: chosen(), ...(current ? { replace: current.name } : {}) }))
+  });
 }
 
 /** Sign in to an app that runs its own server: its own page, in the browser, lets Lore in, and Lore
@@ -1605,20 +2822,24 @@ async function openConnect(app, current) {
 function openSignIn(app) {
   const { name } = app;
   const invite = `Lore opens ${name} in your browser. Approve there, and Lore brings in ${app.what.toLowerCase()}.`;
-  const lead = el("p", "", invite);
-  const actions = el("div", "actions");
-  const problem = problemLine();
-  const start = button(`Sign in to ${name}`, "primary", () => void begin());
-  async function begin() {
-    lead.textContent = "Waiting for you to approve in your browser…";
-    actions.replaceChildren(button("Cancel", "quiet", () => dialog.close()));
-    if (await connectIn(dialog, problem, app, () => window.lore.signIn(app.id))) return;
-    lead.textContent = invite;
-    actions.replaceChildren(start);
-    start.focus();
-  }
-  actions.append(start);
-  const dialog = sheet(name, logo(app), lead, el("p", "hint", "Read only. Stays on this Mac."), problem, actions);
+  const form = new FormSheet(name, logo(app));
+  const lead = form.text(invite);
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: `Sign in to ${name}`,
+    submit: async () => {
+      const start = /** @type {HTMLButtonElement} */ (form.primary);
+      lead.textContent = "Waiting for you to approve in your browser…";
+      start.hidden = true;
+      const cancel = form.button("Cancel", "secondary", () => form.close());
+      if (await connectIn(form, app, () => window.lore.signIn(app.id))) return true;
+      lead.textContent = invite;
+      cancel.remove();
+      start.hidden = false;
+      start.focus();
+      return false;
+    }
+  });
 }
 
 /** What a connected app reads, where it stands, and what can be done to it. @param {SourceApp} app @param {SourceEntry} source */
@@ -1626,38 +2847,32 @@ function openConnection(app, source) {
   const { name, unit } = app;
   const state = stateOf(app, source);
   const sell = sellAction(source);
-  const actions = el("div", "actions");
   const signedOut = state === SIGNED_OUT;
-  const resting = [
-    ...(source.imported ? [button(sell.label, "secondary", sell.run)] : []),
-    ...(signedOut
-      ? []
-      : source.state === "needs_permission"
-        ? [button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings())]
-        : source.refresh === false
-          ? []
-          : [button("Read again", "secondary", () => void act(async () => {
-            const [read] = await window.lore.readSource(source.name);
-            dialog.close();
-            tell(read?.added ? `${plural(read.added, `new ${app.item}`)}.` : "Nothing new.");
-          }))]),
-    app.kind === "mcp"
-      ? button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app))
-      : button(`Change ${unit}`, "quiet", () => void openConnect(app, source)),
-    button("Disconnect", "quiet", ask)
-  ];
+  const form = new FormSheet(name, logo(app));
+  form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
+  if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
+  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule && !snapshot.setup.schedule.paused ?`Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
+  form.text(standing, "hint");
+  form.button("Disconnect", "quiet", ask);
+  if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
+  else form.button(`Change ${unit}`, "quiet", () => void openConnect(app, source));
+  if (source.imported) form.button(sell.label, "secondary", sell.run);
+  if (!signedOut && source.state === "needs_permission") form.button("Open System Settings", "secondary", () => void window.lore.openPrivacySettings());
+  else if (!signedOut && source.refresh !== false) form.button("Read again", "secondary", () => void act(async () => {
+    const [read] = await window.lore.readSource(source.name);
+    form.close();
+    tell(read?.added ? `${plural(read.added, `new ${app.item}`)}. ${READING}` : "Nothing new.");
+  }));
+  form.open();
   function ask() {
     const kept = source.imported ? ` The ${plural(source.imported, "memory")} it brought in ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
     const which = source.label || name;
-    const confirm = el("div", "actions");
-    const purge = button("Delete them too", "quiet", () => void remove(false));
-    purge.classList.add("destructive");
-    confirm.append(
-      ...(source.imported ? [purge] : []),
-      button("Cancel", "quiet", () => openConnection(app, source)),
-      button("Disconnect", "secondary", () => void remove(true))
-    );
-    sheet(`Disconnect ${which}?`, logo(app), el("p", "", `Lore stops reading ${which}.${kept}`), confirm);
+    const confirm = new FormSheet(`Disconnect ${which}?`, logo(app));
+    confirm.text(`Lore stops reading ${which}.${kept}`);
+    if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
+    confirm.button("Cancel", "secondary", () => openConnection(app, source));
+    confirm.button("Disconnect", "secondary", () => void remove(true));
+    confirm.open();
   }
   /** @param {boolean} keep */
   async function remove(keep) {
@@ -1667,15 +2882,584 @@ function openConnection(app, source) {
       tell(memories.deleted ? `Disconnected. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected. ${plural(memories.kept, "memory")} kept.`);
     });
   }
-  actions.replaceChildren(...resting);
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule?.installed ? `Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
-  const dialog = sheet(name, logo(app), el("p", "", source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`), ...(app.kind === "mcp" ? [] : [el("p", "hint mono", source.locator ?? "")]), el("p", "hint", standing), actions);
 }
 
-/** Connectors: where memories come from, and how often Lore reads them. First class: the way
- * context gets into Lore, not a preference. @param {Snapshot} s */
+/** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
+ * way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Where memories come from", card([...sourceRows(s), scheduleRow(s)]))];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), section("", card([scheduleRow(s)]))];
+}
+
+/** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
+function tiles(rows) {
+  const grid = el("div", "tiles");
+  for (const node of rows) {
+    node.classList.add("tile");
+    node.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest("button")) return;
+      // A link in its text goes where it says; the tile opens its own action.
+      /** @type {HTMLButtonElement | null} */ (node.querySelector("button:not(.inline)"))?.click();
+    });
+    grid.append(node);
+  }
+  return grid;
+}
+
+/** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
+const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+/** @type {Record<AgentApp, string>} */
+const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
+const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
+/** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
+ * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
+ * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
+ * `or` is the quiet alternative under the last step, and `brief` the steps as one line, for the first-run chat. Grok Bot
+ * has no menu to add a connector by hand: the message pasted into its chat is the only documented way (APP-217).
+ * `ask` is a message an agent with a menu can also be sent instead, to add Lore itself.
+ * XC-068: `signIn` is the way with no key at all: the plain address, then the agent signs in and the owner allows it here.
+ * @typedef {{steps: string[], brief?: string, message?: string, or?: string, ask?: string}} AgentSteps
+ * @type {Partial<Record<AgentApp, {first: AgentSteps, again: AgentSteps, signIn: AgentSteps, note?: string, routine: string}>>} */
+const AGENT_GUIDES = {
+  grok: {
+    first: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the first save arrives"], brief: "Copy this message and paste it into a Grok Bot chat.", message: "Add this MCP server to my account: " },
+    signIn: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "When Grok Bot opens a sign-in page, allow it here"], message: "Add this MCP server to my account: " },
+    again: { steps: ["Copy the message", "Paste it into Grok Bot's chat", "Lore shows when the next save arrives"], message: "Replace the Lore MCP server in my account with this one: " },
+    routine: "routine"
+  },
+  claude: {
+    first: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the link below, and choose Continue", "Choose No sign in, then Add"] },
+    signIn: { steps: ["In Claude, open Customize › Connectors, then + Add › Add custom connector", "Name it Lore, paste the address below, and choose Continue", "Choose Sign in now, then allow it here"] },
+    again: { steps: ["In Claude, open Customize › Connectors", "Open the Lore connector you added before and replace its link with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Claude's free plan allows one custom connector.",
+    routine: "scheduled task"
+  },
+  chatgpt: {
+    signIn: { steps: ["In ChatGPT, open Plugins, then + › Add custom MCP server", "Name it Lore, paste the address below, choose OAuth, and continue", "Choose Create, then allow it here"] },
+    first: { steps: ["In ChatGPT, open Plugins, then its settings, and choose Add MCP server", "Name it Lore, choose Streamable HTTP, and paste the link below as the URL", "Leave arguments empty, then save"], ask: "Add this MCP server to my account as Lore, using Streamable HTTP and no arguments: " },
+    again: { steps: ["In ChatGPT, open Plugins, then its settings", "Open the Lore server you added before and replace its URL with this one"], or: "Or remove it and add a new one named Lore with this link" },
+    note: "Saving to Lore needs a ChatGPT plan that allows custom connectors to write.",
+    routine: "scheduled task"
+  }
+};
+/** What to send an agent once it's connected: save now, so the first save shows the connection works, and, where it
+ * has a schedule, set one up. The agent asks the owner before it schedules anything, so this is one paste, not two.
+ * @param {string} [kind] What the agent calls a scheduled ask. */
+const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I like, how I work, and what I'm into lately.${kind ? ` Then set up a ${kind} that does this every evening.` : ""}`;
+/** The same schedule on its own, for an agent that already saves. @param {string} kind */
+const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
+/** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
+const FIRST_SAVE_EVERY_MS = 10_000;
+
+/** @param {AgentApp | null | undefined} app @param {string} name */
+function agentMark(app, name) {
+  return brand(app && Object.hasOwn(PERSONAL_MARKS, app) ? PERSONAL_MARKS[app] : "agent", name);
+}
+
+/** @param {string} iso */
+function day(iso) {
+  const date = new Date(iso);
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(date).setHours(0, 0, 0, 0)) / 86_400_000);
+  return days === 0 ? "today" : days === 1 ? "yesterday" : when(iso);
+}
+
+/** What an agent has saved, as its store counts it, or what Lore kept of it while the store has not answered. @param {SourceEntry} source */
+function agentLine(source) {
+  const entry = agents?.find((agent) => agent.source === source.name);
+  if (!entry) return source.imported ? `${plural(source.imported, "memory")} kept` : "Nothing saved yet";
+  return entry.saved ? `Saved ${entry.saved}${entry.last_saved_at ? ` · last ${day(entry.last_saved_at)}` : ""}` : "Nothing saved yet";
+}
+
+/** An agent's line on its card, its "Saved N" one click from what it saved. @param {SourceEntry} source */
+function agentDetail(source) {
+  const line = agentLine(source);
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  if (!saved) return line;
+  const node = el("span");
+  node.append(inline(`Saved ${saved}`, () => seeFrom({ id: source.name, label: source.label })), line.slice(`Saved ${saved}`.length));
+  return node;
+}
+
+/** What an agent's own history on this Mac is, in the owner's words. @type {Record<string, string>} */
+const HISTORIES = {
+  codex: "the memory notes Codex keeps on this Mac",
+  claude: "the memory notes Claude Code keeps for each of your projects on this Mac"
+};
+
+/** Codex's or Claude Code's own memory on this Mac: connect it, or turn it off and keep what it brought. @param {SourceEntry} source */
+function openHistory(source) {
+  const form = new FormSheet(source.enabled ? source.label : `Connect ${source.label}`, brand(AGENT_MARKS[source.name] ?? source.name, source.label));
+  const what = HISTORIES[source.name] ?? `what ${source.label} keeps on this Mac`;
+  if (source.enabled) {
+    form.text(`Lore reads ${what}. ${plural(source.imported, "memory")} so far.`);
+    form.note("Turning it off keeps what it already brought in.");
+    form.open({
+      primary: "Turn off",
+      working: "Turning off…",
+      failed: "Lore couldn't turn it off. Try again.",
+      submit: async () => {
+        await window.lore.switchSource(source.name, false);
+        tell(`Turned off ${source.label}. What it brought in stays.`);
+        await load();
+      }
+    });
+    return;
+  }
+  form.text(`Lore reads ${what} and turns what's new into private memories.`);
+  form.note("Read only. Stays on this Mac.");
+  form.open({
+    primary: "Connect",
+    working: "Connecting…",
+    failed: "Lore couldn't connect it. Try again.",
+    submit: async () => {
+      await window.lore.switchSource(source.name, true);
+      await load();
+      void window.lore.readSource(source.name).then(() => load()).catch(() => undefined);
+    }
+  });
+}
+
+/** Each personal agent the owner connected, and the way to connect one more. @param {Snapshot} s */
+function agentTiles(s) {
+  const rows = s.library.sources.filter((source) => source.connector === "agent").map((source) => {
+    const line = agentLine(source);
+    const node = row(source.label, agentDetail(source), cell(line === "Nothing saved yet" ? pill("Waiting", "wait") : pill("Live", "ok"), button("Manage", "quiet", () => openAgent(source))), false);
+    node.prepend(agentMark(source.app, source.label));
+    return node;
+  });
+  const connect = () => new AgentSetup().open();
+  if (rows.length) {
+    const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
+    more.prepend(agentMark("other", "Agent"));
+    more.classList.add("tile-add");
+    return tiles([...rows, more]);
+  }
+  const hero = row("Connect an agent", "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", cell(button("Connect an agent", "primary", connect)), false);
+  const stack = el("div", "mark-stack");
+  for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other" && id !== "muse")) stack.append(agentMark(app, name));
+  hero.prepend(stack);
+  hero.classList.add("agent-hero");
+  return hero;
+}
+
+async function loadAgents() {
+  if (!snapshot?.library.sources.some((source) => source.connector === "agent")) return;
+  agents = await window.lore.agents().catch(() => agents);
+  if (view === "connectors") render();
+}
+
+/** A quiet line inside a sheet, the way the app's notices look, for what the owner should keep in mind. @param {string} text */
+function inlineNotice(text) {
+  const box = el("div", "notice info inline-notice");
+  box.insertAdjacentHTML("afterbegin", INFO_ICON);
+  box.append(el("span", "", text));
+  return box;
+}
+
+/** A Copy button that says it copied. @param {() => string} text @param {string} [label] */
+function copyButton(text, label = "Copy") {
+  const node = button(label, "quiet", () => void window.lore.copy(text()).then(() => {
+    node.textContent = "Copied";
+    setTimeout(() => { node.textContent = label; }, 1500);
+  }));
+  return node;
+}
+
+/** The one link an agent needs, its key masked, copied whole; with `lead`, the message around it that the agent needs
+ * instead. @param {AgentKey} handed @param {string} [lead] @param {string} [label] */
+function privateLink(handed, lead = "", label = "Copy") {
+  const address = el("span", "agent-link-url");
+  address.append(handed.mcp_url + "/", el("span", "agent-link-key", "••••••••••••"));
+  return copyLink(address, handed.connector_url, handed.agent.name, lead, label);
+}
+
+/** The plain address an agent signs in at, which holds no key, copied the same way (XC-068).
+ * @param {string} url @param {string} who @param {string} [lead] @param {string} [label] */
+function plainLink(url, who, lead = "", label = "Copy") {
+  return copyLink(el("span", "agent-link-url", url), url, who, lead, label);
+}
+
+/** @param {HTMLElement} address what shows @param {string} url what is copied @param {string} who @param {string} lead @param {string} label */
+function copyLink(address, url, who, lead, label) {
+  const link = el("button", lead ? "agent-link agent-message" : "agent-link");
+  link.type = "button";
+  link.setAttribute("aria-label", lead ? label : "Copy link");
+  const shown = el("span", "agent-link-text");
+  if (lead) {
+    // APP-218: a plain name for what gets pasted, and the message itself quietly under it, never broken inside its link.
+    const quote = el("span", "agent-link-quote", lead);
+    quote.append(address);
+    shown.append(el("span", "agent-link-lead", `Message for ${who}`), quote);
+  } else shown.append(address);
+  const glyph = el("span", "agent-link-icon");
+  glyph.innerHTML = COPY_ICON;
+  const word = el("span", "agent-link-word", label);
+  link.append(shown, glyph, word);
+  // Selecting the shown link and copying it by hand would take the dots, so a hand copy also takes the real link.
+  link.addEventListener("copy", (event) => { event.preventDefault(); event.clipboardData?.setData("text/plain", lead + url); });
+  link.addEventListener("click", () => void window.lore.copy(lead + url).then(() => {
+    link.classList.add("copied");
+    glyph.innerHTML = CHECK_ICON;
+    word.textContent = "Copied";
+    setTimeout(() => { link.classList.remove("copied"); glyph.innerHTML = COPY_ICON; word.textContent = label; }, 1500);
+  }));
+  return link;
+}
+
+/** A sentence to paste into an agent, with what it's for and a Copy button. @param {string} what @param {string} text */
+function promptOffer(what, text) {
+  const offer = el("div", "agent-next");
+  const words = el("div", "agent-next-words");
+  words.append(el("span", "", what), el("span", "agent-next-quote", `“${text}”`));
+  offer.append(words, copyButton(() => text));
+  return offer;
+}
+
+/** An agent can be asked to save every evening on its own schedule, where it has one. Optional, so quiet.
+ * @param {AgentApp | null | undefined} app @param {string} who */
+function eveningOffer(app, who) {
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  return kind ? promptOffer(`Send ${who} this, so it saves every evening on its own:`, eveningAsk(kind)) : null;
+}
+
+/** Once connected: what to send so the first save comes now, and, where the agent has a schedule, its evening save.
+ * @param {AgentApp | null | undefined} app @param {string} who @returns {HTMLElement[]} */
+function afterConnect(app, who) {
+  const kind = app ? AGENT_GUIDES[app]?.routine : undefined;
+  return [promptOffer(kind ? `Then send ${who} this. It saves now, and every evening after:` : `Then send ${who} this, so it saves right away:`, saveAsk(kind))];
+}
+
+/** APP-207: connecting one of the owner's personal agents, in one sheet: their store online first if it isn't yet,
+ * then which agent, then what to paste into it, shown once, then its first save. */
+class AgentSetup {
+  constructor() {
+    this.form = new FormSheet("Connect an agent", agentMark("other", "Agent"));
+    /** The agent apps on this Mac, so the sheet can open the one being connected (APP-216). */
+    this.installed = window.lore.agentApps().catch(() => /** @type {AgentApp[]} */ ([]));
+  }
+
+  open() {
+    if (snapshot?.node.url) this.pick();
+    else this.store();
+  }
+
+  /** The store goes online the way it always does, in its own thread; the sheet comes back once it is. */
+  store() {
+    this.form.text(STORE_FIRST);
+    this.form.open({
+      primary: "Put your store online",
+      submit: () => {
+        agentAfterStore = true;
+        void startDeploy(AGENT_STORE_INTENT);
+      }
+    });
+  }
+
+  pick() {
+    const { form } = this;
+    form.text("Which agent should save to Lore?");
+    const rows = /** @type {HTMLElement} */ (form.group("", []).querySelector(".form-rows"));
+    /** @type {[AgentApp, string] | null} */
+    let chosen = null;
+    for (const [app, label] of AGENT_APPS) {
+      const radio = el("input");
+      radio.type = "radio";
+      radio.name = "agent";
+      radio.disabled = app === "muse";
+      radio.addEventListener("change", () => {
+        chosen = [app, app === "other" ? "My agent" : label];
+        form.refresh();
+      });
+      const option = radio.disabled ? form.row(label, el("span", "hint", "Coming soon"), radio) : form.row(label, radio);
+      option.classList.add("form-option");
+      option.prepend(agentMark(app, label));
+      rows.append(option);
+    }
+    form.note("What it saves stays private on this Mac.");
+    form.open({
+      primary: "Connect",
+      working: "Connecting…",
+      valid: () => Boolean(chosen),
+      failed: "Lore couldn't connect it. Try again.",
+      submit: async () => {
+        if (!chosen) return false;
+        const [app, name] = chosen;
+        if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
+        else await this.keyed(app, name);
+        return false;
+      }
+    });
+  }
+
+  /** A private link instead, for an agent that can't sign in. @param {AgentApp} app @param {string} name */
+  async keyed(app, name) {
+    const handed = await window.lore.connectAgent({ app, name });
+    void load().then(loadAgents);
+    this.steps(handed, true, await this.installed);
+  }
+
+  /** XC-068: the plain address, with no key in it, then a wait here for the agent to ask to sign in; the first that
+   * asks becomes the Allow card in this sheet. @param {AgentApp} app @param {string} who @param {string} address
+   * @param {AgentApp[]} installed */
+  signIn(app, who, address, installed) {
+    const { form } = this;
+    const how = /** @type {AgentSteps} */ (AGENT_GUIDES[app]?.signIn);
+    form.reset();
+    form.heading(`Connect ${who}`, agentMark(app, who));
+    const list = el("ol", "agent-steps");
+    for (const step of how.steps) list.append(el("li", "", step));
+    form.body.append(list, how.message ? plainLink(address, who, how.message, "Copy message") : plainLink(address, who));
+    const note = AGENT_GUIDES[app]?.note;
+    if (note) form.body.append(el("p", "hint", note));
+    const line = el("p", "agent-wait");
+    line.append(el("span", "shimmer", `Waiting for ${who} to ask to sign in…`));
+    const instead = el("p", "hint agent-instead");
+    instead.append(inline("Can't sign in? Use a private link instead", () => {
+      stop();
+      void this.keyed(app, who).catch((error) => { form.problem.textContent = reason(error, "Lore couldn't connect it. Try again."); });
+    }));
+    form.body.append(line, instead);
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", "No key in it. You allow it here"));
+    form.aside.append(hint);
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`))));
+    // Asked only while this sheet is on screen; once it closes, Lore's own check still hears the sign-in.
+    const poll = setInterval(() => { if (form.dialog.open) void window.lore.checkAgents(); }, FIRST_SAVE_EVERY_MS);
+    /** @param {SignInRequest} asking */
+    const take = (asking) => {
+      stop();
+      this.allow(asking, app, who);
+    };
+    const stop = () => {
+      clearInterval(poll);
+      signInWaiting.delete(take);
+    };
+    signInWaiting.add(take);
+    form.dialog.addEventListener("close", stop);
+    form.arm({ primary: "Done" });
+    form.focus();
+  }
+
+  /** The Allow card: who asks, the code its page shows, Allow or Deny. Allowing makes the agent, and its page goes on
+   * by itself; then it waits for the first save. @param {SignInRequest} asking @param {AgentApp} [app] @param {string} [who] */
+  allow(asking, app = asking.app, who = asking.name) {
+    const { form } = this;
+    form.reset();
+    form.heading(`${who} wants to save to your Lore`, agentMark(app, who));
+    form.text("Allow it only if your browser shows this code.");
+    form.body.append(el("p", "sign-in-code", asking.code));
+    form.text("What it saves stays private on this Mac until you approve a piece.", "hint");
+    form.button("Deny", "secondary", () => void act(async () => {
+      answeredSignIns.add(asking.id);
+      await window.lore.denySignIn(asking.id);
+      closeSheet();
+      tell(`Denied. ${who} can't save to Lore.`);
+    }));
+    form.arm({
+      primary: "Allow",
+      working: "Allowing…",
+      failed: "Lore couldn't reach your store. Try again.",
+      submit: async () => {
+        answeredSignIns.add(asking.id);
+        const allowed = await window.lore.allowSignIn({ id: asking.id, app, name: who });
+        void load().then(loadAgents);
+        form.reset();
+        form.heading(`${who} is connected`, agentMark(app, who));
+        form.text(`Your browser goes back to ${who} by itself.`);
+        this.wait(allowed, who, true);
+        form.arm({ primary: "Done" });
+        form.focus();
+        return false;
+      }
+    });
+    form.focus();
+  }
+
+  /** What to paste into the agent, with its key shown this once; a first connect then waits for the first save.
+   * @param {AgentKey} handed @param {boolean} first @param {AgentApp[]} installed */
+  steps(handed, first, installed) {
+    const { form } = this;
+    const { name: who, app } = handed.agent;
+    const where = app === "other" ? who : AGENT_APPS.find(([id]) => id === app)?.[1] ?? who;
+    form.reset();
+    form.heading(first ? `Connect ${where}` : `A new link for ${who}`, agentMark(app, where));
+    /** @param {string} label @param {string} shown @param {string} text */
+    const copyRow = (label, shown, text) => {
+      const node = form.row(label, el("span", "hint mono", shown), copyButton(() => text));
+      node.classList.add("copy-row");
+      return node;
+    };
+    const guide = agentGuide(handed, first);
+    if (guide) form.body.append(...guide);
+    else {
+      const list = el("ol", "agent-steps");
+      for (const step of [`In ${where}'s settings, find where to add a connector.`, "Add one named “Lore” with the link below, or with the address and key if it asks for both.", `Add the instructions where ${where} keeps standing instructions, like custom instructions or a skill, so it remembers what to save in every chat.`]) list.append(el("li", "", step));
+      form.body.append(list, privateLink(handed));
+    }
+    const hint = el("span", "form-hint quiet-hint");
+    hint.innerHTML = LOCK_ICON;
+    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    form.aside.append(hint);
+    if (!guide) {
+      form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
+      form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
+      form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
+    }
+    if (first) form.body.append(...afterConnect(app, where));
+    if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
+    this.wait(handed, who, first);
+    form.arm({ primary: "Done" });
+    form.focus();
+  }
+
+  /** Waits, in the sheet, for the agent's first save to reach Lore; after a new link,
+   * for the next save, which shows the new link works. The store counts every save, even one that changes nothing,
+   * and the key came with the count so far, so only a save made with this key raises it: saves the old key left
+   * waiting were already counted. @param {Pick<AgentKey, "source" | "agent">} handed @param {string} who @param {boolean} first */
+  wait(handed, who, first) {
+    const { source } = handed;
+    const line = waitLine(who, first);
+    this.form.body.append(line);
+    const { dialog } = this.form;
+    // Asked only while this sheet is on screen.
+    const stop = firstSave(handed, () => dialog.open, (saved) => {
+      if (first) {
+        line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }));
+      } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
+    });
+    dialog.addEventListener("close", stop);
+  }
+}
+
+/** What to do in the agent, by its maker's own steps, with its private link or the message around it, and its note;
+ * null for an agent with no documented steps. @param {AgentKey} handed @param {boolean} first */
+function agentGuide(handed, first) {
+  const guide = AGENT_GUIDES[handed.agent.app];
+  const how = guide && (first ? guide.first : guide.again);
+  if (!guide || !how) return null;
+  const nodes = howTo(handed, how);
+  if (guide.note) nodes.push(el("p", "hint", guide.note));
+  return nodes;
+}
+
+/** What to do in the agent: its steps and the link, or the message around the link. An agent that can add Lore itself
+ * leads with the message to send it, its steps folded away for anyone who'd rather add it by hand.
+ * @param {AgentKey} handed @param {AgentSteps} how @returns {HTMLElement[]} */
+function howTo(handed, how) {
+  const list = el("ol", "agent-steps");
+  for (const step of how.steps) list.append(el("li", "", step));
+  if (how.or) list.lastElementChild?.append(el("span", "agent-step-or", how.or));
+  if (!how.ask) return [list, how.message ? privateLink(handed, how.message, "Copy message") : privateLink(handed)];
+  const where = AGENT_APPS.find(([id]) => id === handed.agent.app)?.[1] ?? handed.agent.name;
+  const byHand = el("details", "agent-by-hand");
+  byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
+  return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
+}
+
+/** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
+function waitLine(who, first) {
+  const line = el("p", "agent-wait");
+  line.append(el("span", "shimmer", `Waiting for ${who}'s ${first ? "first" : "next"} save…`));
+  return line;
+}
+
+/** Waits, while `active`, for the next save made with this key, and says how many it saved; the waiting is the app's.
+ * The store counts every save, even one that changes nothing, and the key came with the count so far, so only a save
+ * made with this key raises it: saves the old key left waiting were already counted. Returns what stops it.
+ * @param {Pick<AgentKey, "source" | "agent">} handed @param {() => boolean} active @param {(saved: number) => void} heard */
+function firstSave({ source, agent }, active, heard) {
+  let done = false;
+  const check = async () => {
+    // Main answers one list at a time.
+    if (done || !active()) return;
+    const saved = (await window.lore.agents().catch(() => [])).find((entry) => entry.source === source)?.saved ?? 0;
+    if (done || saved <= agent.saved) return;
+    stop();
+    heard(saved - agent.saved);
+  };
+  const poll = setInterval(() => {
+    if (active()) void window.lore.checkAgents().finally(check);
+  }, FIRST_SAVE_EVERY_MS);
+  /** @param {SourceRead[]} reads */
+  const landed = (reads) => {
+    if (reads.some((read) => read.name === source)) void check();
+  };
+  const stop = () => {
+    done = true;
+    clearInterval(poll);
+    agentWaiting.delete(landed);
+  };
+  agentWaiting.add(landed);
+  return stop;
+}
+
+/** XC-068: an app asked to sign in. A setup sheet waiting on it takes it; otherwise the Allow card opens on its own,
+ * unless the owner is in another sheet, in which case the next check asks again. @param {SignInRequest[]} signIns */
+function heardSignIns(signIns) {
+  const asking = signIns.find((each) => !answeredSignIns.has(each.id));
+  if (!asking) return;
+  const [waiting] = signInWaiting;
+  if (waiting) return waiting(asking);
+  if (document.querySelector("dialog.sheet[open]")) return;
+  const setup = new AgentSetup();
+  setup.allow(asking);
+  setup.form.show();
+}
+
+/** What one personal agent saved, and what can be done to it. @param {SourceEntry} source */
+function openAgent(source) {
+  const name = source.label;
+  const form = new FormSheet(name, agentMark(source.app, name));
+  form.text(agentLine(source));
+  form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
+  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  if (offer) form.body.append(offer);
+  const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
+  if (signedIn) {
+    form.text(`${name} signed in, so it has no link to replace. To connect it again, disconnect it, then add Lore in ${name} again.`, "hint");
+    form.button("Disconnect", "secondary", ask);
+  } else {
+    form.button("Disconnect", "quiet", ask);
+    form.button("Get a new key", "secondary", rekey);
+  }
+  form.open();
+  function rekey() {
+    const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
+    confirm.text(`The key ${name} has now stops working at once. You give it the new one the same way.`);
+    confirm.button("Cancel", "secondary", () => openAgent(source));
+    confirm.open({
+      primary: "Get a new key",
+      working: "Getting a key…",
+      failed: "Lore couldn't reach your store. Try again.",
+      submit: async () => {
+        const handed = await window.lore.agentKey(source.name);
+        const setup = new AgentSetup();
+        setup.steps(handed, false, await setup.installed);
+        setup.form.show();
+        return false;
+      }
+    });
+  }
+  function ask() {
+    const kept = source.imported ? ` The ${plural(source.imported, "memory")} it saved ${source.imported === 1 ? "stays" : "stay"} in your library.` : "";
+    const confirm = new FormSheet(`Disconnect ${name}?`, agentMark(source.app, name));
+    confirm.text(`${signedIn ? `${name}'s sign-in` : `${name}'s key`} stops working, so it can't save to Lore anymore.${kept}`);
+    if (source.imported) confirm.button("Delete them too", "quiet", () => void remove(false)).classList.add("destructive");
+    confirm.button("Cancel", "secondary", () => openAgent(source));
+    confirm.button("Disconnect", "secondary", () => void remove(true));
+    confirm.open();
+  }
+  /** @param {boolean} keep */
+  async function remove(keep) {
+    await act(async () => {
+      const { memories } = await window.lore.disconnectAgent(source.name, keep);
+      closeSheet();
+      tell(memories.deleted ? `Disconnected ${name}. ${plural(memories.deleted, "memory")} deleted.` : `Disconnected ${name}. ${plural(memories.kept, "memory")} kept.`);
+    });
+  }
 }
 
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
@@ -1712,6 +3496,8 @@ function renderFaq(s) {
 /** @param {Snapshot} s */
 function renderSettings(s) {
   const live = s.node.live;
+  // What Lore has run for the owner (store updates, readings, tasks) is a log, not an automation, so it sits last here.
+  const runs = recentRuns(s);
   const path = el("span", "mono path", s.home.replace(/^\/Users\/[^/]+/, "~"));
   path.title = s.home;
   return [
@@ -1745,34 +3531,271 @@ function renderSettings(s) {
         ? [row("Test payments", "Your store takes play money while it's on the test network. Switch when you want real buyers paying real money.", cell(pill("Test"), button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
       ...marketplaceRow(s)
-    ]))
+    ])),
+    section("Appearance", card([appearanceRow()])),
+    ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
+    ...(runs ? [runs] : [])
   ];
 }
 
-const renderers = { today: renderToday, memories: renderMemories, store: renderStore, collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
+const APPEARANCES = /** @type {const} */ ([["system", "Match Mac"], ["light", "Light"], ["dark", "Dark"]]);
+
+/** Light, dark or the Mac's own, from Settings or the account menu's switch. The window turns at once. @param {AppearanceChoice} choice */
+function chooseAppearance(choice) {
+  appearance = choice;
+  if (view === "settings") render();
+  void window.lore.setAppearance(choice).catch(() => tell("Lore couldn't keep that choice. It goes back to how it was next time Lore opens.", true));
+}
+
+/** Settings → Appearance: as the Mac is set, or always light or dark. The window changes as soon as one is picked. */
+function appearanceRow() {
+  const choices = el("div", "shelves");
+  choices.setAttribute("role", "radiogroup");
+  choices.setAttribute("aria-label", "Appearance");
+  for (const [choice, label] of APPEARANCES) {
+    const option = el("button", "shelf", label);
+    option.type = "button";
+    option.setAttribute("role", "radio");
+    option.setAttribute("aria-checked", String(appearance === choice));
+    option.addEventListener("click", () => chooseAppearance(choice));
+    choices.append(option);
+  }
+  return row("Light or dark", "Lore can follow your Mac's light or dark setting, or keep to one.", cell(choices), false);
+}
+
+/** Settings → Updates: the version on this Mac, and the one thing to do about a newer one. @param {AppUpdate} u */
+function updateRow(u) {
+  const check = () => void window.lore.checkUpdate();
+  const install = () => void window.lore.installUpdate();
+  const [detail, ...trailing] = {
+    current: ["Lore keeps itself up to date.", pill("Up to date", "ok"), button("Check for updates", "quiet", check)],
+    checking: ["Lore keeps itself up to date.", pill("Checking", "wait")],
+    downloading: ["A new version is downloading. Lore asks before it restarts.", pill("Downloading", "wait")],
+    ready: ["A new version is ready.", button("Restart to update", "primary", install)],
+    offline: ["Lore couldn't check for a new version just now. It will try again later.", button("Check again", "secondary", check)],
+    outside: ["Move Lore to Applications so it can update itself.", button("Move to Applications", "secondary", install)]
+  }[u.state];
+  return row(`Lore ${u.version}`, detail, cell(...trailing), false);
+}
+
+/** The button at the top of the window, shown only when there is a newer Lore to move to. @param {AppUpdate} next */
+function showUpdate(next) {
+  appUpdate = next;
+  updateBtn.hidden = !(next.state === "ready" || (next.state === "outside" && next.newer));
+  updateBtn.title = next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update";
+  if (view === "settings") render();
+}
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/** "6 PM". @param {number} hour */
+const clock = (hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
+
+/** When a routine runs, as the owner would say it. @param {RoutineTime} time */
+function runsWhen({ cadence, hour, day }) {
+  const days = cadence === "weekly" ? DAYS[day] ?? DAYS[0] : cadence === "weekdays" ? "weekday" : "day";
+  return `Every ${days} at ${clock(hour)}`;
+}
+
+/** Each kind of routine's mark: reading apps, the evening check-in, and the owner's own sentence. */
+const ROUTINE_ICONS = {
+  read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>`,
+  checkin: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>`,
+  ask: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`
+};
+const CLOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`;
+const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"></path></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>`;
+
+/** A small labelled control on a routine. @param {string} label @param {string} icon @param {() => void} onClick @param {string} [text] */
+function routineAct(label, icon, onClick, text) {
+  const node = el("button", `routine-act${text ? " when-chip" : ""}`);
+  node.type = "button";
+  node.title = label;
+  node.setAttribute("aria-label", label);
+  node.innerHTML = icon;
+  if (text) node.append(text);
+  node.addEventListener("click", onClick);
+  return node;
+}
+
+/** One routine: what it is, when (a chip that changes it), what it last found; Run now, and a switch to pause it. @param {Routine} routine */
+function routineRow(routine) {
+  const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
+  const status = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const toggle = el("button", "switch");
+  toggle.type = "button";
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", String(!routine.paused));
+  toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
+  toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
+  const detail = el("span", "routine-line");
+  detail.append(routineAct("Change time", CLOCK_ICON, () => openRoutineTime(routine), runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), " · ", el("span", running.has(routine.id) ? "running" : "", status));
+  const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
+  if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
+  trailing.append(toggle);
+  const node = row(routine.name, detail, trailing, false);
+  const mark = el("span", `routine-mark ${routine.kind}`);
+  mark.innerHTML = ROUTINE_ICONS[routine.kind] ?? ROUTINE_ICONS.ask;
+  node.prepend(mark);
+  node.classList.add("routine");
+  if (routine.paused) node.classList.add("paused");
+  node.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element && event.target.closest("button"))) openRoutine(routine);
+  });
+  return node;
+}
+
+/** One routine, opened: what it does (the owner's own can be reworded), when, and Run now. @param {Routine} routine */
+function openRoutine(routine) {
+  const own = !routine.built_in;
+  const form = new FormSheet(routine.name);
+  const title = own ? form.title("Title (optional)") : null;
+  if (title) title.value = routine.name === routine.about ? "" : routine.name;
+  const text = own ? form.prompt("What Lore does", "Describe what Lore should do.") : null;
+  if (text) {
+    text.value = routine.about;
+    text.maxLength = 500;
+  } else {
+    form.text(routine.about);
+  }
+  const before = { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 };
+  const chosen = scheduleRows(form, before);
+  form.note(ROUTINE_NOTE);
+  if (own) form.button("Remove", "quiet", () => { form.close(); void changeRoutine(routine, "remove"); });
+  form.button("Run now", "secondary", () => { form.close(); void runRoutineNow(routine); });
+  form.open({
+    primary: "Save",
+    working: "Saving…",
+    valid: () => !text || Boolean(text.value.trim()),
+    failed: "Lore couldn't save that. Try again.",
+    submit: async () => {
+      const time = chosen();
+      if (text && title && (text.value.trim() !== routine.about || title.value.trim() !== (routine.name === routine.about ? "" : routine.name))) {
+        await window.lore.editRoutine(routine.id, text.value, title.value.trim());
+      }
+      if (time.cadence !== before.cadence || time.hour !== before.hour || (time.cadence === "weekly" && time.day !== before.day)) {
+        await window.lore.changeRoutine(routine.id, "time", time);
+      }
+      await load();
+    }
+  });
+}
+
+/** @param {Routine} routine @param {"pause" | "resume" | "remove" | "time"} action @param {RoutineTime} [time] */
+async function changeRoutine(routine, action, time) {
+  try {
+    await window.lore.changeRoutine(routine.id, action, time);
+    if (action === "remove") tell(`Removed “${routine.name}”.`);
+  } catch (error) {
+    tell(reason(error, "Lore couldn't change that. Try again."), true);
+  }
+  await load();
+}
+
+/** @param {Routine} routine */
+async function runRoutineNow(routine) {
+  running.add(routine.id);
+  render();
+  try {
+    const done = await window.lore.runRoutine(routine.id);
+    tell(`“${done.name}” is done · ${done.result || "Nothing new"}`);
+  } catch (error) {
+    tell(reason(error, "Lore couldn't run that. Try again."), true);
+  } finally {
+    running.delete(routine.id);
+  }
+  await load();
+}
+
+/** The Schedule group: Repeat, On (only for a weekly rhythm) and At, filled from `time`. @param {FormSheet} form @param {RoutineTime} time
+ * @returns {() => RoutineTime} */
+function scheduleRows(form, time) {
+  const cadence = form.select("Repeat", [["daily", "Every day"], ["weekdays", "Weekdays"], ["weekly", "Every week"]], time.cadence);
+  const day = form.select("On", DAYS.map((name, index) => [String(index), name]), String(time.day));
+  const hour = form.select("At", Array.from({ length: 24 }, (_, index) => [String(index), clock(index)]), String(time.hour));
+  const showDay = () => { day.row.hidden = cadence.control.value !== "weekly"; };
+  cadence.control.addEventListener("change", showDay);
+  showDay();
+  form.group("Schedule", [cadence.row, day.row, hour.row]);
+  return () => ({ cadence: /** @type {Routine["cadence"]} */ (cadence.control.value), hour: Number(hour.control.value), day: Number(day.control.value) });
+}
+
+const ROUTINE_NOTE = "Runs on this Mac while Lore is open. What it finds stays private.";
+
+/** @param {Routine} routine */
+function openRoutineTime(routine) {
+  const form = new FormSheet("Change time");
+  form.text(routine.name);
+  const chosen = scheduleRows(form, { cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 });
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({ primary: "Save", submit: () => void changeRoutine(routine, "time", chosen()) });
+}
+
+/** A plain sentence and a time: Lore runs it on its own agent, under the rules its own reading keeps. */
+function openNewRoutine() {
+  const form = new FormSheet("New automation");
+  const name = form.title("Title (optional)");
+  const text = form.prompt("Describe what Lore should do", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
+  text.maxLength = 500;
+  const chosen = scheduleRows(form, { cadence: "weekly", hour: 18, day: 6 });
+  form.note(ROUTINE_NOTE);
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Create",
+    valid: () => Boolean(text.value.trim()),
+    failed: "Lore couldn't add that. Try again.",
+    submit: async () => {
+      await window.lore.addRoutine(text.value, chosen(), name.value.trim());
+      await load();
+    }
+  });
+  text.focus();
+}
+
+/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
+function renderAutomations(s) {
+  const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
+  const plus = el("span", "routine-mark add");
+  plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
+  add.prepend(plus);
+  add.classList.add("routine", "add-tile");
+  add.tabIndex = 0;
+  add.setAttribute("role", "button");
+  add.addEventListener("click", openNewRoutine);
+  add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
+  const list = el("div", "routines");
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
+  return [list];
+}
+
+const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
+  renderNotices();
   const detail = view === "today" ? detailTask : null;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : { today: greeting(), memories: "Memories", store: "For Sale", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
+  const welcoming = view === "today" && !detail && firstRun.active;
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : view === "today" ? longDate.format(new Date())
-    : view === "memories" && snapshot ? memoriesCountLabel(snapshot)
-    : view === "collection" ? collectionEyebrow(openCollection()) : "";
+    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  addMemoryBtn.hidden = Boolean(detail) || view !== "memories";
-  captureArea.hidden = view !== "today";
+  addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
+  sellWritingBtn.hidden = addMemoryBtn.hidden;
+  captureArea.hidden = view !== "today" || welcoming;
+  skipBtn.hidden = !welcoming;
+  header.classList.toggle("compact", welcoming || Boolean(detail));
+  mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
   // A collection is something for sale, so For Sale stays lit while one is open.
   for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
   if (!snapshot) return;
-  $("[data-count=memories]").textContent = String(snapshot.library.counts.private);
-  $("[data-count=store]").textContent = String(snapshot.publications.counts.active);
+  $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -1784,83 +3807,75 @@ function render() {
   renderAccount();
 }
 
+/** The account row at the foot of the sidebar: who is signed in, and the menu that holds Settings, help and feedback. */
 function renderAccount() {
-  account.replaceChildren();
   const credential = auth?.credentials[0];
-  if (!credential) return;
   const [name, icon] = provider(credential);
-  const trigger = el("button", "account-trigger");
-  trigger.type = "button";
-  trigger.setAttribute("aria-haspopup", "menu");
-  trigger.setAttribute("aria-expanded", String(accountMenuOpen));
-  const who = el("div", "who");
-  who.append(el("b", "", "Signed in"));
-  const line = el("span");
-  if (icon) {
-    const img = el("img");
-    img.src = icon;
-    img.alt = "";
-    line.append(img);
-  }
-  const store = snapshot ? nodeLabel(snapshot.node.live.state) : "";
-  line.append(document.createTextNode(`${name}${snapshot?.node.url ? ` · ${store}` : ""}`));
-  who.append(line);
-  trigger.append(mark(), who);
-  trigger.addEventListener("click", (event) => {
-    event.stopPropagation();
-    accountMenuOpen = !accountMenuOpen;
-    renderAccount();
-  });
-  account.append(trigger);
-  if (accountMenuOpen) {
-    const menu = el("div", "account-menu");
-    menu.setAttribute("role", "menu");
-    const item = (/** @type {string} */ label, /** @type {() => void} */ onPick) => {
-      const node = el("button", "", label);
-      node.type = "button";
-      node.setAttribute("role", "menuitem");
-      node.addEventListener("click", () => { accountMenuOpen = false; onPick(); });
-      return node;
-    };
-    menu.append(item("Open Settings", () => show("settings")), item(`Sign out of ${name}`, () => void signOut(credential.providerId)));
-    account.append(menu);
-    /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus({ preventScroll: true });
-  }
+  const avatar = el("span", "avatar");
+  if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
+  const who = el("span", "who");
+  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
+  who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
+  account.replaceChildren(avatar, who);
+  account.insertAdjacentHTML("beforeend", CHEVRON);
+  accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
+  signOutBtn.hidden = !credential;
 }
 
-/** @param {View} next */
+/** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
 function show(next) {
-  view = next;
-  if (next === "store") void loadSales();
-  // Leaving For Sale abandons a half-typed price rather than keeping the field
-  // open behind the owner's back.
-  if (next !== "store") editingPrice = false;
-  if (next !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
+  if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
+  view = next === "memories" || next === "store" ? "inventory" : next;
+  if (view === "inventory") void loadSales();
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
+  if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
+  unseen.visit();
   render();
   mainEl.scrollTop = 0;
   mainEl.focus({ preventScroll: true });
 }
 
-/** Every "change the price" affordance lands on the one editor, on For Sale. */
+/** Every "change the price" affordance lands on For Sale, with the one price sheet open over it. */
 function openPriceEditor() {
-  editingPrice = true;
   detailTask = null;
   detailRecord = null;
   show("store");
+  openPriceSheet();
 }
 
 async function load() {
   if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
+  // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
+  const ticket = ++loads;
   try {
-    [snapshot, candidates, extraDrafts, taskItems, apps] = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => [])]);
+    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
+    if (ticket !== loads) return;
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    let newest = 0;
+    for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
+    await unseen.load(newest).catch(() => undefined);
+    if (ticket !== loads) return;
     if (detailTask) detailRecord = taskItems.find((item) => item.kind === detailTask) ?? detailRecord;
     peeked.clear();
+    firstRun.consider(snapshot);
+    noticeAutomations();
+    noticeUsage();
+    // A dismissed notice whose write failed was still seen: try it again, without showing it again.
+    if (!appShell.hidden) for (const key of told.keys()) if (!notices.some((item) => item.key === key)) remember(key);
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
+    if (agentAfterStore && snapshot.node.url && !taskItems.some((item) => item.kind === "deploy" && item.state === "working")) {
+      agentAfterStore = false;
+      // Back where the owner started, with the sheet at its next step.
+      if (detailTask === "deploy") closeTask();
+      show("connectors");
+      new AgentSetup().open();
+    }
   } catch {
+    if (ticket !== loads) return;
     const error = el("section", "card error");
     error.setAttribute("role", "alert");
     error.append(el("h2", "", "Lore could not load"), el("p", "hint", "Your data was not changed. Check that Lore is installed, then try again."), button("Try again", "secondary", load));
@@ -1876,17 +3891,50 @@ function say(text, owner = false, stopped = false) {
 }
 
 /** @typedef {{label: string, run: () => void}} NoticeAction */
-/** @type {Array<{text: string, attention: boolean, action?: NoticeAction}>} */
+/** A Today notice carries its `key`; it leaves only by its × or its own action.
+ * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
-/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
+/** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention);
+  if (!attention) drop((item) => !item.attention && !item.key);
   notices.push({ text, attention, action });
-  if (notices.length > 3) notices.shift();
+  const plain = notices.filter((item) => !item.key);
+  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
+}
+
+/** Today notices told this sign-in, by key, and the write that remembers each as said, kept until it lands.
+ * @type {Map<string, {write: () => Promise<unknown>, pending: boolean} | null>} */
+const told = new Map();
+/** Seen notices are remembered one write at a time: each goes through the CLI, and two first writes at once can collide. */
+let remembering = /** @type {Promise<unknown>} */ (Promise.resolve());
+
+/** A notice for Today only, told at most once a sign-in. @param {string} key @param {string} text @param {NoticeAction} action @param {() => Promise<unknown>} write */
+function tellOnce(key, text, action, write) {
+  if (told.has(key)) return;
+  told.set(key, { write, pending: false });
+  notices.push({ text, attention: false, action, key });
+  renderNotices();
+}
+
+/** Today is what the owner sees: signed in, on Today, with no thread open over it. */
+function onToday() {
+  return !appShell.hidden && view === "today" && !detailTask && !firstRun.active;
+}
+
+/** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
+ * or for a notice told again since, is skipped. @param {string} key */
+function remember(key) {
+  const entry = told.get(key);
+  if (!entry || entry.pending) return;
+  entry.pending = true;
+  const current = () => told.get(key) === entry && !appShell.hidden;
+  remembering = remembering
+    .then(() => (current() ? entry.write().then(() => { if (current()) told.set(key, null); }) : undefined))
+    .catch(() => { entry.pending = false; });
 }
 
 /** @param {(item: typeof notices[number]) => boolean} which */
@@ -1896,7 +3944,8 @@ function drop(which) {
 }
 
 function renderNotices() {
-  status.replaceChildren(...notices.map((item) => {
+  const shown = notices.filter((item) => !item.key || onToday());
+  status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");
     box.insertAdjacentHTML("afterbegin", item.attention ? ALERT_ICON : INFO_ICON);
@@ -1910,6 +3959,8 @@ function renderNotices() {
     box.append(dismiss);
     return box;
   }));
+  // A Today notice is in `shown` only while Today is on screen, so it is remembered only once the owner can see it.
+  for (const item of shown) if (item.key) remember(item.key);
 }
 
 /** @param {string} text @param {boolean} [status] */
@@ -1923,8 +3974,9 @@ function live(text, status = false) {
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
   return card(saved.map((memory) => {
-    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
-    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    // Only the threads that capture offer the next step; a publish thread forked from one restores these same lines.
+    const from = detailTask === "capture" || detailTask === "evening" ? detailTask : null;
+    const draft = from ? button("Draft for sale", "quiet", () => void publishMemory(memory, from)) : undefined;
     if (draft) draft.disabled = busy !== null;
     return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
   }));
@@ -1960,29 +4012,176 @@ function clearRequest() {
   syncComposer();
 }
 
-/** Lore's typing bubble while its turn is open, with what it is doing beside it. @param {string} label */
+/** What Lore is doing while its turn is open, in one shimmering line. @param {string} label */
 function thinkingLine(label) {
   const line = el("div", "line live thinking");
-  const bubble = el("span", "bubble");
-  bubble.append(el("i"), el("i"), el("i"));
   line.setAttribute("role", "status");
-  line.append(mark("mark mark-sm"), bubble, el("span", "", label));
+  line.append(el("span", "shimmer", label));
   return line;
 }
 
+/** Each kind of step by its icon and its words, for `n` steps of that kind in a row. */
+const STEP_WORDS = /** @type {Record<StepKind, [string, (n: number) => string]>} */ ({
+  read: ["memory", (n) => `Read ${plural(n, "note")}`],
+  "read-memory": ["memory", (n) => `Read ${plural(n, "memory")}`],
+  write: ["edit", (n) => `Wrote ${plural(n, "note")}`],
+  "write-memory": ["edit", (n) => `Wrote ${plural(n, "memory")}`],
+  edit: ["edit", (n) => `Edited ${plural(n, "note")}`],
+  "edit-memory": ["edit", (n) => `Edited ${plural(n, "memory")}`],
+  look: ["look", () => "Looked through your Lore"],
+  draft: ["publish", (n) => `Drafted ${plural(n, "piece")}`],
+  extras: ["publish", () => "Drafted free parts"],
+  listing: ["publish", () => "Changed what's for sale"],
+  push: ["update", () => "Updated your store"],
+  deploy: ["store", () => "Set up your store"],
+  sales: ["store", () => "Checked your sales"],
+  status: ["store", () => "Checked your store"],
+  price: ["publish", () => "Set your price"],
+  profile: ["check", () => "Saved your profile"],
+  shape: ["check", () => "Saved how your Lore is shaped"],
+  capture: ["memory", () => "Saved memories"],
+  answers: ["store", () => "Changed paid answers"],
+  "open-store": ["store", () => "Opened your store"],
+  open: ["update", () => "Opened a page"],
+  work: ["work", () => "Worked on your Lore"]
+});
+const STEP_MARKS = {
+  ...STEP_ICONS,
+  edit: lineIcon(`<path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path>`),
+  look: lineIcon(`<circle cx="11" cy="11" r="6.5"></circle><path d="M20 20l-4-4"></path>`),
+  check: lineIcon(`<path d="M5 12.5l4.5 4.5L19 7.5"></path>`),
+  work: lineIcon(`<circle cx="12" cy="12" r="3"></circle>`)
+};
+
+/** How long something took, as a step row says it: "0.4s", "12s", "1m 05s". @param {number} ms */
+function took(ms) {
+  if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = Math.round(ms / 1000);
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
+
+/** One row per run of steps of the same kind. @param {Step[]} steps */
+function stepRows(steps) {
+  /** @type {Step[][]} */
+  const runs = [];
+  for (const step of steps) {
+    const last = runs.at(-1);
+    if (last && last[0].kind === step.kind) last.push(step);
+    else runs.push([step]);
+  }
+  return runs.map((run) => {
+    const [icon, words] = STEP_WORDS[run[0].kind];
+    const running = run.some((step) => step.ended === undefined);
+    const node = el("div", "step");
+    node.insertAdjacentHTML("afterbegin", STEP_MARKS[/** @type {keyof typeof STEP_MARKS} */ (icon)]);
+    node.append(el("span", running ? "shimmer" : "", words(run.length)));
+    if (!running) node.append(el("span", "took", took(run.reduce((sum, step) => sum + (step.ended ?? step.started) - step.started, 0))));
+    return node;
+  });
+}
+
+/** A turn's steps: each as a row while Lore is on them, then folded into one line that opens on click.
+ * @param {Line & { steps: Step[] }} entry @param {boolean} active */
+function stepsLine(entry, active) {
+  const line = el("div", "line steps");
+  const list = el("div", "steps-list");
+  list.append(...stepRows(entry.steps));
+  if (active) {
+    line.append(list);
+    return line;
+  }
+  const ended = Math.max(...entry.steps.map((step) => step.ended ?? step.started));
+  const summary = el("button", "steps-sum");
+  summary.type = "button";
+  summary.insertAdjacentHTML("beforeend", lineIcon(`<path d="M9 6l6 6-6 6"></path>`));
+  summary.append(el("span", "", `${plural(entry.steps.length, "step")} · ${took(ended - entry.steps[0].started)}`));
+  const fold = el("div", "steps-fold");
+  fold.append(list);
+  const show = () => {
+    line.classList.toggle("open", Boolean(entry.open));
+    summary.setAttribute("aria-expanded", String(Boolean(entry.open)));
+  };
+  summary.addEventListener("click", () => { entry.open = !entry.open; show(); });
+  show();
+  line.append(summary, fold);
+  return line;
+}
+
+/** A tool call starting or ending in the open thread. @param {Extract<AgentEvent, { type: "step" }>} event */
+function step(event) {
+  const last = lines.at(-1);
+  if (event.done) {
+    const found = last?.steps?.find((each) => each.id === event.id);
+    if (!found) return;
+    found.ended = Date.now();
+  } else if (event.kind) {
+    const started = { id: event.id, kind: event.kind, started: Date.now() };
+    if (last?.steps) last.steps.push(started);
+    else lines.push({ text: "", owner: false, steps: [started] });
+  }
+  renderLog();
+}
+
+/** When each word of the streaming reply first showed, by its place in the reply. @type {number[]} */
+const inkTimes = [];
+const INK_MS = 150;
+
+/** The streaming reply with only its newest words inking in; a word already in keeps going where it was, and code
+ * never animates. @param {HTMLElement} node */
+function inked(node) {
+  const now = performance.now();
+  const walk = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, { acceptNode: (text) => text.parentElement?.closest("pre, code") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  /** @type {Text[]} */
+  const texts = [];
+  for (let text = walk.nextNode(); text; text = walk.nextNode()) texts.push(/** @type {Text} */ (text));
+  let index = 0;
+  for (const text of texts) {
+    const pieces = (text.textContent ?? "").split(/(\s+)/).map((part) => {
+      if (!part.trim()) return part;
+      const since = now - (inkTimes[index] ??= now);
+      index++;
+      if (since >= INK_MS) return part;
+      const word = el("span", "ink", part);
+      word.style.animationDelay = `${-since}ms`;
+      return word;
+    });
+    if (pieces.some((piece) => typeof piece !== "string")) text.replaceWith(...pieces);
+  }
+  return node;
+}
+
+/** APP-218: the open thread's lines, each coming in once. Streamed text keeps the key of the line it becomes. */
+const logEntrance = new Entrance();
+
 function renderLog() {
-  log.replaceChildren(...lines.map(({ text, owner, stopped, saved }) => {
+  const thread = detailTask ?? "today";
+  const working = busy !== null && !liveText;
+  log.replaceChildren(...lines.map((entry, index) => {
+    const { text, owner, stopped, saved, steps } = entry;
+    if (steps) {
+      const line = stepsLine(/** @type {Line & { steps: Step[] }} */ (entry), working && index === lines.length - 1);
+      line.dataset.say = `${thread} ${index}`;
+      return line;
+    }
     const line = el("div", owner ? "line owner" : stopped ? "line stop" : "line");
-    line.append(owner ? el("span", "you", "You") : mark("mark mark-sm"), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
+    line.dataset.say = `${thread} ${index}`;
+    line.append(speaker(owner), saved ? savedCard(saved) : owner ? el("p", "", text) : markdown(text));
     return line;
   }));
   if (liveText) {
     const line = el("div", "line live");
-    line.append(mark("mark mark-sm"), markdown(liveText));
+    line.dataset.say = `${thread} ${lines.length}`;
+    line.append(speaker(false), inked(markdown(liveText)));
+    log.append(line);
+  } else inkTimes.length = 0;
+  const stepping = Boolean(working && lines.at(-1)?.steps?.some((each) => each.ended === undefined));
+  const thinking = busy !== null && !request;
+  if (thinking && busy && !stepping) {
+    const line = thinkingLine(liveStatus || THINKING[busy] || "");
+    line.dataset.say = `${thread} thinking ${lines.length}`;
     log.append(line);
   }
-  const thinking = busy !== null && !request;
-  if (thinking && busy) log.append(thinkingLine(liveStatus || THINKING[busy] || ""));
+  logEntrance.play(/** @type {HTMLElement[]} */ ([...log.children]));
   agentPanel.hidden = !lines.length && !liveText && !thinking && !shownRequest() && !detailSlot.childElementCount && !blueprintGhost;
   if (log.lastElementChild) reveal();
 }
@@ -2101,33 +4300,57 @@ function blueprintPanel(fields, mode) {
   return { box, controls };
 }
 
+/** What the payout card answers to sell by card instead of to an address; the app reads the same words. */
+const BY_CARD = "By card";
 const PAYOUT_PATHS = [
+  {
+    label: BY_CARD,
+    detail: "Stripe pays you out to your bank.",
+    steps: ["Lore opens Stripe's form in your browser.", "Stripe checks who you are and where to pay you.", "Come back here. Your store opens once Stripe is done."],
+    help: null,
+    card: true
+  },
   {
     label: "My Coinbase account",
     detail: "Payments can go on to your bank from there.",
     steps: ["In the Coinbase app, tap Receive, then USDC.", "Set the network to Base. Not Ethereum or Solana.", "Copy the address and paste it here."],
-    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup")
+    help: outLink("No account yet? Create one ↗", "https://www.coinbase.com/signup"),
+    card: false
   },
   {
     label: "A wallet app",
     detail: "MetaMask, Rainbow, Coinbase Wallet, or similar.",
     steps: ["Open your wallet and tap Receive.", "Pick the Base network.", "Copy the address and paste it here."],
-    help: null
+    help: null,
+    card: false
   }
 ];
 const PUBLIC_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** The one step where new sellers stalled: two paths, their exact taps, and a field that says what it got. @param {OwnerQuestion} question @param {number} index */
+/** The one step where new sellers stalled: by card first, then two ways to an address, their exact taps, and a field
+ * that says what it got. @param {OwnerQuestion} question @param {number} index */
 function payoutField(question, index) {
   const fieldset = el("fieldset", "payout");
   fieldset.dataset.question = question.question;
   fieldset.append(el("legend", "q", question.question), el("p", "hint", "Each payment goes straight there. Lore never holds your money."));
   const choices = el("div", "choices");
   const steps = el("div", "payout-steps");
+  const address = el("input", "other-answer mono");
+  address.type = "text";
+  address.required = true;
+  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
+  address.placeholder = "0x…";
+  address.spellcheck = false;
+  address.autocomplete = "off";
+  const status = el("p", "hint payout-status");
   const pick = (/** @type {typeof PAYOUT_PATHS[number]} */ path) => {
     const list = el("ol");
     list.append(...path.steps.map((step) => el("li", "", step)));
     steps.replaceChildren(list, ...(path.help ? [path.help] : []));
+    // By card asks for no address: Stripe has the owner's bank.
+    address.hidden = status.hidden = path.card;
+    address.required = !path.card;
+    if (path.card) address.value = "";
   };
   for (const [position, path] of PAYOUT_PATHS.entries()) {
     const label = el("label", "choice");
@@ -2143,14 +4366,6 @@ function payoutField(question, index) {
     choices.append(label);
   }
   pick(PAYOUT_PATHS[0]);
-  const address = el("input", "other-answer mono");
-  address.type = "text";
-  address.required = true;
-  address.pattern = PUBLIC_ADDRESS.source.slice(1, -1);
-  address.placeholder = "0x…";
-  address.spellcheck = false;
-  address.autocomplete = "off";
-  const status = el("p", "hint payout-status");
   address.addEventListener("input", () => {
     const value = address.value.trim();
     // A recovery phrase is the wallet itself; it must not sit in a field, a transcript, or a memory.
@@ -2171,7 +4386,40 @@ function payoutField(question, index) {
   return fieldset;
 }
 
-/** @param {AgentRequest} event */
+/** While Stripe has the owner on its form: how often the payout card asks whether it's done. */
+const CARDS_EVERY_MS = 5_000;
+
+/** By card on the payout card: Stripe's form in the browser, then a wait here until Stripe clears the owner, then card
+ * payments on, as Settings does it; `then` answers the card. Waits only while the card is on screen with By card picked.
+ * @param {HTMLFormElement} box @param {HTMLButtonElement} go @param {() => void} then */
+async function cardsFirst(box, go, then) {
+  const status = /** @type {HTMLElement | null} */ (box.querySelector(".payout .payout-status"));
+  const say = (/** @type {string} */ text) => { if (status) { status.hidden = false; status.textContent = text; status.dataset.state = ""; } };
+  const picked = () => box.isConnected && Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+  go.disabled = true;
+  try {
+    let found = await window.lore.cardStatus();
+    if (!found.account && !found.ready) {
+      await window.lore.connectCards();
+      say("Finish with Stripe in your browser. Lore waits here.");
+    }
+    while (!found.account && !found.ready && picked()) {
+      await new Promise((done) => setTimeout(done, CARDS_EVERY_MS));
+      found = await window.lore.cardStatus();
+      if (found.checking) say("Stripe is checking your details. This usually takes a minute or two.");
+    }
+    if (!picked()) return;
+    if (!found.account) await window.lore.switchCards(found.pending);
+    box.dataset.cardsOn = "1";
+    then();
+  } catch (error) {
+    say(reason(error, "Lore couldn't reach Stripe. Try again."));
+  } finally {
+    go.disabled = false;
+  }
+}
+
+/** @param {Exclude<AgentRequest, {type: "changes"}>} event */
 function renderRequest(event) {
   // The blueprint panel is built by the shared blueprintPanel() below, in confirm
   // mode, reusing the live ghost node if the evidence scan already built one.
@@ -2188,6 +4436,7 @@ function renderRequest(event) {
       const fieldset = el("fieldset");
       fieldset.dataset.question = question.question;
       fieldset.append(el("legend", "q", question.question));
+      if (event.source === "app" && question.detail) fieldset.append(el("div", "detail", question.detail));
       const choices = el("div", "choices");
       for (const option of question.options) {
         const label = el("label", "choice");
@@ -2210,12 +4459,19 @@ function renderRequest(event) {
       box.append(fieldset);
     }
     const actions = el("div", "actions");
-    const go = el("button", "btn primary sm", event.questions.every((question) => question.format === "evm_address") ? "Use this address" : "Continue");
+    const payoutOnly = event.questions.every((question) => question.format === "evm_address");
+    const go = el("button", "btn primary sm", "Continue");
     go.type = "submit";
+    const byCard = () => Boolean(box.querySelector(`.payout input[value="${BY_CARD}"]:checked`));
+    const relabel = () => { go.textContent = byCard() ? "Continue with Stripe" : payoutOnly ? "Use this address" : "Continue"; };
+    relabel();
+    box.addEventListener("change", relabel);
     actions.append(go);
     box.append(actions);
     box.addEventListener("submit", (submitEvent) => {
       submitEvent.preventDefault();
+      // By card answers only once Stripe has cleared the owner and card payments are on.
+      if (byCard() && !box.dataset.cardsOn) return void cardsFirst(box, go, () => box.requestSubmit());
       /** @type {Record<string, string>} */
       const answers = {};
       for (const fieldset of box.querySelectorAll("fieldset")) {
@@ -2383,6 +4639,38 @@ function renderRequest(event) {
   if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
 }
 
+/** APP-226: each change a store update puts out, grouped as the owner thinks of them, with Confirm and Cancel. Closing
+ * the sheet any way but Confirm is Cancel, so nothing goes out without the yes.
+ * @param {Extract<AgentRequest, {type: "changes"}>} event */
+function confirmChanges(event) {
+  const sheet = new FormSheet(event.heading);
+  sheet.dialog.classList.add("changes-sheet");
+  const groups = [...new Set(event.changes.map((change) => change.group))];
+  for (const group of groups) {
+    sheet.group(group, event.changes.filter((change) => change.group === group).map(({ label, from, to }) => {
+      const value = el("span", "form-value");
+      if (from) value.append(el("s", "", from), " → ");
+      if (to) value.append(to);
+      const row = sheet.row(label, value);
+      row.dataset.wraps = "";
+      return row;
+    }));
+  }
+  sheet.note("Nothing changes on your store until you confirm.");
+  let yes = false;
+  let waiting = true;
+  sheet.button("Cancel", "secondary", () => sheet.close());
+  // Every way this sheet closes answers its own request once, even when another sheet replaced it.
+  sheet.dialog.addEventListener("close", () => {
+    if (changing?.sheet === sheet) changing = null;
+    if (!waiting) return;
+    waiting = false;
+    void window.lore.respond({ id: event.id, value: yes });
+  });
+  changing = { id: event.id, sheet, drop: () => { waiting = false; sheet.close(); } };
+  sheet.open({ primary: "Confirm", submit: () => { yes = true; } });
+}
+
 /** @param {string} id @param {unknown} value @param {string} [echo] */
 async function respond(id, value, echo) {
   clearRequest();
@@ -2416,25 +4704,30 @@ function storeOpened(s) {
 function nextRung(s) {
   const box = el("div", "card lead request");
   const deploy = detailTask === "deploy";
-  const storeOpen = Boolean(s.node.url);
-  const heading = deploy ? (storeOpen ? "Your store is open." : "Your store isn't open yet.") : "Your Lore is set up.";
+  const storeOpen = forSale(s);
+  // Online only so the owner's agents can save to it: nothing is on sale, and selling is its own step later.
+  const forAgents = Boolean(s.node.url) && !storeOpen;
+  const heading = deploy ? (storeOpen ? "Your store is open." : forAgents ? "Your store is online for your agents." : "Your store isn't open yet.") : "Your Lore is set up.";
   const detail = deploy
     ? storeOpen
       ? storeOpened(s)
-      : "This step is done. Try again now, or any time from Today."
+      : forAgents
+        ? "Nothing is for sale. When you approve something to sell, Lore asks for a price and where payments go."
+        : "This step is done. Try again now, or any time from Today."
     : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
   );
   const actions = el("div", "actions");
-  if (s.node.url) {
+  if (storeOpen && s.node.url) {
     const live = el("a", "btn secondary sm", "Your store ↗");
     live.href = s.node.url.replace(/\/mcp$/, "");
     live.target = "_blank";
     live.rel = "noreferrer";
     actions.append(live);
-  } else {
+  } else if (!forAgents) {
+    // Online for the owner's agents, selling waits for an approved piece: drafting one is the next step.
     actions.append(button("Open your store", "secondary", () => void startDeploy()));
   }
   actions.append(button("Publish something", "primary", () => void startPublish()));
@@ -2455,7 +4748,7 @@ function sellAction(source) {
     label: "Turn these into something to sell",
     run: () => {
       closeSheet();
-      drop((item) => Boolean(item.action));
+      drop((item) => Boolean(item.action) && !item.key);
       void startPublish(source);
     }
   };
@@ -2536,7 +4829,7 @@ let confirmingExtras = false;
 let approvingExtras = 0;
 
 function approvals() {
-  const list = el("div", "card pad stack");
+  const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
   const form = (draft) => {
@@ -2598,10 +4891,11 @@ async function approveAllExtras(forms) {
   const working = `Approving ${plural(decisions.length, "piece")} and updating your store. It takes a minute; you can keep working.`;
   tell(working);
   render();
-  const done = await act(() => window.lore.approveExtras(decisions), "Approved. They go live with your next store update.");
+  let pushed = false;
+  const done = await act(async () => { pushed = await window.lore.approveExtras(decisions); }, "Approved. They go live with your next store update.");
   approvingExtras = 0;
   drop((item) => item.text === working);
-  if (done) tell(`Your store is updated · ${plural(decisions.length, "piece")} have their new pages.`);
+  if (done) tell(pushed ? `Your store is updated · ${plural(decisions.length, "piece")} have their new pages.` : "Approved. They go live with your next store update.");
   render();
 }
 
@@ -2650,18 +4944,23 @@ function readFirst(heading, preview, build, titleEdits = false) {
       read.replaceChildren(...reading());
     }
   });
-  memory.append(title, read, fields);
-  return { memory, edit, preview: previewButton };
+  memory.append(read, fields);
+  return { memory, title, edit, preview: previewButton };
 }
 
-/** @param {HTMLElement} memory @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
-function approvalMeta(memory, topic, actions, ...chips) {
-  const meta = el("div", "meta");
-  meta.append(chip(topic), ...chips);
+/** A draft's head: its title with the owner's choices beside it, so deciding never means scrolling past the draft, and
+ * its topic under it, cut to fit the card.
+ * @param {{memory: HTMLElement, title: HTMLElement}} card @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
+function approvalMeta(card, topic, actions, ...chips) {
+  const head = el("div", "draft-head");
   const group = el("div", "group");
   group.append(...actions);
-  meta.append(group);
-  memory.append(meta);
+  head.append(card.title, group);
+  const about = chip(topic, "topic");
+  about.title = topic;
+  const meta = el("div", "draft-chips");
+  meta.append(about, ...chips);
+  card.memory.prepend(head, meta);
 }
 
 /** @param {PublicationCandidate} candidate */
@@ -2690,7 +4989,7 @@ function approvalForm(candidate) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
+  approvalMeta(card, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
   return card.memory;
 }
 
@@ -2715,7 +5014,7 @@ function extrasForm({ extras, piece }) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, piece.topic, [card.preview, card.edit, skip, approve]);
+  approvalMeta(card, piece.topic, [card.preview, card.edit, skip, approve]);
   return card.memory;
 }
 
@@ -2736,33 +5035,28 @@ async function previewPage(candidate) {
 
 /** Paste writing to sell: Lore keeps it privately, then drafts a piece from it. */
 function openPasteSheet() {
-  const form = el("div", "feedback-form");
-  const title = draftField(form, "What it's about (optional)", "", true);
-  const text = /** @type {HTMLTextAreaElement} */ (draftField(form, "Your writing: a post, a postmortem, or notes", ""));
-  text.rows = 8;
-  const problem = problemLine();
-  const draft = button("Draft it for sale", "primary", async () => {
-    const content = text.value.trim();
-    if (!content) { problem.textContent = "Paste something first."; return; }
-    draft.disabled = true;
-    try {
+  const form = new FormSheet("Sell something you wrote");
+  const title = form.title("What it's about (optional)");
+  const text = form.prompt("Your writing", "Paste a post, a postmortem, or notes");
+  text.classList.add("tall");
+  form.note("Saved privately to your Lore. Nothing is public until you approve a draft.");
+  form.button("Cancel", "secondary", () => form.close());
+  form.open({
+    primary: "Draft it for sale",
+    valid: () => Boolean(text.value.trim()),
+    failed: "Lore could not save that.",
+    submit: async () => {
+      const content = text.value.trim();
       const [saved] = await window.lore.pasteMemory({ title: title.value.trim() || content.split("\n")[0].slice(0, 80), content });
-      dialog.close();
+      form.close();
       await publishMemory(saved);
-    } catch (error) {
-      problem.textContent = reason(error, "Lore could not save that.");
-      draft.disabled = false;
     }
   });
-  const actions = el("div", "actions");
-  actions.append(button("Cancel", "secondary", () => dialog.close()), draft);
-  form.append(el("p", "hint", "Saved privately to your Lore. Nothing is public until you approve a draft."), problem, actions);
-  const dialog = sheet("Sell something you wrote", mark(), form);
 }
 
 function seamCard() {
   const box = el("div", "card lead request");
-  const store = Boolean(snapshot?.node.url);
+  const store = forSale(snapshot);
   box.append(el("p", "q", store ? "Push to your store now?" : "Open your store?"), el("p", "hint", pushOffer || ""));
   const actions = el("div", "actions");
   const leave = button("Not now", "secondary", () => { pushOffer = false; render(); });
@@ -2778,7 +5072,8 @@ async function pushNow() {
   pushing = true;
   render();
   const offer = pushOffer;
-  if (await act(window.lore.push, "Lore couldn't update your store. Try Update store again in a minute.")) {
+  let pushed = false;
+  if (await act(async () => { pushed = await window.lore.push(); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
     pushedNote = `Your store is updated · ${live} for sale`;
   } else {
@@ -2790,7 +5085,7 @@ async function pushNow() {
 
 /** What the next push changes: approved publications the node does not hold yet, and taken-down ones it still does. Read from the snapshot, so it survives a relaunch. @param {Snapshot} s */
 function unpushed(s) {
-  return s.node.url ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
+  return forSale(s) ? s.publications.items.filter((item) => item.live === (item.state === "revoked")) : [];
 }
 
 /** @param {PublicationItem[]} waiting */
@@ -2821,14 +5116,14 @@ async function settle(action, approve) {
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;
-  if (snapshot?.node.url) return void (await goLive());
+  if (forSale(snapshot)) return void (await goLive());
   pushOffer = "What you approved goes on sale once it's open. Pick a price and where payments go.";
   render();
 }
 
 /** Every change reaches the store by itself: once a change is saved, push it. */
 async function goLive() {
-  if (snapshot?.node.url && !pushing) await pushNow();
+  if (forSale(snapshot) && !pushing) await pushNow();
 }
 
 /** @param {() => Promise<void>} action @param {string} [failed] Said instead of the CLI's reason when that reason would be plumbing. */
@@ -2848,12 +5143,12 @@ async function act(action, failed) {
 
 /** @param {string} text @param {AgentTask} [from] @param {number} [memory] A memory the agent starts from, named to it and never shown. @param {string} [source] Likewise, a connected app's memories. */
 async function send(text, from, memory, source) {
-  const files = attachments.length ? `\n\nFiles to read:\n${attachments.map((path) => `- ${path}`).join("\n")}` : "";
+  const files = attachments;
   attachments = [];
   renderAttachments();
   say(text, true);
   try {
-    await window.lore.prompt({ text: text + files, task, from, memory, source });
+    await window.lore.prompt({ text, task, from, memory, source, files });
     await load();
   } catch (error) {
     say(reason(error, "Something went wrong."));
@@ -2878,6 +5173,7 @@ async function signIn(providerId, type, secret) {
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
+    welcomeBack.hidden = true;
     enter();
   } catch (error) {
     welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
@@ -2918,22 +5214,43 @@ function enter() {
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
-  // The welcome screen says it, so signing in already counts as seen.
-  if (!signedIn) void window.lore.usage("noticed").catch(() => undefined);
-  if (signedIn) { render(); void load().then(noticeUsage); }
+  if (signedIn) {
+    render();
+    void firstRun.read().then(load).then(opened);
+    return;
+  }
+  firstRun.reset();
+  // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
+  loads++;
+  told.clear();
+  drop((item) => Boolean(item.key));
+}
+
+/** An owner who has heard about usage events counts as opening Lore once a sign-in. */
+function opened() {
+  if (!appShell.hidden && snapshot?.setup.telemetry_enabled !== false && snapshot?.setup.telemetry_noticed) void window.lore.usage("app.opened").catch(() => undefined);
+}
+
+/** Lore's own routines are on from the start (AUT-009): once something is connected, the owner hears so once on Today, with where to change it. */
+function noticeAutomations() {
+  if (snapshot?.setup.automations_noticed !== false || !snapshot.library.sources.some((source) => source.enabled)) return;
+  const on = (/** @type {Routine["kind"]} */ kind) => routines.find((routine) => routine.kind === kind && !routine.paused);
+  const reading = on("read");
+  const checkin = on("checkin");
+  const parts = [
+    reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
+    checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
+  ].filter(Boolean);
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, here, before any is sent. */
-async function noticeUsage() {
+/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+function noticeUsage() {
   const setup = snapshot?.setup;
-  if (!setup || setup.telemetry_enabled === false) return;
-  if (!setup.telemetry_noticed) {
-    tell(USAGE_NOTICE, false, { label: "Settings", run: () => show("settings") });
-    await window.lore.usage("noticed").catch(() => undefined);
-  }
-  void window.lore.usage("app.opened").catch(() => undefined);
+  if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */
@@ -2941,10 +5258,13 @@ function onEvent(event) {
   if (event.type === "working") {
     busy = event.active ? event.task : null;
     if (!busy) liveText = liveStatus = "";
-    syncComposer();
+    // A turn ending, however it ended, can bring Today's next step back.
+    if (busy) syncComposer();
+    else render();
     renderLog();
   }
   else if (event.type === "live") { if (event.task === task) live(event.text, event.status); }
+  else if (event.type === "step") { if (event.task === task) step(event); }
   else if (event.type === "blueprint-progress") {
     if (event.task !== task) return;
     blueprintDraft = { ...blueprintDraft, ...event.fields };
@@ -2954,11 +5274,35 @@ function onEvent(event) {
   }
   else if (event.type === "changed") void load();
   else if (event.type === "sold") void loadSales();
-  else if (event.type === "show") show(event.view);
+  else if (event.type === "agents") {
+    for (const landed of agentWaiting) landed(event.reads);
+    void load().then(loadAgents);
+  }
+  else if (event.type === "sign-ins") heardSignIns(event.signIns);
+  else if (event.type === "ready") void load();
+  else if (event.type === "show") {
+    if (event.source) seeFrom(event.source);
+    else {
+      if (event.view === "today" && detailTask) closeTask();
+      show(event.view);
+    }
+  }
+  else if (event.type === "thread") void openTask(event.task);
+  else if (event.type === "update") showUpdate(event.update);
   else if (event.type === "message") { if (event.task === task) say(event.text); }
   else if (event.type === "saved") { if (event.task === task) { lines.push({ text: "", owner: false, saved: event.memories }); renderLog(); } }
   else if (event.type === "stopped") { say(event.text, false, true); input.focus({ preventScroll: true }); }
+  else if (event.type === "signed-out") {
+    void window.lore.agentStatus().then((result) => {
+      auth = result;
+      enter();
+      if (welcome.hidden) tell(event.text, true);
+      else welcomeBack.textContent = `${event.text} Your memories are all still here.`;
+      welcomeBack.hidden = welcome.hidden;
+    });
+  }
   else if (event.type === "task") {
+    if (event.task.kind === "synthesize" && event.task.state !== "working") drop((item) => item.text.endsWith(READING));
     if (detailTask === event.task.kind) detailRecord = event.task;
     taskItems = event.task.state === "done"
       ? taskItems.filter((item) => item.kind !== event.task.kind)
@@ -2979,12 +5323,18 @@ function onEvent(event) {
   } else if (event.type === "dismiss") {
     if (redirectPrompt === event.id) offerRedirect(null);
     if (request?.id === event.id) { clearRequest(); renderLog(); }
+    if (changing?.id === event.id) changing.drop();
+  } else if (event.type === "signin") {
+    signingIn = event.pending;
+    render();
   } else if (event.type === "auth-prompt" && !welcome.hidden) {
     // Sign-in has no thread to hold a card, so the field lives under the note that promises it.
     offerRedirect(event.id);
   } else if (event.type === "auth") {
     const detail = event.event;
     welcomeNote.textContent = event.message || (detail?.type === "device_code" ? `Open ${detail.verificationUri} and enter ${detail.userCode}.` : detail && "message" in detail ? detail.message : "Continue signing in.");
+  } else if (event.type === "changes") {
+    confirmChanges(event);
   } else if (event.task && event.task !== detailTask) {
     // A card belongs in its own thread, never under whichever heading happens to be open.
     void openTask(event.task).then(() => renderRequest(event));
@@ -2992,6 +5342,12 @@ function onEvent(event) {
 }
 
 window.lore.onAgentEvent(onEvent);
+void window.lore.update().then(showUpdate);
+void window.lore.appearance().then((choice) => {
+  appearance = choice;
+  if (view === "settings") render();
+});
+updateBtn.addEventListener("click", () => void window.lore.installUpdate());
 
 composer.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -3155,6 +5511,7 @@ function startCapture(text = "") {
   input.focus();
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
+sellWritingBtn.addEventListener("click", openPasteSheet);
 
 /* New: one place to start anything the owner makes. */
 const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
@@ -3203,7 +5560,7 @@ async function fillPalette(query) {
   const ranked = [...found.filter((hit) => hit.title.toLowerCase().includes(lower)), ...found.filter((hit) => !hit.title.toLowerCase().includes(lower))];
   paletteRows = query
     ? ranked.map((hit) => paletteRow(highlight("b", hit.title, terms), snippet(hit.content, terms), "open", () => void openMemory(Number(hit.id))))
-    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [item.project_label, when(item.updated_at)].filter(Boolean).join(" · ")), "open", () => void openMemory(item.id)));
+    : (snapshot ? privateMemories(snapshot) : []).slice(0, 8).map((item) => paletteRow(el("b", "", item.title), el("span", "", [provenance(item.sources).line, when(item.updated_at)].join(" · ")), "open", () => void openMemory(item.id)));
   if (query) {
     const capture = paletteRow(el("b", "", `Capture “${query}”`), el("span", "", "Start a new memory with these words"), "capture", () => startCapture(query));
     capture.node.classList.add("capture");
@@ -3321,7 +5678,7 @@ function showPeek(anchor, memory) {
   peek = el("div", "card peek");
   peek.setAttribute("role", "tooltip");
   const text = memory.content.replace(FRONTMATTER, "").replace(/\s+/g, " ").trim();
-  peek.append(el("b", "", memory.title), el("span", "", [memory.project, when(memory.updated_at)].filter(Boolean).join(" · ")), el("p", "", text.slice(0, 400)));
+  peek.append(el("b", "", memory.title), provenanceLine(memory), el("p", "", text.slice(0, 400)));
   peek.addEventListener("mouseenter", () => window.clearTimeout(peekTimer));
   peek.addEventListener("mouseleave", hidePeek);
   peek.addEventListener("click", () => void openMemory(memory.id));
@@ -3338,7 +5695,31 @@ function showPeek(anchor, memory) {
 }
 mainEl.addEventListener("scroll", hidePeek, { passive: true });
 mainEl.addEventListener("scroll", () => mainEl.classList.toggle("scrolled", mainEl.scrollTop > 0), { passive: true });
+// APP-218: what a thread scrolls into view stops clear of the floating composer, however tall it has grown.
+new ResizeObserver(() => mainEl.style.setProperty("--composer-room", `${composer.offsetHeight}px`)).observe(composer);
+// The account menu is a native popover: Escape and a click elsewhere close it, and its trigger says whether it is open.
+// The Dark mode switch stays open to show itself flip; it says what the window is drawn in, whoever chose it.
+for (const item of accountMenu.querySelectorAll("button:not(#dark-mode)")) item.addEventListener("click", () => accountMenu.hidePopover());
+const darkScheme = matchMedia("(prefers-color-scheme: dark)");
+const showDark = () => darkMode.setAttribute("aria-checked", String(darkScheme.matches));
+darkScheme.addEventListener("change", showDark);
+showDark();
+darkMode.addEventListener("click", () => chooseAppearance(darkScheme.matches ? "light" : "dark"));
+for (const item of /** @type {NodeListOf<HTMLButtonElement>} */ (accountMenu.querySelectorAll("[data-view]"))) item.addEventListener("click", () => show(/** @type {View} */ (item.dataset.view)));
 feedbackBtn.addEventListener("click", openFeedbackDialog);
+skipBtn.addEventListener("click", () => firstRun.leave("skipped"));
+signOutBtn.addEventListener("click", () => { const id = auth?.credentials[0]?.providerId; if (id) void signOut(id); });
+accountMenu.addEventListener("toggle", (event) => {
+  account.setAttribute("aria-expanded", String(/** @type {ToggleEvent} */ (event).newState === "open"));
+  if (/** @type {ToggleEvent} */ (event).newState === "open") /** @type {HTMLElement | null} */ (accountMenu.querySelector("button:not([hidden])"))?.focus();
+});
+accountMenu.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const items = [...accountMenu.querySelectorAll("button:not([hidden])")].map((item) => /** @type {HTMLElement} */ (item));
+  const at = items.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  items[(at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+});
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
   if (next === "today" && detailTask) closeTask();
@@ -3351,12 +5732,11 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if (event.key === "Escape" && accountMenuOpen) { accountMenuOpen = false; renderAccount(); }
+  if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
 });
 document.addEventListener("click", (event) => {
-  if (accountMenuOpen && !account.contains(/** @type {Node} */ (event.target))) { accountMenuOpen = false; renderAccount(); }
   if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
 
@@ -3387,7 +5767,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, paste: openPasteSheet, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

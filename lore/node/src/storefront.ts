@@ -19,7 +19,14 @@ export type Store = {
   freeCopies?: number;
   /** Where buyers write for help or a refund; every page ends with it when set. */
   support?: string;
+  /** False while the store is online only for its owner's agents (XC-069): no prices, no buying. */
+  selling?: boolean;
+  /** False for a store that sells by card alone (MON-047): no wallet, so an agent buys on the page, in a browser. */
+  agentsPay?: boolean;
 };
+
+/** Whether agents can pay this store over MCP; a store says so unless it sells by card alone. */
+const agentsPay = (store: Store) => store.agentsPay !== false;
 
 /** A piece the buyer has paid for, shown to them in full. */
 export type Unlocked = { title: string; content: string };
@@ -32,7 +39,7 @@ const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins
 const KINDS: Record<string, string> = { claim: "Note", content: "Write-up", collection: "Collection" };
 const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-const escape = (text: string) =>
+export const escape = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 // JSON-LD sits inside <script>; "<" is the one character that can end it early.
 const jsonLd = (data: unknown) => JSON.stringify(data).replace(/</g, "\\u003c");
@@ -112,6 +119,8 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
 .foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.pair{display:inline-block;margin:6px 0 22px;padding:14px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface);font:600 34px/1 var(--mono);letter-spacing:.2em}
+.wait{display:flex;align-items:center;gap:10px;color:var(--muted)}.wait::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.25}}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 
@@ -134,6 +143,13 @@ function page(title: string, description: string, canonical: string, body: strin
 ${body}</main><script>${SCRIPT}</script></body></html>`;
 }
 
+/** A page of Lore's own, apart from any store's catalog, like the one an agent signs in on. */
+export function plainPage(title: string, body: string, script = ""): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}</style></head>
+<body><main><nav class="bar"><span class="brand">${MARK}Lore</span></nav>${body}</main>${script ? `<script>${script}</script>` : ""}</body></html>`;
+}
+
 function offer(store: Store, piece: Piece) {
   if (store.test) return undefined;
   return {
@@ -141,7 +157,7 @@ function offer(store: Store, piece: Piece) {
     price: String(store.priceUsd),
     priceCurrency: "USD",
     availability: "https://schema.org/InStock",
-    description: `Paid in USDC by an MCP client at ${store.origin}/mcp.`,
+    description: agentsPay(store) ? `Paid in USDC by an MCP client at ${store.origin}/mcp.` : `Paid by card at ${store.origin}/p/${piece.id}.`,
     url: `${store.origin}/p/${piece.id}`,
     seller: person(store)
   };
@@ -156,6 +172,10 @@ const listed = (store: Store) => (store.name ? `<a class="listed" href="${MARKET
 function agentsNote(store: Store, id?: string, collection?: Collection): string {
   const [what, tool] = collection ? ["the whole collection", `${toolName(collection)} {}`] : ["this piece", `get {"id": "${id}"}`];
   const call = id ? `<p>Then buy ${what}:</p><code class="endpoint">${escape(tool)}</code>` : "";
+  if (!agentsPay(store)) {
+    const given = store.freeCopies ? `, and the first ${store.freeCopies} copies of each piece are free` : "";
+    return `<section class="agents"><h2>For agents</h2><p>This store sells by card${given}. An agent that can use a browser buys each piece on its page, the same way a person does. Reading the catalog over MCP is free:</p><code class="endpoint">${escape(store.origin)}/mcp</code></section>${listed(store)}`;
+  }
   const free = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
   const pays = collection
     ? `one call pays the seller ${money(collection.price_usd)} in USDC for every piece in it`
@@ -210,7 +230,8 @@ export function storefront(catalog: Catalog, store: Store, sets: Collection[] = 
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${notice(store)}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const buying = store.selling === false ? "" : `${notice(store)}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${buying}`;
   return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
 
@@ -267,10 +288,12 @@ function buy(piece: Pick<Piece, "id">, store: Store, left: number, what = "this 
     ? "This store takes play money, so buying here is only a rehearsal."
     : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
+  // A store that sells by card alone takes no agent payments, so an agent buys here, on this page, as a person would.
+  const who = agentsPay(store) ? "Paste this into Claude, ChatGPT or any agent that can pay on Lore:" : "Paste this into an agent that can use a browser. It buys on this page by card:";
   return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
-<p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
+<p>${who}</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
-<p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
+<p class="small">${settle}${agentsPay(store) ? ` No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.` : ""}</p>
 ${share(url)}</section>`;
 }
 

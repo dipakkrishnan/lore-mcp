@@ -4,13 +4,13 @@ title: Tell sellers and buyers what card checkout makes visible about them
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-025, MON-030]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,5 @@ today, so card checkout is a real change in privacy.
 
 Raised 2026-09-29. Check which public-details fields Stripe requires for
 individual accounts under Connect.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
