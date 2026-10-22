@@ -1313,7 +1313,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .task-link").length >= 1`);
         await js(`document.querySelector("#content .task-link").click()`);
-        check("another sheet opens while the report is in flight", await waitFor(`!!document.querySelector("dialog.sheet .btn.quiet")`));
+        check("another sheet opens while the report is in flight", await waitFor(`!!document.querySelector("dialog.sheet .sheet-actions")`));
         await sleep(2500);
         check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && !open[0].classList.contains("form-sheet"); })()`));
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
@@ -1938,7 +1938,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${saved}.querySelector(".task-link").click()`);
         check("…and its sheet says so", await waitFor(`/From Grok Bot/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
         await shot("agents-memory-from");
-        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn[aria-label=Close]").click()`);
         // APP-213: the memory Lore wrote from what Grok saved is Grok's too, in Inventory and in its preview.
         const written = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach"))`;
         check("in Inventory, what Lore wrote from Grok's save says it came from Grok, with its mark", await waitFor(`/From Grok Bot · /.test(${written}?.textContent ?? "") && ${written}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${written}?.textContent ?? ""`));
@@ -2923,7 +2923,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
         await js(`const link = document.querySelector("#content .task-link"); link.focus(); link.click();`);
         await waitFor(`document.querySelector(".sheet")`);
-        check("memory actions pair distinct icons with their text labels", await js(`(() => { const buttons = [...document.querySelectorAll(".sheet .btn.quiet")]; const icons = buttons.map((button) => button.querySelector("svg[aria-hidden=true]")?.innerHTML); return buttons.length === 4 && new Set(icons).size === 4 && buttons.every((button) => ["Rename", "Edit", "Draft for sale", "Delete"].includes(button.textContent)); })()`));
+        check("memory actions: Draft for sale up front, Edit and More as labelled icons, Rename and Delete in the menu", await js(`(() => { const sheet = document.querySelector(".sheet"); const icons = [...sheet.querySelectorAll(".sheet-actions .icon-btn")].map((b) => b.getAttribute("aria-label")); const items = [...sheet.querySelectorAll(".sheet-menu [role=menuitem]")].map((b) => b.textContent); return sheet.querySelector(".sheet-actions .btn.primary")?.textContent === "Draft for sale" && icons.join() === "Edit,More" && items.join() === "Rename,Delete" && sheet.querySelector(".sheet-menu .danger")?.textContent === "Delete"; })()`));
         await shot("memory-actions");
         // APP-096: a native modal holds focus, closes on Escape, and hands focus back to the row that opened it.
         check("the sheet is an open native dialog with focus inside", await js(`document.querySelector("dialog.sheet")?.open === true && document.querySelector("dialog.sheet").contains(document.activeElement)`));

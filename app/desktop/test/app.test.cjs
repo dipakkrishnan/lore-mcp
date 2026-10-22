@@ -9,6 +9,8 @@ const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 // The CLI these tests run keeps its store in scratch, never in the owner's Application Support.
 process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
+// Nor the owner's keychain: a CLI reading a connector's sign-in would otherwise ask macOS for the real "Lore" item.
+process.env.PYTHON_KEYRING_BACKEND = "keyring.backends.null.Keyring";
 // So do the launch keys it writes, and the CLI they run reads that scratch through a test-only entry point,
 // as support/edge.cjs does: nothing here touches the owner's own keys.
 const KEYS = require("node:fs").mkdtempSync(join(tmpdir(), "lore-keys-"));
