@@ -5,7 +5,7 @@ import type { AnswerTelemetry } from "./answer-state.js";
 // The single privacy schema for Lore's custom attributes, not platform logs.
 const metric = z.number().finite().nonnegative();
 const attributes = z.strictObject({
-  "lore.tool": z.enum(["discover", "get", "answer", "result"]),
+  "lore.tool": z.enum(["discover", "get", "collection", "answer", "result"]),
   "lore.outcome": z.enum(["ok", "not_found", "disabled", "ledger_failed"]),
   "lore.paid": z.boolean(),
   "lore.item_hash": z.string().regex(/^[0-9a-f]{16}$/),
