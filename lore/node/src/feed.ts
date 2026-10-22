@@ -121,10 +121,20 @@ async function ensureBindingSchema(db: D1Database): Promise<void> {
 }
 
 /** Tie a card subscription to the browser that opens it first, reusing that browser's token when it has one.
- * Null for any other browser; `fresh` when this open made the tie, so the cookie is set. */
-export async function bindBrowser(db: D1Database, session: string, cookie: string | undefined): Promise<{ browser: string; fresh: boolean } | null> {
+ * Null for any other browser; `fresh` when this open made the tie, so the cookie is set. Only a request that
+ * `claim`s ties anything: a HEAD from a link checker or preview fetcher only reads, so it can't lock the buyer out. */
+export async function bindBrowser(
+  db: D1Database,
+  session: string,
+  cookie: string | undefined,
+  claim = true
+): Promise<{ browser: string; fresh: boolean } | null> {
   await ensureBindingSchema(db);
   const mine = cookie && BROWSER.test(cookie) ? cookie : undefined;
+  if (!claim) {
+    const held = await db.prepare("SELECT browser FROM feed_browsers WHERE session_id = ?1").bind(session).first<string>("browser");
+    return !held || held === mine ? { browser: mine ?? "", fresh: false } : null;
+  }
   const browser = mine ?? `browser_${crypto.randomUUID().replaceAll("-", "")}`;
   const claimed = await db.prepare("INSERT OR IGNORE INTO feed_browsers(session_id,browser) VALUES (?1,?2)").bind(session, browser).run();
   if (claimed.meta.changes) return { browser, fresh: true };

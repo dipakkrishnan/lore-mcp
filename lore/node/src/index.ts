@@ -531,7 +531,7 @@ const FEED_COOKIE = /(?:^|;\s*)lore_feed=(browser_[0-9a-f]{32})/;
  * It keeps opening after the seller turns the feed off. */
 async function subscribed(request: Request, env: Env, store: Store, session: string, id: string, copy: Copy, item: Sellable | undefined): Promise<Response> {
   const db = env.LORE_DB;
-  const bound = await bindBrowser(db, session, request.headers.get("cookie")?.match(FEED_COOKIE)?.[1]);
+  const bound = await bindBrowser(db, session, request.headers.get("cookie")?.match(FEED_COOKIE)?.[1], request.method !== "HEAD");
   if (!bound) {
     return html(subscriptionNotice(store, "This subscription opens in the browser it was bought in.", "Open this link there. If you can't, write to the seller."), 403, PRIVATE);
   }

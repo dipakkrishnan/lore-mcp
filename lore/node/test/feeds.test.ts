@@ -41,8 +41,8 @@ async function session<T>(use: (client: Client) => Promise<T>): Promise<T> {
   }
 }
 
-const visit = (path: string, cookie?: string) =>
-  exports.default.fetch(new Request(`${ORIGIN}${path}`, cookie ? { headers: { cookie } } : undefined));
+const visit = (path: string, cookie?: string, method = "GET") =>
+  exports.default.fetch(new Request(`${ORIGIN}${path}`, { method, ...(cookie ? { headers: { cookie } } : {}) }));
 const setting = (key: string, value: string | null) =>
   value === null
     ? env.LORE_DB.prepare("DELETE FROM node_settings WHERE key = ?1").bind(key).run()
@@ -207,6 +207,24 @@ describe("a feed, to people paying by card", () => {
 
     const { results } = await env.LORE_DB.prepare("SELECT kind, item_id, title, price_usd FROM sales WHERE network = 'stripe'").all();
     expect(results).toEqual([{ kind: "feed", item_id: FEED_ID, title: "Feed, 30 days", price_usd: 5 }]);
+  });
+
+  it("is not claimed by a HEAD, so a link checker can't lock the buyer out of their own receipt", async () => {
+    paid();
+    const head = await visit(`/p/${FEED_ID}?session_id=cs_test_feed`, undefined, "HEAD");
+    expect(head.status).toBe(200);
+    expect(head.headers.get("set-cookie")).toBeNull();
+    expect((await env.LORE_DB.prepare("SELECT COUNT(*) AS n FROM feed_browsers").first<number>("n")) ?? 0).toBe(0);
+
+    const buyerGet = await visit(`/p/${FEED_ID}?session_id=cs_test_feed`);
+    expect(buyerGet.status).toBe(200);
+    const cookie = cookieOf(buyerGet);
+    expect(cookie).toMatch(/^lore_feed=browser_[0-9a-f]{32}$/);
+
+    // Once the buyer holds it, a HEAD from anywhere else is turned away without changing the tie.
+    expect((await visit(`/p/${FEED_ID}?session_id=cs_test_feed`, undefined, "HEAD")).status).toBe(403);
+    expect((await visit(`/p/${FEED_ID}?session_id=cs_test_feed`, cookie, "HEAD")).status).toBe(200);
+    expect((await visit(`/p/${FEED_ID}?session_id=cs_test_feed`, cookie)).status).toBe(200);
   });
 
   it("says when the 30 days are over and offers to subscribe again", async () => {
