@@ -269,6 +269,19 @@ class ReadTest(AgentCase):
         self.assertEqual((read["added"], read["unchanged"]), (1, 1))
         self.assertEqual(set(self.memories(self.source)), {"A", "B"})
 
+    def test_a_resave_of_a_discarded_memory_is_not_handed_back(self) -> None:
+        self.save(self.key, {"title": "Seats", "content": "Window seat.", "key": "s"})
+        self.read()
+        with Store() as store:
+            seats = next(m for m in store.search("Seats") if m.source == self.source)
+            store.set_status(seats.id, "discarded")
+        self.save(
+            self.key,
+            {"title": "Seats", "content": "Aisle seat.", "key": "s"},
+            {"title": "Bags", "content": "Carry-on only.", "key": "b"},
+        )
+        self.assertEqual([m["title"] for m in self.read()["memories"]], ["Bags"])
+
     def test_a_resave_updates_the_memory_and_flags_what_cites_it(self) -> None:
         self.save(
             self.key, {"title": "Pricing", "content": "Quote the tier.", "key": "p"}

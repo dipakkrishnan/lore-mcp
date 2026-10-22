@@ -79,6 +79,9 @@ function announcement(run) {
 
 /** Finished readings kept on disk until the owner clears them, and the dock badge that counts what they have not seen. */
 class Ready {
+  /** Every change waits its turn, so a reading landing while the owner dismisses or deletes can't put back what they removed. @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
   /** @param {string} file @param {(count: number) => void} badge */
   constructor(file, badge) {
     this.file = file;
@@ -96,28 +99,29 @@ class Ready {
   }
 
   /** @param {ReadyRun} run */
-  async add(run) {
-    await this.#save([run, ...(await this.runs())].slice(0, KEPT));
+  add(run) {
+    return this.#change((runs) => [run, ...runs].slice(0, KEPT));
   }
 
   /** Add to the newest card from the same agent or app instead of putting up another, and bring it to the top. It is
    * unseen again only if it gained a memory. With none kept, it is a card of its own. @param {ReadyRun} run */
-  async extend(run) {
-    const runs = await this.runs();
-    const kept = runs.find((each) => each.by && run.by && each.by.kind === run.by.kind && each.by.id === run.by.id);
-    if (!kept) return this.add(run);
-    const ids = new Set(run.memories.map((memory) => memory.id));
-    const gained = run.memories.some((memory) => !kept.memories.some((had) => had.id === memory.id));
-    const memories = [...kept.memories.filter((memory) => !ids.has(memory.id)), ...run.memories];
-    await this.#save([{ ...kept, memories, seen: kept.seen && !gained }, ...runs.filter((each) => each !== kept)]);
+  extend(run) {
+    return this.#change((runs) => {
+      const kept = runs.find((each) => each.by && run.by && each.by.kind === run.by.kind && each.by.id === run.by.id);
+      if (!kept) return [run, ...runs].slice(0, KEPT);
+      const ids = new Set(run.memories.map((memory) => memory.id));
+      const gained = run.memories.some((memory) => !kept.memories.some((had) => had.id === memory.id));
+      const memories = [...kept.memories.filter((memory) => !ids.has(memory.id)), ...run.memories];
+      return [{ ...kept, memories, seen: kept.seen && !gained }, ...runs.filter((each) => each !== kept)];
+    });
   }
 
-  async seen() {
-    await this.#save((await this.runs()).map((run) => ({ ...run, seen: true })));
+  seen() {
+    return this.#change((runs) => runs.map((run) => ({ ...run, seen: true })));
   }
 
-  async clear() {
-    await this.#save([]);
+  clear() {
+    return this.#change(() => []);
   }
 
   /** Put the badge back after a relaunch. */
@@ -125,11 +129,17 @@ class Ready {
     this.badge(unseen(await this.runs()));
   }
 
-  /** Written beside the file, then renamed over it, so a crash mid-write leaves the old runs whole. @param {ReadyRun[]} runs */
-  async #save(runs) {
-    await writeFile(`${this.file}.tmp`, JSON.stringify(runs));
-    await rename(`${this.file}.tmp`, this.file);
-    this.badge(unseen(runs));
+  /** Read, change and write the runs in turn. Written beside the file, then renamed over it, so a crash mid-write leaves
+   * the old runs whole. @param {(runs: ReadyRun[]) => ReadyRun[]} change */
+  #change(change) {
+    const next = this.#turn.then(async () => {
+      const runs = change(await this.runs());
+      await writeFile(`${this.file}.tmp`, JSON.stringify(runs));
+      await rename(`${this.file}.tmp`, this.file);
+      this.badge(unseen(runs));
+    });
+    this.#turn = next.catch(() => undefined);
+    return next;
   }
 }
 

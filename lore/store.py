@@ -823,14 +823,14 @@ class Store:
         ]
 
     def kept(self, source_keys: Collection[str]) -> list[dict[str, object]]:
-        """The id and title of the memory kept under each of these keys, oldest first."""
+        """The id and title of the private memory kept under each of these keys, oldest first; one the owner deleted stays out."""
         if not source_keys:
             return []
         return [
             dict(row)
             for row in self.db.execute(
                 "SELECT id,title FROM memories "
-                f"WHERE source_key IN ({','.join('?' * len(source_keys))}) ORDER BY id",
+                f"WHERE status='private' AND source_key IN ({','.join('?' * len(source_keys))}) ORDER BY id",
                 tuple(source_keys),
             )
         ]

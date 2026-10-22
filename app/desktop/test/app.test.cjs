@@ -2714,6 +2714,8 @@ test("an agent's saves are on Today as they come in, and what reading them write
     await ready.clear();
     await ready.extend(landed(grok, { read: 2, memories: [] }, [travel], folder, [`${folder}/travel.md`]));
     assert.deepEqual((await ready.runs()).map((run) => run.memories.length), [1], "with no card left, it is a card of its own");
+    await Promise.all([ready.extend(saved(grok, [{ id: 7, title: "Aisle" }])), ready.clear(), ready.add(saved(claude, [{ id: 8, title: "Later" }]))]);
+    assert.deepEqual((await ready.runs()).map((run) => run.title), ["Claude saved 1 thing to Lore"], "changes made at once land in turn, so a clear is never undone by a card read before it");
   } finally {
     await rm(directory, { recursive: true });
   }
