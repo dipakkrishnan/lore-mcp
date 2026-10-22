@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
+import { isAgentPath, serveAgent, signIn } from "./agent.js";
 import {
   type AnswerSettings,
   type Catalog,
@@ -14,14 +15,15 @@ import {
   ticketResult,
   validPublicId
 } from "./answer-state.js";
-import { runAnswer } from "./answer.js";
 import { type Collection, collectionCopy, collections, listing, members, toolName } from "./collections.js";
+import { answerReadiness, runAnswer } from "./answer.js";
 import { FEED_DAYS, bindBrowser, cardPassEnds, mintPass, passFirst, payerOf } from "./feed.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
 import { type SaleKind, cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
+import { SignIn } from "./signin.js";
 import {
   type Piece,
   type Store,
@@ -38,9 +40,49 @@ import {
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { countView } from "./views.js";
-import { payTo } from "./wallet.js";
+import { payTo, takesAgentPayments } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
+const answerUnavailable = (reason: string) => ({
+  error: `the answer tier is unavailable on this node: ${reason}`,
+  code: "answer_unavailable"
+});
+/** What a store online only for its owner's agents answers (XC-069): stable, so buyers' agents can rely on it. */
+const NOTHING_FOR_SALE = { error: "nothing is for sale here yet", code: "nothing_for_sale" };
+/** What a store that sells only by card answers when an agent tries to pay it directly. */
+const CARDS_ONLY = { error: "this store takes card payments only; buy a piece from its page", code: "cards_only" };
+const DISCOVER =
+  "Return this node's full catalog of owner-approved publications: " +
+  "teasers grouped by topic, with ids, freshness, and price. Free. " +
+  "Choose zero, one, multiple, or all ids; call get once per chosen id.";
+const GET =
+  "Fetch one owner-approved publication by its id from the discover catalog. " +
+  "Each call buys exactly one publication. Damaged ids are rejected before " +
+  "payment, and an id that is no longer for sale returns an error and is never charged.";
+const ANSWER =
+  "Buy a response from the owner's authorized AI proxy, grounded in the " +
+  "owner's approved publications. Payment settles at submission and returns a ticket " +
+  "immediately; poll result until it completes. Questions are retained and " +
+  "visible to the owner. Unsupported questions are refused after payment. " +
+  "Refunds are not automatic: a refused or failed answer is marked owed back to " +
+  "your paying address, and the owner refunds it.";
+const RESULT =
+  "Fetch the outcome of a paid answer ticket. Free and idempotent; keep " +
+  "polling while status is running. Terminal statuses: complete, refused " +
+  "(no coverage), failed (agent error or timeout). Refused and failed answers are " +
+  "marked owed back; the owner refunds them.";
+const publicId = {
+  id: z.string().trim().refine(validPublicId, {
+    message: "invalid publication id; run discover again"
+  })
+};
+const question = {
+  question: z.string().trim().min(1).max(4000)
+};
+/** The catalog of a store with nothing for sale. */
+const EMPTY: Catalog = { manifest_version: 1, publication_count: 0, topics: {} };
+/** The pieces a buyer may see: none while the owner has the store online only for their agents. */
+const catalogOf = async (env: Env, settings: AnswerSettings): Promise<Catalog> => (settings.selling ? manifest(env) : EMPTY);
 const ATTRIBUTION = "Content is owner-approved; preserve attribution when synthesizing.";
 
 function asText(payload: unknown, isError = false) {
@@ -51,22 +93,23 @@ function asText(payload: unknown, isError = false) {
 }
 
 export class LorePaidMCP extends McpAgent<Env> {
-  server = withX402(
-    new McpServer({ name: `Lore x402 (${networkLabel(this.env)})`, version: "0.1.0" }),
-    {
-      network: network(this.env),
-      recipient: payTo(this.env),
-      facilitator: facilitator(this.env)
-    }
-  );
+  // Agents pay a wallet; a store with none (card-only, or online only for agents) is never wrapped for it.
+  private readonly paid = takesAgentPayments(this.env)
+    ? withX402(new McpServer({ name: `Lore x402 (${networkLabel(this.env)})`, version: "0.1.0" }), {
+        network: network(this.env),
+        recipient: payTo(this.env),
+        facilitator: facilitator(this.env)
+      })
+    : null;
+  server = this.paid ?? new McpServer({ name: "Lore", version: "0.1.0" });
 
   async runAnswerTicket(payload: { ticketId: string }) {
     await this.keepAliveWhile(() => runAnswer(this.env, payload.ticketId));
   }
 
   /** One paid tool per collection, since an x402 tool has one price. */
-  sellCollection(set: Collection) {
-    const tool = this.server.paidTool(
+  sellCollection(paid: NonNullable<LorePaidMCP["paid"]>, set: Collection) {
+    const tool = paid.paidTool(
       toolName(set),
       `Buy the collection ${set.id} from the discover catalog: all ${set.pieces.length} of its publications in one payment.`,
       set.price_usd,
@@ -90,8 +133,8 @@ export class LorePaidMCP extends McpAgent<Env> {
   }
 
   /** The feed's one paid tool: a pass to every piece for FEED_DAYS, tied to the wallet that paid. */
-  sellFeed(priceUsd: number, feedId: string) {
-    const tool = this.server.paidTool(
+  sellFeed(paid: NonNullable<LorePaidMCP["paid"]>, priceUsd: number, feedId: string) {
+    const tool = paid.paidTool(
       "subscribe",
       `Buy a ${FEED_DAYS}-day pass to every publication in this store, old and new, in one payment. ` +
         "Pass it to get, signed by the same wallet, to read any piece free until it expires; " +
@@ -120,15 +163,62 @@ export class LorePaidMCP extends McpAgent<Env> {
     await ensureAnswerSchema(this.env.LORE_DB);
     await ensureSalesSchema(this.env.LORE_DB);
     await ensureRefundTracking(this.env.LORE_DB);
+    this.registerResult();
     const settings = await readAnswerSettings(this.env.LORE_DB);
     const sets = await collections(this.env.LORE_DB);
+    if (!settings.selling) this.sellNothing();
+    else if (this.paid) this.sell(this.paid, settings, sets);
+    else this.sellByCardOnly(settings);
+  }
+
+  /** Selling, with no wallet for agents to pay: the catalog is the same, and each piece is bought on its page. */
+  private sellByCardOnly(settings: AnswerSettings) {
+    this.server.registerTool("discover", { description: DISCOVER, inputSchema: {} }, async () =>
+      withSpan("lore.discover", async (setAttributes) => {
+        setAttributes(() => toolSpanAttributes({ tool: "discover", outcome: "ok" }));
+        return asText({
+          ...(await manifest(this.env)),
+          price_usd: priceOf(settings),
+          listed: settings.listedName !== "",
+          for_sale: true,
+          ...(settings.listedName ? { name: settings.listedName } : {}),
+          disclosure: "This store takes card payments only: each piece is bought on its page, at /p/<id>."
+        });
+      })
+    );
+    this.server.registerTool("get", { description: GET, inputSchema: publicId }, async () => this.refuse("get", CARDS_ONLY));
+    this.server.registerTool("answer", { description: ANSWER, inputSchema: question }, async () => this.refuse("answer", CARDS_ONLY));
+  }
+
+  /** XC-069: online for the owner's own agents, with nothing for sale. The tools stay the same four, so a buyer's
+   * agent sees a store like any other, with an empty catalog and a plain refusal to sell. */
+  private sellNothing() {
+    this.server.registerTool("discover", { description: DISCOVER, inputSchema: {} }, async () =>
+      withSpan("lore.discover", async (setAttributes) => {
+        setAttributes(() => toolSpanAttributes({ tool: "discover", outcome: "ok" }));
+        return asText({ ...EMPTY, for_sale: false, disclosure: "Nothing is for sale here yet." });
+      })
+    );
+    this.server.registerTool("get", { description: GET, inputSchema: publicId }, async () => this.refuse("get", NOTHING_FOR_SALE));
+    this.server.registerTool("answer", { description: ANSWER, inputSchema: question }, async () => this.refuse("answer", NOTHING_FOR_SALE));
+  }
+
+  private refuse(tool: "get" | "answer", why: typeof NOTHING_FOR_SALE) {
+    return withSpan(`lore.${tool}`, (setAttributes) => {
+      setAttributes(() => toolSpanAttributes({ tool, outcome: "disabled" }));
+      return asText(why, true);
+    });
+  }
+
+  private sell(paid: NonNullable<LorePaidMCP["paid"]>, settings: AnswerSettings, sets: Collection[]) {
+    // MON-017: enabled settings are not enough. Without the selected provider's key the job would
+    // fail after the buyer had paid, so `answer` is neither advertised nor charged for until it can run.
+    const readiness = settings.enabled ? answerReadiness(this.env) : undefined;
+    const answering = readiness?.ready === true;
     this.server.registerTool(
       "discover",
       {
-        description:
-          "Return this node's full catalog of owner-approved publications: " +
-          "teasers grouped by topic, with ids, freshness, and price. Free. " +
-          "Choose zero, one, multiple, or all ids; call get once per chosen id.",
+        description: DISCOVER,
         inputSchema: {
           since: z
             .string()
@@ -148,9 +238,10 @@ export class LorePaidMCP extends McpAgent<Env> {
             listed: settings.listedName !== "",
             ...(sets.length ? { collections: sets.map((set) => listing(set, priceOf(settings))) } : {}),
             ...(settings.feedPriceUsd ? { feed: { price_usd: settings.feedPriceUsd, days: FEED_DAYS, tool: "subscribe" } } : {}),
+            for_sale: true,
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
-            ...(settings.enabled
+            ...(answering
               ? {
                   answer_price_usd: settings.priceUsd,
                   answer_retention_disclosure: RETENTION_DISCLOSURE
@@ -172,16 +263,12 @@ export class LorePaidMCP extends McpAgent<Env> {
       )
         .bind(id)
         .first<{ id: string; title: string }>();
-    const get = this.server.paidTool(
+    const get = paid.paidTool(
       "get",
-      "Fetch one owner-approved publication by its id from the discover catalog. " +
-        "Each call buys exactly one publication. Damaged ids are rejected before " +
-        "payment, and an id that is no longer for sale returns an error and is never charged.",
+      GET,
       priceOf(settings),
       {
-        id: z.string().trim().refine(validPublicId, {
-          message: "invalid publication id; run discover again"
-        }),
+        ...publicId,
         pass: z.string().trim().optional().describe("A feed pass from subscribe; while valid, get charges nothing."),
         signed_at: z.string().trim().optional().describe("With pass: when the signature was made (ISO time), within 10 minutes of now."),
         signature: z
@@ -224,24 +311,13 @@ export class LorePaidMCP extends McpAgent<Env> {
       asText({ publication: row, feed_pass: true, disclosure: `Read with a feed pass, so nothing was charged. ${ATTRIBUTION}` })
     );
 
-    for (const set of sets) this.sellCollection(set);
-    if (settings.feedPriceUsd) this.sellFeed(settings.feedPriceUsd, settings.feedId);
+    for (const set of sets) this.sellCollection(paid, set);
+    if (settings.feedPriceUsd) this.sellFeed(paid, settings.feedPriceUsd, settings.feedId);
 
-    const question = {
-      question: z.string().trim().min(1).max(4000)
-    };
-    const answerDescription =
-      "Buy a response from the owner's authorized AI proxy, grounded in the " +
-      "owner's approved publications. Payment settles at submission and returns a ticket " +
-      "immediately; poll result until it completes. Questions are retained and " +
-      "visible to the owner. Unsupported questions are refused after payment. " +
-      "Refunds are not automatic: a refused or failed answer is marked owed back to " +
-      "your paying address, and the owner refunds it.";
-
-    if (settings.enabled) {
-      const answer = this.server.paidTool(
+    if (answering) {
+      const answer = paid.paidTool(
         "answer",
-        answerDescription,
+        ANSWER,
         settings.priceUsd,
         question,
         {},
@@ -266,23 +342,21 @@ export class LorePaidMCP extends McpAgent<Env> {
     } else {
       this.server.registerTool(
         "answer",
-        { description: answerDescription, inputSchema: question },
+        { description: ANSWER, inputSchema: question },
         async () =>
           withSpan("lore.answer", (setAttributes) => {
             setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
-            return asText(ANSWER_DISABLED, true);
+            return asText(readiness?.ready === false ? answerUnavailable(readiness.reason) : ANSWER_DISABLED, true);
           })
       );
     }
+  }
 
+  private registerResult() {
     this.server.registerTool(
       "result",
       {
-        description:
-          "Fetch the outcome of a paid answer ticket. Free and idempotent; keep " +
-          "polling while status is running. Terminal statuses: complete, refused " +
-          "(no coverage), failed (agent error or timeout). Refused and failed answers are " +
-          "marked owed back; the owner refunds them.",
+        description: RESULT,
         inputSchema: {
           ticket: z.string().trim().refine(validPublicId, {
             message: "invalid ticket id; use the one answer returned"
@@ -517,7 +591,9 @@ function storeFor(env: Env, url: URL, settings: AnswerSettings, priceUsd = price
     support: settings.supportEmail,
     ...(settings.feedPriceUsd ? { feedUsd: settings.feedPriceUsd } : {}),
     ...(settings.feedPriceUsd && settings.feedId ? { feedId: settings.feedId } : {}),
-    ...(takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
+    selling: settings.selling,
+    agentsPay: takesAgentPayments(env),
+    ...(settings.selling && takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }
 
@@ -541,12 +617,24 @@ async function paidNotice(request: Request, env: Env, account: string, origin: s
   );
 }
 
+/** The owner's agents' endpoint and its sign-in (XC-068), or else the buyers' `/mcp`. */
+function agentOrBuyer(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const { pathname } = url;
+  if (isAgentPath(pathname)) return serveAgent(request, env, ctx);
+  if (pathname === "/authorize" && request.method === "GET") return signIn(url.origin).authorize(request, env);
+  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(url.origin).wait(request, env);
+  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(url.origin).resource.fetch(request, env, ctx);
+  if (SignIn.owns(pathname)) return signIn(url.origin).server.fetch(request, env, ctx);
+  return mcp.fetch(request, env, ctx);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
     if (page && (request.method === "GET" || request.method === "HEAD")) {
-      const [catalog, settings, sets] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB), collections(env.LORE_DB)]);
+      const settings = await readAnswerSettings(env.LORE_DB);
+      const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
       const [, id, format] = url.pathname.match(/^\/p\/([0-9a-f]{24})(\.json|\/)?$/) ?? [];
       const item = id ? sellable(env, catalog, sets, settings, id) : undefined;
       const store = storeFor(env, url, settings, item?.priceUsd);
@@ -574,13 +662,14 @@ export default {
     }
     const [, posted, action] = url.pathname.match(/^\/p\/([0-9a-f]{24})\/(paid|free)$/) ?? [];
     if (posted && request.method === "POST") {
-      const [catalog, settings, sets] = await Promise.all([manifest(env), readAnswerSettings(env.LORE_DB), collections(env.LORE_DB)]);
+      const settings = await readAnswerSettings(env.LORE_DB);
+      const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
       const item = sellable(env, catalog, sets, settings, posted);
       return action === "free"
         ? readFree(request, env, storeFor(env, url, settings), posted, item?.piece)
         : paidNotice(request, env, settings.stripeAccount, url.origin, posted, item);
     }
-    const response = await mcp.fetch(request, env, ctx);
+    const response = await agentOrBuyer(request, url, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
     const uncached = new Response(response.body, response);
     uncached.headers.set("cache-control", "no-store");

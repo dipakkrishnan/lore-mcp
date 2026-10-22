@@ -37,6 +37,20 @@ substitute a temp file, `echo`, `printf`, a pipe, or another delimiter:
   and every profile field are the owner's calls; propose, then take their
   answer.
 
+## Connect first, shape after the first save
+
+Something saving to Lore comes before any question about shape. The blueprint, the
+profile and the reading rhythm are drafted from what came in, so they come after the
+first save, never before it.
+
+- **Lore desktop:** the app's own first-run chat connects the owner's agent (Grok Bot,
+  ChatGPT or Claude) and the apps it finds on this Mac before this skill runs. If the
+  library has no memories yet, say in one sentence that Lore shapes their library once
+  their agent or apps have brought something in, and call `finish_task`; do not ask the
+  persona, profile or rhythm questions on an empty library.
+- **Other hosts:** `lore setup --yes` below imports the agent memory already on this
+  machine; that is the first save. Continue only once `lore status` shows memories.
+
 ## 0. Preconditions
 
 ```sh
@@ -173,6 +187,12 @@ this machine, so Claude is the runnable choice for scheduled synthesis" — rath
 future-tense placeholder like "when it becomes available". Both options should describe
 real, current, checkable state, not one present-tense and one hypothetical.
 
+**Lore desktop:** Lore runs the rhythm, so never ask who runs it and never offer Claude
+or Codex for it; set `"executor": "lore"` and ask only how often and at what hour.
+`"cadence"` is `"daily"`, `"weekdays"` or `"weekly"`; for weekly, also ask the day and
+save it as `"day"` (0 is Monday, 6 is Sunday). Say it plainly: "Lore reads your apps
+every Sunday at 9 PM while it's open, and once when it next opens if it was closed."
+
 ## 4. Save and schedule
 
 ```sh
@@ -182,10 +202,17 @@ lore profile - <<'LORE_PROFILE'
 LORE_PROFILE
 ```
 
+**Lore desktop:** never run `lore profile` yourself; your shell cannot write Lore's
+automation folder. Call `save_profile` with the same fields (no `executor` or `model`:
+Lore keeps the rhythm). The app saves it through `lore profile` and returns what was
+saved, or why not.
+
 Validates the profile, writes `profile.json` plus the executor prompt (0600), and installs
 one recurring local task. Codex uses its local automation definition. Claude uses a
 macOS LaunchAgent to run `claude -p`; cloud routines cannot read the owner's local Lore
-library. Use `--no-schedule` for a profile without automation.
+library. With `"executor": "lore"` nothing is installed: the app keeps the rhythm, and
+in the app every profile is saved that way. Use `--no-schedule` for a profile without
+automation.
 
 ## 5. Cold start
 

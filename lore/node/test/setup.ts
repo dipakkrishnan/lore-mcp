@@ -8,6 +8,10 @@ await env.LORE_DB.exec(
   "CREATE TABLE IF NOT EXISTS publications (public_id TEXT PRIMARY KEY, title TEXT NOT NULL, content TEXT NOT NULL, kind TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', teaser TEXT NOT NULL DEFAULT '', sample TEXT NOT NULL DEFAULT '', useful_if TEXT NOT NULL DEFAULT '', not_useful_if TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')"
 );
 
+// Every deployed node has this table from its first push; empty, it is a store from before
+// XC-069, which sells. A node whose settings can't be read sells nothing (empty-store.test.ts).
+await env.LORE_DB.exec("CREATE TABLE IF NOT EXISTS node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+
 // Ids are checksummed (see `validPublicId` in src/index.ts); these are the
 // only two 24-hex-char values used across the suite. The first is the same
 // id scripts/smoke.ts already exercises as a structurally valid id.

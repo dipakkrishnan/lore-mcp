@@ -51,6 +51,10 @@ describe("issueBody", () => {
     }
   });
 
+  it("says the email was not given when the report has none", () => {
+    expect(issueBody(report({ email: null }))).toContain("| Email | `(not given)` |");
+  });
+
   it("strips pipes, backticks, and newlines from a metadata value so the table cannot break", () => {
     const dirty = report({
       metadata: { ...report().metadata, platform: "Weird | platform\nwith `backticks`" }

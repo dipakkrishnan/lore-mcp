@@ -130,7 +130,7 @@ class Collections:
         suffix = path.suffix.lower()
         if suffix in CONVERTIBLE:
             result = subprocess.run(
-                ["textutil", "-convert", "txt", "-stdout", str(path)],
+                ["textutil", "-convert", "txt", "-stdout", str(path.resolve())],
                 capture_output=True,
                 text=True,
                 timeout=60,

@@ -11,7 +11,10 @@
   "observability": { "enabled": true },
   "vars": {
     // Overridable so tests point at a stubbed GitHub instead of the real API.
-    "LORE_GITHUB_API": "https://api.github.com"
+    "LORE_GITHUB_API": "https://api.github.com",
+    // Where checked usage events go (APP-058). The project key is the secret
+    // POSTHOG_KEY; without it /events accepts and keeps nothing.
+    "POSTHOG_HOST": "https://us.i.posthog.com"
   },
   // The authoritative aggregate cap. A Rate Limiting binding cannot be one:
   // its counters are per Cloudflare location, so a constant key still gives
@@ -48,6 +51,11 @@
       "name": "GLOBAL_RATE_LIMIT",
       "namespace_id": "1002",
       "simple": { "limit": 60, "period": 60 }
+    },
+    {
+      "name": "EVENTS_RATE_LIMIT",
+      "namespace_id": "1003",
+      "simple": { "limit": 30, "period": 60 }
     }
   ]
 }

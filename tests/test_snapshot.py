@@ -184,14 +184,18 @@ class DesktopSnapshotTest(LoreTestCase):
                 "sources_configured": True,
                 "blueprint_configured": True,
                 "profile_configured": True,
-                # An empty profile names no executor, so nothing can be scheduled.
+                # An empty profile names no agent, so Lore reads, each morning.
                 "schedule": {
-                    "installed": False,
-                    "executor": None,
-                    "cadence": None,
-                    "hour": None,
+                    "paused": False,
+                    "cadence": "daily",
+                    "hour": 9,
+                    "day": 0,
+                    "last_run": None,
+                    "missed": False,
                 },
                 "telemetry_enabled": True,
+                "telemetry_noticed": False,
+                "automations_noticed": False,
             },
         )
         self.assertEqual(state["library"]["counts"], {"private": 6})
@@ -204,6 +208,9 @@ class DesktopSnapshotTest(LoreTestCase):
                 "collection",
                 "status",
                 "updated_at",
+                "sources",
+                "arrival",
+                "verdict",
             },
         )
         labels = {
@@ -249,27 +256,14 @@ class DesktopSnapshotTest(LoreTestCase):
         self.assertEqual(state["node"]["live"]["price_usd"], 0.02)
         self.assertEqual(state["node"]["live"]["payout"], "0x" + "a" * 40)
 
-    def test_the_schedule_is_reported_from_the_scheduler_not_the_profile(
-        self,
-    ) -> None:
-        self.assertIsNone(snapshot.build()["setup"]["schedule"])
-        automation.save_profile(
-            {"executor": "claude", "cadence": "weekly", "hour": 21, "model": "opus"}
+    def test_the_schedule_is_the_profiles_rhythm_kept_by_lore(self) -> None:
+        automation.save_profile({"cadence": "weekly", "hour": 21, "day": 6})
+        state = snapshot.build()["setup"]
+        self.assertTrue(state["profile_configured"])
+        self.assertEqual(
+            {key: state["schedule"][key] for key in ("cadence", "hour", "day")},
+            {"cadence": "weekly", "hour": 21, "day": 6},
         )
-        for installed in (False, True):
-            with patch("lore.automation.task_status", return_value=installed) as ask:
-                state = snapshot.build()["setup"]
-            self.assertTrue(state["profile_configured"])
-            self.assertEqual(
-                state["schedule"],
-                {
-                    "installed": installed,
-                    "executor": "claude",
-                    "cadence": "weekly",
-                    "hour": 21,
-                },
-            )
-            self.assertEqual(ask.call_args.args[0].agent, automation.Agent.CLAUDE)
 
     def test_telemetry_enabled_defaults_true_and_reflects_the_setting(self) -> None:
         self.assertTrue(snapshot.build()["setup"]["telemetry_enabled"])
@@ -298,6 +292,7 @@ class DesktopSnapshotTest(LoreTestCase):
                     "owned",
                     "connector",
                     "refresh",
+                    "app",
                     "enabled",
                     "imported",
                     "state",
@@ -329,6 +324,7 @@ class DesktopSnapshotTest(LoreTestCase):
         state = snapshot.build()
         self.assertEqual(state["node"]["live"]["state"], "not_configured")
         self.assertEqual(state["node"]["live"]["price_usd"], None)
+        self.assertFalse(state["node"]["selling"])
         with Store() as store:
             store.set_setting("node_url", "https://offline.example/mcp")
         with patch("lore.snapshot.remote_manifest", side_effect=OSError("offline")):
@@ -336,6 +332,8 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+        # A store from before XC-069 recorded no choice: it sells, as it did.
+        self.assertTrue(state["node"]["selling"])
         self.assertEqual(state["node"]["live"]["network"], None)
         self.assertEqual(state["node"]["live"]["payout"], None)
         # A node we cannot reach tells us nothing about its price, and the app
@@ -410,6 +408,17 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+
+
+class UnreadableClaudeCodeTest(LoreTestCase):
+    def test_a_claude_code_folder_lore_cant_open_never_stops_the_snapshot(self) -> None:
+        # APP-215: an owner who hasn't let Lore into Claude Code's notes yet still gets the app, not "could not load".
+        projects = self.claude_home / "projects"
+        (projects / "demo").mkdir(parents=True)
+        projects.chmod(0o000)
+        self.addCleanup(projects.chmod, 0o755)
+        built = snapshot.build()
+        self.assertEqual(built["library"]["counts"]["private"], 0)
 
 
 class SnapshotJobsTest(LoreTestCase):

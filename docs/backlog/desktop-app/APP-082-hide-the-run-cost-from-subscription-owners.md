@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -35,3 +35,10 @@ real cost. For OAuth sign-in, leave it out of the row.
 ## Notes
 
 Screenshot `70-dogfood-relaunch.png`.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; superseded by
+`418c7c3` (APP-219, #488, 2026-10-18), whose message says Recent runs "never shows an
+agent's cost". `renderer.js` no longer references `cost_usd`, so the first criterion
+holds. The second (an API-key owner still sees the amount) now cannot, because the
+amount is never shown. Owner to decide: close as `completed`, or keep the cost for
+API-key owners and reopen that half.

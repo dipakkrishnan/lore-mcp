@@ -1,14 +1,14 @@
 {
   "name": "lore-desktop",
   "private": true,
-  "version": "0.1.12",
+  "version": "0.1.18",
   "main": "src/main.cjs",
   "scripts": {
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
     "test:capture": "./test-capture.sh",
-    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store && support/edge.sh jobs && support/edge.sh fresh && support/edge.sh feedback && support/edge.sh obsidian && support/edge.sh connectors && support/edge.sh faq && support/edge.sh sell && support/edge.sh cards && support/edge.sh sales && support/edge.sh settings",
+    "test:edge": "support/edge.sh seller && support/edge.sh provision && support/edge.sh store && support/edge.sh jobs && support/edge.sh fresh && support/edge.sh feedback && support/edge.sh obsidian && support/edge.sh connectors && support/edge.sh reading && support/edge.sh schedule && support/edge.sh checkin && support/edge.sh quiet && support/edge.sh automations && support/edge.sh faq && support/edge.sh sell && support/edge.sh cards && support/edge.sh sales && support/edge.sh settings && support/edge.sh agents && support/edge.sh today",
     "dogfood:new": "./support/dogfood.sh new",
     "dogfood:current": "./support/dogfood.sh current",
     "prepackage": "support/guard-running.sh",
@@ -16,16 +16,17 @@
     "make": "electron-forge make"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.75",
+    "@anthropic-ai/sandbox-runtime": "0.0.79",
     "@earendil-works/pi-ai": "^0.87.1",
     "@earendil-works/pi-coding-agent": "^0.87.1",
-    "marked": "18.0.11"
+    "marked": "18.1.0",
+    "update-electron-app": "3.3.0"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
-    "@types/node": "26.4.1",
-    "electron": "44.2.0",
+    "@types/node": "26.6.4",
+    "electron": "44.7.0",
     "typescript": "7.0.2"
   }
 }

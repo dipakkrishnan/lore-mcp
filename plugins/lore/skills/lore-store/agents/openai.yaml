@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lore Store"
+  short_description: "Save what you learn about the owner to their Lore"
+  default_prompt: "Use $lore-store to save what I told you today to my Lore."
