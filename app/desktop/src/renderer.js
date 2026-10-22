@@ -158,6 +158,7 @@ const CHECK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 const LOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"></rect><path d="M8 11V8a4 4 0 0 1 8 0v3"></path></svg>`;
 const INFO_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>`;
 const ALERT_ICON = `<svg class="notice-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"></path><path d="M12 10v4M12 17h.01"></path></svg>`;
+const MORE_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5.5" cy="12" r="1.6"></circle><circle cx="12" cy="12" r="1.6"></circle><circle cx="18.5" cy="12" r="1.6"></circle></svg>`;
 const SALE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle></svg>`;
 /** @type {Record<string, [name: string, icon: string]>} */
 const PROVIDERS = {
@@ -287,13 +288,14 @@ function markdown(text) {
   return node;
 }
 
-/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from. */
-async function publishMemory(memory, from) {
+/** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
+ * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
+async function publishMemory(memory, from, anyway = false) {
   closeSheet();
   await openTask("publish");
   // A pending draft for this memory, or the publish agent mid-draft, is the thread itself: open it, never start a second turn.
   if (busy === "publish" || candidates.some((candidate) => candidate.provenance.includes(memory.id))) return;
-  await send(`Help me publish something from my Lore, starting from "${memory.title}".`, from, memory.id);
+  await send(`Help me publish something from my Lore, starting from "${memory.title}".${anyway ? " Lore judged it not worth selling, and I want to draft it anyway." : ""}`, from, memory.id);
 }
 
 /** @param {number | string} id @param {string} title @param {string} detail @param {boolean} [sell] Whether it offers Draft for sale. */
@@ -355,15 +357,71 @@ async function openMemory(id) {
   const text = el("div", "t");
   const titleLabel = el("b", "", memory.title);
   text.append(titleLabel, provenanceLine(memory));
+  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
+  // step away, except for work, which is never offered for sale.
+  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+  if (kept) {
+    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
+    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+    text.append(note);
+  }
   const close = el("button", "icon-btn", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close");
   close.addEventListener("click", closeSheet);
-  const actions = el("div");
-  actions.style.display = "flex";
-  actions.style.gap = "8px";
+  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
+  // its width and Delete is never a click away from selling.
+  const actions = el("div", "sheet-actions");
+  const menu = el("div", "menu sheet-menu");
+  menu.popover = "auto";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "More");
+  /** @param {string} label @param {string} icon @param {() => void} onClick */
+  const item = (label, icon, onClick) => {
+    const node = el("button", "", label);
+    node.type = "button";
+    node.setAttribute("role", "menuitem");
+    node.insertAdjacentHTML("afterbegin", icon);
+    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
+    return node;
+  };
+  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
+  removeItem.classList.add("danger");
+  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
+  menu.addEventListener("toggle", (event) => {
+    const open = /** @type {ToggleEvent} */ (event).newState === "open";
+    more.setAttribute("aria-expanded", String(open));
+    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
+  });
+  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
+  const iconButton = (label, icon, onClick) => {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.setAttribute("aria-label", label);
+    node.title = label;
+    node.insertAdjacentHTML("afterbegin", icon);
+    if (onClick) node.addEventListener("click", onClick);
+    return node;
+  };
+  const more = iconButton("More", MORE_ICON, undefined);
+  more.classList.add("sheet-more");
+  more.setAttribute("aria-haspopup", "menu");
+  more.popoverTargetElement = menu;
   function showActions() {
-    actions.replaceChildren(button("Rename", "quiet", startRename, RENAME_ICON), button("Edit", "quiet", startEdit, EDIT_ICON), button("Draft for sale", "quiet", () => void publishMemory(memory), SALE_ICON));
+    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
+  }
+  function startDelete() {
+    // The question sits under the title like the sale note, so asking never squeezes the title.
+    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
+    const back = () => { asking.remove(); showActions(); };
+    const remove = button("Delete", "quiet", () => void act(async () => {
+      await window.lore.deleteMemory(memory.id);
+      closeSheet();
+      tell(`Deleted ${memory.title}.`);
+    }).then((done) => { if (!done) back(); }));
+    remove.classList.add("destructive");
+    text.append(asking);
+    actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
   let body = renderMemoryBody(memory.content);
@@ -432,7 +490,7 @@ async function openMemory(id) {
   showActions();
   head.append(text, actions, close);
   panel.append(head, body);
-  sheet.append(panel);
+  sheet.append(panel, menu);
   // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
   sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
   sheet.addEventListener("close", () => sheet.remove());
@@ -636,9 +694,10 @@ function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
 }
 
+/** Past midnight is still the evening to someone up late; morning starts at 5. */
 function greeting() {
   const hour = new Date().getHours();
-  return hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
+  return hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
 /** A line icon from its strokes. @param {string} paths */
@@ -852,6 +911,20 @@ function readyGroup(key, runs, sources) {
       render();
     });
   } else head.classList.add("still");
+  const dismiss = el("button", "dismiss", "×");
+  dismiss.type = "button";
+  dismiss.setAttribute("aria-label", `Dismiss ${heading}`);
+  dismiss.addEventListener("click", (event) => {
+    event.stopPropagation();
+    /** @type {ReadyKey[]} */
+    const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+    loads++;
+    readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+    openGroups.delete(key);
+    render();
+    void window.lore.dismissMemories(keys);
+  });
+  head.append(dismiss);
   box.classList.toggle("open", open);
   box.append(head);
   if (open && memories.length) {
@@ -880,7 +953,7 @@ function draftsPhase() {
 }
 
 /** Threads whose agent can stage a publication draft. */
-const DRAFTING = new Set(["publish", "capture"]);
+const DRAFTING = new Set(["publish", "capture", "evening"]);
 
 /** Drafts to approve, and the push after approving. @param {Snapshot} s */
 function drafts(s) {
@@ -1738,7 +1811,7 @@ function renderInventory(s) {
     for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
     return grouped(groups);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)]), item.arrival));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
   const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
   const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
@@ -3670,8 +3743,9 @@ function live(text, status = false) {
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
   return card(saved.map((memory) => {
-    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
-    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    // Only the threads that capture offer the next step; a publish thread forked from one restores these same lines.
+    const from = detailTask === "capture" || detailTask === "evening" ? detailTask : null;
+    const draft = from ? button("Draft for sale", "quiet", () => void publishMemory(memory, from)) : undefined;
     if (draft) draft.disabled = busy !== null;
     return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
   }));
@@ -4524,7 +4598,7 @@ let confirmingExtras = false;
 let approvingExtras = 0;
 
 function approvals() {
-  const list = el("div", "card pad stack");
+  const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
   const form = (draft) => {
@@ -4639,18 +4713,23 @@ function readFirst(heading, preview, build, titleEdits = false) {
       read.replaceChildren(...reading());
     }
   });
-  memory.append(title, read, fields);
-  return { memory, edit, preview: previewButton };
+  memory.append(read, fields);
+  return { memory, title, edit, preview: previewButton };
 }
 
-/** @param {HTMLElement} memory @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
-function approvalMeta(memory, topic, actions, ...chips) {
-  const meta = el("div", "meta");
-  meta.append(chip(topic), ...chips);
+/** A draft's head: its title with the owner's choices beside it, so deciding never means scrolling past the draft, and
+ * its topic under it, cut to fit the card.
+ * @param {{memory: HTMLElement, title: HTMLElement}} card @param {string} topic @param {HTMLElement[]} actions @param {HTMLElement[]} chips */
+function approvalMeta(card, topic, actions, ...chips) {
+  const head = el("div", "draft-head");
   const group = el("div", "group");
   group.append(...actions);
-  meta.append(group);
-  memory.append(meta);
+  head.append(card.title, group);
+  const about = chip(topic, "topic");
+  about.title = topic;
+  const meta = el("div", "draft-chips");
+  meta.append(about, ...chips);
+  card.memory.prepend(head, meta);
 }
 
 /** @param {PublicationCandidate} candidate */
@@ -4679,7 +4758,7 @@ function approvalForm(candidate) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
+  approvalMeta(card, candidate.topic, [card.preview, card.edit, skip, approve], ...(candidate.kind === "content" ? [chip("Verbatim")] : []));
   return card.memory;
 }
 
@@ -4704,7 +4783,7 @@ function extrasForm({ extras, piece }) {
   };
   const skip = button("Skip", "secondary", () => void choose(false));
   const approve = button("Approve", "primary", () => void choose(true));
-  approvalMeta(card.memory, piece.topic, [card.preview, card.edit, skip, approve]);
+  approvalMeta(card, piece.topic, [card.preview, card.edit, skip, approve]);
   return card.memory;
 }
 
@@ -4802,7 +4881,10 @@ async function decide(original, approve, candidate = original) {
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
   if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
-  if (candidates.length || extraDrafts.length) return;
+  // Ask the store what is still waiting: the reload act() ran can lose to a newer one (the agent watch reloads every
+  // few seconds), and a stale list would hold back the push.
+  const [left, extras] = await Promise.all([window.lore.candidates().catch(() => candidates), window.lore.extras().catch(() => extraDrafts)]);
+  if (left.length || extras.length) return;
   // The thread's last word was "ready for your approval below"; with every card skipped, close it.
   if (!approvedThisPass) return void (detailTask && say("Skipped. Nothing new is for sale."));
   approvedThisPass = false;

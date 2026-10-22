@@ -503,6 +503,15 @@ async function creditMemories(loreHome, ids, by) {
   }
 }
 
+/** Keep what a reading judged of each memory it wrote (APP-235), so its sheet offers Draft for sale only where it
+ * makes sense. @param {string} loreHome @param {ReadyMemory[]} memories */
+async function judgeMemories(loreHome, memories) {
+  for (let start = 0; start < memories.length; start += CREDIT_AT_ONCE) {
+    const judged = memories.slice(start, start + CREDIT_AT_ONCE).map(({ id, sell, work, why }) => ({ id, sell, work, why }));
+    await lore(loreHome, ["memory", "judge", "-"], JSON.stringify({ memories: judged }));
+  }
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -518,6 +527,12 @@ async function editMemory(loreHome, id, content) {
   if (!trimmed) throw new Error("Content cannot be empty");
   // Over stdin, not argv: content that starts with a dash is not an option.
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<{deleted: number}>} */
+async function deleteMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "delete", String(id), "--json"]));
 }
 
 /** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
@@ -834,9 +849,11 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  judgeMemories,
   creditMemories,
   renameMemory,
   editMemory,
+  deleteMemory,
   captureMemories,
   previewPage,
   setPrice,
