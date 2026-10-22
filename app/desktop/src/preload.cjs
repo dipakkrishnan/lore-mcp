@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld("lore", {
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {number} id */
+  deleteMemory: (id) => ipcRenderer.invoke("memory:delete", id),
   /** @param {{title: string, content: string}} input */
   pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
@@ -85,12 +87,20 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} source @param {boolean} keep */
   disconnectAgent: (source, keep) => ipcRenderer.invoke("agents:disconnect", source, keep),
   checkAgents: () => ipcRenderer.invoke("agents:check"),
+  agentAddress: () => ipcRenderer.invoke("agents:address"),
+  /** @param {{id: string, app?: AgentApp, name?: string}} input */
+  allowSignIn: (input) => ipcRenderer.invoke("agents:allow", input),
+  /** @param {string} id */
+  denySignIn: (id) => ipcRenderer.invoke("agents:deny", id),
   agentApps: () => ipcRenderer.invoke("agents:installed"),
   /** @param {AgentApp} id */
   openAgentApp: (id) => ipcRenderer.invoke("agents:open", id),
   firstRun: () => ipcRenderer.invoke("firstrun:read"),
   /** @param {FirstRunState} next */
   setFirstRun: (next) => ipcRenderer.invoke("firstrun:write", next),
+  appearance: () => ipcRenderer.invoke("appearance:read"),
+  /** @param {AppearanceChoice} choice */
+  setAppearance: (choice) => ipcRenderer.invoke("appearance:set", choice),
   storeOnline: () => ipcRenderer.invoke("store:online"),
   reopenSignIn: () => ipcRenderer.invoke("signin:reopen"),
   cancelSignIn: () => ipcRenderer.invoke("signin:cancel"),
@@ -99,6 +109,8 @@ contextBridge.exposeInMainWorld("lore", {
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  /** @param {ReadyKey[]} runs */
+  dismissMemories: (runs) => ipcRenderer.invoke("ready:dismiss", runs),
   /** @param {number} newest */
   memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
   /** @param {number[]} arrivals */

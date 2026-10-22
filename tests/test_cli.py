@@ -26,19 +26,27 @@ from unittest.mock import MagicMock, patch
 from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli, feedback
+from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
+
+
+def write_launch_key(path: Path, text: str) -> None:
+    """Write a key file the way the desktop app does: the owner's, readable by no one else."""
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.parent.chmod(0o700)
+    path.touch(mode=0o600)
+    path.write_text(text, encoding="utf-8")
 
 
 @contextmanager
 def desktop_stdin(text: str) -> Iterator[None]:
     """Stand in for Electron main piping a decision with its launch key."""
     with tempfile.TemporaryDirectory() as directory:
-        key = Path(directory) / "attended"
-        key.write_text("launch-key", encoding="utf-8")
+        write_launch_key(Path(directory) / "attended.d/launch", "1\nlaunch-key\n")
         with (
-            patch.object(cli, "attended_key", return_value=key),
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO(text)),
         ):
@@ -860,6 +868,40 @@ class CreditMemoryTest(LoreTestCase):
                 self.assertEqual(cli.main(["memory", "credit", "-"]), 1)
 
 
+class JudgeMemoryTest(LoreTestCase):
+    def test_judge_keeps_a_verdict_and_show_carries_it(self) -> None:
+        # APP-235: the desktop app keeps what a reading judged, so the sheet can say it.
+        memory_id = self.seed_memory("Travel preferences")
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertIsNone(json.loads(output.getvalue())["verdict"])
+        judged = {
+            "memories": [
+                {"id": memory_id, "sell": False, "work": False, "why": "a preference"}
+            ]
+        }
+        with patch("sys.stdin", StringIO(json.dumps(judged))), captured() as output:
+            self.assertEqual(cli.main(["memory", "judge", "-"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"judged": 1})
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertEqual(
+            json.loads(output.getvalue())["verdict"],
+            {"sell": False, "work": False, "why": "a preference"},
+        )
+
+    def test_judge_refuses_what_is_not_a_verdict(self) -> None:
+        for bad in (
+            {"memories": []},
+            {"memories": [{"id": 0, "sell": True, "work": False}]},
+            {"memories": [{"id": "1", "sell": True, "work": False}]},
+            {"memories": [{"id": 1, "sell": True}]},
+            {"memories": [{"id": 1, "sell": True, "work": False, "why": "x" * 201}]},
+        ):
+            with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
+                self.assertEqual(cli.main(["memory", "judge", "-"]), 1)
+
+
 class RenameMemoryTest(LoreTestCase):
     def test_rename_updates_the_title_and_refuses_an_unknown_id(self) -> None:
         memory_id = self.seed_memory("Old title")
@@ -928,6 +970,99 @@ class EditMemoryTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "content is required unless --stdin"):
             cli.edit_memory(memory_id, None, True)
         self.assertEqual(cli.main(["memory", "edit", str(memory_id)]), 1)
+
+
+class DeleteMemoryTest(LoreTestCase):
+    def capture(self, title: str) -> int:
+        [saved] = capture_module.save(
+            [{"title": title, "content": f"{title} the owner wrote down"}]
+        )
+        return int(saved["id"])
+
+    def test_delete_removes_a_captured_memory_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.capture("Stale lesson")
+        kept = self.capture("Kept lesson")
+        with captured() as output:
+            self.assertEqual(
+                cli.main(["memory", "delete", str(memory_id), "--json"]), 0
+            )
+        self.assertEqual(json.loads(output.getvalue()), {"deleted": memory_id})
+        with Store() as store:
+            self.assertIsNone(store.get(memory_id))
+            self.assertEqual([m.id for m in store.search("lesson")], [kept])
+        with self.assertRaisesRegex(ValueError, f"memory not found: {memory_id}"):
+            cli.delete_memory(memory_id, True)
+        self.assertEqual(cli.main(["memory", "delete", str(memory_id)]), 1)
+
+    def test_delete_keeps_a_memory_a_publication_uses(self) -> None:
+        for memory_id in (self.seed_memory("Pricing lesson"), self.capture("Mine")):
+            with Store() as store:
+                published = store.add_publication(
+                    title="Pricing claim",
+                    content="a bounded claim about pricing agent APIs",
+                    topic="pricing",
+                    provenance=[memory_id],
+                )
+                store.revoke_publication(published)
+            with self.assertRaisesRegex(ValueError, "A piece you published uses"):
+                cli.delete_memory(memory_id, True)
+            with Store() as store:
+                self.assertIsNotNone(store.get(memory_id))
+                self.assertEqual(store.counts()["discarded"], 0)
+
+    def test_deleting_a_synthesized_memory_removes_its_file_and_index_line(
+        self,
+    ) -> None:
+        root = self.lore_home / "memories"
+        (root / "projects").mkdir(parents=True)
+        (root / "projects/wedge.md").write_text("# Wedge\n\nA lesson to drop.")
+        (root / "projects/deep-review-wedge.md").write_text(
+            "# Deep review\n\nA lesson to keep."
+        )
+        (root / "INDEX.md").write_text(
+            "# Index\n\n"
+            "- `projects/wedge.md`: the wedge.\n"
+            "- `projects/deep-review-wedge.md`: the review wedge.\n"
+        )
+        with Store() as store:
+            sources_module.Registry(store).scan({"automation"})
+            [dropped] = store.search("drop")
+        with captured():
+            self.assertEqual(cli.delete_memory(dropped.id, True), 0)
+        self.assertFalse((root / "projects/wedge.md").exists())
+        self.assertTrue((root / "projects/deep-review-wedge.md").exists())
+        self.assertEqual(
+            (root / "INDEX.md").read_text(),
+            "# Index\n\n- `projects/deep-review-wedge.md`: the review wedge.\n",
+        )
+        with Store() as store:
+            report = sources_module.Registry(store).scan({"automation"})
+            self.assertEqual(report["automation"]["added"], 0)
+            self.assertEqual(store.search("drop"), [])
+
+    def test_a_deleted_folder_memory_stays_gone_when_the_folder_is_read_again(
+        self,
+    ) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        note = root / "note.md"
+        note.write_text("# Note\n\nA note long enough to be a memory, to delete.")
+        (root / "other.md").write_text("# Other\n\nA note long enough to stay put.")
+        with Store() as store:
+            name = str(sources_module.Registry(store).add(str(root))["name"])
+            [deleted] = store.search("delete")
+        with captured():
+            self.assertEqual(cli.delete_memory(deleted.id, True), 0)
+        self.assertTrue(note.exists(), "the owner's own file is never Lore's")
+        note.write_text("# Note\n\nA note long enough to be a memory, changed since.")
+        with Store() as store:
+            report = sources_module.Registry(store).scan({name})[name]
+            self.assertEqual((report["added"], report["updated"]), (0, 1))
+            self.assertEqual(
+                [m.title for m in store.search("", status="private")], ["Other"]
+            )
+            self.assertEqual(store.counts()["discarded"], 1)
+            self.assertEqual(store.source_counts(), {name: 1})
 
 
 class StatusTest(LoreTestCase):
@@ -1684,6 +1819,24 @@ class PublicationApplyTest(LoreTestCase):
             self.assertEqual(cli.publication_apply(path), 0)
         push.assert_called_once_with(str(cli.store_folder()))
 
+    def test_a_desktop_approval_leaves_the_push_to_the_app(self) -> None:
+        # APP-226: the app pushes once the owner confirms what goes out.
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            self._attended(),
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "ask", return_value="a"),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_apply(self.candidates()), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(len(store.list_publications(active_only=True)), 1)
+            self.assertTrue(store.setting("publish_pending", False))
+
     def test_a_failed_approval_push_is_recorded_never_silently_dropped(self) -> None:
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
@@ -1917,8 +2070,7 @@ class PublicationApplyTest(LoreTestCase):
         (first,) = self.drafted()
         payload = json.dumps({"candidate": first, "approve": True})
         with tempfile.TemporaryDirectory() as directory:
-            key = Path(directory) / "attended"
-            key.write_text("launch-key", encoding="utf-8")
+            write_launch_key(Path(directory) / "attended", "launch-key")
             for env, tty in (
                 ({"LORE_ATTENDED_KEY": ""}, False),
                 ({"LORE_ATTENDED_KEY": "", "LORE_ATTENDED_SURFACE": "desktop"}, False),
@@ -1928,7 +2080,9 @@ class PublicationApplyTest(LoreTestCase):
                 stdin = StringIO(payload)
                 with self.subTest(env=env, tty=tty):
                     with (
-                        patch.object(cli, "attended_key", return_value=key),
+                        patch.object(
+                            cli, "attended_folder", return_value=Path(directory)
+                        ),
                         patch.dict(os.environ, env),
                         patch.object(sys, "stdin", stdin),
                         patch.object(stdin, "isatty", return_value=tty),
@@ -1943,22 +2097,105 @@ class PublicationApplyTest(LoreTestCase):
 
     def test_no_key_file_means_no_desktop_app(self) -> None:
         with (
-            patch.object(
-                cli, "attended_key", return_value=Path("/nonexistent/attended")
-            ),
+            patch.object(cli, "attended_folder", return_value=Path("/nonexistent")),
             patch.dict(os.environ, {"LORE_ATTENDED_KEY": "launch-key"}),
             patch.object(sys, "stdin", StringIO("")),
         ):
             self.assertFalse(cli._attended())
+
+    @contextmanager
+    def _keys(self) -> Iterator[Path]:
+        """A Lore folder with an empty `attended.d`, standing in for the account's."""
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.object(cli, "attended_folder", return_value=Path(directory)),
+            patch.object(sys, "stdin", StringIO("")),
+        ):
+            (Path(directory) / "attended.d").mkdir(mode=0o700)
+            yield Path(directory)
+
+    def _accepts(self, key: str) -> bool:
+        with patch.dict(os.environ, {"LORE_ATTENDED_KEY": key}):
+            return cli._attended()
+
+    def test_each_running_app_keeps_its_own_key(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/one", "101\nfirst-key\n")
+            write_launch_key(folder / "attended.d/two", "202\nsecond-key\n")
+            self.assertTrue(self._accepts("first-key"))
+            self.assertTrue(self._accepts("second-key"))
+            self.assertFalse(self._accepts("third-key"))
+            self.assertFalse(self._accepts("101"))
+
+    def test_the_older_single_key_file_still_works_for_one_release(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended", "legacy-key")
+            write_launch_key(folder / "attended.d/one", "101\nnew-key\n")
+            self.assertTrue(self._accepts("legacy-key"))
+            self.assertTrue(self._accepts("new-key"))
+
+    def test_only_small_regular_files_count_as_keys(self) -> None:
+        with self._keys() as folder:
+            elsewhere = folder / "elsewhere"
+            elsewhere.write_text("linked-key", encoding="utf-8")
+            (folder / "attended.d/link").symlink_to(elsewhere)
+            (folder / "attended").symlink_to(elsewhere)
+            big = "x" * cli.KEY_FILE_BYTES + "\nbig-key\n"
+            write_launch_key(folder / "attended.d/big", big)
+            (folder / "attended.d/folder").mkdir()
+            os.mkfifo(folder / "attended.d/pipe")
+            for key in ("linked-key", "big-key"):
+                self.assertFalse(self._accepts(key), key)
+
+    def test_a_crowded_folder_is_read_only_so_far(self) -> None:
+        with self._keys() as folder:
+            for i in range(cli.KEY_FILES * 2):
+                write_launch_key(folder / f"attended.d/{i}", f"{i}\nkey-{i}\n")
+            accepted = [
+                i for i in range(cli.KEY_FILES * 2) if self._accepts(f"key-{i}")
+            ]
+            self.assertEqual(len(accepted), cli.KEY_FILES)
+
+    def test_junk_in_the_folder_cannot_crowd_out_a_real_key(self) -> None:
+        with self._keys() as folder:
+            for i in range(255):
+                (folder / f"attended.d/junk-{i}").mkdir()
+            write_launch_key(folder / "attended.d/launch", "1\nreal-key\n")
+            self.assertTrue(self._accepts("real-key"))
+
+    def test_only_the_owners_closed_files_count(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/open", "1\nopen-key\n")
+            (folder / "attended.d/open").chmod(0o644)
+            write_launch_key(folder / "attended.d/linked", "1\nlinked-key\n")
+            os.link(folder / "attended.d/linked", folder / "elsewhere")
+            write_launch_key(folder / "attended", "legacy-key")
+            (folder / "attended").chmod(0o644)
+            for key in ("open-key", "linked-key", "legacy-key"):
+                self.assertFalse(self._accepts(key), key)
+            write_launch_key(folder / "attended.d/mine", "1\nmine-key\n")
+            self.assertTrue(self._accepts("mine-key"))
+            with patch.object(cli.os, "getuid", return_value=os.getuid() + 1):
+                self.assertFalse(self._accepts("mine-key"), "someone else's file")
+
+    def test_only_the_owners_closed_folder_counts(self) -> None:
+        with self._keys() as folder:
+            write_launch_key(folder / "attended.d/launch", "1\nlaunch-key\n")
+            (folder / "attended.d").chmod(0o755)
+            self.assertFalse(self._accepts("launch-key"), "a folder others can read")
+            (folder / "attended.d").chmod(0o700)
+            self.assertTrue(self._accepts("launch-key"))
+            (folder / "attended.d").rename(folder / "real")
+            (folder / "attended.d").symlink_to(folder / "real")
+            self.assertFalse(self._accepts("launch-key"), "a link to a folder")
 
     def test_the_key_is_read_from_the_account_home_not_home(self) -> None:
         # A shell can point HOME anywhere it can write; the account's home stays put.
         with tempfile.TemporaryDirectory() as directory:
             account, moved = Path(directory) / "account", Path(directory) / "moved"
             for home, key in ((account, "launch-key"), (moved, "planted-key")):
-                path = home / "Library/Application Support/Lore/attended"
-                path.parent.mkdir(parents=True)
-                path.write_text(key, encoding="utf-8")
+                path = home / "Library/Application Support/Lore/attended.d/launch"
+                write_launch_key(path, f"1\n{key}\n")
             user = MagicMock(pw_dir=str(account))
             for key, attended in (("planted-key", False), ("launch-key", True)):
                 with (
@@ -2302,6 +2539,22 @@ class PublicationCommandTest(LoreTestCase):
         with patch.object(cli, "push", return_value=0) as push, captured():
             self.assertEqual(cli.publication_revoke(pid), 0)
         push.assert_called_once_with(str(cli.store_folder()))
+
+    def test_a_desktop_revoke_leaves_the_push_to_the_app(self) -> None:
+        pid = self.publish()
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            store.set_setting("node_selling", True)
+        with (
+            patch.dict(os.environ, {"LORE_HOLD_PUSH": "1"}),
+            patch.object(cli, "push") as push,
+            captured(),
+        ):
+            self.assertEqual(cli.publication_revoke(pid), 0)
+        push.assert_not_called()
+        with Store() as store:
+            self.assertEqual(store.list_publications(active_only=True), [])
+            self.assertTrue(store.setting("revocation_pending", False))
 
     def test_a_failed_revocation_push_is_recorded_never_silently_dropped(self) -> None:
         pid = self.publish()

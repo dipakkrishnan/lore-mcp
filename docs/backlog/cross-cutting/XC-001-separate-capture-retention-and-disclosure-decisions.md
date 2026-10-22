@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-08-26
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -65,3 +65,5 @@ committed statement of the "<5 owner disclosure decisions/week" target
 anywhere (not in `README.md`, not under `docs/`). Not closing this — write
 the target down somewhere real (a natural fit: `README.md`'s disclosure
 model section) before treating this as done; left `in-review` at `P3`.
+
+**Review 2026-10-19:** not completed. Design lens, mostly realized (STO-001, XC-002 completed; CLI-001 made bulk retention-only). Unmet: a stated target for owner disclosure decisions per week. Item's own note proposes closing it once those land.
