@@ -503,6 +503,15 @@ async function creditMemories(loreHome, ids, by) {
   }
 }
 
+/** Keep what a reading judged of each memory it wrote (APP-235), so its sheet offers Draft for sale only where it
+ * makes sense. @param {string} loreHome @param {ReadyMemory[]} memories */
+async function judgeMemories(loreHome, memories) {
+  for (let start = 0; start < memories.length; start += CREDIT_AT_ONCE) {
+    const judged = memories.slice(start, start + CREDIT_AT_ONCE).map(({ id, sell, work, why }) => ({ id, sell, work, why }));
+    await lore(loreHome, ["memory", "judge", "-"], JSON.stringify({ memories: judged }));
+  }
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -518,6 +527,12 @@ async function editMemory(loreHome, id, content) {
   if (!trimmed) throw new Error("Content cannot be empty");
   // Over stdin, not argv: content that starts with a dash is not an option.
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<{deleted: number}>} */
+async function deleteMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "delete", String(id), "--json"]));
 }
 
 /** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
@@ -563,6 +578,59 @@ async function setFreeCopies(loreHome, count) {
     throw new Error("Free copies has to be a whole number, zero or more");
   }
   await lore(loreHome, ["free-copies", String(count)], "");
+}
+
+/** @param {unknown} id */
+function collectionId(id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid collection");
+  return String(id);
+}
+
+/** A collection exists the moment it's asked for; naming it can wait. Attended: it's the owner's click.
+ * @param {string} loreHome @param {string} [title] @returns {Promise<NewCollection>} */
+async function newCollection(loreHome, title) {
+  const named = typeof title === "string" ? title.trim() : "";
+  return JSON.parse(await lore(loreHome, ["collection", "new", ...(named ? ["--title", named] : [])], ""));
+}
+
+/** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
+ * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
+async function addToCollection(loreHome, id, input) {
+  const which = collectionId(id);
+  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
+  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
+  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+}
+
+/** @param {string} loreHome @param {unknown} id @param {string} title */
+async function renameCollection(loreHome, id, title) {
+  const which = collectionId(id);
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("A collection needs a name");
+  await lore(loreHome, ["collection", "rename", which, "--", trimmed], "");
+}
+
+/** Zero takes it off sale; anything above puts it on sale at that price.
+ * @param {string} loreHome @param {unknown} id @param {unknown} amount */
+async function priceCollection(loreHome, id, amount) {
+  const which = collectionId(id);
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) throw new Error("A price has to be a number, zero or more");
+  await lore(loreHome, ["collection", "price", which, String(amount)], "");
+}
+
+/** Takes one piece out of the collection and off sale. @param {string} loreHome @param {unknown} id @param {unknown} piece */
+async function removeFromCollection(loreHome, id, piece) {
+  const which = collectionId(id);
+  if (!Number.isInteger(piece) || /** @type {number} */ (piece) < 1) throw new Error("Invalid piece");
+  await lore(loreHome, ["collection", "remove", which, String(piece)], "");
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function deleteCollection(loreHome, id) {
+  await lore(loreHome, ["collection", "delete", collectionId(id)], "");
 }
 
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
@@ -834,13 +902,21 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  judgeMemories,
   creditMemories,
   renameMemory,
   editMemory,
+  deleteMemory,
   captureMemories,
   previewPage,
   setPrice,
   setFreeCopies,
+  newCollection,
+  addToCollection,
+  renameCollection,
+  priceCollection,
+  removeFromCollection,
+  deleteCollection,
   candidates,
   decide,
   extrasCandidates,
