@@ -14,6 +14,8 @@ type MemoryItem = {
   sources: MemorySource[];
   /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
   arrival: number;
+  /** What a reading judged of it (APP-235); null when none has. Optional: an installed CLI older than this app omits it. */
+  verdict?: Verdict | null;
 };
 
 type PublicationItem = {
@@ -24,6 +26,21 @@ type PublicationItem = {
   state: "approved" | "revoked";
   live: boolean | null;
 };
+
+/** A named set of pieces sold together at one price (MON-044). */
+type CollectionItem = {
+  id: number;
+  public_id: string;
+  title: string;
+  /** 0 when it isn't on sale. */
+  price_usd: number;
+  on_sale: boolean;
+  pieces: Array<{ id: number; public_id: string; title: string }>;
+  /** What its pieces cost one by one at the store's price; 0 when no price is set. */
+  value_usd: number;
+};
+
+type NewCollection = { id: number; public_id: string; title: string };
 
 type Snapshot = {
   version: 1;
@@ -54,6 +71,8 @@ type Snapshot = {
     counts: { active: number; revoked: number };
     items: PublicationItem[];
   };
+  // Optional: an installed CLI older than collections (MON-044) omits it.
+  collections?: { items: CollectionItem[] };
   pricing: {
     publication_usd: number | null;
     answer_usd: number | null;
@@ -144,7 +163,7 @@ type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState; memories?: Array<{ id: number; title: string }> };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
@@ -152,10 +171,11 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }> };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string };
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
+type Verdict = Pick<ReadyMemory, "sell" | "work" | "why">;
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
 /** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
@@ -163,6 +183,9 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type SeenMemories = { since: number; arrivals: number[] };
 
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
+
+/** Which run one Today card shows: when it finished, and who it was, if anyone. */
+type ReadyKey = { at: string; by: string | null };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
@@ -191,13 +214,25 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
 type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
 
+/** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
+type AppearanceChoice = "system" | "light" | "dark";
+
 type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
 type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
 
 /** One connected personal agent, as `lore agents list` reads it from the store. */
-type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean };
+type AgentEntry = { source: string; name: string; app: AgentApp; saved: number; waiting: number; last_saved_at: string | null; memories: number; revoked: boolean; signed_in?: boolean };
+
+/** An app asking to sign in to the owner's store (XC-068): the code its page shows, and the agent Lore takes it for. */
+type SignInRequest = { id: string; code: string; client: string; app: AgentApp; name: string; created_at: string; expires_at: string };
+
+/** What `lore agents waiting` reads: saves waiting by source, and apps asking to sign in (absent from an older CLI). */
+type AgentsWaiting = { waiting: number; sources: string[]; sign_ins?: SignInRequest[] };
+
+/** One agent the owner let sign in. */
+type AllowedAgent = Pick<AgentKey, "source" | "agent" | "mcp_url">;
 
 type SourceRemoval = { name: string; removed: boolean; memories: { kept: number; deleted?: number } };
 
@@ -227,6 +262,7 @@ type Memory = {
   status: string;
   updated_at: string;
   sources: MemorySource[];
+  verdict?: Verdict | null;
 };
 
 type ProposedMemory = {
@@ -316,17 +352,25 @@ interface Window {
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    deleteMemory(id: number): Promise<{ deleted: number }>;
     pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
     preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
     decide(input: { original: PublicationCandidate; candidate: PublicationCandidate; approve: boolean }): Promise<void>;
     extras(): Promise<ExtrasCandidate[]>;
     decideExtras(input: { original: PublicationExtras; extras: PublicationExtras; approve: boolean }): Promise<void>;
-    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<void>;
+    /** Resolves to whether the store was updated: false when the owner cancelled its card. */
+    approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<boolean>;
     revoke(id: number): Promise<void>;
-    push(): Promise<void>;
+    push(): Promise<boolean>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
+    newCollection(title?: string): Promise<NewCollection>;
+    addToCollection(id: number, input: { items?: Array<{ title: string; content: string }>; files?: string[] }): Promise<{ added: Array<{ publication_id: number; public_id: string; title: string }> }>;
+    renameCollection(id: number, title: string): Promise<void>;
+    priceCollection(id: number, amount: number): Promise<void>;
+    removeFromCollection(id: number, piece: number): Promise<void>;
+    deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
     usage(name: "noticed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
@@ -354,12 +398,17 @@ interface Window {
     agentKey(source: string): Promise<AgentKey>;
     disconnectAgent(source: string, keep: boolean): Promise<SourceRemoval>;
     checkAgents(): Promise<void>;
+    agentAddress(): Promise<{ mcp_url: string }>;
+    allowSignIn(input: { id: string; app?: AgentApp; name?: string }): Promise<AllowedAgent>;
+    denySignIn(id: string): Promise<{ denied: string }>;
     /** Which of the owner's agent apps are installed on this Mac (APP-216). */
     agentApps(): Promise<AgentApp[]>;
     openAgentApp(id: AgentApp): Promise<void>;
     /** Where the first-run chat stands, or null if it never started (APP-215). */
     firstRun(): Promise<FirstRunState | null>;
     setFirstRun(next: FirstRunState): Promise<void>;
+    appearance(): Promise<AppearanceChoice>;
+    setAppearance(choice: AppearanceChoice): Promise<void>;
     /** Put the store online for the owner's agents only; signs in to Cloudflare in the browser first if it must. */
     storeOnline(): Promise<void>;
     /** The Cloudflare sign-in waiting on the browser: its page opened again, or the wait stopped. */
@@ -369,6 +418,7 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    dismissMemories(runs: ReadyKey[]): Promise<void>;
     memoriesSeen(newest: number): Promise<SeenMemories>;
     markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
@@ -421,7 +471,9 @@ type AgentRequest =
   | { type: "auth-prompt"; id: string; task: AgentTask | null; prompt: AuthPrompt }
   | { type: "cloudflare"; id: string; task: AgentTask | null }
   | { type: "price"; id: string; task: AgentTask | null; amount: number; reason: string }
-  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string };
+  | { type: "open"; id: string; task: AgentTask | null; title: string; url: string; note: string }
+  /** APP-226: what a store update puts out, for the owner's Confirm or Cancel. */
+  | { type: "changes"; id: string; task: AgentTask | null; heading: string; changes: StoreChange[] };
 
 type AgentEvent =
   | AgentRequest
@@ -439,11 +491,12 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" | "inventory"; source?: { id: string; label: string } }
+  | { type: "show"; view: "store" | "today" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string } }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
   | { type: "agents"; reads: SourceRead[] }
+  | { type: "sign-ins"; signIns: SignInRequest[] }
   /** Whether a Cloudflare sign-in is waiting on the owner's browser. */
   | { type: "signin"; pending: boolean }
   | { type: "update"; update: AppUpdate };
@@ -470,6 +523,16 @@ type Attachment = { name: string; path: string; size: number };
 
 type OpenStore = { network?: "real" | "test"; wallet?: string; inboxOnly?: boolean };
 
+/** One line on the card a store update waits on: a piece under its group's heading, or a store term, from what it was
+ * (when it was something) to what it becomes. */
+type StoreChange = { group: string; label: string; from?: string; to?: string };
+
+/** The terms a deploy for sale goes live with, and where the store's last deploy recorded it paid. */
+type SaleDeploy = { network: "real" | "test"; payout: string | null; recorded: { address: string; network: "real" | "test" | null } | null };
+
+/** The owner's card for what a store update puts out; true only on Confirm. */
+type Confirm = (heading: string, changes: StoreChange[]) => Promise<boolean>;
+
 type LoreAgentOptions = {
   loreHome: string;
   skillsDir: string;
@@ -491,8 +554,9 @@ type LoreAgentOptions = {
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
-  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
-  memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
+  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. `wrote`: every file in the
+   * memories folder its runs changed, a run that gave way to the owner included. */
+  memoriesReady?(reading: Reading, report: ReadingReport, wrote: string[]): Promise<void>;
   /** The check-in's verdict, or null when its model did not answer. */
   checkedIn?(job: CheckInJob, verdict: CheckInVerdict | null): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;

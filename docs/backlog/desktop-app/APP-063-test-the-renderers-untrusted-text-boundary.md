@@ -4,13 +4,13 @@ title: Test the renderer's untrusted-text boundary and its CSP
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-066, APP-010, APP-008]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -74,3 +74,5 @@ not as a live vulnerability: the CSP and the sandbox flags are correct as they
 stand, and script tags assigned through `innerHTML` don't execute. The point
 is that all of that is currently held by convention rather than by anything
 that fails when it changes.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

@@ -4,13 +4,13 @@ title: Show where every memory came from
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207, APP-210, APP-212]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -43,10 +43,10 @@ you"; a capture of an imported file says the file's app.
 
 ## Acceptance criteria
 
-- [ ] Every memory row on Today and Inventory shows a source mark and "From <source>".
-- [ ] Routine output says "From <routine name>" with the clock mark.
-- [ ] The hover preview leads with the source and date.
-- [ ] Nothing shows "personal" or a bare "Private" as the only provenance.
+- [x] Every memory row on Today and Inventory shows a source mark and "From <source>".
+- [x] Routine output says "From <routine name>" with the clock mark.
+- [x] The hover preview leads with the source and date.
+- [x] Nothing shows "personal" or a bare "Private" as the only provenance.
 
 ## Notes
 
@@ -81,3 +81,5 @@ you"; a capture of an imported file says the file's app.
     crediting is best-effort and never stops a read; reading again keeps when a
     source first brought a memory in. The app credits in batches of 500, last,
     after the result, Today's card and the banner, and logs a failure.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 4b96cff (#480), 4376540. Closed out in the review-queue pass.
