@@ -913,7 +913,7 @@ function draftsPhase() {
 }
 
 /** Threads whose agent can stage a publication draft. */
-const DRAFTING = new Set(["publish", "capture"]);
+const DRAFTING = new Set(["publish", "capture", "evening"]);
 
 /** Drafts to approve, and the push after approving. @param {Snapshot} s */
 function drafts(s) {
@@ -3703,8 +3703,9 @@ function live(text, status = false) {
 function savedCard(saved) {
   if (!saved.length) return el("p", "", "Nothing saved.");
   return card(saved.map((memory) => {
-    // Only the capture thread offers the next step; a publish thread forked from it restores these same lines.
-    const draft = detailTask === "capture" ? button("Draft for sale", "quiet", () => void publishMemory(memory, "capture")) : undefined;
+    // Only the threads that capture offer the next step; a publish thread forked from one restores these same lines.
+    const from = detailTask === "capture" || detailTask === "evening" ? detailTask : null;
+    const draft = from ? button("Draft for sale", "quiet", () => void publishMemory(memory, from)) : undefined;
     if (draft) draft.disabled = busy !== null;
     return row(memory.title, memory.status === "unchanged" ? "Already in your Lore" : "Saved, only on this Mac", draft);
   }));

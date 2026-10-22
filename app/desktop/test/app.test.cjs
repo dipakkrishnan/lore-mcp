@@ -2441,7 +2441,7 @@ test("a posted check-in opens its own thread with the questions as Lore's first 
   const badges = [];
   const checkIns = new CheckIns(join(directory, "check-in.json"), (count) => badges.push(count));
   const question = "You pushed back on the pricing call with Acme. What made you hold firm?";
-  const { agent, faux, loreHome } = await scriptedAgent({});
+  const { agent, faux, loreHome } = await scriptedAgent({ drafts: async () => 1 });
   /** @type {string[]} */
   const told = [];
   faux.setResponses([
@@ -2465,6 +2465,8 @@ test("a posted check-in opens its own thread with the questions as Lore's first 
     assert.equal(await checkIns.waiting(), null);
     assert.match(told[0], /lore-capture/, "the owner's first word still starts the capture skill");
     assert.ok(told[0].includes(question) && told[0].includes("(id 12)"), "the agent knows what was asked, about which item");
+    assert.match(told[0], /ask two to four short follow-ups, one at a time/, "one sentence is not yet a memory");
+    assert.match(told[0], /1 draft is still waiting/, "the check-in can draft, so it knows where drafts stand");
     assert.deepEqual(LoreAgent.history(loreHome, "evening").map((line) => [line.owner, line.text]), [
       [false, question],
       [true, "They wanted a discount we never give first-year customers."],
@@ -2474,6 +2476,18 @@ test("a posted check-in opens its own thread with the questions as Lore's first 
     await rm(loreHome, { recursive: true, force: true });
     await rm(directory, { recursive: true });
   }
+});
+
+test("the check-in thread interviews before it saves, and drafts for sale where it is, as a capture thread does", async () => {
+  const renderer = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
+  const agent = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
+  const drafting = (/** @type {string} */ source) => /const DRAFTING = new Set\((\[[^\]]*\])\);/.exec(source)?.[1];
+  assert.deepEqual(JSON.parse(drafting(renderer) ?? "[]"), ["publish", "capture", "evening"], "its approval cards show in the thread");
+  assert.equal(drafting(agent), drafting(renderer), "the threads that show drafts are the ones told where they stand");
+  assert.doesNotMatch(agent, /tell them to choose Draft for sale/, "asked to sell, the agent drafts instead of pointing at a button");
+  assert.match(agent, /follow lore-publish from those saved memories in this same thread/);
+  const skill = (await readFile(join(__dirname, "../../../plugins/lore/skills/lore-capture/SKILL.md"), "utf8")).replace(/\s+/g, " ");
+  for (const rule of ["When Lore's evening check-in asked", "one at a time", "Never ask more than four", "ordinary captures listen and propose as below", "follow `lore-publish` from those saved memories right here"]) assert.ok(skill.includes(rule), rule);
 });
 
 test("a check-in whose model fails says so, and one from an earlier day is retired while today's stays", async () => {
