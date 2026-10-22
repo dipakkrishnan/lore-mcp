@@ -503,6 +503,15 @@ async function creditMemories(loreHome, ids, by) {
   }
 }
 
+/** Keep what a reading judged of each memory it wrote (APP-235), so its sheet offers Draft for sale only where it
+ * makes sense. @param {string} loreHome @param {ReadyMemory[]} memories */
+async function judgeMemories(loreHome, memories) {
+  for (let start = 0; start < memories.length; start += CREDIT_AT_ONCE) {
+    const judged = memories.slice(start, start + CREDIT_AT_ONCE).map(({ id, sell, work, why }) => ({ id, sell, work, why }));
+    await lore(loreHome, ["memory", "judge", "-"], JSON.stringify({ memories: judged }));
+  }
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -840,6 +849,7 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  judgeMemories,
   creditMemories,
   renameMemory,
   editMemory,

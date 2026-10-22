@@ -105,6 +105,22 @@ test("crediting a big reading goes to the CLI in batches it takes", async () => 
   }
 });
 
+test("what a reading judged of a memory reaches its sheet and Inventory, so Draft for sale shows only where it makes sense", async () => {
+  const { judgeMemories, captureMemories, readMemory } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const [saved] = await captureMemories(directory, [{ title: "Travel preferences", content: "Window seat, United or American, diving and poke." }]);
+    assert.equal((await readMemory(directory, saved.id)).verdict, null, "a memory no reading judged offers Draft for sale as before");
+    await judgeMemories(directory, []);
+    await judgeMemories(directory, [{ id: saved.id, title: "Travel preferences", sell: false, work: false, why: "a personal preference" }, ...Array.from({ length: 1000 }, (_, i) => ({ id: saved.id + i + 1, title: "", sell: true, work: false, why: "" }))]);
+    const verdict = { sell: false, work: false, why: "a personal preference" };
+    assert.deepEqual((await readMemory(directory, saved.id)).verdict, verdict);
+    assert.deepEqual((await readState(directory)).library.items.map((item) => item.verdict), [verdict]);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
 test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
   const { setFreeCopies } = require("../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));

@@ -77,6 +77,18 @@ class Memory(BaseModel):
 LABEL_LIMIT = 200
 
 
+class Verdict(BaseModel):
+    """What a reading judged of a memory it wrote (APP-235): whether a stranger would pay
+    for it, whether it is work and so never for sale, and why in a few words."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, str_strip_whitespace=True)
+
+    id: StrictInt = Field(gt=0)
+    sell: bool
+    work: bool
+    why: str = Field(default="", max_length=200)
+
+
 class Contributor(BaseModel):
     """Who brought a memory in or wrote into it (APP-213): one of the owner's agents, an
     app, one of their routines, or the owner. `mark` names the picture it shows with."""
@@ -519,6 +531,15 @@ class Store:
                 at TEXT NOT NULL,
                 PRIMARY KEY (memory_id, kind, ref)
             );
+            -- Whether Lore judged a memory worth selling (APP-235), so its sheet
+            -- offers Draft for sale only where it makes sense. None means unjudged.
+            CREATE TABLE IF NOT EXISTS memory_verdicts (
+                memory_id INTEGER PRIMARY KEY
+                    REFERENCES memories(id) ON DELETE CASCADE,
+                sell INTEGER NOT NULL,
+                work INTEGER NOT NULL,
+                why TEXT NOT NULL
+            );
             """
         )
         # Roll-forward normalization, not back-compat: a database created before
@@ -907,7 +928,47 @@ class Store:
             "FROM memories ORDER BY updated_at DESC,id"
         ).fetchall()
         credited = self.contributors()
-        return [{**dict(row), "sources": credited.get(row["id"], [])} for row in rows]
+        judged = self.verdicts()
+        return [
+            {
+                **dict(row),
+                "sources": credited.get(row["id"], []),
+                "verdict": judged.get(row["id"]),
+            }
+            for row in rows
+        ]
+
+    def judge(self, verdicts: Collection[Verdict]) -> int:
+        """Keep what a reading judged of each memory, the latest over any before it.
+        Unknown ids are skipped."""
+        cursor = self.db.executemany(
+            "INSERT INTO memory_verdicts (memory_id,sell,work,why) "
+            "SELECT id,?,?,? FROM memories WHERE id=? "
+            "ON CONFLICT(memory_id) DO UPDATE SET "
+            "sell=excluded.sell,work=excluded.work,why=excluded.why",
+            [(v.sell and not v.work, v.work, v.why, v.id) for v in verdicts],
+        )
+        self.db.commit()
+        return cursor.rowcount
+
+    def verdicts(
+        self, ids: Collection[int] | None = None
+    ) -> dict[int, dict[str, object]]:
+        """What Lore judged of each memory it has a verdict for."""
+        if ids is not None and not ids:
+            return {}
+        where = f" WHERE memory_id IN ({','.join('?' * len(ids))})" if ids else ""
+        return {
+            row["memory_id"]: {
+                "sell": bool(row["sell"]),
+                "work": bool(row["work"]),
+                "why": row["why"],
+            }
+            for row in self.db.execute(
+                f"SELECT memory_id,sell,work,why FROM memory_verdicts{where}",
+                tuple(ids or ()),
+            )
+        }
 
     def credit(self, ids: Collection[int], contributor: Contributor) -> int:
         """Put a contributor on record for these memories, as the newest; one already

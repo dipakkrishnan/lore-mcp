@@ -51,6 +51,7 @@ from .store import (
     PublicationExtras,
     PublicationInput,
     Store,
+    Verdict,
 )
 from .ui import (
     ask,
@@ -311,6 +312,10 @@ def parser() -> argparse.ArgumentParser:
         "credit", help="record who wrote into memories, as JSON on stdin"
     )
     memory_credit.add_argument("file", help="'-' for stdin")
+    memory_judge = memory_commands.add_parser(
+        "judge", help="record whether memories look worth selling, as JSON on stdin"
+    )
+    memory_judge.add_argument("file", help="'-' for stdin")
 
     profile = commands.add_parser(
         "profile", help="save an agent-written synthesis profile"
@@ -695,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             if args.memory_command == "credit":
                 return credit_memories(args.file)
+            if args.memory_command == "judge":
+                return judge_memories(args.file)
             if args.memory_command == "rename":
                 return rename_memory(args.id, args.title, args.json)
             if args.memory_command == "edit":
@@ -1379,11 +1386,32 @@ def credit_memories(file: str) -> int:
     return 0
 
 
+class Judged(BaseModel):
+    """What a reading judged of the memories it wrote, as the desktop app hands it over."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    memories: list[Verdict] = Field(min_length=1, max_length=500)
+
+
+def judge_memories(file: str) -> int:
+    """Keep whether a reading's memories look worth selling, and why (APP-235)."""
+    text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
+    judged = Judged.model_validate_json(text)
+    with Store() as store:
+        count = store.judge(judged.memories)
+    print(json.dumps({"judged": count}))
+    return 0
+
+
 def _memory_json(memory: Memory) -> str:
-    """One memory in full, with who it came from."""
+    """One memory in full, with who it came from and what Lore judged of it."""
     with Store() as store:
         credited = store.contributors([memory.id]).get(memory.id, [])
-        [row] = Registry(store).provenance([{**memory.__dict__, "sources": credited}])
+        verdict = store.verdicts([memory.id]).get(memory.id)
+        [row] = Registry(store).provenance(
+            [{**memory.__dict__, "sources": credited, "verdict": verdict}]
+        )
     return json.dumps(row, indent=2)
 
 
