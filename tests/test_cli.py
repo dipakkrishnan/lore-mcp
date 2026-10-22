@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 from helpers import LoreTestCase, blueprint_input, captured
 
 from lore import automation, blueprint, cli, feedback
+from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
@@ -867,6 +868,40 @@ class CreditMemoryTest(LoreTestCase):
                 self.assertEqual(cli.main(["memory", "credit", "-"]), 1)
 
 
+class JudgeMemoryTest(LoreTestCase):
+    def test_judge_keeps_a_verdict_and_show_carries_it(self) -> None:
+        # APP-235: the desktop app keeps what a reading judged, so the sheet can say it.
+        memory_id = self.seed_memory("Travel preferences")
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertIsNone(json.loads(output.getvalue())["verdict"])
+        judged = {
+            "memories": [
+                {"id": memory_id, "sell": False, "work": False, "why": "a preference"}
+            ]
+        }
+        with patch("sys.stdin", StringIO(json.dumps(judged))), captured() as output:
+            self.assertEqual(cli.main(["memory", "judge", "-"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), {"judged": 1})
+        with captured() as output:
+            cli.show_memory(memory_id, True)
+        self.assertEqual(
+            json.loads(output.getvalue())["verdict"],
+            {"sell": False, "work": False, "why": "a preference"},
+        )
+
+    def test_judge_refuses_what_is_not_a_verdict(self) -> None:
+        for bad in (
+            {"memories": []},
+            {"memories": [{"id": 0, "sell": True, "work": False}]},
+            {"memories": [{"id": "1", "sell": True, "work": False}]},
+            {"memories": [{"id": 1, "sell": True}]},
+            {"memories": [{"id": 1, "sell": True, "work": False, "why": "x" * 201}]},
+        ):
+            with patch("sys.stdin", StringIO(json.dumps(bad))), captured():
+                self.assertEqual(cli.main(["memory", "judge", "-"]), 1)
+
+
 class RenameMemoryTest(LoreTestCase):
     def test_rename_updates_the_title_and_refuses_an_unknown_id(self) -> None:
         memory_id = self.seed_memory("Old title")
@@ -935,6 +970,99 @@ class EditMemoryTest(LoreTestCase):
         with self.assertRaisesRegex(ValueError, "content is required unless --stdin"):
             cli.edit_memory(memory_id, None, True)
         self.assertEqual(cli.main(["memory", "edit", str(memory_id)]), 1)
+
+
+class DeleteMemoryTest(LoreTestCase):
+    def capture(self, title: str) -> int:
+        [saved] = capture_module.save(
+            [{"title": title, "content": f"{title} the owner wrote down"}]
+        )
+        return int(saved["id"])
+
+    def test_delete_removes_a_captured_memory_and_refuses_an_unknown_id(self) -> None:
+        memory_id = self.capture("Stale lesson")
+        kept = self.capture("Kept lesson")
+        with captured() as output:
+            self.assertEqual(
+                cli.main(["memory", "delete", str(memory_id), "--json"]), 0
+            )
+        self.assertEqual(json.loads(output.getvalue()), {"deleted": memory_id})
+        with Store() as store:
+            self.assertIsNone(store.get(memory_id))
+            self.assertEqual([m.id for m in store.search("lesson")], [kept])
+        with self.assertRaisesRegex(ValueError, f"memory not found: {memory_id}"):
+            cli.delete_memory(memory_id, True)
+        self.assertEqual(cli.main(["memory", "delete", str(memory_id)]), 1)
+
+    def test_delete_keeps_a_memory_a_publication_uses(self) -> None:
+        for memory_id in (self.seed_memory("Pricing lesson"), self.capture("Mine")):
+            with Store() as store:
+                published = store.add_publication(
+                    title="Pricing claim",
+                    content="a bounded claim about pricing agent APIs",
+                    topic="pricing",
+                    provenance=[memory_id],
+                )
+                store.revoke_publication(published)
+            with self.assertRaisesRegex(ValueError, "A piece you published uses"):
+                cli.delete_memory(memory_id, True)
+            with Store() as store:
+                self.assertIsNotNone(store.get(memory_id))
+                self.assertEqual(store.counts()["discarded"], 0)
+
+    def test_deleting_a_synthesized_memory_removes_its_file_and_index_line(
+        self,
+    ) -> None:
+        root = self.lore_home / "memories"
+        (root / "projects").mkdir(parents=True)
+        (root / "projects/wedge.md").write_text("# Wedge\n\nA lesson to drop.")
+        (root / "projects/deep-review-wedge.md").write_text(
+            "# Deep review\n\nA lesson to keep."
+        )
+        (root / "INDEX.md").write_text(
+            "# Index\n\n"
+            "- `projects/wedge.md`: the wedge.\n"
+            "- `projects/deep-review-wedge.md`: the review wedge.\n"
+        )
+        with Store() as store:
+            sources_module.Registry(store).scan({"automation"})
+            [dropped] = store.search("drop")
+        with captured():
+            self.assertEqual(cli.delete_memory(dropped.id, True), 0)
+        self.assertFalse((root / "projects/wedge.md").exists())
+        self.assertTrue((root / "projects/deep-review-wedge.md").exists())
+        self.assertEqual(
+            (root / "INDEX.md").read_text(),
+            "# Index\n\n- `projects/deep-review-wedge.md`: the review wedge.\n",
+        )
+        with Store() as store:
+            report = sources_module.Registry(store).scan({"automation"})
+            self.assertEqual(report["automation"]["added"], 0)
+            self.assertEqual(store.search("drop"), [])
+
+    def test_a_deleted_folder_memory_stays_gone_when_the_folder_is_read_again(
+        self,
+    ) -> None:
+        root = Path(self.tmp.name) / "vault"
+        root.mkdir()
+        note = root / "note.md"
+        note.write_text("# Note\n\nA note long enough to be a memory, to delete.")
+        (root / "other.md").write_text("# Other\n\nA note long enough to stay put.")
+        with Store() as store:
+            name = str(sources_module.Registry(store).add(str(root))["name"])
+            [deleted] = store.search("delete")
+        with captured():
+            self.assertEqual(cli.delete_memory(deleted.id, True), 0)
+        self.assertTrue(note.exists(), "the owner's own file is never Lore's")
+        note.write_text("# Note\n\nA note long enough to be a memory, changed since.")
+        with Store() as store:
+            report = sources_module.Registry(store).scan({name})[name]
+            self.assertEqual((report["added"], report["updated"]), (0, 1))
+            self.assertEqual(
+                [m.title for m in store.search("", status="private")], ["Other"]
+            )
+            self.assertEqual(store.counts()["discarded"], 1)
+            self.assertEqual(store.source_counts(), {name: 1})
 
 
 class StatusTest(LoreTestCase):

@@ -217,6 +217,15 @@ class ReadTest(AgentCase):
         )
         with Store() as store:
             memory = next(m for m in store.search("Pricing") if m.source == self.source)
+            self.assertEqual(
+                read["memories"],
+                [
+                    {"id": m.id, "title": m.title}
+                    for m in sorted(store.search(""), key=lambda m: m.id)
+                    if m.source == self.source
+                ],
+                "what it saved, by id, so the app can show it before any model reads it",
+            )
             self.assertEqual(memory.status, "private")
             self.assertTrue(memory.updated_at.startswith("2026-10-01"))
             self.assertEqual(
@@ -231,7 +240,8 @@ class ReadTest(AgentCase):
             self.json("agents", "waiting"),
             {"waiting": 0, "sources": [], "sign_ins": []},
         )
-        self.assertEqual(self.read()["added"], 0)
+        again = self.read()
+        self.assertEqual((again["added"], again["memories"]), (0, []))
 
     def test_a_failed_import_confirms_nothing_and_the_next_read_finishes(self) -> None:
         self.save(
@@ -259,6 +269,19 @@ class ReadTest(AgentCase):
         self.assertEqual((read["added"], read["unchanged"]), (1, 1))
         self.assertEqual(set(self.memories(self.source)), {"A", "B"})
 
+    def test_a_resave_of_a_discarded_memory_is_not_handed_back(self) -> None:
+        self.save(self.key, {"title": "Seats", "content": "Window seat.", "key": "s"})
+        self.read()
+        with Store() as store:
+            seats = next(m for m in store.search("Seats") if m.source == self.source)
+            store.set_status(seats.id, "discarded")
+        self.save(
+            self.key,
+            {"title": "Seats", "content": "Aisle seat.", "key": "s"},
+            {"title": "Bags", "content": "Carry-on only.", "key": "b"},
+        )
+        self.assertEqual([m["title"] for m in self.read()["memories"]], ["Bags"])
+
     def test_a_resave_updates_the_memory_and_flags_what_cites_it(self) -> None:
         self.save(
             self.key, {"title": "Pricing", "content": "Quote the tier.", "key": "p"}
@@ -280,7 +303,11 @@ class ReadTest(AgentCase):
                 "key": "p",
             },
         )
-        self.assertEqual(self.read()["updated"], 1)
+        resaved = self.read()
+        self.assertEqual(
+            (resaved["updated"], resaved["memories"]),
+            (1, [{"id": memory.id, "title": "Pricing"}]),
+        )
         self.assertEqual(
             self.memories(self.source), {"Pricing": "Quote the budget, not the song."}
         )
@@ -288,6 +315,31 @@ class ReadTest(AgentCase):
             self.assertEqual(
                 [p.title for p in store.stale_publications()], ["Pricing claim"]
             )
+
+    def test_a_deleted_save_stays_gone_when_the_agent_saves_it_again(self) -> None:
+        self.save(
+            self.key,
+            {"title": "Pricing", "content": "Quote the tier.", "key": "p"},
+            {"title": "Seats", "content": "Window seat.", "key": "s"},
+        )
+        self.read()
+        with Store() as store:
+            memory = next(m for m in store.search("Pricing") if m.source == self.source)
+        self.assertEqual(
+            self.json("memory", "delete", str(memory.id)), {"deleted": memory.id}
+        )
+        self.save(
+            self.key, {"title": "Pricing", "content": "Quote the budget.", "key": "p"}
+        )
+        self.assertEqual(self.read()["added"], 0)
+        self.assertEqual(self.memories(self.source), {"Seats": "Window seat."})
+        library = build()["library"]
+        self.assertEqual(library["counts"]["private"], 1)
+        self.assertEqual(
+            [i["title"] for i in library["items"] if i["status"] == "private"],
+            ["Seats"],
+        )
+        self.assertEqual(self.json("agents", "list")["agents"][0]["memories"], 1)
 
     def test_a_forget_removes_the_memory_unless_a_publication_cites_it(self) -> None:
         self.save(
