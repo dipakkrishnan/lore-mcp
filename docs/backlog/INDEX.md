@@ -10,6 +10,7 @@ obsolete), then `priority` (P0 → P3).
 
 | ID | Title | Priority | Effort | Component | Status | Related | Blockers | Dependencies | Issue |
 |---|---|---|---|---|---|---|---|---|---|
+| [XC-071](./cross-cutting/XC-071-one-hosted-store-for-everyone.md) | One hosted store for everyone at yourlore.dev, sealed and signed | P0 | L | cross-cutting | ideation | XC-067, XC-068, XC-069, XC-041, XC-036, MON-025, APP-224 | — | — | — |
 | [XC-035](./cross-cutting/XC-035-show-a-diff-for-flagged-publications-in-desktop.md) | Show a diff for flagged publications in Desktop | P1 | M | cross-cutting | ideation | XC-019, MON-004, APP-006, APP-011 | XC-019 | — | — |
 | [AUT-007](./automation-synthesis/AUT-007-resume-a-reading-lore-closed-partway-through.md) | Resume a reading that Lore was closed partway through | P2 | S | automation-synthesis | ideation | AUT-005, AUT-006 | — | — | — |
 | [CAP-035](./capture/CAP-035-read-the-days-calendar-as-context-for-the-check-in.md) | Read the day's calendar as context for the evening check-in | P2 | M | capture | ideation | AUT-008, CAP-009 | — | "a calendar source Lore can read unattended" | — |
