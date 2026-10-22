@@ -1,0 +1,4 @@
+{
+  "is_error": true,
+  "text": "{\"name\":\"APIResponseError\",\"code\":\"restricted_resource\",\"status\":403,\"headers\":{},\"body\":\"{\\\"object\\\":\\\"error\\\",\\\"status\\\":403,\\\"code\\\":\\\"restricted_resource\\\",\\\"message\\\":\\\"This object is managed by Notion and isn\u2019t accessible via MCP\\\",\\\"request_id\\\":\\\"bdbfecc1-c1d1-47ea-8367-82ea2fbe5cd5\\\"}\",\"request_id\":\"bdbfecc1-c1d1-47ea-8367-82ea2fbe5cd5\",\"message\":\"This object is managed by Notion and isn\u2019t accessible via MCP\"}"
+}
