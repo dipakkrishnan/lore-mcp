@@ -1,0 +1,319 @@
+{
+  "recorded_at": "2026-09-30T13:42:53+00:00",
+  "lore_version": "0.1.0",
+  "locator": "https://mcp.notion.com/mcp",
+  "requests": [
+    {
+      "n": 1,
+      "url_or_tool": "list_tools",
+      "arguments": null,
+      "file": "tools-list.json",
+      "sha256_raw": "1f3c51575f08041256126b333f781167c4dbdb677e6031dc0987d713a5ff5977",
+      "bytes_raw": 634544,
+      "scrub_hits": {
+        "granola-account-field": 1
+      }
+    },
+    {
+      "n": 2,
+      "url_or_tool": "notion-search",
+      "arguments": {
+        "query": "",
+        "filters": {
+          "created_date_range": {
+            "start_date": "2000-01-01"
+          }
+        },
+        "page_size": 25
+      },
+      "file": "list-01.json",
+      "sha256_raw": "f05fe82ce1a8db3db37fe0a8ec1a2a2030dedc3813df7b8d353dcedbb4cd7d2d",
+      "bytes_raw": 7895,
+      "scrub_hits": {}
+    },
+    {
+      "n": 3,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-805c-aeed-fcf5fb1abdc7"
+      },
+      "file": "fetch-3eb0431b-8ba8-805c-aeed-fcf5fb1abdc7.json",
+      "sha256_raw": "08e59a6a306d4cebd51776934ae501e6e67051ab2726d20a455939e3628a6adf",
+      "bytes_raw": 2378,
+      "scrub_hits": {}
+    },
+    {
+      "n": 4,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "19dcb82b-2fc2-4beb-93f7-b4294254b337"
+      },
+      "file": "fetch-19dcb82b-2fc2-4beb-93f7-b4294254b337.json",
+      "sha256_raw": "8d93401e8744424522ac3e8a65478254c592e618d78951b11294e852e15af1e7",
+      "bytes_raw": 422,
+      "scrub_hits": {}
+    },
+    {
+      "n": 5,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "fbfdd279-9d27-4f94-8763-e4373a4b0487"
+      },
+      "file": "fetch-fbfdd279-9d27-4f94-8763-e4373a4b0487.json",
+      "sha256_raw": "fe34663043c1c7175accaa16b56fd7e5e3c50e33c9a04c8e5bf347d22341dc45",
+      "bytes_raw": 1317,
+      "scrub_hits": {}
+    },
+    {
+      "n": 6,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-80e9-b89b-f93d0f08a93d"
+      },
+      "file": "fetch-3eb0431b-8ba8-80e9-b89b-f93d0f08a93d.json",
+      "sha256_raw": "1df3b94c6b98afda2dc7020ae26f0bafb5b529ec64e848cb4d7d541ef48e4ef4",
+      "bytes_raw": 974,
+      "scrub_hits": {}
+    },
+    {
+      "n": 7,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-805e-b2e1-efd25e78ef29"
+      },
+      "file": "fetch-3eb0431b-8ba8-805e-b2e1-efd25e78ef29.json",
+      "sha256_raw": "3ba4d39422aecf6d9c6edccf6e4bf45097241da7bafe91b74130199d8b2b738c",
+      "bytes_raw": 4569,
+      "scrub_hits": {}
+    },
+    {
+      "n": 8,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "d3d0431b-8ba8-82df-b0d8-014512d331ec"
+      },
+      "file": "fetch-d3d0431b-8ba8-82df-b0d8-014512d331ec.error.json",
+      "sha256_raw": "7c67e1104ef5121be2660acae9edb6455dafd4aa383c20033ebebfaa70c882f7",
+      "bytes_raw": 528,
+      "scrub_hits": {}
+    },
+    {
+      "n": 9,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-80dd-b765-c78070f94698"
+      },
+      "file": "fetch-3eb0431b-8ba8-80dd-b765-c78070f94698.json",
+      "sha256_raw": "0823635b5d21940e8ca500ec79dcdbb6da1690082a7b124fcf9511805b81c3c1",
+      "bytes_raw": 1654,
+      "scrub_hits": {}
+    },
+    {
+      "n": 10,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-80cf-b673-ddbd9ed6f137"
+      },
+      "file": "fetch-3eb0431b-8ba8-80cf-b673-ddbd9ed6f137.json",
+      "sha256_raw": "479f952d783fdb7db8dfa414d88964de81e2c868f3c846c97039cdd261875a1b",
+      "bytes_raw": 2346,
+      "scrub_hits": {}
+    },
+    {
+      "n": 11,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-804a-a5f4-ded61e35160a"
+      },
+      "file": "fetch-3eb0431b-8ba8-804a-a5f4-ded61e35160a.json",
+      "sha256_raw": "e0e23c85db51a573b0f3150a35e5e57810783b3f1eccb72ebf0fa9140954a81c",
+      "bytes_raw": 2378,
+      "scrub_hits": {}
+    },
+    {
+      "n": 12,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-80db-8e08-dedf0daf7c10"
+      },
+      "file": "fetch-3eb0431b-8ba8-80db-8e08-dedf0daf7c10.json",
+      "sha256_raw": "53c9249f3588448be868ed5c3f5db8fc74419af00f26ffa848b0c3cc797e1d00",
+      "bytes_raw": 2197,
+      "scrub_hits": {}
+    },
+    {
+      "n": 13,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-816e-b004-edfa0e5415d0"
+      },
+      "file": "fetch-3eb0431b-8ba8-816e-b004-edfa0e5415d0.json",
+      "sha256_raw": "46bb2dd0937ab2357efd7ada602f2549533c25aa61db7fad959470a0794f0e67",
+      "bytes_raw": 2703,
+      "scrub_hits": {}
+    },
+    {
+      "n": 14,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8134-b75b-c726a1b458db"
+      },
+      "file": "fetch-3eb0431b-8ba8-8134-b75b-c726a1b458db.json",
+      "sha256_raw": "ce35d246f104214a0fda453c617ee7f4a0c11f1c768b8bee8d3ba44bc9ae89c8",
+      "bytes_raw": 1377,
+      "scrub_hits": {}
+    },
+    {
+      "n": 15,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-81fd-9d33-d87ebc07031a"
+      },
+      "file": "fetch-3eb0431b-8ba8-81fd-9d33-d87ebc07031a.json",
+      "sha256_raw": "3a1ec2366d566c0eb6915de39b218207765e566c57753ac21588c958c5c942de",
+      "bytes_raw": 1185,
+      "scrub_hits": {}
+    },
+    {
+      "n": 16,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8181-bf6c-ee1e14116022"
+      },
+      "file": "fetch-3eb0431b-8ba8-8181-bf6c-ee1e14116022.json",
+      "sha256_raw": "624c78a950a2a5a59cdbc24467d066022e1f57aba1262793bac65f6f83f2ade2",
+      "bytes_raw": 1272,
+      "scrub_hits": {}
+    },
+    {
+      "n": 17,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-816d-bfdf-ec4f51ff567a"
+      },
+      "file": "fetch-3eb0431b-8ba8-816d-bfdf-ec4f51ff567a.json",
+      "sha256_raw": "cef437b304cb77f9710e79f2cda1ee9f405dd6c2a971630d013370b02e293e34",
+      "bytes_raw": 1187,
+      "scrub_hits": {}
+    },
+    {
+      "n": 18,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8131-af6d-eb89b967c480"
+      },
+      "file": "fetch-3eb0431b-8ba8-8131-af6d-eb89b967c480.json",
+      "sha256_raw": "19503f012aa32f0103d87f10712e3174408864e5af7b06e0919a14346991118f",
+      "bytes_raw": 922,
+      "scrub_hits": {}
+    },
+    {
+      "n": 19,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-816b-947c-db65aef02014"
+      },
+      "file": "fetch-3eb0431b-8ba8-816b-947c-db65aef02014.json",
+      "sha256_raw": "36087b402fdfacbc3316a63e7b37514af4ec4e9ea08524bf1b3796b30b853930",
+      "bytes_raw": 1124,
+      "scrub_hits": {}
+    },
+    {
+      "n": 20,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8106-a5c6-facfc788cecf"
+      },
+      "file": "fetch-3eb0431b-8ba8-8106-a5c6-facfc788cecf.json",
+      "sha256_raw": "2def71a5f7c3af320cf67306c51242c1228a2dbe40b8b6f70511be84dc283710",
+      "bytes_raw": 1385,
+      "scrub_hits": {}
+    },
+    {
+      "n": 21,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-81ee-b4b0-d3a734f259aa"
+      },
+      "file": "fetch-3eb0431b-8ba8-81ee-b4b0-d3a734f259aa.json",
+      "sha256_raw": "34a300b6fbc9da663662afd4bc3db758f69e1d7866784240dbe5f37bcb633974",
+      "bytes_raw": 1249,
+      "scrub_hits": {}
+    },
+    {
+      "n": 22,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-81b0-8a03-d8e4ae3e8f13"
+      },
+      "file": "fetch-3eb0431b-8ba8-81b0-8a03-d8e4ae3e8f13.json",
+      "sha256_raw": "686045afcdafb0de418942501c1f4f1f8e86b8466ea80aa66ad3987c0d9d7409",
+      "bytes_raw": 1416,
+      "scrub_hits": {}
+    },
+    {
+      "n": 23,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8069-bf3f-ee9dea582573"
+      },
+      "file": "fetch-3eb0431b-8ba8-8069-bf3f-ee9dea582573.json",
+      "sha256_raw": "3f9167683c80fe1d9f7af0ab3477de3eafc6782b1ea81ca17ffded6dfc6e5d77",
+      "bytes_raw": 1458,
+      "scrub_hits": {}
+    },
+    {
+      "n": 24,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-80bc-9f36-c6f8183b3d27"
+      },
+      "file": "fetch-3eb0431b-8ba8-80bc-9f36-c6f8183b3d27.json",
+      "sha256_raw": "dd0b3f6acc80a09da8492f17a6a5d0629e74c7242ef3953fa3d671dda3be68e0",
+      "bytes_raw": 1338,
+      "scrub_hits": {}
+    },
+    {
+      "n": 25,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-801c-8dfc-e8ce2299f415"
+      },
+      "file": "fetch-3eb0431b-8ba8-801c-8dfc-e8ce2299f415.json",
+      "sha256_raw": "57295482ca5c44217442ebed5469d7300bc7421bf5f16464e7e0992008ccbd6e",
+      "bytes_raw": 1323,
+      "scrub_hits": {}
+    },
+    {
+      "n": 26,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "3eb0431b-8ba8-8060-a00d-f8f2116def23"
+      },
+      "file": "fetch-3eb0431b-8ba8-8060-a00d-f8f2116def23.json",
+      "sha256_raw": "01131984e1a1c88939410b880b70f4024682c74a50cc7309bf4f4c2f3bc6eb6b",
+      "bytes_raw": 1322,
+      "scrub_hits": {}
+    },
+    {
+      "n": 27,
+      "url_or_tool": "notion-fetch",
+      "arguments": {
+        "id": "cb40431b-8ba8-8278-a889-0193c8df37d5"
+      },
+      "file": "fetch-cb40431b-8ba8-8278-a889-0193c8df37d5.error.json",
+      "sha256_raw": "bbf6dc8da3f566f897235cef1c16ab8d3756d6511d66e3b94bf52c5e4c5f4376",
+      "bytes_raw": 528,
+      "scrub_hits": {}
+    },
+    {
+      "n": 28,
+      "url_or_tool": "notion-get-tool-access",
+      "arguments": {},
+      "file": "tool-access.json",
+      "sha256_raw": "1c525d96d0ac6893b9fbe4c565504672952b6c0b0e071e11963c56ba734be390",
+      "bytes_raw": 4253,
+      "scrub_hits": {}
+    }
+  ]
+}
