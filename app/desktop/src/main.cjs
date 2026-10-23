@@ -155,6 +155,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     await appendFile(log, "");
     return shell.openPath(log);
   });
+  ipcMain.handle("auth:cancel", () => agent?.cancelLogin());
   ipcMain.handle("auth:logout", (_event, providerId) => {
     if (typeof providerId !== "string") throw new Error("Invalid provider");
     return ready().logout(providerId);
