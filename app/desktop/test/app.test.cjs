@@ -1344,6 +1344,21 @@ test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes
   agent.cancelLogin();
   await assert.rejects(second, /^Error: Sign-in stopped\.$/);
   assert.equal(fields[1].aborted, true);
+
+  // Cancelled while the flow is still starting its callback server: the field it asks for afterwards refuses at once.
+  /** @type {Promise<string> | undefined} */
+  let late;
+  models.login = (_provider, _type, interaction) => new Promise((_resolve, reject) => {
+    interaction.signal?.addEventListener("abort", () => {
+      late = interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal });
+      reject(new Error("aborted"));
+    }, { once: true });
+  });
+  const starting = agent.login("anthropic", "oauth", undefined);
+  agent.cancelLogin();
+  await assert.rejects(starting, /^Error: Sign-in stopped\.$/);
+  await assert.rejects(/** @type {Promise<string>} */ (late));
+  assert.equal(fields.length, 2, "no field is shown for a sign-in already stopped");
 });
 
 test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {

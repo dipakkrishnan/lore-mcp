@@ -674,7 +674,9 @@ export class LoreAgent {
         if (prompt.type === "select") return prompt.options[0].id;
         if (prompt.type === "secret" && secret) return secret;
         // The pasted-URL field goes too, or the flow behind it keeps its callback port and the next sign-in can't start.
-        return this.options.authPrompt({ ...prompt, signal: prompt.signal ? AbortSignal.any([prompt.signal, signal]) : signal });
+        const field = prompt.signal ? AbortSignal.any([prompt.signal, signal]) : signal;
+        field.throwIfAborted();
+        return this.options.authPrompt({ ...prompt, signal: field });
       },
       notify: (event) => this.options.authEvent(event)
     };
