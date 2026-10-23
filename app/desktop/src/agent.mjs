@@ -678,7 +678,8 @@ export class LoreAgent {
         field.throwIfAborted();
         return this.options.authPrompt({ ...prompt, signal: field });
       },
-      notify: (event) => this.options.authEvent(event)
+      // A stopped sign-in still starting up opens no tab and says nothing over the next one.
+      notify: (event) => signal.aborted || this.options.authEvent(event)
     };
     await this.models.login(providerId, type, interaction).catch((/** @type {Error} */ error) => {
       if (current.signal.aborted) throw new Error("Sign-in stopped.");

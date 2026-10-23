@@ -1324,6 +1324,8 @@ test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes
   const { LoreAgent } = await import("../src/agent.mjs");
   /** @type {AbortSignal[]} */
   const fields = [];
+  /** @type {unknown[]} */
+  const events = [];
   const models = {
     /** @param {string} _provider @param {string} _type @param {import("@earendil-works/pi-ai").AuthInteraction} interaction */
     login: (_provider, _type, interaction) => new Promise((_resolve, reject) => {
@@ -1332,7 +1334,7 @@ test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes
     })
   };
   const agent = new LoreAgent(
-    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [] }, authPrompt: async (prompt) => { fields.push(/** @type {AbortSignal} */ (prompt.signal)); return new Promise(() => {}); }, authEvent: () => {} }),
+    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [] }, authPrompt: async (prompt) => { fields.push(/** @type {AbortSignal} */ (prompt.signal)); return new Promise(() => {}); }, authEvent: (event) => void events.push(event) }),
     /** @type {never} */ (models),
     /** @type {never} */ (null),
     /** @type {never} */ (null)
@@ -1350,6 +1352,7 @@ test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes
   let late;
   models.login = (_provider, _type, interaction) => new Promise((_resolve, reject) => {
     interaction.signal?.addEventListener("abort", () => {
+      interaction.notify({ type: "auth_url", url: "https://claude.ai/oauth/authorize" });
       late = interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal });
       reject(new Error("aborted"));
     }, { once: true });
@@ -1359,6 +1362,7 @@ test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes
   await assert.rejects(starting, /^Error: Sign-in stopped\.$/);
   await assert.rejects(/** @type {Promise<string>} */ (late));
   assert.equal(fields.length, 2, "no field is shown for a sign-in already stopped");
+  assert.deepEqual(events, [], "nor is its browser tab opened");
 });
 
 test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
