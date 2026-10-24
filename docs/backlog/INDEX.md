@@ -143,7 +143,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
-| [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | ready | APP-038, APP-066, APP-008 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | ready | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-064](./desktop-app/APP-064-assert-the-preload-to-main-ipc-contract.md) | Assert the preload-to-main IPC contract in a test | P2 | XS | desktop-app | ready | APP-039, APP-002, APP-066 | — | — | — |
 | [MON-032](./monetization/MON-032-prepare-for-stripe-holds-on-seller-accounts.md) | Prepare sellers and support for Stripe payout holds and account reviews | P2 | S | monetization | ready | MON-030, MON-031 | — | — | — |
@@ -304,6 +303,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
 | [APP-060](./desktop-app/APP-060-test-the-untested-cli-boundary-helpers-in-state-cjs.md) | Test the CLI-boundary helpers in state.cjs that no test reaches | P2 | XS | desktop-app | completed | APP-066, APP-001 | — | — | — |
+| [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | completed | APP-038, APP-066, APP-008 | — | — | — |
 | [APP-039](./desktop-app/APP-039-agent-status-ipc-handler-missing-at-launch.md) | agent:status IPC handler is missing, logged as an error on every launch | P2 | S | desktop-app | completed | APP-038 | — | — | — |
 | [APP-208](./desktop-app/APP-208-show-date-only-memory-dates-on-the-day-they-name.md) | Show date-only memory dates on the day they name | P2 | XS | desktop-app | completed | APP-207 | — | — | — |
 | [APP-051](./desktop-app/APP-051-fix-the-storage-location-rows-cramped-layout.md) | Fix the storage-location row's layout — long paths crush the label column | P2 | S | desktop-app | completed | — | — | — | — |
