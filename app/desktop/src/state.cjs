@@ -271,6 +271,13 @@ function storeChanges(state, updated = [], deploy) {
   return changes;
 }
 
+/** APP-231: the newer store this Lore ships, as the owner's card names it. */
+const LATEST = { group: "", label: "Store", to: "The latest from Lore" };
+
+/** What an update puts out, and the newer store too when the one online is older than this Lore's: a deploy always
+ * puts out the store this Lore ships. @param {Snapshot} state @param {StoreChange[]} changes */
+const withLatest = (state, changes) => (state.node.store === "outdated" ? [...changes, LATEST] : changes);
+
 /** Only taking pieces down goes out without the owner's yes. @param {StoreChange[]} changes */
 const asks = (changes) => changes.some((change) => change.group !== COMING_OFF);
 
@@ -290,9 +297,11 @@ class Outgoing {
     for (const id of ids) this.updated.add(id);
   }
 
-  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. */
+  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. Every caller deploys
+   * it, so the newer store goes out with it. */
   async changes() {
-    return storeChanges(await readState(this.loreHome), this.updated);
+    const state = await readState(this.loreHome);
+    return withLatest(state, storeChanges(state, this.updated));
   }
 
   /** Whether the owner said yes to what an update with no terms of its own puts out; one with nothing to confirm goes ahead. */
@@ -302,12 +311,21 @@ class Outgoing {
   }
 
   /** Push the pieces and price of a store that sells, once the owner says yes to what it puts out; one with nothing
-   * to confirm goes ahead. Resolves to whether it went. */
-  async push() {
+   * to confirm goes ahead. Resolves to whether it went. `latest`, the owner's own optional Update where the store
+   * shows, also puts out the newer store this Lore ships (APP-231), as it was last opened: for sale on its network and
+   * payout, or for agents only. Every other push leaves the store as it is, so it never asks about more than it says. */
+  async push({ latest = false } = {}) {
     const state = await readState(this.loreHome);
-    if (!state.node.selling) return false;
+    const newer = latest && state.node.store === "outdated";
+    if (!state.node.selling && !newer) return false;
     const changes = storeChanges(state, this.updated);
-    if (asks(changes) && !(await this.confirm("Update your store", changes))) return false;
+    const out = newer ? [...changes, LATEST] : changes;
+    if (asks(out) && !(await this.confirm("Update your store", out))) return false;
+    if (newer) {
+      const said = await this.deploy(state.node.selling ? redeploy() : ["node", "deploy", "--inbox-only"]);
+      if (!said.startsWith("The store is deployed")) throw new Error(said);
+      return true;
+    }
     await lore(this.loreHome, ["push"], "");
     this.updated.clear();
     return true;
@@ -319,6 +337,14 @@ class Outgoing {
     if (said.startsWith("The store is deployed")) this.updated.clear();
     return said;
   }
+}
+
+/** A store for sale goes out again as its last deploy recorded it: its network, and its payout address when it has
+ * one; a store that sells by card alone has only the network. @returns {string[]} */
+function redeploy() {
+  const payout = recordedPayout();
+  const network = payout?.network ?? recordedNetwork();
+  return ["node", "deploy", ...(network ? ["--network", network] : []), ...(payout ? ["--wallet", payout.address] : [])];
 }
 
 /**
@@ -360,7 +386,7 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
     if (!byCard) payout = answer;
   }
   const state = await readState(loreHome);
-  const changes = storeChanges(state, outgoing.updated, { network, payout, recorded });
+  const changes = withLatest(state, storeChanges(state, outgoing.updated, { network, payout, recorded }));
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
@@ -467,9 +493,18 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** A list of records from the CLI, or a refusal naming it: what it parsed is otherwise handed on unchecked (APP-060).
+ * @param {string} output @param {string} what */
+function records(output, what) {
+  const value = JSON.parse(output);
+  if (Array.isArray(value) && value.every((row) => row !== null && typeof row === "object")) return value;
+  console.error(`lore returned ${what} that is not a list of records: ${output.slice(0, 200)}`);
+  throw new Error(`Lore returned unreadable ${what}`);
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
-  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+  return records(await lore(loreHome, ["node", "sales", "--json"]), "sales");
 }
 
 /** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
@@ -635,7 +670,7 @@ async function deleteCollection(loreHome, id) {
 
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
-  return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
+  return records(await lore(loreHome, ["publication", "candidates"]), "drafts");
 }
 
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */

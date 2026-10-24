@@ -235,7 +235,8 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     await lore(loreHome, ["publication", "revoke", String(id)], "");
     await outgoing.push();
   });
-  ipcMain.handle("store:push", () => outgoing.push());
+  // A newer store goes out only from its own Update, where the store shows (APP-231); Update store pushes what waits.
+  ipcMain.handle("store:push", (_event, latest) => outgoing.push({ latest: latest === true }));
   ipcMain.handle("store:sales", () => readSales(loreHome));
   ipcMain.handle("store:views", () => readViews(loreHome));
   ipcMain.handle("pricing:set", (_event, amount) => setPrice(loreHome, amount));
