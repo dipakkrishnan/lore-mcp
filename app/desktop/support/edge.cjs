@@ -879,7 +879,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("root-capture-joined");
         await js(`window.__lore.openTask("deploy")`);
         const deployLog = await js(`document.querySelector("#log").textContent`);
-        check("a completed deploy opens with fresh history", !deployLog.includes("OLD COMPLETED DEPLOY"), deployLog);
+        // A finished thread is still the thread on screen (APP-112): reopening it shows what was said, and a follow-up forks it.
+        check("a completed deploy reopens with what was said", deployLog.includes("OLD COMPLETED DEPLOY") && deployLog.includes("Your store is open."), deployLog);
         check("drafts stay out of a thread that cannot draft", !(await js(`[...document.querySelectorAll("#main h2")].some((h) => h.textContent === "Approve what to sell")`)));
       } else if (scenario === "fresh") {
         // APP-109: an empty Lore names the next action and carries the control that takes it.
