@@ -1320,6 +1320,51 @@ test("API-key proof deletes rejected keys, not keys it could not check", async (
   assert.deepEqual(deleted, ["anthropic"]);
 });
 
+test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes its pasted-URL field with it", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  /** @type {AbortSignal[]} */
+  const fields = [];
+  /** @type {unknown[]} */
+  const events = [];
+  const models = {
+    /** @param {string} _provider @param {string} _type @param {import("@earendil-works/pi-ai").AuthInteraction} interaction */
+    login: (_provider, _type, interaction) => new Promise((_resolve, reject) => {
+      void interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal }).catch(() => {});
+      interaction.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    })
+  };
+  const agent = new LoreAgent(
+    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [] }, authPrompt: async (prompt) => { fields.push(/** @type {AbortSignal} */ (prompt.signal)); return new Promise(() => {}); }, authEvent: (event) => void events.push(event) }),
+    /** @type {never} */ (models),
+    /** @type {never} */ (null),
+    /** @type {never} */ (null)
+  );
+  const first = agent.login("anthropic", "oauth", undefined);
+  const second = agent.login("openai-codex", "oauth", undefined);
+  await assert.rejects(first, /^Error: Sign-in stopped\.$/);
+  assert.equal(fields[0].aborted, true, "the closed tab's sign-in lets go of its field, so its callback port frees");
+  agent.cancelLogin();
+  await assert.rejects(second, /^Error: Sign-in stopped\.$/);
+  assert.equal(fields[1].aborted, true);
+
+  // Cancelled while the flow is still starting its callback server: the field it asks for afterwards refuses at once.
+  /** @type {Promise<string> | undefined} */
+  let late;
+  models.login = (_provider, _type, interaction) => new Promise((_resolve, reject) => {
+    interaction.signal?.addEventListener("abort", () => {
+      interaction.notify({ type: "auth_url", url: "https://claude.ai/oauth/authorize" });
+      late = interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal });
+      reject(new Error("aborted"));
+    }, { once: true });
+  });
+  const starting = agent.login("anthropic", "oauth", undefined);
+  agent.cancelLogin();
+  await assert.rejects(starting, /^Error: Sign-in stopped\.$/);
+  await assert.rejects(/** @type {Promise<string>} */ (late));
+  assert.equal(fields.length, 2, "no field is shown for a sign-in already stopped");
+  assert.deepEqual(events, [], "nor is its browser tab opened");
+});
+
 test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");

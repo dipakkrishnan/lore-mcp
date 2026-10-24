@@ -279,6 +279,8 @@ export function createSandboxedBashOperations(place, task, timeout = BASH_TIMEOU
 /** The most one read hands back, and how long one command may take, so a huge file or a pipe never holds the app. */
 export const READ_CAP = 10 * 1024 * 1024;
 const COMMAND_MS = 60_000;
+/** How long a browser sign-in may wait on a tab the owner may have closed. */
+const SIGN_IN_MS = 5 * 60_000;
 
 /**
  * Run one fixed command in the sandbox and hand back what it printed. The path reaches it as
@@ -507,6 +509,8 @@ export class LoreAgent {
   #settling = [];
   /** An owner's turn is waiting for a reading to stop, so no reading may start. */
   #yielding = false;
+  /** The sign-in waiting on the browser; a new one, a cancel or the timeout stops it. @type {AbortController | null} */
+  #signingIn = null;
 
   /**
    * @param {LoreAgentOptions} options
@@ -659,23 +663,39 @@ export class LoreAgent {
 
   /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string | undefined} secret */
   async login(providerId, type, secret) {
+    this.cancelLogin();
+    const current = new AbortController();
+    this.#signingIn = current;
+    const signal = AbortSignal.any([current.signal, AbortSignal.timeout(SIGN_IN_MS)]);
     /** @type {import("@earendil-works/pi-ai").AuthInteraction} */
     const interaction = {
+      signal,
       prompt: async (prompt) => {
         if (prompt.type === "select") return prompt.options[0].id;
         if (prompt.type === "secret" && secret) return secret;
-        return this.options.authPrompt(prompt);
+        // The pasted-URL field goes too, or the flow behind it keeps its callback port and the next sign-in can't start.
+        const field = prompt.signal ? AbortSignal.any([prompt.signal, signal]) : signal;
+        field.throwIfAborted();
+        return this.options.authPrompt({ ...prompt, signal: field });
       },
-      notify: (event) => this.options.authEvent(event)
+      // A stopped sign-in still starting up opens no tab and says nothing over the next one.
+      notify: (event) => signal.aborted || this.options.authEvent(event)
     };
     await this.models.login(providerId, type, interaction).catch((/** @type {Error} */ error) => {
+      if (current.signal.aborted) throw new Error("Sign-in stopped.");
       console.error(error);
-      throw new Error("Sign-in didn't complete. Try again.");
+      throw new Error(signal.aborted ? "Sign-in timed out. Try again." : "Sign-in didn't complete. Try again.");
+    }).finally(() => {
+      if (this.#signingIn === current) this.#signingIn = null;
     });
     if (type === "api_key") await this.#proveKey(providerId);
     // A thread left on a model that just lost its sign-in picks up whichever one the owner signed in with.
     this.dispose();
     return this.status();
+  }
+
+  cancelLogin() {
+    this.#signingIn?.abort();
   }
 
   /** One tiny request, so a mistyped key fails at sign-in instead of inside the first thread. @param {string} providerId */
