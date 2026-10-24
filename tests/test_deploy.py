@@ -1253,6 +1253,42 @@ class DeployTest(_NodeCase):
         self.assertEqual(payout, {"address": WALLET, "network": "real"})
         self.assertFalse(self.store.is_relative_to(self.lore_home))
 
+    def test_a_deploy_that_went_out_records_the_store_this_lore_ships(self) -> None:
+        # APP-231: the app offers an update once this Lore ships a newer store.
+        url = "https://lore.example.workers.dev/mcp"
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+        self._deploy()
+        kept = json.loads((self.store / "deployed.json").read_text())
+        self.assertEqual(kept, {"store": deploy_module.shipped_store()})
+        self.assertEqual(deploy_module.store_state(url), "current")
+        # A store with no address online is nothing to update.
+        self.assertEqual(deploy_module.store_state(None), "unknown")
+        (self.store / "deployed.json").write_text(json.dumps({"store": "an older one"}))
+        self.assertEqual(deploy_module.store_state(url), "outdated")
+        # Put online from this Mac before the record was kept: its payout record says so.
+        (self.store / "deployed.json").unlink()
+        self.assertEqual(deploy_module.store_state(url), "outdated")
+        # With neither record, another Mac may have set it up: never outdated.
+        (self.store / "payout.json").unlink()
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+        (self.store / "deployed.json").write_text("not json")
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+
+    def test_an_inbox_only_deploy_records_its_store_too(self) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True, has_wallet_secret=False)
+        self.assertEqual(
+            deploy_module.store_state("https://lore.example.workers.dev/mcp"), "current"
+        )
+
+    def test_a_deploy_cloudflare_refused_records_no_store(self) -> None:
+        with self.assertRaises(OSError):
+            self._deploy(email_unverified=True)
+        self.assertFalse((self.store / "deployed.json").exists())
+
+    def test_the_shipped_store_is_one_digest_for_one_release(self) -> None:
+        self.assertRegex(deploy_module.shipped_store(), "^[0-9a-f]{64}$")
+        self.assertEqual(deploy_module.shipped_store(), deploy_module.shipped_store())
+
     def test_a_full_deploy_drives_wrangler_and_records_the_url(self) -> None:
         code, wrangler = self._deploy()
         self.assertEqual(code, 0)

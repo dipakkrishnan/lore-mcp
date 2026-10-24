@@ -616,6 +616,7 @@ class ConnectorTest(LoreTestCase):
                 "obsidian",
                 "chatgpt",
                 "claude",
+                "google-maps",
                 "substack",
                 "medium",
                 "bluesky",
