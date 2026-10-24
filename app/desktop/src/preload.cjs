@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("lore", {
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */
   login: (input) => ipcRenderer.invoke("auth:login", input),
+  cancelLogin: () => ipcRenderer.invoke("auth:cancel"),
   /** @param {string} providerId */
   logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
   /** @param {string} query */
@@ -41,7 +42,7 @@ contextBridge.exposeInMainWorld("lore", {
   approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
-  push: () => ipcRenderer.invoke("store:push"),
+  push: (/** @type {boolean} */ latest) => ipcRenderer.invoke("store:push", latest === true),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */

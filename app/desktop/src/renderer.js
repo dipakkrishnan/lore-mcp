@@ -5,6 +5,7 @@ const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
 const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
+const welcomeCancel = /** @type {HTMLButtonElement} */ ($("#welcome-cancel"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
@@ -1744,6 +1745,14 @@ function storeBar(s) {
       bar.append(push);
     }
   } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
+  else {
+    const newer = newerStore(s);
+    if (newer) {
+      const line = el("div", "newer-store-line");
+      line.append(newer.note, newer.update);
+      prices.append(line);
+    }
+  }
   return bar;
 }
 
@@ -2378,7 +2387,18 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
+  const newer = newerStore(s);
+  if (newer) detail.append(newer.note);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), outLink("Open ↗", home)), false);
+}
+
+/** APP-231: a newer store from Lore, offered quietly where the store shows, never as a step: a short line, and an
+ * Update the owner may use when they like, which still asks before anything goes out. Null while the store online is
+ * the one this Lore ships, while it is being updated, or when this Mac has no record of opening it.
+ * @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
+function newerStore(s) {
+  if (s.node.store !== "outdated" || pushing || underWay("deploy")) return null;
+  return { note: el("span", "newer-store", "A newer store from Lore is ready."), update: button("Update", "quiet", () => void pushNow(true)) };
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -5069,14 +5089,16 @@ function seamCard() {
   return box;
 }
 
-async function pushNow() {
+/** @param {boolean} [latest] Whether the newer store Lore ships goes out too (APP-231); only its own Update asks. */
+async function pushNow(latest = false) {
   pushing = true;
   render();
   const offer = pushOffer;
   let pushed = false;
-  if (await act(async () => { pushed = await window.lore.push(); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
+  if (await act(async () => { pushed = await window.lore.push(latest === true); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-    pushedNote = `Your store is updated · ${live} for sale`;
+    // A store online only for the owner's agents has nothing for sale to count.
+    pushedNote = snapshot && !forSale(snapshot) ? "Your store is updated" : `Your store is updated · ${live} for sale`;
   } else {
     pushOffer = offer;
   }
@@ -5171,18 +5193,26 @@ function renderAttachments() {
   }));
 }
 
+/** Sign-ins started, so one a newer click replaced says nothing when it ends. */
+let signIns = 0;
+
 /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string} [secret] */
 async function signIn(providerId, type, secret) {
+  const attempt = ++signIns;
   welcomeNote.textContent = type === "oauth" ? "Waiting for your browser…" : "Checking your key…";
+  welcomeCancel.hidden = type !== "oauth";
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
     welcomeBack.hidden = true;
     enter();
   } catch (error) {
-    welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
+    if (attempt === signIns) welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
   } finally {
-    offerRedirect(null);
+    if (attempt === signIns) {
+      welcomeCancel.hidden = true;
+      offerRedirect(null);
+    }
   }
 }
 
@@ -5750,6 +5780,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
     void signIn(providerId, /** @type {"oauth" | "api_key"} */ (type));
   });
 }
+welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();
