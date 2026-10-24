@@ -24,7 +24,10 @@ CI (`desktop-check` in `.github/workflows/tests.yml`, macOS) runs `check`, `test
 every persona in `test:edge` as its own step, and `package`. A persona step needs
 no provider or Cloudflare credential. `test:capture` is the one suite CI does not
 run: it prompts the operator for Return, so it stays attended. Adding a persona to
-`test:edge` without a CI step fails `test/ci-edge.test.cjs`.
+`test:edge` without a CI step fails `test/ci-edge.test.cjs`. A
+channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
+reverse, or a `window.lore` member the renderer uses but preload does not expose,
+fails `test/ipc-contract.test.cjs`.
 
 To look at a view without clicking through, render it to a PNG:
 
