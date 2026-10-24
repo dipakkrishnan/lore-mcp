@@ -25,10 +25,19 @@ const https = (url) => {
     return false;
   }
 };
+const collection = (entry) =>
+  typeof entry?.title === "string" && typeof entry.price_usd === "number" && entry.price_usd > 0
+    ? { title: entry.title, price_usd: entry.price_usd, pieces: Number(entry.pieces) || 0 }
+    : null;
 // The list is hand-editable and filed from issues, so only well-formed entries with an https store are shown.
 const listed = (seller) =>
   typeof seller?.name === "string" && typeof seller.price_usd === "number" && https(seller.store) && !seller.down_since
-    ? { ...seller, topics: Array.isArray(seller.topics) ? seller.topics.map(String) : [], publications: Number(seller.publications) || 0 }
+    ? {
+        ...seller,
+        topics: Array.isArray(seller.topics) ? seller.topics.map(String) : [],
+        publications: Number(seller.publications) || 0,
+        collections: Array.isArray(seller.collections) ? seller.collections.map(collection).filter(Boolean) : []
+      }
     : null;
 
 const MARK = `<svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"/><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" fill="none" stroke="var(--bg)" stroke-width="1.7"/></svg>`;
@@ -55,6 +64,9 @@ h1{font:500 clamp(32px,6.5vw,46px)/1.1 var(--serif);letter-spacing:-.015em;margi
 .facts{font-size:14px;color:var(--muted);margin:0 0 14px}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0;list-style:none}
 .chip{padding:3px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted)}
+.collections{list-style:none;margin:0 0 16px;padding:0;font-size:14px}
+.collections li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}
+.collections span{color:var(--muted);white-space:nowrap}
 .visit{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;background:var(--accent);color:var(--bg);font-weight:600;font-size:14px;text-decoration:none}
 .visit:hover{filter:brightness(1.08)}
 .empty{padding:32px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
@@ -76,15 +88,20 @@ function sellerCard(seller) {
   const shown = topics.slice(0, TOPICS_SHOWN).map((topic) => `<li class="chip">${escape(topic)}</li>`).join("");
   const more = topics.length > TOPICS_SHOWN ? `<li class="chip">+${topics.length - TOPICS_SHOWN} more</li>` : "";
   const count = seller.publications;
+  const sets = seller.collections;
   const facts = [
     ...(seller.network === MAINNET ? [] : ["test store"]),
     `${count} ${count === 1 ? "piece" : "pieces"}`,
+    ...(sets.length ? [`${sets.length} ${sets.length === 1 ? "collection" : "collections"}`] : []),
     `${money(seller.price_usd)} each`,
     ...(typeof seller.answer_price_usd === "number" ? [`questions ${money(seller.answer_price_usd)}`] : []),
     ...(date(seller.listed) ? [`listed ${date(seller.listed)}`] : [])
   ].join(" · ");
-  const search = `${seller.name} ${topics.join(" ")}`.toLowerCase();
-  return `<li class="seller" data-search="${escape(search)}"><h2><a href="${escape(seller.store)}">${escape(seller.name)}</a></h2><p class="facts">${facts}</p><ul class="chips">${shown}${more}</ul><a class="visit" href="${escape(seller.store)}">Visit store →</a></li>`;
+  const shelf = sets.length
+    ? `<ul class="collections">${sets.map((set) => `<li>${escape(set.title)}<span>${set.pieces} ${set.pieces === 1 ? "piece" : "pieces"} · ${money(set.price_usd)}</span></li>`).join("")}</ul>`
+    : "";
+  const search = `${seller.name} ${topics.join(" ")} ${sets.map((set) => set.title).join(" ")}`.toLowerCase();
+  return `<li class="seller" data-search="${escape(search)}"><h2><a href="${escape(seller.store)}">${escape(seller.name)}</a></h2><p class="facts">${facts}</p><ul class="chips">${shown}${more}</ul>${shelf}<a class="visit" href="${escape(seller.store)}">Visit store →</a></li>`;
 }
 
 export function marketplacePage(list) {

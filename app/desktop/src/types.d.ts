@@ -14,6 +14,8 @@ type MemoryItem = {
   sources: MemorySource[];
   /** When it arrived, as a number that only grows and is never reused, as an id can be (APP-212). */
   arrival: number;
+  /** What a reading judged of it (APP-235); null when none has. Optional: an installed CLI older than this app omits it. */
+  verdict?: Verdict | null;
 };
 
 type PublicationItem = {
@@ -24,6 +26,21 @@ type PublicationItem = {
   state: "approved" | "revoked";
   live: boolean | null;
 };
+
+/** A named set of pieces sold together at one price (MON-044). */
+type CollectionItem = {
+  id: number;
+  public_id: string;
+  title: string;
+  /** 0 when it isn't on sale. */
+  price_usd: number;
+  on_sale: boolean;
+  pieces: Array<{ id: number; public_id: string; title: string }>;
+  /** What its pieces cost one by one at the store's price; 0 when no price is set. */
+  value_usd: number;
+};
+
+type NewCollection = { id: number; public_id: string; title: string };
 
 type Snapshot = {
   version: 1;
@@ -54,6 +71,8 @@ type Snapshot = {
     counts: { active: number; revoked: number };
     items: PublicationItem[];
   };
+  // Optional: an installed CLI older than collections (MON-044) omits it.
+  collections?: { items: CollectionItem[] };
   pricing: {
     publication_usd: number | null;
     answer_usd: number | null;
@@ -144,7 +163,7 @@ type SourceKind = "folder" | "export" | "feed" | "mcp" | "agent";
 
 type SourceApp = { id: string; name: string; what: string; unit: string; item: string; kind: SourceKind; refresh: boolean; placeholder: string; guide?: string };
 
-type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState };
+type SourceRead = { name: string; label?: string; connector?: string | null; app?: AgentApp | null; added: number; updated: number; unchanged: number; errors: number; state: SourceState; memories?: Array<{ id: number; title: string }> };
 
 /** New items a connected app brought in, waiting to be read through: "23 new Granola meetings". */
 /** `title` and `phase` are worded once: what Today and the notification call it, and its row while it reads. One of the
@@ -156,6 +175,7 @@ type ReadingReport = { read: number; memories: Array<{ file: string; worth_selli
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
+type Verdict = Pick<ReadyMemory, "sell" | "work" | "why">;
 
 /** One finished reading, kept on Today until the owner clears it; `seen` once they have looked. */
 /** Which memories the owner has had on screen, by arrival (APP-212); one that arrived after `since` and is not in
@@ -163,6 +183,9 @@ type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; wh
 type SeenMemories = { since: number; arrivals: number[] };
 
 type ReadyRun = { title: string; read: number; memories: ReadyMemory[]; at: string; seen: boolean; from?: string; by?: Contributor };
+
+/** Which run one Today card shows: when it finished, and who it was, if anyone. */
+type ReadyKey = { at: string; by: string | null };
 
 /** Something Lore does on its own at a set hour, as `lore automation list` describes it. `due`: the app owes it a run now. */
 type Routine = { id: string; kind: "read" | "checkin" | "ask"; name: string; about: string; built_in?: boolean; cadence: "daily" | "weekdays" | "weekly"; hour: number; day?: number; paused?: boolean; last_run: string | null; result: string; next_run: string; due: boolean };
@@ -239,6 +262,7 @@ type Memory = {
   status: string;
   updated_at: string;
   sources: MemorySource[];
+  verdict?: Verdict | null;
 };
 
 type ProposedMemory = {
@@ -323,11 +347,13 @@ interface Window {
     restart(task: AgentTask): Promise<void>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
+    cancelLogin(): Promise<void>;
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
+    deleteMemory(id: number): Promise<{ deleted: number }>;
     pasteMemory(input: { title: string; content: string }): Promise<SavedMemory[]>;
     candidates(): Promise<PublicationCandidate[]>;
     preview(input: { candidate: PublicationCandidate; store: { priceUsd: number; origin: string; test: boolean } }): Promise<void>;
@@ -340,6 +366,12 @@ interface Window {
     push(): Promise<boolean>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
+    newCollection(title?: string): Promise<NewCollection>;
+    addToCollection(id: number, input: { items?: Array<{ title: string; content: string }>; files?: string[] }): Promise<{ added: Array<{ publication_id: number; public_id: string; title: string }> }>;
+    renameCollection(id: number, title: string): Promise<void>;
+    priceCollection(id: number, amount: number): Promise<void>;
+    removeFromCollection(id: number, piece: number): Promise<void>;
+    deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
     usage(name: "noticed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
@@ -387,6 +419,7 @@ interface Window {
     readyRuns(): Promise<ReadyRun[]>;
     seenMemories(): Promise<void>;
     clearMemories(): Promise<void>;
+    dismissMemories(runs: ReadyKey[]): Promise<void>;
     memoriesSeen(newest: number): Promise<SeenMemories>;
     markSeen(arrivals: number[]): Promise<void>;
     checkIn(): Promise<CheckIn | null>;
@@ -479,6 +512,7 @@ type LoreAgentInstance = {
   restart(task: AgentTask): void;
   ask(task: AgentTask, text: string, note: string): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
+  cancelLogin(): void;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
   synthesize(reading: Reading): void;
@@ -522,8 +556,9 @@ type LoreAgentOptions = {
   openUrl(page: { title: string; url: string; note: string }): Promise<string>;
   /** How many staged drafts still wait on the owner's cards. */
   drafts?(): Promise<number>;
-  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. */
-  memoriesReady?(reading: Reading, report: ReadingReport): Promise<void>;
+  /** A reading finished and handed back what it wrote; Lore saves it and tells the owner. `wrote`: every file in the
+   * memories folder its runs changed, a run that gave way to the owner included. */
+  memoriesReady?(reading: Reading, report: ReadingReport, wrote: string[]): Promise<void>;
   /** The check-in's verdict, or null when its model did not answer. */
   checkedIn?(job: CheckInJob, verdict: CheckInVerdict | null): Promise<void>;
   authPrompt(prompt: import("@earendil-works/pi-ai").AuthPrompt): Promise<string>;
