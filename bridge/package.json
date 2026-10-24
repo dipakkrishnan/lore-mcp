@@ -11,9 +11,9 @@
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.30.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@x402/evm": "2.28.0",
-    "agents": "0.25.0",
+    "agents": "0.29.0",
     "viem": "2.57.2"
   },
   "devDependencies": {
