@@ -84,6 +84,8 @@ type Snapshot = {
     url: string | null;
     /** False while the store is online only for the owner's agents, with nothing for sale (XC-069). */
     selling: boolean;
+    /** Whether the store online is the one this Lore ships (APP-231); absent from a CLI older than that. */
+    store?: "current" | "outdated" | "unknown";
     live: {
       state: "online" | "not_configured" | "unreachable";
       network: string | null;
@@ -347,6 +349,7 @@ interface Window {
     restart(task: AgentTask): Promise<void>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
+    cancelLogin(): Promise<void>;
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
@@ -362,7 +365,7 @@ interface Window {
     /** Resolves to whether the store was updated: false when the owner cancelled its card. */
     approveExtras(decisions: Array<{ original: PublicationExtras; extras: PublicationExtras }>): Promise<boolean>;
     revoke(id: number): Promise<void>;
-    push(): Promise<boolean>;
+    push(latest?: boolean): Promise<boolean>;
     setPrice(amount: number): Promise<void>;
     setFreeCopies(count: number): Promise<void>;
     newCollection(title?: string): Promise<NewCollection>;
@@ -511,6 +514,7 @@ type LoreAgentInstance = {
   restart(task: AgentTask): void;
   ask(task: AgentTask, text: string, note: string): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
+  cancelLogin(): void;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
   synthesize(reading: Reading): void;
