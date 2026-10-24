@@ -1931,7 +1931,7 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
-    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["google-maps", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
     // Offered under the path its source will keep, so a vault already connected is recognised (APP-215).
     assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: await realpath(vault), open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
