@@ -266,5 +266,151 @@ class ExportTest(LoreTestCase):
         self.assertEqual(removed["memories"], {"deleted": 2, "kept": 0})
 
 
+class TakeoutTest(LoreTestCase):
+    """Google Maps from a Takeout archive: a recorded folder layout with Google's own
+    file names and fields, the places renamed, and two unrelated products beside it."""
+
+    folder = EXPORTS / "takeout"
+
+    def zipped(self, name: str = "takeout.zip", **changed: str) -> str:
+        path = Path(self.tmp.name) / name
+        with zipfile.ZipFile(path, "w") as archive:
+            for found in sorted(self.folder.rglob("*")):
+                if found.is_file():
+                    member = found.relative_to(self.folder).as_posix()
+                    archive.writestr(member, changed.get(member, found.read_text()))
+        return str(path)
+
+    def connect(self, locator: str) -> dict[str, object]:
+        with Store() as store:
+            return sources_module.Registry(store).connect("google-maps", locator)
+
+    def memories(self) -> dict[str, str]:
+        with Store() as store:
+            return {memory.title: memory.content for memory in store.search("")}
+
+    def test_a_zip_and_its_unzipped_folder_read_the_same_and_skip_other_products(
+        self,
+    ) -> None:
+        readers = [
+            sources_module.Source.owner(
+                locator, kind="export", connector="google-maps"
+            ).reader()
+            for locator in (str(self.folder), self.zipped())
+        ]
+        found = [{item.key: item.content for item in r.items()} for r in readers]
+        self.assertEqual(found[0], found[1])
+        self.assertEqual(
+            sorted(found[0]),
+            [
+                "list:Best coffee in SF",
+                "list:Want to go",
+                *sorted(
+                    f"review:https://www.google.com/maps/place//data=!4m2!3m1!1s{cid}"
+                    for cid in (
+                        "0x808f7e1f1f1f1f1f:0x6f708192a3b4c5d6",
+                        "0x808f7e2f2f2f2f2f:0x708192a3b4c5d6e7",
+                        "0x808f7e3f3f3f3f3f:0x8192a3b4c5d6e7f8",
+                    )
+                ),
+                "starred",
+            ],
+        )
+        self.assertFalse(
+            any("Groceries" in text or "USD" in text for text in found[0].values())
+        )
+
+    def test_each_list_keeps_its_notes_and_each_review_its_rating_and_words(
+        self,
+    ) -> None:
+        entry = self.connect(str(self.folder))
+        self.assertEqual(
+            (entry["name"], entry["label"], entry["refresh"], entry["imported"]),
+            ("google-maps-export", "Google Maps", False, 5),
+        )
+        kept = self.memories()
+        self.assertEqual(
+            kept["Best coffee in SF"],
+            "- Sightglass Coffee — Order the affogato; skip the drip\n"
+            "- Ritual Coffee Roasters — Best seat is the bench by the window, before 9\n"
+            "- Wrecking Ball Coffee — Closed Mondays",
+        )
+        self.assertIn("- Lands End Trail", kept["Want to go"])
+        self.assertIn(
+            "- Tartine Bakery, 600 Guerrero St, San Francisco", kept["Starred places"]
+        )
+        self.assertEqual(
+            kept["Mission Chinese Food"],
+            "Reviewed Mission Chinese Food, 3463 18th St, San Francisco, CA 94110, "
+            "United States on 2026-03-08. Rated it 5 out of 5.\n\n"
+            "Book the counter, not a table: you see the wok station and the food "
+            "arrives faster.",
+        )
+        self.assertTrue(kept["Caffe Trieste"].endswith("Rated it 3 out of 5."))
+        # A place reviewed with neither stars nor words left nothing to keep.
+        self.assertNotIn("Westfield San Francisco Centre", kept)
+
+    def test_the_older_spelling_of_a_review_reads_the_same(self) -> None:
+        older = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {
+                        "Google Maps URL": "http://maps.google.com/?cid=42",
+                        "Location": {
+                            "Address": "1 Ferry Building, San Francisco",
+                            "Business Name": "Ferry Building",
+                        },
+                        "Published": "2019-05-04T10:00:00Z",
+                        "Star Rating": 4,
+                        "Review Comment": "Go on a Saturday morning for the market.",
+                    },
+                }
+            ],
+        }
+        member = "Takeout/Maps (your places)/Reviews.json"
+        reader = sources_module.Source.owner(
+            self.zipped(**{member: json.dumps(older)}),
+            kind="export",
+            connector="google-maps",
+        ).reader()
+        review = next(i for i in reader.items() if i.key.startswith("review:"))
+        self.assertEqual(
+            (review.title, review.dated, review.source_path),
+            ("Ferry Building", "2019-05-04", "http://maps.google.com/?cid=42"),
+        )
+        self.assertIn("Rated it 4 out of 5.\n\nGo on a Saturday", review.content)
+
+    def test_a_newer_export_replaces_the_older_one(self) -> None:
+        first = self.connect(str(self.folder))
+        member = "Takeout/Saved/Want to go.csv"
+        grown = (self.folder / member).read_text() + (
+            "Golden Gate Park,Rent bikes at the east end,"
+            "https://www.google.com/maps/place/Golden+Gate+Park,,\n"
+        )
+        again = self.connect(self.zipped("takeout-newer.zip", **{member: grown}))
+        self.assertEqual(again["name"], first["name"])
+        self.assertEqual((again["added"], again["imported"]), (0, 5))
+        self.assertIn(
+            "- Golden Gate Park — Rent bikes at the east end",
+            self.memories()["Want to go"],
+        )
+        with Store() as store:
+            self.assertEqual(len(sources_module.Registry(store).owned), 1)
+
+    def test_an_archive_without_google_maps_is_refused_in_plain_words(self) -> None:
+        other = Path(self.tmp.name) / "takeout-keep.zip"
+        with zipfile.ZipFile(other, "w") as archive:
+            archive.writestr("Takeout/Keep/Groceries.json", "{}")
+        for locator in (str(other), str(Path(self.tmp.name) / "gone.zip")):
+            with self.subTest(locator=locator):
+                with self.assertRaisesRegex(
+                    sources_module.SourceError,
+                    "^That file isn't a Google Takeout export with Google Maps in it.$",
+                ):
+                    self.connect(locator)
+
+
 if __name__ == "__main__":
     unittest.main()

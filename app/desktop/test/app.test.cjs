@@ -668,19 +668,19 @@ test("the agent reads its copy of an attachment, not the original, and a quiet t
 });
 
 /** A stand-in CLI: answers the snapshot with a price, free copies, the store's payout address, whether it sells and its
- * pieces, and records every other call with its stdin.
- * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[]}} [store] */
-async function recordingCli(directory, payout, { selling = false, items = [], cards = "" } = {}) {
+ * pieces, and whether it is the store this Lore ships, and records every other call with its stdin.
+ * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[], cards?: string, store?: "current" | "outdated" | "unknown"}} [store] */
+async function recordingCli(directory, payout, { selling = false, items = [], cards = "", store = "unknown" } = {}) {
   const fake = join(directory, "lore");
   const ran = join(directory, "ran");
-  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
+  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, store, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
   // `cards` is the Stripe account card payments go to, "" when they're off.
   const taking = JSON.stringify({ account: cards, pending: "", ready: cards ? true : null, checking: false, minimum_usd: 0.5 });
   await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\nif [ "$1" = cards ]; then echo '${taking}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
   return { fake, ran };
 }
 
-/** Where the store's last deploy recorded its payout, in the store's own folder; null clears it. @param {{address: string, network: string} | null} payout */
+/** Where the store's last deploy recorded its payout, in the store's own folder; null clears it. @param {{address: string | null, network: string} | null} payout */
 async function recordPayout(payout) {
   const file = join(process.env.LORE_STORE ?? "", "payout.json");
   if (payout) await writeFile(file, JSON.stringify(payout));
@@ -751,6 +751,62 @@ test("putting the store online for the owner's agents asks one yes, and never a 
   } finally {
     useRuntime(CLI);
     await rm(directory, { recursive: true });
+  }
+});
+
+test("Update store puts out the newer store Lore ships, on its card, as the store was last opened; a decision's push never does (APP-231)", async () => {
+  const { useRuntime } = require("../src/state.cjs");
+  const wallet = `0x${"ab12".repeat(9)}c0de`;
+  const latest = { group: "", label: "Store", to: "The latest from Lore" };
+  /** @param {Parameters<typeof recordingCli>[2]} store @param {{address: string | null, network: string} | null} payout */
+  const outdated = async (store, payout) => {
+    const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+    const cli = await recordingCli(directory, null, store);
+    useRuntime(cli.fake);
+    await recordPayout(payout);
+    /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+    const seen = [];
+    const ran = async () => (existsSync(cli.ran) ? await readFile(cli.ran, "utf8") : "");
+    return { directory, seen, ran, outgoing: (/** @type {boolean} */ yes) => confirming(directory, yes, seen) };
+  };
+  const made = [];
+  try {
+    // A store for sale, on real money to an address: a decision's push puts out only what it decided.
+    const sale = await outdated({ selling: true, store: "outdated" }, { address: wallet, network: "real" });
+    made.push(sale.directory);
+    assert.equal(await sale.outgoing(true).push(), true);
+    assert.equal(await sale.ran(), "push unattended= stdin=\n");
+    assert.equal(sale.seen.length, 0, "nothing to ask: nothing it decided needs a yes");
+    // The owner's Update store asks first, naming the newer store, and nothing goes out on a no.
+    await rm(join(sale.directory, "ran"));
+    assert.equal(await sale.outgoing(false).push({ latest: true }), false);
+    assert.deepEqual(sale.seen, [{ heading: "Update your store", changes: [latest] }]);
+    assert.equal(await sale.ran(), "", "a cancelled update puts nothing out");
+    assert.equal(await sale.outgoing(true).push({ latest: true }), true);
+    assert.equal(await sale.ran(), `node deploy --network real --wallet ${wallet} unattended=1 stdin=\n`);
+    // One that sells by card alone goes out on its network, with no address.
+    const cards = await outdated({ selling: true, store: "outdated" }, { address: null, network: "real" });
+    made.push(cards.directory);
+    assert.equal(await cards.outgoing(true).push({ latest: true }), true);
+    assert.equal(await cards.ran(), "node deploy --network real unattended=1 stdin=\n");
+    // One online only for its agents goes out the same way it was put online.
+    const agents = await outdated({ selling: false, store: "outdated" }, null);
+    made.push(agents.directory);
+    assert.equal(await agents.outgoing(true).push({ latest: true }), true);
+    assert.equal(await agents.ran(), "node deploy --inbox-only unattended=1 stdin=\n");
+    assert.deepEqual(agents.seen, [{ heading: "Update your store", changes: [latest] }]);
+    // Already the store this Lore ships, or one this Mac has no record of putting online: nothing to put out.
+    for (const store of /** @type {const} */ (["current", "unknown"])) {
+      const quiet = await outdated({ selling: false, store }, null);
+      made.push(quiet.directory);
+      assert.equal(await quiet.outgoing(true).push({ latest: true }), false, store);
+      assert.equal(await quiet.ran(), "", store);
+      assert.equal(quiet.seen.length, 0, store);
+    }
+  } finally {
+    useRuntime();
+    await recordPayout(null);
+    for (const directory of made) await rm(directory, { recursive: true });
   }
 });
 
@@ -1320,6 +1376,51 @@ test("API-key proof deletes rejected keys, not keys it could not check", async (
   assert.deepEqual(deleted, ["anthropic"]);
 });
 
+test("a browser sign-in left waiting stops on cancel or a new sign-in, and takes its pasted-URL field with it", async () => {
+  const { LoreAgent } = await import("../src/agent.mjs");
+  /** @type {AbortSignal[]} */
+  const fields = [];
+  /** @type {unknown[]} */
+  const events = [];
+  const models = {
+    /** @param {string} _provider @param {string} _type @param {import("@earendil-works/pi-ai").AuthInteraction} interaction */
+    login: (_provider, _type, interaction) => new Promise((_resolve, reject) => {
+      void interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal }).catch(() => {});
+      interaction.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    })
+  };
+  const agent = new LoreAgent(
+    /** @type {LoreAgentOptions} */ ({ credentials: { list: async () => [] }, authPrompt: async (prompt) => { fields.push(/** @type {AbortSignal} */ (prompt.signal)); return new Promise(() => {}); }, authEvent: (event) => void events.push(event) }),
+    /** @type {never} */ (models),
+    /** @type {never} */ (null),
+    /** @type {never} */ (null)
+  );
+  const first = agent.login("anthropic", "oauth", undefined);
+  const second = agent.login("openai-codex", "oauth", undefined);
+  await assert.rejects(first, /^Error: Sign-in stopped\.$/);
+  assert.equal(fields[0].aborted, true, "the closed tab's sign-in lets go of its field, so its callback port frees");
+  agent.cancelLogin();
+  await assert.rejects(second, /^Error: Sign-in stopped\.$/);
+  assert.equal(fields[1].aborted, true);
+
+  // Cancelled while the flow is still starting its callback server: the field it asks for afterwards refuses at once.
+  /** @type {Promise<string> | undefined} */
+  let late;
+  models.login = (_provider, _type, interaction) => new Promise((_resolve, reject) => {
+    interaction.signal?.addEventListener("abort", () => {
+      interaction.notify({ type: "auth_url", url: "https://claude.ai/oauth/authorize" });
+      late = interaction.prompt({ type: "manual_code", message: "", signal: new AbortController().signal });
+      reject(new Error("aborted"));
+    }, { once: true });
+  });
+  const starting = agent.login("anthropic", "oauth", undefined);
+  agent.cancelLogin();
+  await assert.rejects(starting, /^Error: Sign-in stopped\.$/);
+  await assert.rejects(/** @type {Promise<string>} */ (late));
+  assert.equal(fields.length, 2, "no field is shown for a sign-in already stopped");
+  assert.deepEqual(events, [], "nor is its browser tab opened");
+});
+
 test("a refused sign-in refresh asks the owner to sign in again; no model error ever reaches the thread", async (t) => {
   const { LoreAgent, latestTaskRecord } = await import("../src/agent.mjs");
   const { DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } = await import("@earendil-works/pi-coding-agent");
@@ -1830,7 +1931,7 @@ test("connecting an app validates before any CLI call, then round-trips through 
   await writeFile(join(vault, "note.md"), "# Note\n\nA lesson long enough to be worth keeping.");
   process.env.OBSIDIAN_HOME = obsidian;
   try {
-    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
+    assert.deepEqual((await sourceCatalog(directory)).map((app) => [app.id, app.kind]), [["obsidian", "folder"], ["chatgpt", "export"], ["claude", "export"], ["google-maps", "export"], ["substack", "feed"], ["medium", "feed"], ["bluesky", "feed"], ["blog", "feed"], ["letterboxd", "feed"], ["goodreads", "feed"], ["granola", "mcp"], ["notion", "mcp"], ["readwise", "mcp"], ["agent", "agent"]]);
     // Offered under the path its source will keep, so a vault already connected is recognised (APP-215).
     assert.deepEqual(await sourceChoices(directory, "obsidian"), [{ label: "Personal", locator: await realpath(vault), open: true }]);
     await assert.rejects(connectSource(directory, { connector: "evernote", locator: vault }), { message: /unknown app/ });
@@ -1969,6 +2070,54 @@ test("a module mismatch from an updated app tells the owner to relaunch", async 
   assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
   assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
   assert.equal(reason("nope", "fallback"), "fallback");
+});
+
+test("collection changes are refused before any CLI call unless well formed", async () => {
+  const { addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    for (const bad of [0, -1, 1.5, "2", null]) {
+      await assert.rejects(deleteCollection(directory, bad), { message: /Invalid collection/ });
+      await assert.rejects(priceCollection(directory, bad, 5), { message: /Invalid collection/ });
+    }
+    for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, "5"]) await assert.rejects(priceCollection(directory, 1, bad), { message: /zero or more/ });
+    await assert.rejects(addToCollection(directory, 1, {}), { message: /Drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { files: ["relative/path.md"] }), { message: /Drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { items: [{ title: "Empty", content: "   " }] }), { message: /nothing to add/ });
+    await assert.rejects(renameCollection(directory, 1, "   "), { message: /needs a name/ });
+    await assert.rejects(removeFromCollection(directory, 1, 0), { message: /Invalid piece/ });
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("a collection is made, filled, renamed, priced and deleted through the CLI, and reads back in the snapshot", async () => {
+  const { newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  try {
+    const made = await newCollection(directory);
+    assert.equal(made.title, "Untitled collection");
+    const note = join(directory, "pricing-notes.md");
+    await writeFile(note, "# Pricing notes\n\nCharge for the outcome, not the hours.\n");
+    const { added } = await addToCollection(directory, made.id, { items: [{ title: "-starts with a dash", content: "Demos beat decks." }], files: [note] });
+    assert.equal(added.length, 2);
+    await renameCollection(directory, made.id, "-Sales playbook");
+    await priceCollection(directory, made.id, 12);
+    let [item] = (await readState(directory)).collections.items;
+    assert.equal(item.title, "-Sales playbook");
+    assert.equal(item.pieces.length, 2);
+    assert.equal(item.price_usd, 12);
+    assert.equal(item.on_sale, true);
+    await removeFromCollection(directory, made.id, item.pieces[0].id);
+    await priceCollection(directory, made.id, 0);
+    [item] = (await readState(directory)).collections.items;
+    assert.equal(item.pieces.length, 1);
+    assert.equal(item.on_sale, false);
+    await deleteCollection(directory, made.id);
+    assert.deepEqual((await readState(directory)).collections.items, []);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 /** A LoreAgent whose model is pi's scripted stand-in, so a whole turn runs without a provider. @param {Partial<LoreAgentOptions>} options */

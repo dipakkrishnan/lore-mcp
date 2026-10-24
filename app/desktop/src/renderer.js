@@ -5,6 +5,7 @@ const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
 const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
+const welcomeCancel = /** @type {HTMLButtonElement} */ ($("#welcome-cancel"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
@@ -43,7 +44,7 @@ const mainEl = $("#main");
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "inventory" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"today" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
 /** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
@@ -75,6 +76,13 @@ let view = "today";
 let shelf = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
+/** The collection open in its own view. @type {number | null} */
+let openCollectionId = null;
+/** Text pasted into the open collection and not added yet; kept across renders. */
+let collectionDraft = "";
+/** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
+let collectionBusy = "";
+let editingCollectionPrice = false;
 /** @type {AgentTask} */
 let task = "capture";
 /** @type {TaskRecord[]} */
@@ -1737,6 +1745,14 @@ function storeBar(s) {
       bar.append(push);
     }
   } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
+  else {
+    const newer = newerStore(s);
+    if (newer) {
+      const line = el("div", "newer-store-line");
+      line.append(newer.note, newer.update);
+      prices.append(line);
+    }
+  }
   return bar;
 }
 
@@ -1853,6 +1869,7 @@ function renderInventory(s) {
   } else {
     parts.push(stack(downGroups()));
   }
+  if (!from && (shelf === "all" || shelf === "sale")) parts.push(collectionsSection(s));
   if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
   return parts;
 }
@@ -1948,6 +1965,228 @@ class Unseen {
 }
 
 const unseen = new Unseen();
+
+/** @returns {CollectionItem | undefined} */
+function openCollection() {
+  return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+}
+
+/** @param {CollectionItem | undefined} item */
+function collectionEyebrow(item) {
+  if (!item) return "Collection";
+  return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
+}
+
+/** @param {CollectionItem} item */
+function collectionDetail(item) {
+  const count = `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`;
+  return item.on_sale ? `${count} · ${price(item.price_usd)} for all of them` : `${count} · not on sale yet`;
+}
+
+/** For Sale's collections, each opening its own view. @param {Snapshot} s */
+function collectionsSection(s) {
+  const items = s.collections?.items ?? [];
+  const make = button("New collection", "quiet", () => void newCollection());
+  if (!items.length) return section("Collections", emptyState("Sell a set of pieces together, at one price.", make));
+  const rows = items.map((item) => {
+    const node = el("button", "row link");
+    node.type = "button";
+    const text = el("div", "t");
+    text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
+    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
+    node.addEventListener("click", () => showCollection(item.id));
+    return node;
+  });
+  return section("Collections", card(rows), make);
+}
+
+/** @param {number} id */
+function showCollection(id) {
+  openCollectionId = id;
+  if (detailTask) closeTask();
+  show("collection");
+}
+
+/** Step one: the collection exists the moment it's asked for. */
+async function newCollection() {
+  if (collectionBusy) return;
+  /** @type {NewCollection | null} */
+  let made = null;
+  if (await act(async () => { made = await window.lore.newCollection(); })) {
+    if (made) showCollection(/** @type {NewCollection} */ (made).id);
+    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus());
+  }
+}
+
+/** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+async function addToCollection(input) {
+  const item = openCollection();
+  if (!item || collectionBusy) return;
+  const files = (input.files ?? []).filter((path) => {
+    if (!GUARDED.test(path)) return true;
+    tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
+    return false;
+  });
+  if (!files.length && !input.items?.length) return;
+  collectionBusy = "adding";
+  render();
+  /** @type {{added: Array<{title: string}>} | null} */
+  let result = null;
+  const done = await act(async () => { result = await window.lore.addToCollection(item.id, { items: input.items, files }); });
+  collectionBusy = "";
+  if (done && result) {
+    if (input.items?.length) collectionDraft = "";
+    const added = /** @type {{added: Array<{title: string}>}} */ (result).added.length;
+    const after = openCollection();
+    tell(added === 1 ? "Added 1 piece." : `Added ${added} pieces.`, false, after && !after.on_sale ? { label: "Price it", run: () => { editingCollectionPrice = true; render(); } } : undefined);
+  }
+  render();
+}
+
+function addPasted() {
+  const text = collectionDraft.trim();
+  if (!text) return void tell("Paste or type something first.", true);
+  const first = text.split("\n").find((line) => line.trim())?.replace(/^#+\s*/, "").trim() ?? "";
+  const title = first.length > 80 ? `${first.slice(0, 77).trimEnd()}…` : first;
+  void addToCollection({ items: [{ title, content: text }] });
+}
+
+/** @param {CollectionItem} item @param {string} raw */
+async function renameCollection(item, raw) {
+  const name = raw.trim();
+  if (!name || name === item.title || collectionBusy) return;
+  collectionBusy = "naming";
+  await act(() => window.lore.renameCollection(item.id, name));
+  collectionBusy = "";
+  render();
+}
+
+/** Step three: a price puts it on sale; zero takes it off. @param {CollectionItem} item @param {number} amount */
+async function priceCollection(item, amount) {
+  collectionBusy = "pricing";
+  render();
+  const done = await act(() => window.lore.priceCollection(item.id, amount));
+  collectionBusy = "";
+  if (done) {
+    editingCollectionPrice = false;
+    const live = Boolean(snapshot?.node.url);
+    if (amount === 0) tell("Taken off sale. Its pieces are still for sale one by one.");
+    else tell(live ? `On sale at ${price(amount)}. Buyers can get all of it in one go.` : `Priced at ${price(amount)}. It goes on sale once your store is open.`, false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
+  }
+  render();
+}
+
+/** @param {CollectionItem} item */
+function collectionPrice(item) {
+  const box = el("div", "card pad collection-price");
+  const busy = collectionBusy === "pricing";
+  if (item.on_sale && !editingCollectionPrice) {
+    const line = el("div", "lead");
+    line.append(el("span", "dot ok"), el("span", "", `On sale at ${price(item.price_usd)} for all ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`));
+    const actions = el("div", "actions");
+    actions.append(
+      button("Change price", "quiet", () => { editingCollectionPrice = true; render(); }),
+      button(busy ? "Taking off…" : "Take off sale", "secondary", () => void priceCollection(item, 0))
+    );
+    box.append(line, actions);
+    if (item.value_usd > item.price_usd) box.append(el("p", "hint", `Worth ${price(item.value_usd)} one by one.`));
+    return box;
+  }
+  const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
+  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : "");
+  input.setAttribute("aria-label", "Price for the whole collection in US dollars");
+  input.placeholder = item.value_usd > 0 ? String(Math.max(1, Math.round(item.value_usd * 0.8))) : "10";
+  const save = el("button", "btn primary sm", busy ? "Saving…" : item.on_sale ? "Update price" : "Put on sale");
+  save.type = "submit";
+  save.disabled = busy || !item.pieces.length;
+  form.append(field, el("span", "", "for the whole collection"), save);
+  if (item.on_sale) form.append(button("Cancel", "quiet", () => { editingCollectionPrice = false; render(); }));
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const amount = parsePrice(input.value);
+    if (amount === null) return void tell(`${ABOVE_ZERO}.`, true);
+    void priceCollection(item, amount);
+  });
+  box.append(form);
+  const hint = !item.pieces.length ? "Add a piece first, then price it."
+    : item.value_usd > 0 ? `Its ${item.pieces.length} ${item.pieces.length === 1 ? "piece costs" : "pieces cost"} ${price(item.value_usd)} one by one. A lower price here gives buyers a reason to take them all.`
+    : "Buyers pay this once and get every piece in it.";
+  box.append(el("p", "hint", hint));
+  if (editingCollectionPrice) queueMicrotask(() => input.focus());
+  return box;
+}
+
+/** @param {CollectionItem} item @param {{id: number, title: string}} piece */
+function collectionPiece(item, piece) {
+  const trailing = el("div", "v");
+  const ask = button("Remove", "quiet", () => {
+    trailing.replaceChildren(
+      el("span", "hint", "It comes off sale too. Anyone who already bought it keeps their copy."),
+      button("Keep", "secondary", () => trailing.replaceChildren(ask)),
+      button("Remove", "primary", () => void act(() => window.lore.removeFromCollection(item.id, piece.id)))
+    );
+  });
+  trailing.append(ask);
+  return row(piece.title, "", trailing);
+}
+
+/** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
+function renderCollection(s) {
+  const item = openCollection();
+  if (!item) return [emptyState("This collection is gone.", button("Back to For Sale", "quiet", () => show("store")))];
+  const busy = Boolean(collectionBusy);
+
+  const name = el("input", "collection-name");
+  name.type = "text";
+  name.value = item.title;
+  name.maxLength = 120;
+  name.setAttribute("aria-label", "Collection name");
+  name.disabled = busy;
+  name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); if (event.key === "Escape") { name.value = item.title; name.blur(); } });
+  name.addEventListener("change", () => void renameCollection(item, name.value));
+
+  const zone = el("div", "card drop-zone");
+  const lead = el("div", "drop-lead");
+  lead.append(el("b", "", collectionBusy === "adding" ? "Adding…" : "Drop files here"), el("span", "hint", "Each file becomes one piece. Or paste text below."));
+  const choose = button("Choose files", "secondary", async () => void addToCollection({ files: await window.lore.pickFiles() }));
+  choose.disabled = busy;
+  lead.append(choose);
+  const paste = el("textarea");
+  paste.rows = 3;
+  paste.placeholder = "Paste a post, a note, anything you wrote. The first line becomes its title.";
+  paste.setAttribute("aria-label", "Paste text to add as a piece");
+  paste.value = collectionDraft;
+  paste.disabled = busy;
+  paste.addEventListener("input", () => { collectionDraft = paste.value; fit(paste); });
+  paste.addEventListener("keydown", (event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); addPasted(); } });
+  const add = button(collectionBusy === "adding" ? "Adding…" : "Add", "primary", addPasted);
+  add.disabled = busy;
+  const pasteRow = el("div", "paste-row");
+  pasteRow.append(paste, add);
+  zone.append(lead, pasteRow);
+
+  const pieces = item.pieces.length
+    ? card(item.pieces.map((piece) => collectionPiece(item, piece)))
+    : el("div", "card pad empty", "Nothing in it yet. Drop a file or paste some text above.");
+
+  const remove = button("Delete collection", "quiet", () => {
+    foot.replaceChildren(
+      el("span", "hint", "Its pieces stay for sale one by one."),
+      button("Keep", "secondary", () => foot.replaceChildren(remove)),
+      button("Delete", "primary", async () => { if (await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("store"); } })
+    );
+  });
+  const foot = el("div", "collection-foot");
+  foot.append(remove);
+
+  return [
+    section("Name", name),
+    section("Add to it", zone),
+    section("In this collection", pieces, item.pieces.length ? el("span", "hint", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`) : undefined),
+    section("Price", collectionPrice(item)),
+    foot
+  ];
+}
 
 function renderSales() {
   if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
@@ -2148,7 +2387,18 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), outLink("Open ↗", home)), false);
+  const newer = newerStore(s);
+  if (newer) detail.append(newer.note);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), outLink("Open ↗", home)), false);
+}
+
+/** APP-231: a newer store from Lore, offered quietly where the store shows, never as a step: a short line, and an
+ * Update the owner may use when they like, which still asks before anything goes out. Null while the store online is
+ * the one this Lore ships, while it is being updated, or when this Mac has no record of opening it.
+ * @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
+function newerStore(s) {
+  if (s.node.store !== "outdated" || pushing || underWay("deploy")) return null;
+  return { note: el("span", "newer-store", "A newer store from Lore is ready."), update: button("Update", "quiet", () => void pushNow(true)) };
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -3540,18 +3790,18 @@ function renderAutomations(s) {
   return [list];
 }
 
-const renderers = { today: renderToday, inventory: renderInventory, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
   const detail = view === "today" ? detailTask : null;
   const welcoming = view === "today" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : "";
+    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   taskBack.hidden = !detail;
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
@@ -3563,7 +3813,8 @@ function render() {
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === view));
+  // A collection is something for sale, so For Sale stays lit while one is open.
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
   if (!snapshot) return;
   $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
@@ -3597,6 +3848,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
@@ -4837,14 +5089,16 @@ function seamCard() {
   return box;
 }
 
-async function pushNow() {
+/** @param {boolean} [latest] Whether the newer store Lore ships goes out too (APP-231); only its own Update asks. */
+async function pushNow(latest = false) {
   pushing = true;
   render();
   const offer = pushOffer;
   let pushed = false;
-  if (await act(async () => { pushed = await window.lore.push(); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
+  if (await act(async () => { pushed = await window.lore.push(latest === true); }, "Lore couldn't update your store. Try Update store again in a minute.") && pushed) {
     const live = snapshot ? `${snapshot.publications.counts.active} ${snapshot.publications.counts.active === 1 ? "publication" : "publications"}` : "publications";
-    pushedNote = `Your store is updated · ${live} for sale`;
+    // A store online only for the owner's agents has nothing for sale to count.
+    pushedNote = snapshot && !forSale(snapshot) ? "Your store is updated" : `Your store is updated · ${live} for sale`;
   } else {
     pushOffer = offer;
   }
@@ -4939,18 +5193,26 @@ function renderAttachments() {
   }));
 }
 
+/** Sign-ins started, so one a newer click replaced says nothing when it ends. */
+let signIns = 0;
+
 /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string} [secret] */
 async function signIn(providerId, type, secret) {
+  const attempt = ++signIns;
   welcomeNote.textContent = type === "oauth" ? "Waiting for your browser…" : "Checking your key…";
+  welcomeCancel.hidden = type !== "oauth";
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
     welcomeBack.hidden = true;
     enter();
   } catch (error) {
-    welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
+    if (attempt === signIns) welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
   } finally {
-    offerRedirect(null);
+    if (attempt === signIns) {
+      welcomeCancel.hidden = true;
+      offerRedirect(null);
+    }
   }
 }
 
@@ -5259,12 +5521,15 @@ function attach(paths) {
 }
 $("#attach").addEventListener("click", async () => attach(await window.lore.pickFiles()));
 for (const type of ["dragenter", "dragover"]) {
-  document.addEventListener(type, (event) => { event.preventDefault(); composer.classList.add("dropping"); });
+  document.addEventListener(type, (event) => { event.preventDefault(); (view === "collection" ? document.querySelector(".drop-zone") ?? composer : composer).classList.add("dropping"); });
 }
-document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) composer.classList.remove("dropping"); });
+document.addEventListener("dragleave", (event) => { if (!event.relatedTarget) { composer.classList.remove("dropping"); document.querySelector(".drop-zone")?.classList.remove("dropping"); } });
 document.addEventListener("drop", (event) => {
   event.preventDefault();
   composer.classList.remove("dropping");
+  document.querySelector(".drop-zone")?.classList.remove("dropping");
+  // Open on a collection, a drop goes into it, not into a memory.
+  if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
   attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
   if (attachments.length) show("today");
 });
@@ -5281,6 +5546,28 @@ function startCapture(text = "") {
 }
 addMemoryBtn.addEventListener("click", () => startCapture());
 sellWritingBtn.addEventListener("click", openPasteSheet);
+
+/* New: one place to start anything the owner makes. */
+const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
+const newMenu = $("#new-menu");
+function closeNewMenu() {
+  newMenu.hidden = true;
+  newOpen.setAttribute("aria-expanded", "false");
+}
+newOpen.addEventListener("click", (event) => {
+  event.stopPropagation();
+  const opening = newMenu.hidden;
+  newMenu.hidden = !opening;
+  newOpen.setAttribute("aria-expanded", String(opening));
+  if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
+});
+for (const item of newMenu.querySelectorAll("button")) {
+  item.addEventListener("click", () => {
+    closeNewMenu();
+    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
+    else startCapture();
+  });
+}
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -5480,7 +5767,11 @@ welcomeRetry.addEventListener("click", () => {
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
+  if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
+});
+document.addEventListener("click", (event) => {
+  if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
 
 for (const node of document.querySelectorAll("[data-login]")) {
@@ -5489,6 +5780,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
     void signIn(providerId, /** @type {"oauth" | "api_key"} */ (type));
   });
 }
+welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();
