@@ -271,6 +271,13 @@ function storeChanges(state, updated = [], deploy) {
   return changes;
 }
 
+/** APP-231: the newer store this Lore ships, as the owner's card names it. */
+const LATEST = { group: "", label: "Store", to: "The latest from Lore" };
+
+/** What an update puts out, and the newer store too when the one online is older than this Lore's: a deploy always
+ * puts out the store this Lore ships. @param {Snapshot} state @param {StoreChange[]} changes */
+const withLatest = (state, changes) => (state.node.store === "outdated" ? [...changes, LATEST] : changes);
+
 /** Only taking pieces down goes out without the owner's yes. @param {StoreChange[]} changes */
 const asks = (changes) => changes.some((change) => change.group !== COMING_OFF);
 
@@ -290,9 +297,11 @@ class Outgoing {
     for (const id of ids) this.updated.add(id);
   }
 
-  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. */
+  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. Every caller deploys
+   * it, so the newer store goes out with it. */
   async changes() {
-    return storeChanges(await readState(this.loreHome), this.updated);
+    const state = await readState(this.loreHome);
+    return withLatest(state, storeChanges(state, this.updated));
   }
 
   /** Whether the owner said yes to what an update with no terms of its own puts out; one with nothing to confirm goes ahead. */
@@ -302,12 +311,21 @@ class Outgoing {
   }
 
   /** Push the pieces and price of a store that sells, once the owner says yes to what it puts out; one with nothing
-   * to confirm goes ahead. Resolves to whether it went. */
-  async push() {
+   * to confirm goes ahead. Resolves to whether it went. `latest`, the owner's own optional Update where the store
+   * shows, also puts out the newer store this Lore ships (APP-231), as it was last opened: for sale on its network and
+   * payout, or for agents only. Every other push leaves the store as it is, so it never asks about more than it says. */
+  async push({ latest = false } = {}) {
     const state = await readState(this.loreHome);
-    if (!state.node.selling) return false;
+    const newer = latest && state.node.store === "outdated";
+    if (!state.node.selling && !newer) return false;
     const changes = storeChanges(state, this.updated);
-    if (asks(changes) && !(await this.confirm("Update your store", changes))) return false;
+    const out = newer ? [...changes, LATEST] : changes;
+    if (asks(out) && !(await this.confirm("Update your store", out))) return false;
+    if (newer) {
+      const said = await this.deploy(state.node.selling ? redeploy() : ["node", "deploy", "--inbox-only"]);
+      if (!said.startsWith("The store is deployed")) throw new Error(said);
+      return true;
+    }
     await lore(this.loreHome, ["push"], "");
     this.updated.clear();
     return true;
@@ -319,6 +337,14 @@ class Outgoing {
     if (said.startsWith("The store is deployed")) this.updated.clear();
     return said;
   }
+}
+
+/** A store for sale goes out again as its last deploy recorded it: its network, and its payout address when it has
+ * one; a store that sells by card alone has only the network. @returns {string[]} */
+function redeploy() {
+  const payout = recordedPayout();
+  const network = payout?.network ?? recordedNetwork();
+  return ["node", "deploy", ...(network ? ["--network", network] : []), ...(payout ? ["--wallet", payout.address] : [])];
 }
 
 /**
@@ -360,7 +386,7 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
     if (!byCard) payout = answer;
   }
   const state = await readState(loreHome);
-  const changes = storeChanges(state, outgoing.updated, { network, payout, recorded });
+  const changes = withLatest(state, storeChanges(state, outgoing.updated, { network, payout, recorded }));
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
@@ -467,9 +493,18 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** A list of records from the CLI, or a refusal naming it: what it parsed is otherwise handed on unchecked (APP-060).
+ * @param {string} output @param {string} what */
+function records(output, what) {
+  const value = JSON.parse(output);
+  if (Array.isArray(value) && value.every((row) => row !== null && typeof row === "object")) return value;
+  console.error(`lore returned ${what} that is not a list of records: ${output.slice(0, 200)}`);
+  throw new Error(`Lore returned unreadable ${what}`);
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
-  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+  return records(await lore(loreHome, ["node", "sales", "--json"]), "sales");
 }
 
 /** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
@@ -503,6 +538,15 @@ async function creditMemories(loreHome, ids, by) {
   }
 }
 
+/** Keep what a reading judged of each memory it wrote (APP-235), so its sheet offers Draft for sale only where it
+ * makes sense. @param {string} loreHome @param {ReadyMemory[]} memories */
+async function judgeMemories(loreHome, memories) {
+  for (let start = 0; start < memories.length; start += CREDIT_AT_ONCE) {
+    const judged = memories.slice(start, start + CREDIT_AT_ONCE).map(({ id, sell, work, why }) => ({ id, sell, work, why }));
+    await lore(loreHome, ["memory", "judge", "-"], JSON.stringify({ memories: judged }));
+  }
+}
+
 /** @param {string} loreHome @param {unknown} id @param {string} title @returns {Promise<Memory>} */
 async function renameMemory(loreHome, id, title) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -518,6 +562,12 @@ async function editMemory(loreHome, id, content) {
   if (!trimmed) throw new Error("Content cannot be empty");
   // Over stdin, not argv: content that starts with a dash is not an option.
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<{deleted: number}>} */
+async function deleteMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "delete", String(id), "--json"]));
 }
 
 /** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
@@ -565,9 +615,62 @@ async function setFreeCopies(loreHome, count) {
   await lore(loreHome, ["free-copies", String(count)], "");
 }
 
+/** @param {unknown} id */
+function collectionId(id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid collection");
+  return String(id);
+}
+
+/** A collection exists the moment it's asked for; naming it can wait. Attended: it's the owner's click.
+ * @param {string} loreHome @param {string} [title] @returns {Promise<NewCollection>} */
+async function newCollection(loreHome, title) {
+  const named = typeof title === "string" ? title.trim() : "";
+  return JSON.parse(await lore(loreHome, ["collection", "new", ...(named ? ["--title", named] : [])], ""));
+}
+
+/** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
+ * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
+async function addToCollection(loreHome, id, input) {
+  const which = collectionId(id);
+  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
+  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
+  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+}
+
+/** @param {string} loreHome @param {unknown} id @param {string} title */
+async function renameCollection(loreHome, id, title) {
+  const which = collectionId(id);
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("A collection needs a name");
+  await lore(loreHome, ["collection", "rename", which, "--", trimmed], "");
+}
+
+/** Zero takes it off sale; anything above puts it on sale at that price.
+ * @param {string} loreHome @param {unknown} id @param {unknown} amount */
+async function priceCollection(loreHome, id, amount) {
+  const which = collectionId(id);
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) throw new Error("A price has to be a number, zero or more");
+  await lore(loreHome, ["collection", "price", which, String(amount)], "");
+}
+
+/** Takes one piece out of the collection and off sale. @param {string} loreHome @param {unknown} id @param {unknown} piece */
+async function removeFromCollection(loreHome, id, piece) {
+  const which = collectionId(id);
+  if (!Number.isInteger(piece) || /** @type {number} */ (piece) < 1) throw new Error("Invalid piece");
+  await lore(loreHome, ["collection", "remove", which, String(piece)], "");
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function deleteCollection(loreHome, id) {
+  await lore(loreHome, ["collection", "delete", collectionId(id)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
-  return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
+  return records(await lore(loreHome, ["publication", "candidates"]), "drafts");
 }
 
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */
@@ -834,13 +937,21 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  judgeMemories,
   creditMemories,
   renameMemory,
   editMemory,
+  deleteMemory,
   captureMemories,
   previewPage,
   setPrice,
   setFreeCopies,
+  newCollection,
+  addToCollection,
+  renameCollection,
+  priceCollection,
+  removeFromCollection,
+  deleteCollection,
   candidates,
   decide,
   extrasCandidates,
