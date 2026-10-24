@@ -5,6 +5,7 @@ const appShell = $("#app");
 const welcomeNote = $("#welcome-note");
 const welcomeBack = $("#welcome-back");
 const welcomeRetry = /** @type {HTMLButtonElement} */ ($("#welcome-retry"));
+const welcomeCancel = /** @type {HTMLButtonElement} */ ($("#welcome-cancel"));
 const redirectForm = /** @type {HTMLFormElement} */ ($("#redirect-form"));
 const keyForm = /** @type {HTMLFormElement} */ ($("#key-form"));
 const eyebrow = $("#eyebrow");
@@ -5192,18 +5193,26 @@ function renderAttachments() {
   }));
 }
 
+/** Sign-ins started, so one a newer click replaced says nothing when it ends. */
+let signIns = 0;
+
 /** @param {string} providerId @param {"oauth" | "api_key"} type @param {string} [secret] */
 async function signIn(providerId, type, secret) {
+  const attempt = ++signIns;
   welcomeNote.textContent = type === "oauth" ? "Waiting for your browser…" : "Checking your key…";
+  welcomeCancel.hidden = type !== "oauth";
   try {
     auth = await window.lore.login({ providerId, type, secret });
     welcomeNote.textContent = "";
     welcomeBack.hidden = true;
     enter();
   } catch (error) {
-    welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
+    if (attempt === signIns) welcomeNote.textContent = reason(error, "Sign-in didn't complete.");
   } finally {
-    offerRedirect(null);
+    if (attempt === signIns) {
+      welcomeCancel.hidden = true;
+      offerRedirect(null);
+    }
   }
 }
 
@@ -5771,6 +5780,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
     void signIn(providerId, /** @type {"oauth" | "api_key"} */ (type));
   });
 }
+welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();

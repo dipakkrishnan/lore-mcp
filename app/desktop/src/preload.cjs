@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("lore", {
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */
   login: (input) => ipcRenderer.invoke("auth:login", input),
+  cancelLogin: () => ipcRenderer.invoke("auth:cancel"),
   /** @param {string} providerId */
   logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
   /** @param {string} query */

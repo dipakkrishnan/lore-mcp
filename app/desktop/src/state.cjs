@@ -493,9 +493,18 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** A list of records from the CLI, or a refusal naming it: what it parsed is otherwise handed on unchecked (APP-060).
+ * @param {string} output @param {string} what */
+function records(output, what) {
+  const value = JSON.parse(output);
+  if (Array.isArray(value) && value.every((row) => row !== null && typeof row === "object")) return value;
+  console.error(`lore returned ${what} that is not a list of records: ${output.slice(0, 200)}`);
+  throw new Error(`Lore returned unreadable ${what}`);
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
-  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+  return records(await lore(loreHome, ["node", "sales", "--json"]), "sales");
 }
 
 /** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
@@ -661,7 +670,7 @@ async function deleteCollection(loreHome, id) {
 
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
-  return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
+  return records(await lore(loreHome, ["publication", "candidates"]), "drafts");
 }
 
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */

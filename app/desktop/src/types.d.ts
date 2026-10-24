@@ -349,6 +349,7 @@ interface Window {
     restart(task: AgentTask): Promise<void>;
     respond(response: { id: string; value: unknown }): Promise<void>;
     login(input: { providerId: string; type: "oauth" | "api_key"; secret?: string }): Promise<AgentStatus>;
+    cancelLogin(): Promise<void>;
     logout(providerId: string): Promise<AgentStatus>;
     search(query: string): Promise<SearchHit[]>;
     memory(id: number): Promise<Memory>;
@@ -513,6 +514,7 @@ type LoreAgentInstance = {
   restart(task: AgentTask): void;
   ask(task: AgentTask, text: string, note: string): void;
   login(providerId: string, type: "oauth" | "api_key", secret?: string): Promise<AgentStatus>;
+  cancelLogin(): void;
   logout(providerId: string): Promise<AgentStatus>;
   dispose(): void;
   synthesize(reading: Reading): void;
