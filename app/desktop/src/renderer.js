@@ -3812,11 +3812,22 @@ function routineRow(routine) {
   time.addEventListener("click", () => openRoutineTime(routine));
   const detail = el("span", "routine-line");
   detail.append(time, " · ", el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`));
-  const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
-  if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
-  trailing.append(toggle);
+  const actions = el("div", "routine-actions");
+  actions.append(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
+  if (!routine.built_in) actions.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
+  actions.append(toggle);
+  const trailing = cell(actions);
+  // What today's run brought in, where it can be seen; older finds stay in Inventory.
+  const fresh = !busy && routine.last_run && day(routine.last_run) === "today" && /^[1-9]\d* new/.test(routine.result) ? routine.result.match(/^\d+ new/)?.[0] : "";
+  if (fresh) {
+    const news = el("button", "routine-new", fresh);
+    news.type = "button";
+    news.title = routine.result;
+    news.addEventListener("click", () => show("inventory"));
+    trailing.append(news);
+  }
   const node = row(routine.name, detail, trailing, false);
-  node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : ""}`));
+  node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : " on"}`));
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
   node.dataset.find = `${routine.name} ${routine.about}`.toLowerCase();
@@ -3951,10 +3962,16 @@ function openNewRoutine(said = "") {
   text.focus();
 }
 
+/** "3 automations · next in 15 hours", above the title as on every other page. */
+function automationsEyebrow() {
+  const live = routines.filter((routine) => !routine.paused).sort((x, y) => Date.parse(x.next_run) - Date.parse(y.next_run));
+  const count = `${routines.length} ${routines.length === 1 ? "automation" : "automations"}`;
+  return live.length ? `${count} · next ${nextRun(live[0].next_run)}` : routines.length ? `${count} · all paused` : "";
+}
+
 /** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
 function renderAutomations(s) {
   const page = el("div", "automations-page");
-  page.append(el("p", "automations-lede", "Ask Lore to read your apps, check in with you, or remember what you read, every day or every week."));
   const find = el("div", "auto-find");
   find.innerHTML = lineIcon(`<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>`);
   const query = el("input");
@@ -3963,13 +3980,16 @@ function renderAutomations(s) {
   query.setAttribute("aria-label", "Search automations");
   find.append(query);
   const bar = el("div", "auto-bar");
-  const tabs = el("div", "auto-tabs");
+  // Inventory's own tabs, so the two lists read as one app.
+  const tabs = el("div", "shelves");
   tabs.setAttribute("role", "tablist");
-  for (const [id, label] of /** @type {const} */ ([["all", "All"], ["active", "Active"], ["paused", "Paused"]])) {
-    const tab = el("button", "auto-tab", label);
+  const paused = routines.filter((routine) => routine.paused).length;
+  for (const [id, label, count] of /** @type {const} */ ([["all", "All", routines.length], ["active", "Active", routines.length - paused], ["paused", "Paused", paused]])) {
+    const tab = el("button", "shelf");
     tab.type = "button";
     tab.setAttribute("role", "tab");
     tab.setAttribute("aria-selected", String(automationsShown === id));
+    tab.append(label, el("span", "shelf-count", String(count)));
     tab.addEventListener("click", () => { automationsShown = id; render(); });
     tabs.append(tab);
   }
@@ -3996,7 +4016,9 @@ function renderAutomations(s) {
     }
     none.hidden = any > 0;
   });
-  page.append(find, bar, list);
+  // A handful needs no search; it appears once the list is long enough to look through.
+  if (routines.length > 6) page.append(find);
+  page.append(bar, list);
   return [page];
 }
 
@@ -4011,7 +4033,7 @@ function render() {
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
+    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : view === "automations" ? automationsEyebrow() : "";
   title.textContent = heading;
   // A collection's name is its heading, renamed in place.
   title.contentEditable = view === "collection" && !detail ? "plaintext-only" : "false";

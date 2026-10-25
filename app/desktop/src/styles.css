@@ -811,16 +811,11 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 /* Automations: one list, each a card with its mark, a schedule chip, Run now and a switch. */
 .routines { display: flex; flex-direction: column; gap: 10px; }
 .automations-page { display: flex; flex-direction: column; gap: 18px; }
-.automations-lede { margin: -16px 0 0; font-size: 15px; color: var(--muted); }
 .auto-find { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease); }
 .auto-find:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
 .auto-find svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
 .auto-find input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; font-size: 14px; outline: none; box-shadow: none; }
 .auto-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.auto-tabs { display: flex; gap: 4px; }
-.auto-tab { height: 30px; padding: 0 12px; border-radius: 8px; font-size: 14px; color: var(--muted); transition: background 100ms linear, color 100ms linear; }
-.auto-tab:hover { color: var(--ink); }
-.auto-tab[aria-selected="true"] { background: var(--hover); color: var(--ink); font-weight: 500; }
 .auto-add { display: inline-flex; margin-right: 6px; }
 .auto-add svg { width: 14px; height: 14px; }
 .automations { display: flex; flex-direction: column; margin: 0 -12px; }
@@ -829,12 +824,16 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .automations .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .automations .row.routine .t b { font-size: 15px; font-weight: 500; }
 .automations .row.routine .routine-line { font-size: 13.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
-.automations .row.routine .v { gap: 6px; max-width: none; opacity: 0; transition: opacity 100ms linear; }
-.automations .row.routine:hover .v, .automations .row.routine:focus-within .v { opacity: 1; }
+.automations .row.routine .v { gap: 10px; max-width: none; }
+.routine-actions { display: flex; align-items: center; gap: 6px; opacity: 0; transition: opacity 100ms linear; }
+.automations .row.routine:hover .routine-actions, .automations .row.routine:focus-within .routine-actions { opacity: 1; }
+.routine-new { height: 22px; padding: 0 9px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; transition: background 100ms linear; }
+.routine-new:hover { background: color-mix(in srgb, var(--accent) 18%, var(--accent-soft)); }
 .automations .row.routine.paused .t b { color: var(--muted); }
 .auto-none { padding: 12px; }
 .state-ring { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; align-self: flex-start; margin-top: 3px; border: 1.5px solid var(--muted); }
-.state-ring.off { border-style: dashed; opacity: 0.7; }
+.state-ring.on { border-color: var(--accent); }
+.state-ring.off { border-style: dashed; border-color: var(--faint); }
 .state-ring.running { border-color: var(--accent); background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px); }
 .automations .routine-line .when-link { padding: 0; font: inherit; font-size: inherit; color: inherit; }
 .when-link:hover, .when-link:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; outline: none; }
