@@ -74,6 +74,8 @@ let auth = null;
 let view = "today";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
+/** Which automations the tab shows. @type {"all" | "active" | "paused"} */
+let automationsShown = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
 /** The collection open in its own view. @type {number | null} */
@@ -722,7 +724,7 @@ function lineIcon(paths) {
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
-  sell: lineIcon(`<path d="M12 3v18M16.5 7.5c-.8-1.3-2.4-2-4.5-2-2.5 0-4 1.2-4 3s1.6 2.5 4 3 4 1.3 4 3.2-1.6 3.3-4 3.3c-2.2 0-3.8-.8-4.5-2.2"></path>`),
+  sell: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
@@ -1012,7 +1014,7 @@ function renderToday(s) {
       text.append(el("b", "sans", item.title), el("span", "", item.phase));
       open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
       open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(open);
+      row.append(markTile(UNFINISHED_ICON), open);
       list.append(row);
     }
     parts.push(section("Unfinished", list));
@@ -3192,9 +3194,7 @@ function agentTiles(s) {
   const connect = () => new AgentSetup().open();
   if (rows.length) {
     const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
-    const plus = el("span", "logo initial add-mark");
-    plus.innerHTML = lineIcon(`<path d="M12 5v14M5 12h14"></path>`);
-    more.prepend(plus);
+    more.prepend(agentMark("other", "Agent"));
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
@@ -3764,6 +3764,8 @@ function runsWhen({ cadence, hour, day }) {
 
 /** Each kind of routine's mark: reading apps, the evening check-in, and the owner's own sentence. */
 const CLOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`;
+/** Today's unfinished tasks keep the mark they had before Automations dropped its own. */
+const UNFINISHED_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`;
 const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"></path></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>`;
 
@@ -3793,34 +3795,31 @@ function nextRun(iso) {
   return days < 7 ? soon.format(days, "day") : `on ${when(iso)}`;
 }
 
-/** One routine: a dot for its state, what it is and last found; when it runs next, which retimes it; Run now, and a switch. @param {Routine} routine */
+/** One routine, one line under its name: when, and when next (or that it's paused or running).
+ * The schedule retimes it; Run now and the switch show on hover. @param {Routine} routine */
 function routineRow(routine) {
   const busy = running.has(routine.id);
-  // What it found leads; when it ran follows.
-  const ran = !routine.last_run ? "Hasn't run yet" : routine.result ? `${routine.result} · ${when(routine.last_run)}` : `Ran ${when(routine.last_run)}`;
-  const status = busy ? "Running now" : routine.paused ? `Paused · ${ran}` : ran;
   const toggle = el("button", "switch");
   toggle.type = "button";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", String(!routine.paused));
   toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
   toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
-  const detail = el("span", "routine-line");
-  detail.append(el("span", busy ? "running" : "", status));
-  const time = el("button", "when-link");
+  const time = el("button", "when-link", runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }));
   time.type = "button";
   time.title = "Change time";
   time.setAttribute("aria-label", "Change time");
-  time.append(el("b", "", runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), el("span", "", busy ? "Now" : routine.paused ? "Off" : `Next ${nextRun(routine.next_run)}`));
   time.addEventListener("click", () => openRoutineTime(routine));
+  const detail = el("span", "routine-line");
+  detail.append(time, " · ", el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`));
   const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
   if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
-  trailing.append(time, toggle);
+  trailing.append(toggle);
   const node = row(routine.name, detail, trailing, false);
-  node.prepend(el("span", `state-dot${busy ? " running" : routine.paused ? " off" : routine.last_run && routine.result ? " ran" : ""}`));
+  node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : ""}`));
   node.classList.add("routine");
-  if (busy) node.classList.add("busy");
   if (routine.paused) node.classList.add("paused");
+  node.dataset.find = `${routine.name} ${routine.about}`.toLowerCase();
   node.addEventListener("click", (event) => {
     if (!(event.target instanceof Element && event.target.closest("button"))) openRoutine(routine);
   });
@@ -3954,21 +3953,50 @@ function openNewRoutine(said = "") {
 
 /** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
 function renderAutomations(s) {
-  const list = el("div", "card rows automations");
-  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow));
-  const compose = /** @type {HTMLFormElement} */ (el("form", "auto-compose"));
-  const ask = el("input");
-  ask.type = "text";
-  ask.maxLength = 500;
-  ask.placeholder = "Every Friday, turn this week's meetings into memories";
-  ask.setAttribute("aria-label", "Tell Lore what to do and when");
-  const go = el("button", "btn primary sm", "New automation");
-  go.type = "submit";
-  go.id = "new-automation";
-  compose.append(ask, go);
-  compose.addEventListener("submit", (event) => { event.preventDefault(); openNewRoutine(ask.value.trim()); });
   const page = el("div", "automations-page");
-  page.append(compose, list);
+  page.append(el("p", "automations-lede", "Ask Lore to read your apps, check in with you, or remember what you read, every day or every week."));
+  const find = el("div", "auto-find");
+  find.innerHTML = lineIcon(`<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>`);
+  const query = el("input");
+  query.type = "search";
+  query.placeholder = "Search automations";
+  query.setAttribute("aria-label", "Search automations");
+  find.append(query);
+  const bar = el("div", "auto-bar");
+  const tabs = el("div", "auto-tabs");
+  tabs.setAttribute("role", "tablist");
+  for (const [id, label] of /** @type {const} */ ([["all", "All"], ["active", "Active"], ["paused", "Paused"]])) {
+    const tab = el("button", "auto-tab", label);
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(automationsShown === id));
+    tab.addEventListener("click", () => { automationsShown = id; render(); });
+    tabs.append(tab);
+  }
+  const add = button("New automation", "quiet", () => openNewRoutine());
+  add.id = "new-automation";
+  add.prepend(Object.assign(el("span", "auto-add"), { innerHTML: lineIcon(`<path d="M12 5v14M5 12h14"></path>`) }));
+  bar.append(tabs, add);
+  const shown = [...routines]
+    .filter((routine) => automationsShown === "all" || (automationsShown === "paused") === Boolean(routine.paused))
+    .sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in)));
+  const list = el("div", "automations");
+  list.append(...shown.map(routineRow));
+  const none = el("p", "hint auto-none", automationsShown === "paused" ? "Nothing paused." : "No automations match.");
+  none.hidden = shown.length > 0;
+  list.append(none);
+  // Filtered in place, so the search box keeps its focus while the owner types.
+  query.addEventListener("input", () => {
+    const words = query.value.trim().toLowerCase();
+    let any = 0;
+    for (const node of list.querySelectorAll(".row.routine")) {
+      const hit = !words || /** @type {HTMLElement} */ (node).dataset.find?.includes(words);
+      /** @type {HTMLElement} */ (node).hidden = !hit;
+      if (hit) any++;
+    }
+    none.hidden = any > 0;
+  });
+  page.append(find, bar, list);
   return [page];
 }
 

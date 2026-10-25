@@ -810,29 +810,34 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 
 /* Automations: one list, each a card with its mark, a schedule chip, Run now and a switch. */
 .routines { display: flex; flex-direction: column; gap: 10px; }
-.automations-page { display: flex; flex-direction: column; gap: 16px; }
-.auto-compose { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgb(var(--shadow) / calc(0.04 * var(--depth))); transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease); }
-.auto-compose:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
-.auto-compose input { flex: 1; min-width: 0; height: 34px; padding: 0; border: 0; background: none; font-size: 14px; outline: none; box-shadow: none; }
-.auto-compose input::placeholder { color: var(--faint); }
-.automations { border-radius: var(--radius-lg); overflow: hidden; }
-.automations .row.routine { position: relative; cursor: pointer; justify-content: flex-start; gap: 14px; padding: 15px 18px; transition: background 150ms var(--ease); }
+.automations-page { display: flex; flex-direction: column; gap: 18px; }
+.automations-lede { margin: -16px 0 0; font-size: 15px; color: var(--muted); }
+.auto-find { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); transition: border-color 120ms var(--ease), box-shadow 120ms var(--ease); }
+.auto-find:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+.auto-find svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
+.auto-find input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; background: none; font-size: 14px; outline: none; box-shadow: none; }
+.auto-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.auto-tabs { display: flex; gap: 4px; }
+.auto-tab { height: 30px; padding: 0 12px; border-radius: 8px; font-size: 14px; color: var(--muted); transition: background 100ms linear, color 100ms linear; }
+.auto-tab:hover { color: var(--ink); }
+.auto-tab[aria-selected="true"] { background: var(--hover); color: var(--ink); font-weight: 500; }
+.auto-add { display: inline-flex; margin-right: 6px; }
+.auto-add svg { width: 14px; height: 14px; }
+.automations { display: flex; flex-direction: column; margin: 0 -12px; }
+.automations .row.routine { cursor: pointer; justify-content: flex-start; gap: 14px; padding: 12px; border: 0; border-radius: 10px; transition: background 100ms linear; }
 .automations .row.routine:hover { background: var(--hover); }
 .automations .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.automations .row.routine .t b { font-size: 14px; font-weight: 600; }
-.automations .row.routine .t span { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.automations .row.routine .v { gap: 10px; max-width: none; }
-.automations .row.routine .v .routine-act { opacity: 0; }
-.automations .row.routine:hover .v .routine-act, .automations .row.routine:focus-within .v .routine-act { opacity: 1; }
-.automations .row.routine.paused .t b, .automations .row.routine.paused .when-link b { color: var(--muted); }
-.state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
-.state-dot.ran { background: var(--ok); }
-.state-dot.off { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
-.state-dot.running { background: var(--accent); }
-.when-link { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 132px; padding: 4px 8px; border-radius: 8px; font: inherit; text-align: right; transition: background 150ms var(--ease); }
-.when-link b { font-size: 13px; font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
-.when-link span { font-size: 12px; color: var(--muted); }
-.when-link:hover, .when-link:focus-visible { background: var(--line-soft); outline: none; }
+.automations .row.routine .t b { font-size: 15px; font-weight: 500; }
+.automations .row.routine .routine-line { font-size: 13.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.automations .row.routine .v { gap: 6px; max-width: none; opacity: 0; transition: opacity 100ms linear; }
+.automations .row.routine:hover .v, .automations .row.routine:focus-within .v { opacity: 1; }
+.automations .row.routine.paused .t b { color: var(--muted); }
+.auto-none { padding: 12px; }
+.state-ring { width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0; align-self: flex-start; margin-top: 3px; border: 1.5px solid var(--muted); }
+.state-ring.off { border-style: dashed; opacity: 0.7; }
+.state-ring.running { border-color: var(--accent); background: radial-gradient(circle, var(--accent) 0 3px, transparent 3.5px); }
+.automations .routine-line .when-link { padding: 0; font: inherit; font-size: inherit; color: inherit; }
+.when-link:hover, .when-link:focus-visible { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; outline: none; }
 .routines .row.routine { cursor: pointer; gap: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
 .routines .row.routine:hover { border-color: var(--line-strong); box-shadow: 0 6px 20px rgb(var(--shadow) / calc(0.06 * var(--depth))); }
 .routines .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -941,7 +946,7 @@ main header.compact .header-actions { order: 2; margin-left: auto; }
 main header.compact h1 { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 14px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line-soft), 0 2px 8px rgb(var(--shadow) / calc(0.05 * var(--depth))); font-family: var(--sans); font-size: 13px; font-weight: 600; line-height: 1.4; letter-spacing: 0; }
 main header.compact #first-run-skip { color: var(--muted); font-size: 13px; font-weight: 500; }
 main header.compact #first-run-skip:hover { color: var(--ink); text-decoration: none; }
-.add-mark { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
-.add-mark svg { width: 55%; height: 55%; }
 .btn.quiet.neutral { color: var(--muted); }
 .btn.quiet.neutral:hover, .btn.quiet.neutral:focus-visible { color: var(--ink); }
+.automations .routine-line span { font-size: inherit; color: inherit; }
+.automations .routine-line .running { color: var(--accent); }
