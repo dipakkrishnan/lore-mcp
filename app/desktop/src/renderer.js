@@ -3194,7 +3194,10 @@ function agentTiles(s) {
   const connect = () => new AgentSetup().open();
   if (rows.length) {
     const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
-    more.prepend(agentMark("other", "Agent"));
+    // The agents it can be, not a generic mark: the same stack the first-connect card shows.
+    const stack = el("div", "mark-stack");
+    for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other" && id !== "muse")) stack.append(agentMark(app, name));
+    more.prepend(stack);
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
