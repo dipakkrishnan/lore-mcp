@@ -2394,7 +2394,7 @@ def publication_revoke(publication_id: int) -> int:
 def collection_command(args: argparse.Namespace) -> int:
     """Owner actions on collections; each prints the result as JSON."""
     _owner_action("changing a collection")
-    collections = Collections(lambda: push(str(home() / "node")))
+    collections = Collections(lambda: push(str(store_folder())))
     command = args.collection_command
     if command == "new":
         result: object = collections.new(args.title).model_dump()

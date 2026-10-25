@@ -382,6 +382,12 @@ class TakeoutTest(LoreTestCase):
         )
         self.assertIn("Rated it 4 out of 5.\n\nGo on a Saturday", review.content)
 
+    def test_a_list_of_one_short_place_is_kept(self) -> None:
+        member = "Takeout/Saved/Want to go.csv"
+        header = (self.folder / member).read_text().splitlines()[0]
+        self.connect(self.zipped(**{member: f"{header}\nSushi Ran,,,,\n"}))
+        self.assertEqual(self.memories()["Want to go"], "- Sushi Ran")
+
     def test_a_newer_export_replaces_the_older_one(self) -> None:
         first = self.connect(str(self.folder))
         member = "Takeout/Saved/Want to go.csv"
