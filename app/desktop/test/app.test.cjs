@@ -2081,8 +2081,9 @@ test("collection changes are refused before any CLI call unless well formed", as
       await assert.rejects(priceCollection(directory, bad, 5), { message: /Invalid collection/ });
     }
     for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY, "5"]) await assert.rejects(priceCollection(directory, 1, bad), { message: /zero or more/ });
-    await assert.rejects(addToCollection(directory, 1, {}), { message: /Drop a file or paste/ });
-    await assert.rejects(addToCollection(directory, 1, { files: ["relative/path.md"] }), { message: /Drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, {}), { message: /Choose a memory, drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { files: ["relative/path.md"] }), { message: /Choose a memory, drop a file or paste/ });
+    await assert.rejects(addToCollection(directory, 1, { memories: [0, -2, 1.5, "3"] }), { message: /Choose a memory, drop a file or paste/ });
     await assert.rejects(addToCollection(directory, 1, { items: [{ title: "Empty", content: "   " }] }), { message: /nothing to add/ });
     await assert.rejects(renameCollection(directory, 1, "   "), { message: /needs a name/ });
     await assert.rejects(removeFromCollection(directory, 1, 0), { message: /Invalid piece/ });

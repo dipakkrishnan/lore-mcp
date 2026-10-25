@@ -193,15 +193,15 @@ nav .count { margin-left: auto; font-family: var(--mono); font-size: 12px; color
 .account-trigger .who span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .account-trigger .form-chevron { width: 14px; height: 14px; color: var(--faint); flex-shrink: 0; }
 .account-menu { -webkit-app-region: no-drag; position-anchor: --account; position-area: top span-right; width: anchor-size(width); margin: 0 0 8px; }
-.account-menu, .menu {
+.account-menu, .menu, .new-menu {
   inset: auto; padding: 5px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink);
   box-shadow: 0 12px 32px rgb(var(--shadow) / calc(0.12 * var(--depth))), 0 2px 6px rgb(var(--shadow) / calc(0.06 * var(--depth)));
 }
 .account-menu:popover-open, .menu:popover-open { display: flex; flex-direction: column; gap: 1px; }
-.account-menu button, .menu button { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; font-size: 13px; text-align: left; color: var(--ink); }
-.account-menu button > svg, .menu button > svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
-.account-menu button:hover, .account-menu button:focus-visible, .menu button:hover, .menu button:focus-visible { background: var(--hover); outline: none; }
-.account-menu button:hover > svg, .account-menu button:focus-visible > svg, .menu button:hover > svg, .menu button:focus-visible > svg { color: var(--ink); }
+.account-menu button, .menu button, .new-menu button { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; font-size: 13px; text-align: left; color: var(--ink); }
+.account-menu button > svg, .menu button > svg, .new-menu button > svg { width: 16px; height: 16px; flex-shrink: 0; color: var(--muted); }
+.account-menu button:hover, .account-menu button:focus-visible, .menu button:hover, .menu button:focus-visible, .new-menu button:hover, .new-menu button:focus-visible { background: var(--hover); outline: none; }
+.account-menu button:hover > svg, .account-menu button:focus-visible > svg, .menu button:hover > svg, .menu button:focus-visible > svg, .new-menu button:hover > svg, .new-menu button:focus-visible > svg { color: var(--ink); }
 .account-menu kbd, .account-menu .switch { margin-left: auto; }
 .account-menu .switch { width: 28px; height: 16px; }
 .account-menu .switch::after { width: 12px; height: 12px; }
@@ -696,12 +696,19 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .new-open { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 600; }
 .new-open:hover { filter: brightness(1.08); }
 .new-open svg { width: 15px; height: 15px; }
-.new-menu { position: absolute; top: calc(100% + 6px); left: 0; right: -40px; z-index: 5; display: flex; flex-direction: column; padding: 4px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 8px 24px rgb(var(--shadow) / calc(0.14 * var(--depth))); }
+.new-menu { position: absolute; top: calc(100% + 6px); left: 0; width: max(100%, 248px); z-index: 5; display: flex; flex-direction: column; gap: 1px; animation: menu-in 120ms var(--ease) both; }
 .new-menu[hidden] { display: none; }
-.new-menu button { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 6px; text-align: left; }
-.new-menu button:hover, .new-menu button:focus-visible { background: var(--hover); }
-.new-menu b { font-size: 13px; font-weight: 600; }
-.new-menu span { font-size: 12px; color: var(--muted); }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .new-menu { animation: none; } }
+.new-menu button { min-height: 48px; gap: 10px; padding: 8px 10px; transition: background 80ms linear; }
+.new-tile { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; color: var(--muted); }
+.new-tile svg { width: 18px; height: 18px; }
+.new-menu button:hover .new-tile, .new-menu button:focus-visible .new-tile { color: var(--ink); }
+.new-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.new-text b { font-size: 13px; font-weight: 500; }
+.new-text span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.new-menu kbd { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.new-open { transition: background 120ms var(--ease); }
 
 /* A collection: name it, fill it, price it */
 .collection-name { width: 100%; height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); font: 500 18px var(--serif); color: var(--ink); }
@@ -777,6 +784,22 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .inv-group-head .logo { width: 18px; height: 18px; }
 .inv-group-head .logo.initial { width: 22px; height: 22px; font-size: 11px; }
 .inv-group-head b { font-size: 14px; font-weight: 600; }
+.inv-group-head .btn.quiet { margin-left: auto; opacity: 0; transition: opacity 0.12s; }
+.inv-group:hover .inv-group-head .btn.quiet, .inv-group-head .btn.quiet:focus-visible { opacity: 1; }
+.collection-fill, .picker { display: flex; flex-direction: column; gap: 12px; }
+.collection-fill > .btn.quiet { align-self: flex-start; }
+.pick-list { max-height: min(360px, 45dvh); overflow-y: auto; overscroll-behavior: contain; }
+.pick-list > .pick-group { flex-shrink: 0; }
+.pick-head, .pick { cursor: pointer; }
+.pick { justify-content: flex-start; }
+.pick-head input, .pick input { margin: 0; accent-color: var(--accent); flex-shrink: 0; }
+.pick:has(input:checked), .pick-group .pick:has(input:checked):hover { background: var(--accent-soft); }
+.pick-none { padding: 12px 4px; }
+.pick-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 48px; padding-top: 8px; border-top: 1px solid var(--line); }
+.pick-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#title[contenteditable="plaintext-only"] { cursor: text; border-radius: 6px; outline: none; transition: background 120ms var(--ease); }
+#title[contenteditable="plaintext-only"]:hover { background: var(--hover); }
+#title[contenteditable="plaintext-only"]:focus { background: var(--hover); box-shadow: 0 0 0 3px var(--ring-soft); }
 .inv-group .row { padding: 12px 18px; transition: background 0.12s; }
 .inv-group .row:hover { background: var(--hover); }
 .inv-group .row .t b { font-family: var(--sans); font-size: 14px; font-weight: 500; }
@@ -787,6 +810,29 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 
 /* Automations: one list, each a card with its mark, a schedule chip, Run now and a switch. */
 .routines { display: flex; flex-direction: column; gap: 10px; }
+.automations-page { display: flex; flex-direction: column; gap: 16px; }
+.auto-compose { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 1px 2px rgb(var(--shadow) / calc(0.04 * var(--depth))); transition: border-color 150ms var(--ease), box-shadow 150ms var(--ease); }
+.auto-compose:focus-within { border-color: var(--ring); box-shadow: 0 0 0 3px var(--ring-soft); }
+.auto-compose input { flex: 1; min-width: 0; height: 34px; padding: 0; border: 0; background: none; font-size: 14px; outline: none; box-shadow: none; }
+.auto-compose input::placeholder { color: var(--faint); }
+.automations { border-radius: var(--radius-lg); overflow: hidden; }
+.automations .row.routine { position: relative; cursor: pointer; justify-content: flex-start; gap: 14px; padding: 15px 18px; transition: background 150ms var(--ease); }
+.automations .row.routine:hover { background: var(--hover); }
+.automations .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.automations .row.routine .t b { font-size: 14px; font-weight: 600; }
+.automations .row.routine .t span { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automations .row.routine .v { gap: 10px; max-width: none; }
+.automations .row.routine .v .routine-act { opacity: 0; }
+.automations .row.routine:hover .v .routine-act, .automations .row.routine:focus-within .v .routine-act { opacity: 1; }
+.automations .row.routine.paused .t b, .automations .row.routine.paused .when-link b { color: var(--muted); }
+.state-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; background: var(--faint); }
+.state-dot.ran { background: var(--ok); }
+.state-dot.off { background: transparent; box-shadow: inset 0 0 0 1px var(--faint); }
+.state-dot.running { background: var(--accent); }
+.when-link { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 132px; padding: 4px 8px; border-radius: 8px; font: inherit; text-align: right; transition: background 150ms var(--ease); }
+.when-link b { font-size: 13px; font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.when-link span { font-size: 12px; color: var(--muted); }
+.when-link:hover, .when-link:focus-visible { background: var(--line-soft); outline: none; }
 .routines .row.routine { cursor: pointer; gap: 16px; padding: 16px 18px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); transition: border-color 0.15s, box-shadow 0.15s; }
 .routines .row.routine:hover { border-color: var(--line-strong); box-shadow: 0 6px 20px rgb(var(--shadow) / calc(0.06 * var(--depth))); }
 .routines .row.routine .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
@@ -895,3 +941,7 @@ main header.compact .header-actions { order: 2; margin-left: auto; }
 main header.compact h1 { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 14px; border-radius: 999px; background: var(--surface); box-shadow: 0 0 0 1px var(--line-soft), 0 2px 8px rgb(var(--shadow) / calc(0.05 * var(--depth))); font-family: var(--sans); font-size: 13px; font-weight: 600; line-height: 1.4; letter-spacing: 0; }
 main header.compact #first-run-skip { color: var(--muted); font-size: 13px; font-weight: 500; }
 main header.compact #first-run-skip:hover { color: var(--ink); text-decoration: none; }
+.add-mark { display: inline-flex; align-items: center; justify-content: center; color: var(--muted); }
+.add-mark svg { width: 55%; height: 55%; }
+.btn.quiet.neutral { color: var(--muted); }
+.btn.quiet.neutral:hover, .btn.quiet.neutral:focus-visible { color: var(--ink); }

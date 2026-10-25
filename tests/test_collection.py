@@ -47,6 +47,46 @@ class CollectionTest(LoreTestCase):
             piece = store.get_publication(collection.pieces[0].public_id)
             self.assertEqual(piece.teaser, "Export controls")
 
+    def test_pricing_a_collection_pushes_to_the_live_store(self) -> None:
+        with Store() as store:
+            store.set_setting("node_url", "https://node.example/mcp")
+            collection = store.new_collection()
+            store.add_to_collection(collection.id, "A", "Export controls leak")
+        with patch.object(cli, "push", return_value=0) as push:
+            self.run_cli("collection", "price", str(collection.id), "12")
+        push.assert_called_once_with(str(cli.store_folder()))
+
+    def test_kept_memories_become_pieces_as_they_read(self) -> None:
+        kept = {title: self.seed_memory(title) for title in ("Ship weekly", "Hire slowly")}
+        made = self.run_cli("collection", "new")
+        drop = {"memories": [kept["Ship weekly"], kept["Hire slowly"]]}
+        added = self.run_cli(
+            "collection", "add", str(made["id"]), "-", stdin=json.dumps(drop)
+        )
+        self.assertEqual(
+            [a["title"] for a in added["added"]], ["Ship weekly", "Hire slowly"]
+        )
+        again = self.run_cli(
+            "collection", "add", str(made["id"]), "-", stdin=json.dumps(drop)
+        )
+        self.assertEqual(len(again["added"]), 2)
+        with Store() as store:
+            collection = store.collection(made["id"])
+            self.assertEqual(len(collection.pieces), 2)
+            piece = store.get_publication(collection.pieces[0].public_id)
+            self.assertEqual(
+                (piece.content, piece.provenance),
+                ("Ship weekly about deployment", [kept["Ship weekly"]]),
+            )
+            self.assertEqual(len(store.search("")), 2)
+
+    def test_a_discarded_memory_cannot_go_on_sale(self) -> None:
+        discarded = self.seed_memory("Old", status="discarded")
+        with Store() as store:
+            collection = store.new_collection()
+            with self.assertRaisesRegex(ValueError, "isn't one Lore keeps"):
+                store.add_memory_to_collection(collection.id, discarded)
+
     def test_the_same_text_dropped_twice_is_one_piece(self) -> None:
         with Store() as store:
             collection = store.new_collection()

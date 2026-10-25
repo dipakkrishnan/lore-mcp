@@ -1593,13 +1593,38 @@ class Store:
         memory = self.db.execute(
             "SELECT id FROM memories WHERE source_key=?", (source_key,)
         ).fetchone()
+        return self._piece(collection, title, content, memory["id"])
+
+    def add_memory_to_collection(
+        self, collection_id: int, memory_id: int
+    ) -> CollectionPiece:
+        """Put a kept memory on sale as a piece of the collection, as it reads.
+        Choosing it is the owner's approval."""
+        memory = self.get(memory_id)
+        if memory is None or memory.status != "private":
+            raise ValueError(f"memory {memory_id} isn't one Lore keeps")
+        collection = self.collection(collection_id)
+        already = self.db.execute(
+            "SELECT p.id FROM collection_pieces c JOIN publications p "
+            "ON p.id=c.publication_id WHERE c.collection_id=? AND p.content=? "
+            "AND p.active=1",
+            (collection_id, memory.content),
+        ).fetchone()
+        if already:
+            return next(p for p in collection.pieces if p.id == already["id"])
+        return self._piece(collection, memory.title, memory.content, memory.id)
+
+    def _piece(
+        self, collection: Collection, title: str, content: str, memory_id: int
+    ) -> CollectionPiece:
+        collection_id = collection.id
         publication_id = self.add_publication(
             title=title,
             content=content,
             kind=PublicationKind.CONTENT,
             topic=collection.title,
             teaser=title,
-            provenance=[memory["id"]],
+            provenance=[memory_id],
         )
         self.db.execute(
             "INSERT INTO collection_pieces(collection_id,publication_id,position) "

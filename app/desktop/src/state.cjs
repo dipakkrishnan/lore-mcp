@@ -629,15 +629,16 @@ async function newCollection(loreHome, title) {
 }
 
 /** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
- * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @param {string} loreHome @param {unknown} id @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input
  * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
 async function addToCollection(loreHome, id, input) {
   const which = collectionId(id);
   const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
   const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  const memories = (input.memories ?? []).filter((id) => Number.isInteger(id) && id > 0);
   if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
-  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
-  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+  if (!memories.length && !items.length && !files.length) throw new Error("Choose a memory, drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ memories, items, files })));
 }
 
 /** @param {string} loreHome @param {unknown} id @param {string} title */

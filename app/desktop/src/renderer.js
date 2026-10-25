@@ -80,6 +80,12 @@ let inventoryFrom = null;
 let openCollectionId = null;
 /** Text pasted into the open collection and not added yet; kept across renders. */
 let collectionDraft = "";
+/** Memories ticked to add to the open collection; kept across renders. @type {Set<number>} */
+const collectionPicks = new Set();
+/** Whether the open collection shows drop and paste, the less common way to fill it. */
+let collectionPasting = false;
+/** Whether a collection that already has pieces shows the picker to add more. */
+let collectionAdding = false;
 /** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
 let collectionBusy = "";
 let editingCollectionPrice = false;
@@ -260,7 +266,7 @@ class Entrance {
   }
 }
 
-/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
+/** @param {string} label @param {"primary" | "secondary" | "quiet" | "quiet neutral"} kind @param {() => void} onClick @param {string} [icon] */
 function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
   node.type = "button";
@@ -716,7 +722,7 @@ function lineIcon(paths) {
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
-  sell: lineIcon(`<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path>`),
+  sell: lineIcon(`<path d="M12 3v18M16.5 7.5c-.8-1.3-2.4-2-4.5-2-2.5 0-4 1.2-4 3s1.6 2.5 4 3 4 1.3 4 3.2-1.6 3.3-4 3.3c-2.2 0-3.8-.8-4.5-2.2"></path>`),
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
@@ -1006,7 +1012,7 @@ function renderToday(s) {
       text.append(el("b", "sans", item.title), el("span", "", item.phase));
       open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
       open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(markTile(ROUTINE_ICONS.ask), open);
+      row.append(open);
       list.append(row);
     }
     parts.push(section("Unfinished", list));
@@ -1809,27 +1815,35 @@ function renderInventory(s) {
   for (const item of kept) {
     for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
   }
-  /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
-  const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
+  /** Rows under one heading, each group a card headed by what it's about; the group with the newest row first.
+   * @param {Map<string, HTMLElement[]>} groups @param {(name: string) => HTMLElement | undefined} [action] */
+  const grouped = (groups, action) => [...groups].map(([name, rows]) => {
     const box = el("div", "card rows inv-group");
     const head = el("div", "inv-group-head");
     const app = agentApp(name);
     const source = known.get(name);
     const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
     head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
+    const extra = action?.(name);
+    if (extra) head.append(extra);
     box.append(head, ...rows);
     return box;
   });
-  /** @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => HTMLElement} make */
-  const groupBy = (items, key, make) => {
+  /** Newest first, and so is each group by its newest item.
+   * @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => number} recency @param {(item: T) => HTMLElement} make
+   * @param {(name: string) => HTMLElement | undefined} [action] */
+  const groupBy = (items, key, recency, make, action) => {
     /** @type {Map<string, HTMLElement[]>} */
     const groups = new Map();
-    for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
-    return grouped(groups);
+    for (const item of [...items].sort((a, b) => recency(b) - recency(a))) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
+    return grouped(groups, action);
   };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
-  const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
-  const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
+  /** @param {string} name */
+  const collectIt = (name) => button("Sell as a collection", "quiet", () => void collectTopic(name, kept.filter((item) => item.project_label === name).map((item) => item.id)));
+  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => Date.parse(item.updated_at), (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival), from ? undefined : collectIt);
+  // A piece's id only grows, so the highest is the newest.
+  const saleGroups = () => groupBy(onSale, (item) => item.topic, (item) => item.id, saleItem);
+  const downGroups = () => groupBy(down, (item) => item.topic, (item) => item.id, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
   const stack = (/** @type {HTMLElement[]} */ cards) => {
     const node = el("div", "inv-stack");
     node.append(...cards);
@@ -2014,11 +2028,11 @@ async function newCollection() {
   let made = null;
   if (await act(async () => { made = await window.lore.newCollection(); })) {
     if (made) showCollection(/** @type {NewCollection} */ (made).id);
-    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus());
+    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
   }
 }
 
-/** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+/** Step two: kept memories, dropped files or pasted text, each one piece. @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input */
 async function addToCollection(input) {
   const item = openCollection();
   if (!item || collectionBusy) return;
@@ -2027,18 +2041,17 @@ async function addToCollection(input) {
     tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
     return false;
   });
-  if (!files.length && !input.items?.length) return;
+  if (!files.length && !input.items?.length && !input.memories?.length) return;
   collectionBusy = "adding";
   render();
-  /** @type {{added: Array<{title: string}>} | null} */
-  let result = null;
-  const done = await act(async () => { result = await window.lore.addToCollection(item.id, { items: input.items, files }); });
+  const done = await act(async () => { await window.lore.addToCollection(item.id, { memories: input.memories, items: input.items, files }); });
   collectionBusy = "";
-  if (done && result) {
+  // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
+  if (done) {
     if (input.items?.length) collectionDraft = "";
-    const added = /** @type {{added: Array<{title: string}>}} */ (result).added.length;
-    const after = openCollection();
-    tell(added === 1 ? "Added 1 piece." : `Added ${added} pieces.`, false, after && !after.on_sale ? { label: "Price it", run: () => { editingCollectionPrice = true; render(); } } : undefined);
+    if (input.memories?.length) collectionPicks.clear();
+    collectionAdding = false;
+    collectionPasting = false;
   }
   render();
 }
@@ -2093,9 +2106,10 @@ function collectionPrice(item) {
     return box;
   }
   const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
-  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : "");
+  // A real suggested value, not a placeholder, so Put on sale works as shown; it still takes the button to publish.
+  const suggested = item.value_usd > 0 ? String(item.pieces.length > 1 ? Math.max(1, Math.round(item.value_usd * 0.8)) : item.value_usd) : "10";
+  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : suggested);
   input.setAttribute("aria-label", "Price for the whole collection in US dollars");
-  input.placeholder = item.value_usd > 0 ? String(Math.max(1, Math.round(item.value_usd * 0.8))) : "10";
   const save = el("button", "btn primary sm", busy ? "Saving…" : item.on_sale ? "Update price" : "Put on sale");
   save.type = "submit";
   save.disabled = busy || !item.pieces.length;
@@ -2109,6 +2123,7 @@ function collectionPrice(item) {
   });
   box.append(form);
   const hint = !item.pieces.length ? "Add a piece first, then price it."
+    : item.pieces.length === 1 && item.value_usd > 0 ? `Individual price: ${price(item.value_usd)}.`
     : item.value_usd > 0 ? `Its ${item.pieces.length} ${item.pieces.length === 1 ? "piece costs" : "pieces cost"} ${price(item.value_usd)} one by one. A lower price here gives buyers a reason to take them all.`
     : "Buyers pay this once and get every piece in it.";
   box.append(el("p", "hint", hint));
@@ -2116,10 +2131,137 @@ function collectionPrice(item) {
   return box;
 }
 
+/** Kept memories newest first, under the topic each is about, the topic with the newest first.
+ * @param {MemoryItem[]} items @returns {Map<string, MemoryItem[]>} */
+function byTopic(items) {
+  /** @type {Map<string, MemoryItem[]>} */
+  const topics = new Map();
+  for (const memory of [...items].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))) topics.set(memory.project_label, [...(topics.get(memory.project_label) ?? []), memory]);
+  return topics;
+}
+
+/** Step two the common way: tick kept memories, a whole topic in one tick, and add them. @param {Snapshot} s */
+function memoryPicker(s) {
+  const busy = Boolean(collectionBusy);
+  const wrap = el("div", "picker");
+  const find = el("input", "pick-find");
+  find.type = "search";
+  find.placeholder = "Find a memory";
+  find.setAttribute("aria-label", "Find a memory to add");
+  const add = button("", "primary", () => void addToCollection({ memories: [...collectionPicks] }));
+  const chosen = el("span", "hint");
+  /** @type {Array<{memory: MemoryItem, tick: HTMLInputElement, line: HTMLElement}>} */
+  const all = [];
+  const count = () => {
+    const n = collectionPicks.size;
+    add.textContent = collectionBusy === "adding" ? "Adding…" : n ? `Add ${n} ${n === 1 ? "memory" : "memories"}` : "Add";
+    add.disabled = busy || !n;
+    const outside = all.filter((entry) => entry.line.hidden && collectionPicks.has(entry.memory.id)).length;
+    chosen.textContent = !n ? "" : outside ? `${n} selected · ${outside} outside this search` : `${n} selected`;
+  };
+  /** @type {Array<() => void>} */
+  const syncs = [];
+  const groups = [...byTopic(privateMemories(s))].map(([topic, memories]) => {
+    const box = el("div", "card rows inv-group pick-group");
+    const head = el("label", "inv-group-head pick-head");
+    const every = el("input");
+    every.type = "checkbox";
+    every.setAttribute("aria-label", `Every memory about ${topic || "nothing in particular"}`);
+    head.append(every, el("b", "", topic || "Unsorted"), el("span", "shelf-count", String(memories.length)));
+    /** @type {HTMLElement[]} */
+    const lines = [];
+    const ticks = memories.map((memory) => {
+      const line = el("label", "row pick");
+      lines.push(line);
+      const tick = el("input");
+      tick.type = "checkbox";
+      tick.checked = collectionPicks.has(memory.id);
+      tick.disabled = busy;
+      tick.addEventListener("change", () => { tick.checked ? collectionPicks.add(memory.id) : collectionPicks.delete(memory.id); sync(); count(); });
+      const text = el("div", "t");
+      text.append(el("b", "", memory.title), el("span", "", when(memory.updated_at)));
+      line.append(tick, text);
+      line.dataset.find = `${memory.title} ${topic}`.toLowerCase();
+      box.append(line);
+      all.push({ memory, tick, line });
+      return tick;
+    });
+    // Ticking a topic means what the owner can see of it: a search narrows it.
+    const shown = () => ticks.filter((_, i) => !lines[i].hidden);
+    const sync = () => {
+      const visible = shown();
+      const on = visible.filter((tick) => tick.checked).length;
+      every.checked = visible.length > 0 && on === visible.length;
+      every.indeterminate = on > 0 && on < visible.length;
+    };
+    every.disabled = busy;
+    every.addEventListener("change", () => {
+      memories.forEach((memory, i) => {
+        if (lines[i].hidden) return;
+        ticks[i].checked = every.checked;
+        every.checked ? collectionPicks.add(memory.id) : collectionPicks.delete(memory.id);
+      });
+      sync();
+      count();
+    });
+    syncs.push(sync);
+    sync();
+    box.prepend(head);
+    return box;
+  });
+  const none = el("p", "hint pick-none", "No matching memories.");
+  none.hidden = true;
+  // Filtered in place, so the search box keeps its focus while the owner types.
+  find.addEventListener("input", () => {
+    const words = find.value.trim().toLowerCase();
+    let any = 0;
+    for (const box of groups) {
+      let found = 0;
+      for (const line of box.querySelectorAll(".pick")) {
+        const hit = !words || /** @type {HTMLElement} */ (line).dataset.find?.includes(words);
+        /** @type {HTMLElement} */ (line).hidden = !hit;
+        if (hit) found++;
+      }
+      box.hidden = !found;
+      any += found;
+    }
+    none.hidden = any > 0;
+    for (const sync of syncs) sync();
+    count();
+  });
+  const list = el("div", "inv-stack pick-list");
+  list.append(...groups, none);
+  const files = button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
+  const foot = el("div", "pick-foot");
+  const left = el("div", "pick-left");
+  left.append(chosen, files);
+  foot.append(left, add);
+  count();
+  wrap.append(find, list, foot);
+  return wrap;
+}
+
+/** One tap from Inventory: a collection named for the topic, holding every memory about it, ready to price.
+ * @param {string} topic @param {number[]} memories */
+async function collectTopic(topic, memories) {
+  if (collectionBusy) return;
+  /** @type {NewCollection | null} */
+  let made = null;
+  const done = await act(async () => {
+    made = await window.lore.newCollection(topic || undefined);
+    await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, { memories });
+  });
+  if (made) {
+    editingCollectionPrice = done;
+    showCollection(/** @type {NewCollection} */ (made).id);
+    if (done) tell(memories.length === 1 ? "Added 1 memory. Price it to put it on sale." : `Added ${memories.length} memories. Price them to put them on sale.`);
+  }
+}
+
 /** @param {CollectionItem} item @param {{id: number, title: string}} piece */
 function collectionPiece(item, piece) {
   const trailing = el("div", "v");
-  const ask = button("Remove", "quiet", () => {
+  const ask = button("Remove", "quiet neutral", () => {
     trailing.replaceChildren(
       el("span", "hint", "It comes off sale too. Anyone who already bought it keeps their copy."),
       button("Keep", "secondary", () => trailing.replaceChildren(ask)),
@@ -2127,7 +2269,7 @@ function collectionPiece(item, piece) {
     );
   });
   trailing.append(ask);
-  return row(piece.title, "", trailing);
+  return row(piece.title, "", trailing, false);
 }
 
 /** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
@@ -2135,15 +2277,6 @@ function renderCollection(s) {
   const item = openCollection();
   if (!item) return [emptyState("This collection is gone.", button("Back to For Sale", "quiet", () => show("store")))];
   const busy = Boolean(collectionBusy);
-
-  const name = el("input", "collection-name");
-  name.type = "text";
-  name.value = item.title;
-  name.maxLength = 120;
-  name.setAttribute("aria-label", "Collection name");
-  name.disabled = busy;
-  name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); if (event.key === "Escape") { name.value = item.title; name.blur(); } });
-  name.addEventListener("change", () => void renameCollection(item, name.value));
 
   const zone = el("div", "card drop-zone");
   const lead = el("div", "drop-lead");
@@ -2165,11 +2298,16 @@ function renderCollection(s) {
   pasteRow.append(paste, add);
   zone.append(lead, pasteRow);
 
-  const pieces = item.pieces.length
-    ? card(item.pieces.map((piece) => collectionPiece(item, piece)))
-    : el("div", "card pad empty", "Nothing in it yet. Drop a file or paste some text above.");
+  const memories = privateMemories(s).length;
+  const filled = item.pieces.length > 0;
+  const fill = el("div", "collection-fill");
+  if (memories && !collectionPasting) fill.append(memoryPicker(s));
+  if (collectionPasting || !memories) {
+    fill.append(zone);
+    if (memories) fill.append(button("Choose from your memories instead", "quiet", () => { collectionPasting = false; render(); }));
+  }
 
-  const remove = button("Delete collection", "quiet", () => {
+  const remove = button("Delete collection", "quiet neutral", () => {
     foot.replaceChildren(
       el("span", "hint", "Its pieces stay for sale one by one."),
       button("Keep", "secondary", () => foot.replaceChildren(remove)),
@@ -2179,10 +2317,14 @@ function renderCollection(s) {
   const foot = el("div", "collection-foot");
   foot.append(remove);
 
+  // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
+  if (!filled) return [section("Add memories", fill), foot];
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; render(); });
+  const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
+  contents.classList.add("collection-contents");
   return [
-    section("Name", name),
-    section("Add to it", zone),
-    section("In this collection", pieces, item.pieces.length ? el("span", "hint", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`) : undefined),
+    ...(collectionAdding ? [section("Add memories", fill)] : []),
+    section(`Contents · ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`, contents, more),
     section("Price", collectionPrice(item)),
     foot
   ];
@@ -3050,7 +3192,9 @@ function agentTiles(s) {
   const connect = () => new AgentSetup().open();
   if (rows.length) {
     const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
-    more.prepend(agentMark("other", "Agent"));
+    const plus = el("span", "logo initial add-mark");
+    plus.innerHTML = lineIcon(`<path d="M12 5v14M5 12h14"></path>`);
+    more.prepend(plus);
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
@@ -3619,11 +3763,6 @@ function runsWhen({ cadence, hour, day }) {
 }
 
 /** Each kind of routine's mark: reading apps, the evening check-in, and the owner's own sentence. */
-const ROUTINE_ICONS = {
-  read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>`,
-  checkin: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>`,
-  ask: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`
-};
 const CLOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`;
 const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"></path></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>`;
@@ -3640,10 +3779,26 @@ function routineAct(label, icon, onClick, text) {
   return node;
 }
 
-/** One routine: what it is, when (a chip that changes it), what it last found; Run now, and a switch to pause it. @param {Routine} routine */
+const soon = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+/** When a routine next runs, said the way a person would: "in 3 hours", "tomorrow". @param {string} iso */
+function nextRun(iso) {
+  const at = new Date(iso);
+  const minutes = Math.round((at.getTime() - Date.now()) / 60000);
+  if (Number.isNaN(minutes)) return "";
+  if (minutes < 1) return "any moment";
+  if (minutes < 60) return soon.format(minutes, "minute");
+  if (minutes < 18 * 60) return soon.format(Math.round(minutes / 60), "hour");
+  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  return days < 7 ? soon.format(days, "day") : `on ${when(iso)}`;
+}
+
+/** One routine: a dot for its state, what it is and last found; when it runs next, which retimes it; Run now, and a switch. @param {Routine} routine */
 function routineRow(routine) {
-  const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
-  const status = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const busy = running.has(routine.id);
+  // What it found leads; when it ran follows.
+  const ran = !routine.last_run ? "Hasn't run yet" : routine.result ? `${routine.result} · ${when(routine.last_run)}` : `Ran ${when(routine.last_run)}`;
+  const status = busy ? "Running now" : routine.paused ? `Paused · ${ran}` : ran;
   const toggle = el("button", "switch");
   toggle.type = "button";
   toggle.setAttribute("role", "switch");
@@ -3651,15 +3806,20 @@ function routineRow(routine) {
   toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
   toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
   const detail = el("span", "routine-line");
-  detail.append(routineAct("Change time", CLOCK_ICON, () => openRoutineTime(routine), runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), " · ", el("span", running.has(routine.id) ? "running" : "", status));
+  detail.append(el("span", busy ? "running" : "", status));
+  const time = el("button", "when-link");
+  time.type = "button";
+  time.title = "Change time";
+  time.setAttribute("aria-label", "Change time");
+  time.append(el("b", "", runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), el("span", "", busy ? "Now" : routine.paused ? "Off" : `Next ${nextRun(routine.next_run)}`));
+  time.addEventListener("click", () => openRoutineTime(routine));
   const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
   if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
-  trailing.append(toggle);
+  trailing.append(time, toggle);
   const node = row(routine.name, detail, trailing, false);
-  const mark = el("span", `routine-mark ${routine.kind}`);
-  mark.innerHTML = ROUTINE_ICONS[routine.kind] ?? ROUTINE_ICONS.ask;
-  node.prepend(mark);
+  node.prepend(el("span", `state-dot${busy ? " running" : routine.paused ? " off" : routine.last_run && routine.result ? " ran" : ""}`));
   node.classList.add("routine");
+  if (busy) node.classList.add("busy");
   if (routine.paused) node.classList.add("paused");
   node.addEventListener("click", (event) => {
     if (!(event.target instanceof Element && event.target.closest("button"))) openRoutine(routine);
@@ -3754,12 +3914,30 @@ function openRoutineTime(routine) {
 }
 
 /** A plain sentence and a time: Lore runs it on its own agent, under the rules its own reading keeps. */
-function openNewRoutine() {
+/** When a sentence says it should run, read the way a person says it: "every Friday at 8am", "weekday evenings".
+ * Null when it doesn't say, so the owner picks rather than Lore guessing. @param {string} said
+ * @returns {{cadence: Routine["cadence"], hour: number, day: number} | null} */
+function heardSchedule(said) {
+  const text = said.toLowerCase();
+  const named = DAYS.findIndex((name) => new RegExp(`\\b${name.toLowerCase()}s?\\b`).test(text));
+  const cadence = /\bweekdays?\b/.test(text) ? "weekdays" : named >= 0 ? "weekly" : /\b(every|each) (day|morning|evening|night)\b|\bdaily\b|\bnightly\b/.test(text) ? "daily" : null;
+  const at = /\b(\d{1,2})(?::\d{2})?\s*(am|pm)\b/.exec(text);
+  const hour = at ? (Number(at[1]) % 12) + (at[2] === "pm" ? 12 : 0)
+    : /\bnoon\b/.test(text) ? 12 : /\bmornings?\b/.test(text) ? 9 : /\bevenings?\b/.test(text) ? 18 : /\bnights?\b|\bnightly\b/.test(text) ? 21 : null;
+  if (!cadence && hour === null) return null;
+  return { cadence: cadence ?? "daily", hour: hour ?? 9, day: Math.max(named, 0) };
+}
+
+/** @param {string} [said] what the owner already typed into Automations' own box */
+function openNewRoutine(said = "") {
   const form = new FormSheet("New automation");
   const name = form.title("Title (optional)");
   const text = form.prompt("Describe what Lore should do", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
   text.maxLength = 500;
-  const chosen = scheduleRows(form, { cadence: "weekly", hour: 18, day: 6 });
+  text.value = said;
+  const heard = heardSchedule(said);
+  const chosen = scheduleRows(form, heard ?? { cadence: "weekly", hour: 18, day: 6 });
+  if (said && !heard) form.note("Your sentence doesn't say when, so choose it here.");
   form.note(ROUTINE_NOTE);
   form.button("Cancel", "secondary", () => form.close());
   form.open({
@@ -3776,18 +3954,22 @@ function openNewRoutine() {
 
 /** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
 function renderAutomations(s) {
-  const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
-  const plus = el("span", "routine-mark add");
-  plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
-  add.prepend(plus);
-  add.classList.add("routine", "add-tile");
-  add.tabIndex = 0;
-  add.setAttribute("role", "button");
-  add.addEventListener("click", openNewRoutine);
-  add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
-  const list = el("div", "routines");
-  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  return [list];
+  const list = el("div", "card rows automations");
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow));
+  const compose = /** @type {HTMLFormElement} */ (el("form", "auto-compose"));
+  const ask = el("input");
+  ask.type = "text";
+  ask.maxLength = 500;
+  ask.placeholder = "Every Friday, turn this week's meetings into memories";
+  ask.setAttribute("aria-label", "Tell Lore what to do and when");
+  const go = el("button", "btn primary sm", "New automation");
+  go.type = "submit";
+  go.id = "new-automation";
+  compose.append(ask, go);
+  compose.addEventListener("submit", (event) => { event.preventDefault(); openNewRoutine(ask.value.trim()); });
+  const page = el("div", "automations-page");
+  page.append(compose, list);
+  return [page];
 }
 
 const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
@@ -3803,7 +3985,11 @@ function render() {
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
     : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
-  taskBack.hidden = !detail;
+  // A collection's name is its heading, renamed in place.
+  title.contentEditable = view === "collection" && !detail ? "plaintext-only" : "false";
+  title.spellcheck = false;
+  taskBack.textContent = view === "collection" && !detail ? "← Inventory" : "← Today";
+  taskBack.hidden = !detail && view !== "collection";
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
   sellWritingBtn.hidden = addMemoryBtn.hidden;
@@ -3813,8 +3999,8 @@ function render() {
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
-  // A collection is something for sale, so For Sale stays lit while one is open.
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
+  // A collection lives in Inventory, so Inventory stays lit while one is open.
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view)));
   if (!snapshot) return;
   $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
@@ -3848,7 +4034,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
@@ -5534,7 +5720,16 @@ document.addEventListener("drop", (event) => {
   if (attachments.length) show("today");
 });
 
-taskBack.addEventListener("click", closeTask);
+taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : closeTask()));
+title.addEventListener("keydown", (event) => {
+  if (title.contentEditable !== "plaintext-only") return;
+  if (event.key === "Enter") { event.preventDefault(); title.blur(); }
+  if (event.key === "Escape") { title.textContent = openCollection()?.title ?? ""; title.blur(); }
+});
+title.addEventListener("blur", () => {
+  const item = openCollection();
+  if (item && title.contentEditable === "plaintext-only") void renameCollection(item, title.textContent ?? "");
+});
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
 /** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
 function startCapture(text = "") {
@@ -5561,13 +5756,20 @@ newOpen.addEventListener("click", (event) => {
   newOpen.setAttribute("aria-expanded", String(opening));
   if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
 });
-for (const item of newMenu.querySelectorAll("button")) {
-  item.addEventListener("click", () => {
-    closeNewMenu();
-    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
-    else startCapture();
-  });
+/** @param {string | undefined} what */
+function startNew(what) {
+  closeNewMenu();
+  if (what === "collection") void newCollection();
+  else startCapture();
 }
+for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
+newMenu.addEventListener("keydown", (event) => {
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const items = /** @type {HTMLElement[]} */ ([...newMenu.querySelectorAll("button")]);
+  const at = items.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  items[(at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+});
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -5766,6 +5968,7 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew(event.shiftKey ? "collection" : "memory"); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();

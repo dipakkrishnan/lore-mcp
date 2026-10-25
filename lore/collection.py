@@ -32,10 +32,11 @@ class Paste(BaseModel):
 
 
 class Drop(BaseModel):
-    """What the owner dropped on a collection: pasted text and file paths."""
+    """What the owner put in a collection: kept memories, pasted text and file paths."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    memories: list[int] = []
     items: list[Paste] = []
     files: list[str] = []
 
@@ -56,10 +57,13 @@ class Collections:
             for title, content in texts
             if content.strip()
         ]
-        if not entries:
+        if not entries and not drop.memories:
             raise ValueError("there was no text to add")
         with Store() as store:
             pieces = [
+                store.add_memory_to_collection(collection_id, memory_id)
+                for memory_id in drop.memories
+            ] + [
                 store.add_to_collection(collection_id, entry.title, entry.content)
                 for entry in entries
             ]
