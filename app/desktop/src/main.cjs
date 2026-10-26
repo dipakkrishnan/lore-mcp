@@ -14,7 +14,7 @@ const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -43,6 +43,7 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+const suggestions = new reading.Suggestions(join(app.getPath("userData"), "collection-suggestions.json"));
 /** Where the first-run chat stands (APP-215). */
 const firstRun = new FirstRun(join(app.getPath("userData"), "first-run.json"));
 /** Light, dark, or the Mac's own (APP-225). */
@@ -165,6 +166,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     return searchMemories(loreHome, query);
   });
   ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
+  ipcMain.handle("memory:gists", () => readGists(loreHome));
   ipcMain.handle("memory:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");
     return renameMemory(loreHome, id, title);
@@ -288,6 +290,8 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:cancel", () => connecting?.abort());
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
+  ipcMain.handle("suggestions:list", () => suggestions.list());
+  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
@@ -746,6 +750,20 @@ async function start(loreHome, outgoing) {
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
       const count = run.memories.length;
+      // Collections the routine was asked for are only suggested: the owner reviews each in Lore's own picker.
+      const offered = [];
+      // Only memories Lore keeps now: an id the model made up never waits to land on one made later.
+      const kept = report.collections?.length ? new Set(Object.keys(await readGists(loreHome)).map(Number)) : new Set();
+      for (const asked of report.collections ?? []) {
+        const picked = reading.suggested(asked, stored, join(loreHome, "memories")).filter((id) => kept.has(id));
+        if (!picked.length) continue;
+        await suggestions.add({ at: new Date().toISOString(), title: asked.title.trim(), memories: picked, from: read.label });
+        offered.push(asked.title.trim());
+      }
+      if (offered.length) {
+        emit({ type: "changed" });
+        sales.notify({ title: offered.length === 1 ? "Lore suggests a collection" : `Lore suggests ${offered.length} collections`, body: offered.join(" · ") }, () => reveal({ type: "show", view: "today" }));
+      }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
       try {
@@ -753,7 +771,7 @@ async function start(loreHome, outgoing) {
       } catch (error) {
         console.error("Lore could not record which memories look worth selling:", error);
       }
-      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : "Nothing new"]);
+      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : offered.length ? `Suggested ${reading.plural(offered.length, "collection")}` : "Nothing new"]);
       emit({ type: "changed" });
       if (!count) return;
       // An agent's saves are on Today already, from when they came in: what reading them wrote joins that card, quietly.

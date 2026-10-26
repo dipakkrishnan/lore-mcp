@@ -707,6 +707,8 @@ class TakeoutExport(ExportReader):
     the starred places, and each review. Every other product in it is ignored."""
 
     product = "google-maps"
+    # A saved list can be one place's name; each entry is something the owner chose.
+    sentence = 1
     reviews = "Reviews.json"
     starred = "Saved Places.json"
 
