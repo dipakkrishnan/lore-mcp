@@ -161,6 +161,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
+| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | ready | APP-003 | — | — | — |
 | [APP-058](./desktop-app/APP-058-measure-the-alpha-activation-funnel.md) | Measure the alpha activation funnel | P1 | S | desktop-app | in-progress | APP-001, APP-041, XC-030, XC-029, CLI-004 | XC-029, CLI-004 | — | — |
