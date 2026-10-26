@@ -80,6 +80,9 @@ let automationsShown = "all";
 let inventoryFrom = null;
 /** The collection open in its own view. @type {number | null} */
 let openCollectionId = null;
+/** A new collection's name before it exists: it is made only when its first memories go in, so leaving the first
+ * step leaves nothing behind. @type {string | null} */
+let collectionPending = null;
 /** Text pasted into the open collection and not added yet; kept across renders. */
 let collectionDraft = "";
 /** What each kept memory is about in a line, read when the picker first shows; null until then. @type {Record<string, string> | null} */
@@ -1998,7 +2001,9 @@ const unseen = new Unseen();
 
 /** @returns {CollectionItem | undefined} */
 function openCollection() {
-  return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+  const kept = snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+  if (kept || collectionPending === null) return kept;
+  return { id: 0, public_id: "", title: collectionPending, price_usd: 0, on_sale: false, pieces: [], value_usd: 0 };
 }
 
 /** @param {CollectionItem | undefined} item */
@@ -2040,18 +2045,15 @@ function showCollection(id) {
 
 /** Step one: the collection exists the moment it's asked for; a suggestion names it and ticks its memories.
  * @param {string} [title] @param {number[]} [picks] */
-async function newCollection(title, picks = []) {
+function newCollection(title, picks = []) {
   if (collectionBusy) return;
-  /** @type {NewCollection | null} */
-  let made = null;
   gistsAsked = false;
-  if (await act(async () => { made = await window.lore.newCollection(title); })) {
-    if (made) showCollection(/** @type {NewCollection} */ (made).id);
-    collectionStep = 1;
-    for (const id of picks) collectionPicks.add(id);
-    render();
-    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
-  }
+  collectionPending = title ?? UNTITLED;
+  showCollection(0);
+  collectionStep = 1;
+  for (const id of picks) collectionPicks.add(id);
+  render();
+  queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
 }
 
 /** Step two: kept memories, dropped files or pasted text, each one piece. @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input */
@@ -2069,7 +2071,17 @@ async function addToCollection(input) {
   const top = topics.sort((a, b) => topics.filter((t) => t === b).length - topics.filter((t) => t === a).length)[0];
   collectionBusy = "adding";
   render();
-  const done = await act(async () => { await window.lore.addToCollection(item.id, { memories: input.memories, items: input.items, files }); });
+  const done = await act(async () => {
+    // A new collection is made here, with its first memories, and taken back if they don't go in.
+    const made = item.id ? null : await window.lore.newCollection(item.title === UNTITLED ? undefined : item.title);
+    if (made) { openCollectionId = made.id; collectionPending = null; }
+    try {
+      await window.lore.addToCollection(made?.id ?? item.id, { memories: input.memories, items: input.items, files });
+    } catch (error) {
+      if (made) { await window.lore.deleteCollection(made.id).catch(() => undefined); openCollectionId = 0; collectionPending = item.title; }
+      throw error;
+    }
+  });
   collectionBusy = "";
   // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
   if (done) {
@@ -2386,7 +2398,8 @@ function collectionWizard(item, fill) {
     // The empty collection is the only trace of starting; Cancel takes it back.
     const cancel = button("Cancel", "quiet neutral", async () => {
       collectionStep = 0;
-      if (await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("inventory"); }
+      // Not made yet, there is nothing to take back.
+      if (!item.id || await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("inventory"); }
     });
     // Beside Continue when the picker shows; under the drop zone otherwise.
     const pickFoot = fill.querySelector(".pick-foot");
@@ -4253,7 +4266,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
