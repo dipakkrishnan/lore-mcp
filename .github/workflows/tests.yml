@@ -53,12 +53,12 @@ jobs:
       - run: npm run check
       - run: npm test
 
-  # XC-073: the desktop work is spread over five macOS jobs that run side by side,
-  # so a run finishes in about five minutes instead of twenty. Five because
-  # GitHub-hosted macOS runners are capped at five concurrent jobs per account:
-  # a sixth would only queue. Each walk job's `uv run` builds the project's venv
-  # (including the git-sourced windup dependency) once; setup-uv's cache keeps
-  # that off the network.
+  # XC-073: the desktop work is three macOS jobs: this one, and the walks in two shards of desktop-walks. GitHub runs at
+  # most five macOS jobs at once across the whole account, and at busy hours CI asks for more macOS time than that, so
+  # what decides how long a pull request waits is the macOS time each run uses, not how finely it is split. Measured on
+  # macos-14 (three cores): two walks side by side take as long as one alone, so every walk runs beside another; a
+  # third slows each walk two to two and a half times and fails a third of them. That is about 13 macOS minutes a run,
+  # down from 20, finishing in about five.
   desktop-check:
     name: Desktop macOS checks
     runs-on: macos-14
@@ -79,16 +79,19 @@ jobs:
       - run: npm test
       - run: npm run package
 
-  # XC-073 EXPERIMENT (replaced before merge): every walk on one runner, N at a time, to measure how far a single
-  # macos-14 runner scales before walks slow down or fail.
-  desktop-walks-experiment:
-    name: "Desktop walks experiment: all walks, ${{ matrix.jobs }} at a time"
+  # renderer.js has no unit coverage — it is only reachable through real Electron (support/edge.cjs). Every walk in
+  # support/walks.cjs, the same list `npm run test:edge` runs, runs in one of these shards, balanced by each walk's
+  # measured time; a new walk is one line there. A walk that fails is a FAIL group and an error naming it in the log,
+  # and the shard's summary lists every walk's result. To add a shard, add a number to `shard`; keep the walks two at
+  # a time. `test:capture` is attended and stays local (see app/desktop/README.md).
+  desktop-walks:
+    name: Desktop walks (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: macos-14
-    timeout-minutes: 20
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        jobs: [2, 3, 4]
+        shard: [1, 2]
     defaults:
       run:
         working-directory: app/desktop
@@ -104,7 +107,7 @@ jobs:
       # Walks start side by side, so the project's environment is built once, before any of them.
       - run: uv sync --locked
         working-directory: .
-      - run: node support/walks.cjs --jobs ${{ matrix.jobs }}
+      - run: node support/walks.cjs --jobs 2 --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   node-lint:
     name: Node lint
