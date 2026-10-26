@@ -4,13 +4,13 @@ title: Adopt an OpenTelemetry-shaped telemetry model and restate the privacy con
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [MON-020, MON-021, XC-029, CLI-004, APP-058]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-10-19
+updated: 2026-10-25
 ---
 
 ## Problem
@@ -48,7 +48,7 @@ until its collector, disclosure, and controls ship together.
       catalog, the privacy rules, and which plane reaches which sink.
 - [x] `PRIVACY.md` distinguishes shipped node observability from the
       proposed desktop funnel and its unimplemented controls.
-- [ ] `APP-058` is updated to point at `docs/telemetry.md` and to block on
+- [x] `APP-058` is updated to point at `docs/telemetry.md` and to block on
       the items that implement its collector and its off switch.
 
 ## Notes
@@ -89,3 +89,18 @@ of `APP-058`, and `XC-031` still says `RELAY_URL` is `None` while
 last criterion. `docs/telemetry.md` already exists on main and the first two criteria
 are checked; what remains is pointing `APP-058` at it and making `APP-058` block on
 its collector and off-switch items. Do not rewrite the doc from the Problem text.
+
+**2026-10-25:** Completed with no further change to `APP-058`. The last
+criterion has held since 3ac3cc6 (#255, 2026-09-08), the commit that filed
+this item: it added `APP-058`'s sentence naming `docs/telemetry.md` (`XC-030`)
+as the metric tree and privacy vocabulary its events draw from, and set
+`APP-058`'s `blockers: [XC-029, CLI-004]` (the collector and the off switch).
+The box was never ticked, and the 2026-10-19 note above read it as open work.
+
+The second criterion's wording has aged: `APP-058` (#428) and `CLI-004` have
+since shipped the desktop usage events and their off switch, and `PRIVACY.md`
+now describes them as shipped rather than proposed. Its box stays checked
+because `PRIVACY.md` is accurate about what ships. Whether `XC-029` should
+still block `APP-058` — `docs/telemetry.md` says the relay supersedes it for
+the desktop plane — and the stale backlog table in `docs/telemetry.md` are
+left to prioritization and `APP-058`; #432 records that drift in this file.
