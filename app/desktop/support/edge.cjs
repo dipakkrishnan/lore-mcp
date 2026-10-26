@@ -751,14 +751,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-231: a newer store from Lore is never a step on Today.
         await waitFor(`window.lore.snapshot().then((s) => s.node.store === "outdated")`, 80);
         await sleep(800);
-        check("a newer store from Lore is not a step on Today", !/newer store|update from Lore/i.test(await js(`document.querySelector("#content").textContent`)), await js(nextStep));
+        check("a newer store from Lore is not a step on Today", !/newer store|store has an update|update from Lore/i.test(await js(`document.querySelector("#content").textContent`)), await js(nextStep));
         // It is offered quietly where the store shows: Settings, and the store card.
         await js(`window.__lore.show("settings")`);
-        check("Settings says a newer store is ready beside the store's address, with a quiet Update", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.") && [...${address}.querySelectorAll("button")].some((b) => b.textContent === "Update" && b.classList.contains("quiet"))`, 80), await js(`${address}?.textContent ?? ""`));
+        check("Settings says a newer store is ready beside the store's address, with a quiet Update", await waitFor(`${address}?.textContent.includes("Your store has an update.") && [...${address}.querySelectorAll("button")].some((b) => b.textContent === "Update" && b.classList.contains("quiet"))`, 80), await js(`${address}?.textContent ?? ""`));
         check("…never naming code, versions or deploys", !/worker|code|version|deploy/i.test(await js(`${address}.textContent`)), await js(`${address}.textContent`));
         await shot("update-settings");
         await js(`window.__lore.show("store")`);
-        check("the store card offers the same quiet Update", await waitFor(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update") && document.querySelector("#content .store-bar").textContent.includes("A newer store from Lore is ready.")`, 40), await js(`document.querySelector("#content .store-bar")?.textContent ?? ""`));
+        check("the store card offers the same quiet Update", await waitFor(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update") && document.querySelector("#content .store-bar").textContent.includes("Your store has an update.")`, 40), await js(`document.querySelector("#content .store-bar")?.textContent ?? ""`));
         await shot("update-store-card");
         await js(`window.__lore.show("settings")`);
         await waitFor(address);
@@ -767,7 +767,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("update-confirm");
         await answerChanges("Cancel");
         await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`);
-        check("Cancel puts nothing out, and the Update stays on offer", deploys().length === 0 && await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`), deploys().join("|"));
+        check("Cancel puts nothing out, and the Update stays on offer", deploys().length === 0 && await waitFor(`${address}?.textContent.includes("Your store has an update.")`), deploys().join("|"));
         await update();
         await waitFor(changes);
         await answerChanges("Confirm");
@@ -778,7 +778,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_selling', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
         older();
         await settled();
-        check("a store online only for its agents is offered its update too", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`, 80), await js(`${address}?.textContent ?? ""`));
+        check("a store online only for its agents is offered its update too", await waitFor(`${address}?.textContent.includes("Your store has an update.")`, 80), await js(`${address}?.textContent ?? ""`));
         await update();
         await waitFor(changes);
         await answerChanges("Confirm");

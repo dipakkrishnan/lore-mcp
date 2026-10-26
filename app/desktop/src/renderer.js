@@ -2657,7 +2657,7 @@ function addressRow(s) {
  * @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
 function newerStore(s) {
   if (s.node.store !== "outdated" || pushing || underWay("deploy")) return null;
-  return { note: el("span", "newer-store", "A newer store from Lore is ready."), update: button("Update", "quiet", () => void pushNow(true)) };
+  return { note: el("span", "newer-store", "Your store has an update."), update: button("Update", "quiet", () => void pushNow(true)) };
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -5932,6 +5932,7 @@ newOpen.addEventListener("click", (event) => {
 function startNew(what) {
   closeNewMenu();
   if (what === "collection") void newCollection();
+  else if (what === "automation") { show("automations"); openNewRoutine(); }
   else startCapture();
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));

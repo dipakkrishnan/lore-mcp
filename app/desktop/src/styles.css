@@ -701,17 +701,19 @@ dialog.palette[open] { animation: rise 0.12s ease; }
 .new-open { display: flex; align-items: center; gap: 8px; width: 100%; height: 34px; padding: 0 10px; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 13px; font-weight: 600; }
 .new-open:hover { filter: brightness(1.08); }
 .new-open svg { width: 15px; height: 15px; }
-.new-menu { position: absolute; top: calc(100% + 6px); left: 0; width: max(100%, 248px); z-index: 5; display: flex; flex-direction: column; gap: 1px; animation: menu-in 120ms var(--ease) both; }
+.new-menu { position: absolute; top: calc(100% + 4px); left: 0; width: max(100%, 236px); z-index: 5; display: flex; flex-direction: column; gap: 2px; padding: 6px; transform-origin: top left; animation: new-drop 140ms var(--ease) both; }
 .new-menu[hidden] { display: none; }
-@keyframes menu-in { from { opacity: 0; transform: translateY(-2px); } }
+@keyframes new-drop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
 @media (prefers-reduced-motion: reduce) { .new-menu { animation: none; } }
-.new-menu button { min-height: 48px; gap: 10px; padding: 8px 10px; transition: background 80ms linear; }
-.new-tile { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; color: var(--muted); }
-.new-tile svg { width: 18px; height: 18px; }
-.new-menu button:hover .new-tile, .new-menu button:focus-visible .new-tile { color: var(--ink); }
-.new-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.new-text b { font-size: 13px; font-weight: 500; }
-.new-text span { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Each kind as a small tile, its name and what it's for, the way a skill picker reads. */
+.new-menu button { min-height: 44px; gap: 10px; padding: 6px 8px; transition: background 80ms linear; }
+.new-tile { display: inline-grid; place-items: center; flex-shrink: 0; width: 28px; height: 28px; border-radius: 7px; background: var(--bg-aside); border: 1px solid var(--line-soft); color: var(--accent); transition: background 80ms linear; }
+.new-tile svg { width: 15px; height: 15px; }
+.new-menu button:hover .new-tile, .new-menu button:focus-visible .new-tile { background: var(--surface); }
+.new-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0; }
+.new-text b { font-size: 13px; font-weight: 500; line-height: 1.35; }
+.new-text span { font-size: 12px; line-height: 1.35; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.new-open[aria-expanded="true"] { filter: brightness(0.92); }
 .new-menu kbd { font-family: var(--sans); font-size: 12px; letter-spacing: 0.08em; color: var(--muted); font-variant-numeric: tabular-nums; }
 .new-open { transition: background 120ms var(--ease); }
 
