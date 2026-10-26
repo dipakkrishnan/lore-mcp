@@ -1087,6 +1087,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.signIn()`);
         await waitFor(todayShown);
         // APP-127, APP-214: an owner with nothing connected is pointed at Connectors, and nothing to publish yet.
+        await waitFor(`/Connect the AI you talk to most/.test(document.querySelector("#content").textContent)`, 120);
         const firstToday = await js(`document.querySelector("#content").textContent`);
         check("Today points a new owner at connecting their AI, with nothing to publish yet", /Connect the AI you talk to most/.test(firstToday) && !/something to sell/.test(firstToday), firstToday);
         check("…and names no coding agents", !/Claude Code|Codex/.test(firstToday), firstToday);
