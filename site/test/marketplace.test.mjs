@@ -96,6 +96,7 @@ test("the latest strip carries only real dates, labelled for what they are", asy
   const html = marketplacePage(exchange);
   assert.match(html, /<time>Oct 22<\/time>Updated in Learning to scuba dive/);
   assert.match(html, /<time>Sep 15<\/time>Dipak opened a store/);
+  assert.match(html, /<ul data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
 });
 
 test("survives a registry that can't be loaded or isn't shaped like one", async () => {
@@ -131,5 +132,9 @@ test("serves the live counts the page follows at /marketplace/stats.json", async
   const { default: worker } = await import("../src/worker.js");
   t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ ...list([{ ...seller, listings: [] }]) })));
   const response = await worker.fetch(new Request("https://yourlore.dev/marketplace/stats.json"), {});
-  assert.deepEqual(await response.json(), { markets: 0, pieces: 0, sellers: 1 });
+  const { latest, latest_key, ...counts } = await response.json();
+  assert.deepEqual(counts, { markets: 0, pieces: 0, sellers: 1 });
+  // The strip follows the same reply, redrawn only when its key moves.
+  assert.equal(latest_key, "2026-09-15:Dipak");
+  assert.match(latest, /<time>Sep 15<\/time>Dipak opened a store/);
 });
