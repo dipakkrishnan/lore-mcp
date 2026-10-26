@@ -482,6 +482,13 @@ class RetentionTest(LoreTestCase):
             with self.assertRaisesRegex(ValueError, "memory not found"):
                 store.set_status(999, "private")
 
+    def test_discarding_or_deleting_a_missing_memory_is_an_error(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+                store.discard(999)
+            with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+                store.delete(999)
+
     def test_set_status_many_changes_a_batch_in_one_statement(self) -> None:
         ids = [self.seed_memory(f"Lesson {n}") for n in range(3)]
         with Store() as store:
@@ -1217,6 +1224,50 @@ class PublicationTest(LoreTestCase):
             after = json.dumps(store.manifest(), sort_keys=True)
         self.assertEqual(before, after)
 
+    def test_flag_detail_names_only_the_memory_that_changed(self) -> None:
+        # Of three provenance memories, one changed, one is untouched with a
+        # snapshot, and one was deleted out from under the publication. Only
+        # the changed one is the cause; the other two must not be reported.
+        unchanged = self.seed_memory("Deployment lesson")
+        deleted = self.seed_memory("Retired lesson")
+        derived = self.publish(provenance=[self.memory_id, unchanged, deleted])
+        with Store() as store:
+            store.db.execute("DELETE FROM memories WHERE id=?", (deleted,))
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual([entry["title"] for entry in detail], ["Pricing lesson"])
+        self.assertIn("+a changed body", "\n".join(detail[0]["diff"]))
+
+    def test_re_approving_a_publication_with_no_provenance_on_record(self) -> None:
+        # A row from before provenance was required carries the column's
+        # default, '[]'. Re-approving it clears the flag and its old snapshot
+        # rather than failing on an empty list of sources.
+        derived = self.publish()
+        with Store() as store:
+            store.db.execute(
+                "UPDATE publications SET provenance='[]',source_changed_at=? "
+                "WHERE id=?",
+                ("2026-01-01T00:00:00+00:00", derived),
+            )
+            store.db.commit()
+            store.clear_publication_flag(derived)
+            self.assertEqual(store.stale_publications(), [])
+            sources = store.db.execute(
+                "SELECT count(*) FROM publication_sources WHERE publication_id=?",
+                (derived,),
+            ).fetchone()[0]
+        self.assertEqual(sources, 0)
+
 
 class PublicationMigrationTest(LoreTestCase):
     def test_the_topic_and_teaser_columns_are_added_to_databases_created_before_them(
@@ -1279,6 +1330,8 @@ class ModelTest(unittest.TestCase):
         # a silent corruption of both.
         self.assertEqual(f"{Status.PRIVATE}", "private")
         self.assertEqual(f"{PublicationKind.CONTENT}", "content")
+        self.assertEqual(str(JobKind.CAPTURE), "capture")
+        self.assertEqual(str(JobStatus.INCOMPLETE), "incomplete")
 
 
 class OwnerJobTest(LoreTestCase):
@@ -1380,6 +1433,37 @@ class OwnerJobTest(LoreTestCase):
             )
             self.assertEqual(store.reap_jobs(), 0)
             self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+
+    def test_a_process_lore_may_not_signal_still_counts_as_alive(self) -> None:
+        # A pid that exists but belongs to someone else, or that the OS won't
+        # answer for, is not proof the owner died, so the row stays running.
+        for error in (PermissionError(), OSError()):
+            with self.subTest(error=type(error).__name__), Store() as store:
+                store.start_job(
+                    JobKind.CAPTURE.value, owner_pid=self.DEAD_PID, timeout_minutes=720
+                )
+                with mock.patch("lore.store.os.kill", side_effect=error):
+                    self.assertEqual(store.reap_jobs(), 0)
+                    self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+                store.db.execute("DELETE FROM owner_jobs")
+                store.db.commit()
+
+    def test_a_job_title_is_capped_at_80_characters_after_trimming(self) -> None:
+        with Store() as store:
+            job_id = store.start_job(JobKind.CAPTURE.value, timeout_minutes=60)
+            with self.assertRaisesRegex(ValueError, "cannot exceed 80 characters"):
+                store.finish_job(job_id, "succeeded", title="x" * 81)
+            self.assertTrue(
+                store.finish_job(job_id, "succeeded", title="  " + "x" * 80 + "  ")
+            )
+            self.assertEqual(store.recent_jobs()[0].title, "x" * 80)
+
+    def test_closing_or_listing_jobs_rejects_a_bad_kind_or_limit(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "invalid job kind: bogus"):
+                store.close_open_job("bogus", "succeeded")
+            with self.assertRaisesRegex(ValueError, "limit cannot be negative"):
+                store.recent_jobs(-1)
 
     def test_a_late_close_repairs_a_row_that_was_conceded_early(self) -> None:
         with Store() as store:
