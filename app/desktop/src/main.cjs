@@ -762,7 +762,9 @@ async function start(loreHome, outgoing) {
       }
       if (offered.length) {
         emit({ type: "changed" });
-        sales.notify({ title: offered.length === 1 ? "Lore suggests a collection" : `Lore suggests ${offered.length} collections`, body: offered.join(" · ") }, () => reveal({ type: "show", view: "today" }));
+        // Says what's waiting and asks for the look, so the owner knows it's worth a minute now.
+        const what = offered.length === 1 ? "a collection" : `${offered.length} collections`;
+        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "today" }));
       }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.

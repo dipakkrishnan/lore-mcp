@@ -981,6 +981,10 @@ main header.compact #first-run-skip:hover { color: var(--ink); text-decoration: 
 .automations .routine-line span { font-size: inherit; color: inherit; }
 .automations .routine-line .running { color: var(--accent); }
 
-/* APP-246: a collection an automation suggests, read like any row: tile, what and why, then the choice. */
+/* APP-246: a collection an automation suggests: its name, what's in it, then Review; × shows on hover like a ready card's. */
 .row.suggestion { justify-content: flex-start; gap: 14px; }
 .row.suggestion .t { flex: 1; min-width: 0; }
+.row.suggestion .t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.suggestion .dismiss { flex-shrink: 0; width: 24px; height: 24px; border-radius: 6px; font-size: 16px; line-height: 1; color: var(--muted); opacity: 0; transition: opacity 0.12s; }
+.row.suggestion:hover .dismiss, .row.suggestion .dismiss:focus-visible { opacity: 0.6; }
+.row.suggestion .dismiss:hover { opacity: 1; background: var(--hover); }
