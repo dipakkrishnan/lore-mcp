@@ -688,7 +688,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(todayShown);
         check("Today carries no Activity", !(await js(`document.querySelector("#content").textContent.includes("Activity")`)));
         await js(`window.__lore.show("automations")`);
-        check("Automations carries no run log, only automations", await waitFor(`document.querySelector("#content .routines") !== null`) && !(await js(`/Recent runs|Activity/.test(document.querySelector("#content").textContent)`)));
+        check("Automations carries no run log, only automations", await waitFor(`document.querySelector("#content .automations") !== null`) && !(await js(`/Recent runs|Activity/.test(document.querySelector("#content").textContent)`)));
         await js(`window.__lore.show("settings")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Activity")`);
         check("Activity is Settings' last section", await js(`document.querySelector("#content").lastElementChild.querySelector("h2")?.textContent === "Activity"`));
@@ -735,7 +735,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("settings-taken-over");
         await js(`window.__lore.show("automations")`);
         const reading = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.textContent ?? ""`;
-        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM · Next")`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
+        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM")`) && await js(`window.lore.routines().then((all) => all.find((r) => r.id === "synthesis")?.next_run === [...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.querySelector("[data-next]")?.dataset.next)`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
         await shot("automations-taken-over");
       } else if (scenario === "update") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -751,14 +751,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-231: a newer store from Lore is never a step on Today.
         await waitFor(`window.lore.snapshot().then((s) => s.node.store === "outdated")`, 80);
         await sleep(800);
-        check("a newer store from Lore is not a step on Today", !/newer store|update from Lore/i.test(await js(`document.querySelector("#content").textContent`)), await js(nextStep));
+        check("a newer store from Lore is not a step on Today", !/newer store|store has an update|update from Lore/i.test(await js(`document.querySelector("#content").textContent`)), await js(nextStep));
         // It is offered quietly where the store shows: Settings, and the store card.
         await js(`window.__lore.show("settings")`);
-        check("Settings says a newer store is ready beside the store's address, with a quiet Update", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.") && [...${address}.querySelectorAll("button")].some((b) => b.textContent === "Update" && b.classList.contains("quiet"))`, 80), await js(`${address}?.textContent ?? ""`));
+        check("Settings says a newer store is ready beside the store's address, with a quiet Update", await waitFor(`${address}?.textContent.includes("Your store has an update.") && [...${address}.querySelectorAll("button")].some((b) => b.textContent === "Update" && b.classList.contains("quiet"))`, 80), await js(`${address}?.textContent ?? ""`));
         check("…never naming code, versions or deploys", !/worker|code|version|deploy/i.test(await js(`${address}.textContent`)), await js(`${address}.textContent`));
         await shot("update-settings");
         await js(`window.__lore.show("store")`);
-        check("the store card offers the same quiet Update", await waitFor(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update") && document.querySelector("#content .store-bar").textContent.includes("A newer store from Lore is ready.")`, 40), await js(`document.querySelector("#content .store-bar")?.textContent ?? ""`));
+        check("the store card offers the same quiet Update", await waitFor(`[...document.querySelectorAll("#content .store-bar button")].some((b) => b.textContent === "Update") && document.querySelector("#content .store-bar").textContent.includes("Your store has an update.")`, 40), await js(`document.querySelector("#content .store-bar")?.textContent ?? ""`));
         await shot("update-store-card");
         await js(`window.__lore.show("settings")`);
         await waitFor(address);
@@ -767,7 +767,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("update-confirm");
         await answerChanges("Cancel");
         await waitFor(`!document.querySelector("dialog.changes-sheet[open]")`);
-        check("Cancel puts nothing out, and the Update stays on offer", deploys().length === 0 && await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`), deploys().join("|"));
+        check("Cancel puts nothing out, and the Update stays on offer", deploys().length === 0 && await waitFor(`${address}?.textContent.includes("Your store has an update.")`), deploys().join("|"));
         await update();
         await waitFor(changes);
         await answerChanges("Confirm");
@@ -778,7 +778,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_selling', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
         older();
         await settled();
-        check("a store online only for its agents is offered its update too", await waitFor(`${address}?.textContent.includes("A newer store from Lore is ready.")`, 80), await js(`${address}?.textContent ?? ""`));
+        check("a store online only for its agents is offered its update too", await waitFor(`${address}?.textContent.includes("Your store has an update.")`, 80), await js(`${address}?.textContent ?? ""`));
         await update();
         await waitFor(changes);
         await answerChanges("Confirm");
@@ -981,7 +981,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and back on Today the usage notice is still there until dismissed", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`));
         await js(`window.__lore.show("automations")`);
         await sleep(500);
-        check("Automations shows both of Lore's own on", await js(`document.querySelector("#title").textContent`) === "Automations" && await js(`[...document.querySelectorAll("#content .switch")].map((s) => s.getAttribute("aria-label") + "=" + s.getAttribute("aria-checked")).join("|")`) === "Pause Read connected apps=true|Pause Evening check-in=true", await js(`document.querySelector("#content").textContent`));
+        check("Automations shows every one of Lore's own on", await js(`document.querySelector("#title").textContent`) === "Automations" && await js(`[...document.querySelectorAll("#content .switch")].map((s) => s.getAttribute("aria-label") + "=" + s.getAttribute("aria-checked")).join("|")`) === "Pause Read connected apps=true|Pause Evening check-in=true|Pause Suggest collections=true", await js(`document.querySelector("#content").textContent`));
         await shot("automations-on-by-default");
         await js(`window.__lore.show("memories")`);
         await sleep(400);
@@ -1518,10 +1518,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The account menu's Dark mode switch: one click flips the window, says what it is drawn in, and is kept.
         const switchOn = () => js(`document.querySelector("#dark-mode").getAttribute("aria-checked")`);
         await js(`document.querySelector("#account").click()`);
-        check("the account menu's Dark mode switch shows the window's theme", (await waitFor(`document.querySelector("#account-menu").matches(":popover-open")`)) && (await switchOn()) === String(DARK));
+        // The switch follows the theme's change event, a beat after the window repaints, so both are waited on together.
+        check("the account menu's Dark mode switch shows the window's theme", await waitFor(`document.querySelector("#account-menu").matches(":popover-open") && document.querySelector("#dark-mode").getAttribute("aria-checked") === ${JSON.stringify(String(DARK))}`), await switchOn());
         await shot(`account-menu-dark-mode-${DARK ? "on" : "off"}`);
         await js(`document.querySelector("#dark-mode").click()`);
-        check("…one click flips the window at once, the menu still open", (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)}`)) && (await switchOn()) === String(!DARK) && await js(`document.querySelector("#account-menu").matches(":popover-open")`), await js(BG));
+        check("…one click flips the window at once, the menu still open", (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)} && document.querySelector("#dark-mode").getAttribute("aria-checked") === ${JSON.stringify(String(!DARK))}`)) && await js(`document.querySelector("#account-menu").matches(":popover-open")`), await js(BG));
         await shot(`account-menu-dark-mode-${DARK ? "off" : "on"}`);
         await sleep(200);
         const { Appearance } = require(join(src, "appearance.cjs"));
@@ -2516,19 +2517,20 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("nav [data-view=automations]").click()`);
         const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
         const SUNDAY = "Every Sunday, remember what I read this week";
-        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}|New automation`, await js(`[...document.querySelectorAll("#content .row b")].map((b) => b.textContent).join("|")`));
+        check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|Suggest collections|${SUNDAY}` && await js(`Boolean(document.querySelector("#new-automation"))`), await js(`[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`));
         const text = await js(`document.querySelector("#content").textContent`);
-        check("…each with when it runs and what it last did", /Every day at 9 AM · Next \w+ \d+ · Hasn.t run yet/.test(text) && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM"), text);
+        const nexts = await js(`[...document.querySelectorAll("#content .row.routine")].map((r) => r.querySelector("[data-next]")?.dataset.next ?? "")`);
+        check("…each with when it runs and when it runs next", text.includes("Every day at 9 AM") && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM") && JSON.stringify(nexts) === JSON.stringify(listed().sort((/** @type {Routine} */ x, /** @type {Routine} */ y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map((/** @type {Routine} */ routine) => routine.next_run)), JSON.stringify(nexts));
         check("…in plain words", !/cron|executor|schedul|routine|prompt/i.test(text), text);
         const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".routine-act")].map((b) => b.getAttribute("aria-label")).join("|")`;
-        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Change time|Run now" && await js(menuOf(SUNDAY)) === "Change time|Run now|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
+        check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now" && await js(menuOf(SUNDAY)) === "Run now|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);
         await shot("automations");
         // Every action sits on its card: no menu to open, nothing to be cut off.
         check("no row hides its actions behind a ⋯", await js(`!document.querySelector("#content [aria-label^='More for'], #content .row-menu-items")`));
         await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
         check("the switch pauses it, and the CLI keeps that", await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "false"`) && listed().find((/** @type {Routine} */ r) => r.id === "checkin").paused === true);
         check("…so it shows paused after a fresh read", await js(`window.lore.routines().then((all) => all.find((r) => r.id === "checkin").paused)`) === true && (await js(`${rowOf("Evening check-in")}.textContent`)).includes("Paused"));
-        await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Change time']").click()`);
+        await js(`${rowOf(SUNDAY)}.querySelector("[aria-label='Change time']").click()`);
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "7"; }`);
         check("Change time hides the day for a daily rhythm, and the row shows the choice", await js(`(() => { const [cadence, day] = document.querySelectorAll("dialog.sheet[open] select"); return day.closest(".form-row").hidden && cadence.closest(".form-row").querySelector(".form-value").textContent === "Every day"; })()`));
@@ -2537,7 +2539,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${rowOf(SUNDAY)}.querySelector(".routine-act[aria-label='Run now']").click()`);
         for (let i = 0; i < 40 && !readings.length; i++) await sleep(250);
         check("Run now hands the owner's sentence to Lore's quiet reading", readings.length === 1 && readings[0].ask === SUNDAY, JSON.stringify(readings));
-        check("…and its row says it is running until the reading is done", (await js(`${rowOf(SUNDAY)}.textContent`)).includes("Running now…"), await js(`${rowOf(SUNDAY)}.textContent`));
+        check("…and its row says it is running until the reading is done", (await js(`${rowOf(SUNDAY)}.textContent`)).includes("Running now"), await js(`${rowOf(SUNDAY)}.textContent`));
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
         check("…which writes private memories and says so, named by its sentence", notes.length === 1 && notes[0].words.title === `“${SUNDAY}”` && notes[0].words.body === "2 new memories. 1 looks worth selling.", JSON.stringify(notes.map((n) => n.words)));
         check("…and records what it found", await (async () => { for (let i = 0; i < 20 && mine().result !== "2 new memories"; i++) await sleep(250); return mine().result === "2 new memories"; })(), JSON.stringify(mine()));
@@ -2577,14 +2579,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("resuming a check-in paused for days never runs it at once", !checkInOf().due && !checkInOf().paused && Date.parse(checkInOf().next_run) > Date.now() && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
         // Moved to an hour that already passed today: it waits for tomorrow's.
         const earlier = (new Date().getHours() + 23) % 24;
-        await js(`${rowOf("Evening check-in")}.querySelector(".routine-act[aria-label='Change time']").click()`);
+        await js(`${rowOf("Evening check-in")}.querySelector("[aria-label='Change time']").click()`);
         await waitFor(`Boolean(document.querySelector("dialog.form-sheet[open] select"))`);
         await js(`{ const [cadence, , hour] = document.querySelectorAll("dialog.sheet[open] select"); cadence.value = "daily"; cadence.dispatchEvent(new Event("change")); hour.value = "${earlier}"; }`);
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
         await sleep(2500);
         check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
-        await js(`document.querySelector("#content .add-tile").click()`);
+        await js(`document.querySelector("#new-automation").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         const sheetRows = `[...document.querySelectorAll("dialog.form-sheet[open] .form-row:not([hidden])")].map((r) => r.querySelector(".form-label").textContent + "=" + r.querySelector(".form-value").textContent).join("|")`;
         check("New automation opens on its prompt, with Create held until there is one", await js(`document.activeElement === document.querySelector("dialog.sheet[open] textarea") && document.querySelector("dialog.sheet[open] .btn.primary").textContent === "Create" && document.querySelector("dialog.sheet[open] .btn.primary").disabled`));
@@ -2596,7 +2598,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         check("New automation adds one from a plain sentence and a time", await waitFor(`${rowOf("Each Friday, pick one memory worth selling")}`) && (await js(`${rowOf("Each Friday, pick one memory worth selling")}.textContent`)).includes("Every Sunday at 6 PM"));
         // A title names it; the sentence is still what Lore does. ⌘↩ creates it from the prompt.
-        await js(`document.querySelector("#content .add-tile").click()`);
+        await js(`document.querySelector("#new-automation").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         await js(`{ const f = document.querySelector("dialog.sheet[open]"); f.querySelector(".form-title").value = "Morning notes"; const t = f.querySelector("textarea"); t.value = "Remember what I wrote this morning"; t.dispatchEvent(new Event("input", { bubbles: true })); const [cadence, day, hour] = f.querySelectorAll("select"); day.value = "4"; day.dispatchEvent(new Event("change")); hour.value = "8"; hour.dispatchEvent(new Event("change")); t.focus(); }`);
         check("…the weekly day shows what was picked", await js(sheetRows) === "Repeat=Every week|On=Friday|At=8 AM", await js(sheetRows));
