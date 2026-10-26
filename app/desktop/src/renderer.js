@@ -96,6 +96,8 @@ const collectionPicks = new Set();
 let collectionPasting = false;
 /** Whether a collection that already has pieces shows the picker to add more. */
 let collectionAdding = false;
+/** A suggestion under review shows only its own memories, not every one kept; null shows them all. @type {number[] | null} */
+let pickBundle = null;
 /** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
 let collectionStep = 0;
 /** The name the chosen memories suggest, offered on the naming step. */
@@ -2055,6 +2057,7 @@ function newCollection(title, picks = []) {
   collectionPasting = false;
   collectionAdding = false;
   editingCollectionPrice = false;
+  pickBundle = picks.length ? [...picks] : null;
   collectionPending = title ?? UNTITLED;
   showCollection(0);
   collectionStep = 1;
@@ -2093,7 +2096,7 @@ async function addToCollection(input) {
   // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
   if (done) {
     if (input.items?.length) collectionDraft = "";
-    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; }
+    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; pickBundle = null; }
     collectionAdding = false;
     collectionPasting = false;
     if (collectionStep === 1) {
@@ -2220,7 +2223,8 @@ function memoryPicker(s) {
   };
   /** @type {Array<() => void>} */
   const syncs = [];
-  const groups = [...byTopic(privateMemories(s))].map(([topic, memories]) => {
+  const kept = privateMemories(s);
+  const groups = [...byTopic(pickBundle ? kept.filter((memory) => pickBundle?.includes(memory.id)) : kept)].map(([topic, memories]) => {
     const box = el("div", "card rows inv-group pick-group");
     const head = el("label", "inv-group-head pick-head");
     const every = el("input");
@@ -2294,36 +2298,41 @@ function memoryPicker(s) {
     for (const sync of syncs) sync();
     count();
   });
-  const list = el("div", "inv-stack pick-list");
+  // A suggestion's few memories show whole; every memory kept scrolls under its search.
+  const list = el("div", pickBundle ? "inv-stack" : "inv-stack pick-list");
   list.append(...groups, none);
-  const files = button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
+  const files = pickBundle
+    ? button("Choose from all memories", "quiet", () => { pickBundle = null; render(); })
+    : button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
   const foot = el("div", "pick-foot");
   const left = el("div", "pick-left");
   left.append(chosen, files);
   foot.append(left, add);
   count();
-  wrap.append(find, list, foot);
+  if (pickBundle) wrap.append(list, foot);
+  else wrap.append(find, list, foot);
   if (pickQuery) { find.value = pickQuery; find.dispatchEvent(new Event("input")); }
   if (typing) queueMicrotask(() => find.focus());
   return wrap;
 }
 
-/** What automations suggest collecting: each a name, how many memories and from where, opened in Lore's own picker.
+/** What automations suggest collecting: each a name and what's in it, opened in Lore's own picker.
  * @param {Snapshot} s */
 function suggestionsCard(s) {
-  const kept = new Set(privateMemories(s).map((memory) => memory.id));
+  const kept = new Map(privateMemories(s).map((memory) => [memory.id, memory.title]));
   const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
   if (!live.length) return null;
   const rows = live.map(({ each, memories }) => {
     // Added to only when one collection has that name; with two alike it starts its own, which the owner names.
-    const named = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
-    const into = named.length === 1 ? named[0] : undefined;
-    const detail = `${into ? `Add ${memories.length} to it` : `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`} · from ${each.from}`;
-    const node = row(each.title, detail, cell(
-      button("Dismiss", "quiet neutral", () => void dropSuggestion(each)),
-      button("Review", "secondary", () => void reviewSuggestion(each, memories, into))
-    ), false);
-    node.prepend(markTile(STEP_ICONS.sell));
+    const alike = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    const into = alike.length === 1 ? alike[0] : undefined;
+    const count = `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`;
+    const detail = `${into ? `Adds ${count} to it` : count} · ${named(memories.map((id) => kept.get(id) ?? ""))}`;
+    const dismiss = el("button", "dismiss", "×");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
+    dismiss.addEventListener("click", () => void dropSuggestion(each));
+    const node = row(each.title, detail, cell(button("Review", "secondary", () => void reviewSuggestion(each, memories, into)), dismiss), false);
     node.classList.add("suggestion");
     return node;
   });
@@ -2345,6 +2354,7 @@ async function reviewSuggestion(each, memories, into) {
   showCollection(into.id);
   gistsAsked = false;
   collectionAdding = true;
+  pickBundle = [...memories];
   for (const id of memories) collectionPicks.add(id);
   render();
 }
@@ -2404,7 +2414,8 @@ function collectionWizard(item, fill) {
   let body;
   if (collectionStep === 1) {
     body = el("div", "wizard-body");
-    body.append(el("p", "wizard-lead", "Pick the memories to sell together. Ticking a topic picks everything in it."), fill);
+    const lead = pickBundle ? `Lore picked ${pickBundle.length === 1 ? "this memory" : `these ${pickBundle.length}`}. Untick any that don't belong.` : "Pick the memories to sell together. Ticking a topic picks everything in it.";
+    body.append(el("p", "wizard-lead", lead), fill);
     // The empty collection is the only trace of starting; Cancel takes it back.
     const cancel = button("Cancel", "quiet neutral", async () => {
       collectionStep = 0;
@@ -2503,7 +2514,7 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; if (collectionAdding) gistsAsked = false; render(); });
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; if (collectionAdding) gistsAsked = false; render(); });
   const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
   contents.classList.add("collection-contents");
   return [
@@ -4276,7 +4287,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
