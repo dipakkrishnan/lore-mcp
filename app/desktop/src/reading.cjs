@@ -163,6 +163,59 @@ class Ready {
   }
 }
 
+/** APP-246: collections an automation suggests, kept until the owner reviews or dismisses each. A suggestion only ever
+ * opens Lore's own picker with its memories ticked; nothing goes in a collection, or on sale, without the owner. */
+class Suggestions {
+  /** @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
+  /** @param {string} file */
+  constructor(file) {
+    this.file = file;
+  }
+
+  /** Newest first; a missing or damaged file reads as none. @returns {Promise<CollectionSuggestion[]>} */
+  async list() {
+    try {
+      const kept = JSON.parse(await readFile(this.file, "utf8"));
+      return Array.isArray(kept) ? kept : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** A newer suggestion for the same name replaces the older. @param {CollectionSuggestion} suggestion */
+  add(suggestion) {
+    const same = (/** @type {CollectionSuggestion} */ each) => each.title.toLowerCase() === suggestion.title.toLowerCase();
+    return this.#change((kept) => [suggestion, ...kept.filter((each) => !same(each))].slice(0, KEPT));
+  }
+
+  /** @param {unknown} at */
+  async drop(at) {
+    if (typeof at !== "string") throw new Error("Invalid suggestion");
+    await this.#change((kept) => kept.filter((each) => each.at !== at));
+  }
+
+  /** @param {(kept: CollectionSuggestion[]) => CollectionSuggestion[]} change */
+  #change(change) {
+    const next = this.#turn.then(async () => {
+      const kept = change(await this.list());
+      await writeFile(`${this.file}.tmp`, JSON.stringify(kept));
+      await rename(`${this.file}.tmp`, this.file);
+    });
+    this.#turn = next.catch(() => undefined);
+    return next;
+  }
+}
+
+/** The memories an automation's suggested collection should hold: the ids it named, and the files it named that Lore
+ * keeps as private memories. @param {NonNullable<ReadingReport["collection"]>} asked @param {Array<{id: number, status: string, source_path: string}>} stored @param {string} folder */
+function suggested(asked, stored, folder) {
+  const files = new Set((asked.files ?? []).map((file) => resolve(folder, file)));
+  const named = stored.filter((memory) => memory.status === "private" && files.has(resolve(memory.source_path))).map((memory) => memory.id);
+  return [...new Set([...(asked.memories ?? []), ...named])];
+}
+
 /** How many memories one report of what the owner saw may name. */
 const SEEN_AT_ONCE = 500;
 
@@ -248,4 +301,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds };
+module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds, Suggestions, suggested };

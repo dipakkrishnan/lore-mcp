@@ -3127,3 +3127,27 @@ test("APP-232: a check asked for during one under way reads again, so a save mad
   gates.shift()?.();
   await after;
 });
+
+test("APP-246: an automation's collection is a suggestion: its memories by id or file, one per name, gone when dropped", async () => {
+  const { Suggestions, suggested } = require("../src/reading.cjs");
+  const folder = "/Users/owner/.lore/memories";
+  const stored = [
+    { id: 4, status: "private", source_path: `${folder}/pricing.md` },
+    { id: 5, status: "discarded", source_path: `${folder}/dropped.md` }
+  ];
+  assert.deepEqual(suggested({ title: "Pricing", memories: [9, 4], files: ["pricing.md", "dropped.md", "never.md"] }, stored, folder), [9, 4], "ids as named, files only where Lore keeps them, once each");
+  const directory = await mkdtemp(join(tmpdir(), "lore-suggest-"));
+  try {
+    const kept = new Suggestions(join(directory, "collection-suggestions.json"));
+    assert.deepEqual(await kept.list(), [], "none before any");
+    await kept.add({ at: "1", title: "Pricing", memories: [4], from: "Weekly" });
+    await kept.add({ at: "2", title: "Travel", memories: [7], from: "Weekly" });
+    await kept.add({ at: "3", title: "pricing", memories: [4, 9], from: "Weekly" });
+    assert.deepEqual((await kept.list()).map((each) => each.at), ["3", "2"], "a newer suggestion for the same name replaces the older");
+    await kept.drop("3");
+    assert.deepEqual((await kept.list()).map((each) => each.title), ["Travel"]);
+    await assert.rejects(kept.drop(3), /Invalid suggestion/);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
+});

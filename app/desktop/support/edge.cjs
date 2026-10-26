@@ -735,7 +735,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("settings-taken-over");
         await js(`window.__lore.show("automations")`);
         const reading = `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.textContent ?? ""`;
-        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM") && (${reading}).includes("Next run in")`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
+        check("…and Automations lists it like any other, with Run now", await waitFor(`(${reading}).includes("Every Sunday at 9 PM")`) && await js(`window.lore.routines().then((all) => all.find((r) => r.id === "synthesis")?.next_run === [...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === "Read connected apps")?.querySelector("[data-next]")?.dataset.next)`) && !/Codex|Claude| by /.test(await js(reading)) && await js(`Boolean(document.querySelector("#content .routine-act[aria-label='Run now']"))`), await js(reading));
         await shot("automations-taken-over");
       } else if (scenario === "update") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -2518,7 +2518,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const SUNDAY = "Every Sunday, remember what I read this week";
         check("the tab lists Lore's own first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|${SUNDAY}` && await js(`Boolean(document.querySelector("#new-automation"))`), await js(`[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`));
         const text = await js(`document.querySelector("#content").textContent`);
-        check("…each with when it runs and when it runs next", text.includes("Every day at 9 AM") && /Next run in/.test(text) && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM"), text);
+        const nexts = await js(`[...document.querySelectorAll("#content .row.routine")].map((r) => r.querySelector("[data-next]")?.dataset.next ?? "")`);
+        check("…each with when it runs and when it runs next", text.includes("Every day at 9 AM") && text.includes("Every weekday at 6 PM") && text.includes("Every Sunday at 6 PM") && JSON.stringify(nexts) === JSON.stringify(listed().sort((/** @type {Routine} */ x, /** @type {Routine} */ y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map((/** @type {Routine} */ routine) => routine.next_run)), JSON.stringify(nexts));
         check("…in plain words", !/cron|executor|schedul|routine|prompt/i.test(text), text);
         const menuOf = (/** @type {string} */ name) => `[...${rowOf(name)}.querySelectorAll(".routine-act")].map((b) => b.getAttribute("aria-label")).join("|")`;
         check("Lore's own can be paused but not removed", await js(menuOf("Evening check-in")) === "Run now" && await js(menuOf(SUNDAY)) === "Run now|Remove", `${await js(menuOf("Evening check-in"))} / ${await js(menuOf(SUNDAY))}`);

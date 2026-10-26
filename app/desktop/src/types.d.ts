@@ -173,7 +173,11 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string; collection?: { title: string; memories?: number[]; files?: string[] } };
+
+/** APP-246: a collection an automation suggests: its name (an existing one's, to add to it), the memories it should
+ * hold, and the automation that suggested it. The owner reviews it in Lore's own picker before anything changes. */
+type CollectionSuggestion = { at: string; title: string; memories: number[]; from: string };
 
 /** One memory a reading wrote, as Today lists it. Work is never offered for sale. */
 type ReadyMemory = { id: number; title: string; sell: boolean; work: boolean; why: string };
@@ -355,6 +359,8 @@ interface Window {
     memory(id: number): Promise<Memory>;
     /** Each kept memory's one-line gist, keyed by id. */
     gists(): Promise<Record<string, string>>;
+    suggestions(): Promise<CollectionSuggestion[]>;
+    dropSuggestion(at: string): Promise<void>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
     deleteMemory(id: number): Promise<{ deleted: number }>;

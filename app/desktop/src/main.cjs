@@ -43,6 +43,7 @@ let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
 const badge = new reading.Badge((count) => app.setBadgeCount(count));
 const newMemories = new reading.Ready(join(app.getPath("userData"), "memories-ready.json"), badge.part("memories"));
+const suggestions = new reading.Suggestions(join(app.getPath("userData"), "collection-suggestions.json"));
 /** Where the first-run chat stands (APP-215). */
 const firstRun = new FirstRun(join(app.getPath("userData"), "first-run.json"));
 /** Light, dark, or the Mac's own (APP-225). */
@@ -289,6 +290,8 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:cancel", () => connecting?.abort());
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
+  ipcMain.handle("suggestions:list", () => suggestions.list());
+  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
@@ -747,6 +750,14 @@ async function start(loreHome, outgoing) {
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
       const count = run.memories.length;
+      // A collection the routine was asked for is only suggested: the owner reviews it in Lore's own picker.
+      const picked = report.collection ? reading.suggested(report.collection, stored, join(loreHome, "memories")) : [];
+      if (report.collection && picked.length) {
+        const title = report.collection.title.trim();
+        await suggestions.add({ at: new Date().toISOString(), title, memories: picked, from: read.label });
+        emit({ type: "changed" });
+        sales.notify({ title: "Lore suggests a collection", body: `${title} · ${reading.plural(picked.length, "memory")}` }, () => reveal({ type: "show", view: "today" }));
+      }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
       try {

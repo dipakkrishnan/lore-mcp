@@ -106,6 +106,8 @@ let task = "capture";
 let taskItems = [];
 /** What Lore read from connected apps, newest first, until the owner clears it. @type {ReadyRun[]} */
 let readyRuns = [];
+/** Collections automations suggested, until the owner reviews or dismisses each (APP-246). @type {CollectionSuggestion[]} */
+let suggestions = [];
 /** The evening check-in waiting for the owner; null on every day Lore found nothing worth asking. @type {CheckIn | null} */
 let checkIn = null;
 /** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
@@ -1005,6 +1007,8 @@ function renderToday(s) {
   }
   // A check-in leads Today, on the rare day there is one.
   if (checkIn) parts.push(checkInCard(checkIn));
+  const suggested = suggestionsCard(s);
+  if (suggested) parts.push(suggested);
   if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
   const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
   if (reading) parts.push(readingRow(reading));
@@ -2034,15 +2038,17 @@ function showCollection(id) {
   show("collection");
 }
 
-/** Step one: the collection exists the moment it's asked for. */
-async function newCollection() {
+/** Step one: the collection exists the moment it's asked for; a suggestion names it and ticks its memories.
+ * @param {string} [title] @param {number[]} [picks] */
+async function newCollection(title, picks = []) {
   if (collectionBusy) return;
   /** @type {NewCollection | null} */
   let made = null;
   gistsAsked = false;
-  if (await act(async () => { made = await window.lore.newCollection(); })) {
+  if (await act(async () => { made = await window.lore.newCollection(title); })) {
     if (made) showCollection(/** @type {NewCollection} */ (made).id);
     collectionStep = 1;
+    for (const id of picks) collectionPicks.add(id);
     render();
     queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
   }
@@ -2281,6 +2287,44 @@ function memoryPicker(s) {
   if (pickQuery) { find.value = pickQuery; find.dispatchEvent(new Event("input")); }
   if (typing) queueMicrotask(() => find.focus());
   return wrap;
+}
+
+/** What automations suggest collecting: each a name, how many memories and from where, opened in Lore's own picker.
+ * @param {Snapshot} s */
+function suggestionsCard(s) {
+  const kept = new Set(privateMemories(s).map((memory) => memory.id));
+  const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
+  if (!live.length) return null;
+  const rows = live.map(({ each, memories }) => {
+    const into = (s.collections?.items ?? []).find((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    const detail = `${into ? `Add ${memories.length} to it` : `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`} · from ${each.from}`;
+    const node = row(each.title, detail, cell(
+      button("Dismiss", "quiet neutral", () => void dropSuggestion(each)),
+      button("Review", "secondary", () => void reviewSuggestion(each, memories, into))
+    ), false);
+    node.prepend(markTile(STEP_ICONS.sell));
+    node.classList.add("suggestion");
+    return node;
+  });
+  return section("Suggested collections", card(rows));
+}
+
+/** @param {CollectionSuggestion} each */
+async function dropSuggestion(each) {
+  suggestions = suggestions.filter((other) => other.at !== each.at);
+  render();
+  await window.lore.dropSuggestion(each.at).catch(() => undefined);
+}
+
+/** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
+ * @param {CollectionSuggestion} each @param {number[]} memories @param {CollectionItem | undefined} into */
+async function reviewSuggestion(each, memories, into) {
+  await dropSuggestion(each);
+  if (!into) return void newCollection(each.title, memories);
+  showCollection(into.id);
+  collectionAdding = true;
+  for (const id of memories) collectionPicks.add(id);
+  render();
 }
 
 /** One tap from Inventory: a collection named for the topic, holding every memory about it, ready to price.
@@ -3929,7 +3973,10 @@ function routineRow(routine) {
   time.setAttribute("aria-label", "Change time");
   time.addEventListener("click", () => openRoutineTime(routine));
   const detail = el("span", "routine-line");
-  detail.append(time, " · ", el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`));
+  const next = el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`);
+  // The moment it stands for, so what it says is checked against the clock, not the words.
+  if (!busy && !routine.paused) next.dataset.next = routine.next_run;
+  detail.append(time, " · ", next);
   const lines = el("div", "routine-lines");
   // A routine named by its own sentence says it once.
   if (routine.about && routine.about !== routine.name) lines.append(el("span", "routine-about", routine.about));
@@ -4064,7 +4111,7 @@ function heardSchedule(said) {
 function openNewRoutine(said = "") {
   const form = new FormSheet("New automation");
   const name = form.title("Title (optional)");
-  const text = form.prompt("Instructions", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
+  const text = form.prompt("Instructions", "Describe what Lore should do.\nFor example: every Sunday, gather what I learned this week into a collection.");
   text.maxLength = 500;
   text.value = said;
   const heard = heardSchedule(said);
@@ -4229,9 +4276,9 @@ async function load() {
   // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
   const ticket = ++loads;
   try {
-    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
+    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines), window.lore.suggestions().catch(() => suggestions)]);
     if (ticket !== loads) return;
-    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines, suggestions] = loaded;
     let newest = 0;
     for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
     await unseen.load(newest).catch(() => undefined);

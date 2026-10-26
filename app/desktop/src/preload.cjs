@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
   gists: () => ipcRenderer.invoke("memory:gists"),
+  suggestions: () => ipcRenderer.invoke("suggestions:list"),
+  /** @param {string} at */
+  dropSuggestion: (at) => ipcRenderer.invoke("suggestions:drop", at),
   /** @param {number} id @param {string} title */
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
