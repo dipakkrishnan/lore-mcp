@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("lore", {
   search: (query) => ipcRenderer.invoke("search:query", query),
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
+  gists: () => ipcRenderer.invoke("memory:gists"),
   /** @param {number} id @param {string} title */
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */

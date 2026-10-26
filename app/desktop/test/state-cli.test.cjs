@@ -9,7 +9,7 @@ const { test } = require("node:test");
 // The module reads its store folder once, on require: point it at scratch, never the owner's Application Support.
 process.env.LORE_STORE = mkdtempSync(join(tmpdir(), "lore-store-"));
 process.once("exit", () => rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
-const { searchMemories, readSales, candidates, useRuntime } = require("../src/state.cjs");
+const { searchMemories, readSales, candidates, readGists, useRuntime } = require("../src/state.cjs");
 
 /** Run `body` against a fresh stub CLI that prints `output`; hands back the argv it ran with, or null if it never ran.
  * @param {string} output @param {(home: string) => Promise<void>} body */
@@ -81,3 +81,14 @@ for (const [what, read, args, refused] of LISTS) {
     await withCli("Traceback (most recent call last):", (home) => assert.rejects(read(home), SyntaxError, "output that isn't JSON at all"));
   });
 }
+
+test("gists come back as the CLI printed them, and anything but an id-to-line map is refused", async () => {
+  /** @type {unknown} */
+  let read;
+  const argv = await withCli(JSON.stringify({ 3: "A low first price gets the first ten buyers." }), async (home) => { read = await readGists(home); });
+  assert.deepEqual(argv, ["memory", "gists"]);
+  assert.deepEqual(read, { 3: "A low first price gets the first ten buyers." });
+  for (const bad of ["[]", "null", JSON.stringify({ 3: { content: "x" } })]) {
+    await withCli(bad, (home) => assert.rejects(readGists(home), /Lore returned unreadable gists/));
+  }
+});

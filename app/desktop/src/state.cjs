@@ -527,6 +527,14 @@ async function readMemory(loreHome, id) {
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
 }
 
+/** Each kept memory's one-line gist by id, read only where the owner chooses among them; the snapshot carries no memory's words.
+ * @param {string} loreHome @returns {Promise<Record<string, string>>} */
+async function readGists(loreHome) {
+  const value = JSON.parse(await lore(loreHome, ["memory", "gists"]));
+  if (!value || typeof value !== "object" || Array.isArray(value) || !Object.values(value).every((gist) => typeof gist === "string")) throw new Error("Lore returned unreadable gists");
+  return value;
+}
+
 /** How many memories one `lore memory credit` names, as the CLI takes them. */
 const CREDIT_AT_ONCE = 500;
 
@@ -938,6 +946,7 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  readGists,
   judgeMemories,
   creditMemories,
   renameMemory,

@@ -396,6 +396,31 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n*", re.S)
+GIST_CHARS = 180
+
+
+def gist(content: str) -> str:
+    """What a memory is about, in a line a list can show beside its title: the summary its
+    frontmatter gives, else its first sentence of prose."""
+    head = FRONTMATTER.match(content)
+    if head:
+        said = re.search(r"^description:\s*(.+)$", head.group(1), re.M)
+        if said:
+            return _clip(said.group(1).strip().strip("\"'"))
+    body = content[head.end() :] if head else content
+    prose = " ".join(
+        line.strip() for line in body.splitlines() if line.strip() and not line.lstrip().startswith(("#", "---"))
+    )
+    first = re.split(r"(?<=[.!?])\s", prose, maxsplit=1)[0]
+    return _clip(first)
+
+
+def _clip(text: str) -> str:
+    text = re.sub(r"[*_`]+", "", re.sub(r"\s+", " ", text)).strip()
+    return text if len(text) <= GIST_CHARS else text[: GIST_CHARS - 1].rsplit(" ", 1)[0] + "…"
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -1010,6 +1035,14 @@ class Store:
             }
             for row in rows
         ]
+
+    def gists(self) -> dict[int, str]:
+        """Each kept memory's gist by id: asked for apart from the inventory, which carries no
+        memory's words (APP-001), and only where the owner chooses among them."""
+        rows = self.db.execute(
+            "SELECT id,content FROM memories WHERE status='private'"
+        ).fetchall()
+        return {row["id"]: gist(row["content"]) for row in rows}
 
     def judge(self, verdicts: AbcCollection[Verdict]) -> int:
         """Keep what a reading judged of each memory, the latest over any before it.

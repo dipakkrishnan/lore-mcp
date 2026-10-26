@@ -82,6 +82,11 @@ let inventoryFrom = null;
 let openCollectionId = null;
 /** Text pasted into the open collection and not added yet; kept across renders. */
 let collectionDraft = "";
+/** What each kept memory is about in a line, read when the picker first shows; null until then. @type {Record<string, string> | null} */
+let gists = null;
+let gistsAsked = false;
+/** What the owner typed into the picker's search, kept across redraws. */
+let pickQuery = "";
 /** Memories ticked to add to the open collection; kept across renders. @type {Set<number>} */
 const collectionPicks = new Set();
 /** Whether the open collection shows drop and paste, the less common way to fill it. */
@@ -2034,6 +2039,7 @@ async function newCollection() {
   if (collectionBusy) return;
   /** @type {NewCollection | null} */
   let made = null;
+  gistsAsked = false;
   if (await act(async () => { made = await window.lore.newCollection(); })) {
     if (made) showCollection(/** @type {NewCollection} */ (made).id);
     collectionStep = 1;
@@ -2062,7 +2068,7 @@ async function addToCollection(input) {
   // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
   if (done) {
     if (input.items?.length) collectionDraft = "";
-    if (input.memories?.length) collectionPicks.clear();
+    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; }
     collectionAdding = false;
     collectionPasting = false;
     if (collectionStep === 1) {
@@ -2160,12 +2166,18 @@ function byTopic(items) {
 
 /** Step two the common way: tick kept memories, a whole topic in one tick, and add them. @param {Snapshot} s */
 function memoryPicker(s) {
+  // Read once a session and redrawn when they land; the search box keeps its words across the redraw.
+  if (!gistsAsked) {
+    gistsAsked = true;
+    void window.lore.gists().then((read) => { gists = read; render(); }, () => { gistsAsked = false; });
+  }
   const busy = Boolean(collectionBusy);
   const wrap = el("div", "picker");
   const find = el("input", "pick-find");
   find.type = "search";
-  find.placeholder = "Find a memory";
+  find.placeholder = "Find a memory by what it's about";
   find.setAttribute("aria-label", "Find a memory to add");
+  const typing = document.activeElement instanceof HTMLElement && document.activeElement.classList.contains("pick-find");
   // Back on the first step with pieces already in, Continue moves on without adding more.
   const onward = () => collectionStep === 1 && !collectionPicks.size && Boolean(openCollection()?.pieces.length);
   const add = button("", "primary", () => {
@@ -2200,10 +2212,15 @@ function memoryPicker(s) {
       tick.checked = collectionPicks.has(memory.id);
       tick.disabled = busy;
       tick.addEventListener("change", () => { tick.checked ? collectionPicks.add(memory.id) : collectionPicks.delete(memory.id); sync(); count(); });
+      // A title alone rarely says enough to choose by: what it's about, then where it came from and when.
       const text = el("div", "t");
-      text.append(el("b", "", memory.title), el("span", "", when(memory.updated_at)));
+      text.append(el("b", "", memory.title));
+      const about = gists?.[memory.id];
+      if (about) text.append(el("span", "pick-gist", about));
+      text.append(el("span", "pick-meta", [provenance(memory.sources).line, when(memory.updated_at)].filter(Boolean).join(" · ")));
       line.append(tick, text);
-      line.dataset.find = `${memory.title} ${topic}`.toLowerCase();
+      peekable(text, memory.id);
+      line.dataset.find = `${memory.title} ${about ?? ""} ${topic}`.toLowerCase();
       box.append(line);
       all.push({ memory, tick, line });
       return tick;
@@ -2235,6 +2252,7 @@ function memoryPicker(s) {
   none.hidden = true;
   // Filtered in place, so the search box keeps its focus while the owner types.
   find.addEventListener("input", () => {
+    pickQuery = find.value;
     const words = find.value.trim().toLowerCase();
     let any = 0;
     for (const box of groups) {
@@ -2260,6 +2278,8 @@ function memoryPicker(s) {
   foot.append(left, add);
   count();
   wrap.append(find, list, foot);
+  if (pickQuery) { find.value = pickQuery; find.dispatchEvent(new Event("input")); }
+  if (typing) queueMicrotask(() => find.focus());
   return wrap;
 }
 
@@ -4186,7 +4206,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
