@@ -5,7 +5,7 @@ priority: P1
 effort: L
 component: monetization
 status: in-progress
-related: [MON-045, MON-040, XC-039, XC-036]
+related: [MON-040, XC-039, XC-036]
 blockers: []
 dependencies: []
 github_issue: 421
