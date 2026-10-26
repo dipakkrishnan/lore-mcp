@@ -41,8 +41,12 @@ main{max-width:1120px;margin:0 auto;padding:20px 16px 72px}
 .head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:22px}
 h1{font:500 clamp(36px,6vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:0 0 10px}
 .lede{color:var(--muted);margin:0;max-width:40em}
-.stats{display:flex;gap:18px;margin:14px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
-.stats b{font:600 15px var(--mono);color:var(--ink);margin-right:5px}
+.stats{display:flex;gap:26px;margin:14px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
+.stats li{display:flex;align-items:baseline;gap:7px}
+.stats b{display:inline-flex;font:600 24px/1.2 var(--mono);letter-spacing:-.02em;color:var(--ink);transition:color .6s}
+.stats b.tick{color:var(--accent)}
+.digit{display:inline-block;height:1.2em;overflow:hidden}.digit>span{display:flex;flex-direction:column;transition:transform 1.1s cubic-bezier(.2,.8,.2,1)}.digit i{font-style:normal;height:1.2em}
+@media (prefers-reduced-motion:reduce){.digit>span{transition:none}}
 .search{position:relative;flex:0 1 320px}
 .search input{width:100%;height:40px;padding:0 14px 0 36px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:14px var(--sans)}
 .search input:focus{outline:2px solid var(--accent);outline-offset:1px}
@@ -114,7 +118,8 @@ code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padd
 `;
 
 // Instant search over the cards already drawn; without it the form searches on the server.
-const SCRIPT = `const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
+// The counts roll in, then follow /marketplace/stats.json, so a real change shows as it lands.
+const SCRIPT = `const col="<span class=\\"digit\\" aria-hidden=\\"true\\"><span>"+"0123456789".split("").map(d=>"<i>"+d+"</i>").join("")+"</span></span>";const roll=(b,v)=>{const t=String(v);b.setAttribute("aria-label",t);if(b.dataset.v===t)return;const first=!b.dataset.v;b.dataset.v=t;b.innerHTML=col.repeat(t.length);setTimeout(()=>{b.querySelectorAll(".digit>span").forEach((c,i)=>c.style.transform="translateY(-"+t[i]+"0%)");if(!first){b.classList.add("tick");setTimeout(()=>b.classList.remove("tick"),1600)}},60)};const stats=[...document.querySelectorAll("[data-stat]")];stats.forEach(b=>roll(b,b.textContent));stats.length&&setInterval(()=>{document.hidden||fetch("/marketplace/stats.json").then(r=>r.ok?r.json():null).then(n=>n&&stats.forEach(b=>typeof n[b.dataset.stat]==="number"&&roll(b,n[b.dataset.stat]))).catch(()=>{})},30000);const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
 
 const SEARCH_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
@@ -191,9 +196,9 @@ export function marketplacePage(exchange, { tab = "", q = "", seller = "" } = {}
     : !exchange.markets.length
       ? `<p class="empty">No market has a listing yet.</p>`
       : `${sections}<p class="empty none"${shown.length ? " hidden" : ""}>Nothing here matches that yet.</p>`;
-  const count = (n, one) => `<li><b>${n}</b>${n === 1 ? one : `${one}s`}</li>`;
-  const head = `<header class="head"><div><h1>Markets</h1><p class="lede">Firsthand answers from the people who lived them. Samples are free to read, and every payment goes straight to the seller.</p>
-${exchange ? `<ul class="stats">${count(exchange.markets.length, "market")}${count(exchange.pieces, "piece")}${count(exchange.sellers.length, "seller")}</ul>` : ""}</div>
+  const count = (key, n, one) => `<li><b data-stat="${key}" aria-label="${n}">${n}</b>${n === 1 ? one : `${one}s`}</li>`;
+  const head = `<header class="head"><div><h1>Markets</h1>
+${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "market")}${count("pieces", exchange.pieces, "piece")}${count("sellers", exchange.sellers.length, "seller")}</ul>` : ""}</div>
 <form class="search" method="get" action="/marketplace" role="search">${SEARCH_ICON}${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<input type="search" name="q" value="${escape(q)}" placeholder="Search questions, markets, sellers" aria-label="Search the markets"></form></header>
 <div class="tabs"><ul>${["", ...tabs].map((t) => `<li><a href="${link(t)}"${t === current ? ' class="on" aria-current="page"' : ""}>${escape(t || "All")}</a></li>`).join("")}</ul>${sellerPick}</div>`;
   const data = exchange && {
@@ -247,8 +252,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const json = url.pathname === "/marketplace.json";
+    const stats = url.pathname === "/marketplace/stats.json";
     const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
-    if (!json && !id && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
+    if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
     let list;
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
@@ -260,11 +266,12 @@ export default {
       }
       list = await response.json();
     } catch {
-      if (json) return Response.json({ error: "the seller list can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
+      if (json || stats) return Response.json({ error: "the seller list can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
       // Rendered as "can't be loaded right now"; the page itself still answers.
       return html(id ? marketPage(null, id) : marketplacePage(null), 200, "no-store");
     }
     const exchange = await Exchange.load(list);
+    if (stats) return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length }, { headers: { "cache-control": "public, max-age=30" } });
     if (id) return html(marketPage(exchange, id), exchange.market(id) ? 200 : 404);
     const params = url.searchParams;
     return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));

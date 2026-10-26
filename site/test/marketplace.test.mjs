@@ -27,7 +27,8 @@ test("fills a market with the pieces listed in it, in the store's own words and 
   assert.match(html, /href="https:\/\/lore\.example\.workers\.dev\/p\/aaaaaaaaaaaaaaaaaaaaaaaa"/);
   assert.match(html, /<span class="pill">\$1<\/span>/);
   assert.match(html, /2 pieces · 1 seller/);
-  assert.match(html, /<b>1<\/b>market<\/li><li><b>2<\/b>pieces<\/li><li><b>1<\/b>seller/);
+  assert.match(html, /<b data-stat="markets" aria-label="1">1<\/b>market<\/li><li><b data-stat="pieces" aria-label="2">2<\/b>pieces/);
+  assert.doesNotMatch(html, /class="lede"/);
 });
 
 test("shows only real listings: unknown markets, unsold pieces and silent stores leave nothing behind", async () => {
@@ -124,4 +125,11 @@ test("serves the registry itself at /marketplace.json", async (t) => {
   const response = await worker.fetch(new Request("https://yourlore.dev/marketplace.json"), {});
   assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
   assert.equal((await response.json()).sellers[0].name, "Dipak");
+});
+
+test("serves the live counts the page follows at /marketplace/stats.json", async (t) => {
+  const { default: worker } = await import("../src/worker.js");
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ ...list([{ ...seller, listings: [] }]) })));
+  const response = await worker.fetch(new Request("https://yourlore.dev/marketplace/stats.json"), {});
+  assert.deepEqual(await response.json(), { markets: 0, pieces: 0, sellers: 1 });
 });
