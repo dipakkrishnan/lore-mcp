@@ -46,8 +46,8 @@ jobs:
       - run: npm run check
       - run: npm test
 
-  desktop-check:
-    name: Desktop macOS checks
+  desktop-build:
+    name: Desktop unit and package checks
     runs-on: macos-14
     defaults:
       run:
@@ -61,59 +61,68 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
-      # renderer.js has no unit coverage — it is only reachable through real
-      # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs
-      # here as its own step, so a red step names the persona that broke and
-      # one failure does not hide the rest. test/ci-edge.test.cjs fails when a
-      # persona is added to test:edge without a step. `test:capture` is
-      # attended and stays local (see app/desktop/README.md).
-      - run: support/edge.sh feedback
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        timeout-minutes: 5
-      - run: support/edge.sh faq
-        timeout-minutes: 5
-      - run: support/edge.sh seller
-        timeout-minutes: 5
-      - run: support/edge.sh store
-        timeout-minutes: 5
-      - run: support/edge.sh update
-        timeout-minutes: 5
-      - run: support/edge.sh agents
-        timeout-minutes: 8
-      - run: support/edge.sh provision
-        timeout-minutes: 5
-      - run: support/edge.sh jobs
-        timeout-minutes: 5
-      - run: support/edge.sh fresh
-        timeout-minutes: 5
-      - run: support/edge.sh obsidian
-        timeout-minutes: 5
-      - run: support/edge.sh reading
-        timeout-minutes: 5
-      - run: support/edge.sh schedule
-        timeout-minutes: 5
-      - run: support/edge.sh checkin
-        timeout-minutes: 5
-      - run: support/edge.sh quiet
-        timeout-minutes: 5
-      - run: support/edge.sh automations
-        timeout-minutes: 5
-      - run: support/edge.sh sell
-        timeout-minutes: 5
-      - run: support/edge.sh cards
-        timeout-minutes: 5
-      - run: support/edge.sh sales
-        timeout-minutes: 5
-      - run: support/edge.sh settings
-        timeout-minutes: 5
-      - run: support/edge.sh today
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
+      - run: npm run package
+
+  desktop-edge:
+    name: Desktop edge (${{ matrix.name }})
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: agents
+            scenarios: agents faq provision jobs
+            dark_connectors: false
+          - name: store
+            scenarios: automations connectors store checkin
+            dark_connectors: false
+          - name: sales
+            scenarios: today settings cards seller
+            dark_connectors: true
+          - name: reading
+            scenarios: feedback update fresh obsidian reading schedule quiet sell sales
+            dark_connectors: false
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+      - run: npm ci
+      # Each walk gets its own Lore home, Electron profile, dynamic ports, and
+      # test Keychain. Sharding across fresh runners keeps the real renderer
+      # coverage while removing it from the serial CI critical path.
+      - name: Run ${{ matrix.name }} edge scenarios
+        env:
+          SCENARIOS: ${{ matrix.scenarios }}
+        run: |
+          for scenario in $SCENARIOS; do
+            support/edge.sh "$scenario"
+          done
+        timeout-minutes: 12
+      - name: Run dark connector edge scenario
+        if: matrix.dark_connectors
         env:
           LORE_EDGE_APPEARANCE: dark
+        run: support/edge.sh connectors
         timeout-minutes: 5
-      - run: npm run package
+
+  desktop-check:
+    name: Desktop macOS checks
+    if: always()
+    needs: [desktop-build, desktop-edge]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify every desktop job passed
+        env:
+          BUILD_RESULT: ${{ needs.desktop-build.result }}
+          EDGE_RESULT: ${{ needs.desktop-edge.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$EDGE_RESULT" = success
 
   node-lint:
     name: Node lint
