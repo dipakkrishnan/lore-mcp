@@ -130,7 +130,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-238](./desktop-app/APP-238-late-night-greeting.md) | Today says Good evening after midnight, not Good morning | P3 | S | desktop-app | in-review | — | — | — | — |
 | [APP-241](./desktop-app/APP-241-one-readable-column.md) | Keep each page to one readable column on a wide window | P3 | S | desktop-app | in-review | — | — | — | — |
 | [APP-063](./desktop-app/APP-063-test-the-renderers-untrusted-text-boundary.md) | Test the renderer's untrusted-text boundary and its CSP | P1 | S | desktop-app | ready | APP-066, APP-010, APP-008 | — | — | — |
-| [XC-030](./cross-cutting/XC-030-adopt-an-opentelemetry-shaped-telemetry-model.md) | Adopt an OpenTelemetry-shaped telemetry model and restate the privacy contract | P1 | S | cross-cutting | ready | MON-020, MON-021, XC-029, CLI-004, APP-058 | — | — | — |
 | [MON-031](./monetization/MON-031-say-what-becomes-public-when-a-seller-takes-cards.md) | Tell sellers and buyers what card checkout makes visible about them | P1 | S | monetization | ready | MON-025, MON-030 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
 | [APP-024](./desktop-app/APP-024-start-recording-from-the-dictation-button.md) | Start recording from the dictation button | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009, APP-010, APP-020 | — | — | — |
@@ -153,7 +152,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
-| [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | ready | APP-038, APP-066, APP-008 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | ready | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [MON-032](./monetization/MON-032-prepare-for-stripe-holds-on-seller-accounts.md) | Prepare sellers and support for Stripe payout holds and account reviews | P2 | S | monetization | ready | MON-030, MON-031 | — | — | — |
 | [MON-033](./monetization/MON-033-state-what-a-buyer-is-licensed-to-do.md) | State what a buyer's agent may do with a piece it bought | P2 | S | monetization | ready | XC-040, MON-028 | — | — | — |
@@ -171,6 +169,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
+| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | ready | APP-003 | — | — | — |
 | [STO-004](./store-import/STO-004-wait-out-the-first-migration-instead-of-failing-with-database-is-locked.md) | Wait out the first migration instead of failing with database is locked | P1 | XS | store-import | in-progress | APP-181 | — | — | — |
@@ -209,6 +208,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [XC-030](./cross-cutting/XC-030-adopt-an-opentelemetry-shaped-telemetry-model.md) | Adopt an OpenTelemetry-shaped telemetry model and restate the privacy contract | P1 | S | cross-cutting | completed | MON-020, MON-021, XC-029, CLI-004, APP-058 | — | — | — |
 | [MON-017](./monetization/MON-017-refuse-paid-answers-until-the-model-provider-is-ready.md) | Refuse paid answers until the model provider is ready | P1 | S | monetization | completed | MCP-003, APP-035, EVAL-002 | — | — | — |
 | [APP-066](./desktop-app/APP-066-run-the-desktop-renderer-tests-in-ci.md) | Run the desktop renderer's persona tests in CI | P1 | S | desktop-app | completed | APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014 | — | — | — |
 | [APP-213](./desktop-app/APP-213-show-where-every-memory-came-from.md) | Show where every memory came from | P1 | M | desktop-app | completed | APP-207, APP-210, APP-212 | — | — | — |
@@ -315,6 +315,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
 | [APP-064](./desktop-app/APP-064-assert-the-preload-to-main-ipc-contract.md) | Assert the preload-to-main IPC contract in a test | P2 | XS | desktop-app | completed | APP-039, APP-002, APP-066 | — | — | — |
 | [APP-060](./desktop-app/APP-060-test-the-untested-cli-boundary-helpers-in-state-cjs.md) | Test the CLI-boundary helpers in state.cjs that no test reaches | P2 | XS | desktop-app | completed | APP-066, APP-001 | — | — | — |
+| [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | completed | APP-038, APP-066, APP-008 | — | — | — |
 | [APP-039](./desktop-app/APP-039-agent-status-ipc-handler-missing-at-launch.md) | agent:status IPC handler is missing, logged as an error on every launch | P2 | S | desktop-app | completed | APP-038 | — | — | — |
 | [APP-208](./desktop-app/APP-208-show-date-only-memory-dates-on-the-day-they-name.md) | Show date-only memory dates on the day they name | P2 | XS | desktop-app | completed | APP-207 | — | — | — |
 | [APP-051](./desktop-app/APP-051-fix-the-storage-location-rows-cramped-layout.md) | Fix the storage-location row's layout — long paths crush the label column | P2 | S | desktop-app | completed | — | — | — | — |
