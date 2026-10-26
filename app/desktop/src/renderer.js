@@ -744,6 +744,7 @@ const STEP_ICONS = {
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
+  collection: lineIcon(`<path d="M3.5 7.5L12 3l8.5 4.5L12 12z"></path><path d="M3.5 12L12 16.5 20.5 12"></path><path d="M3.5 16.5L12 21l8.5-4.5"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
 
@@ -2332,7 +2333,9 @@ function suggestionsCard(s) {
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
     dismiss.addEventListener("click", () => void dropSuggestion(each));
-    const node = row(each.title, detail, cell(button("Review", "secondary", () => void reviewSuggestion(each, memories, into)), dismiss), false);
+    const node = row(each.title, detail, cell(button("Review", "quiet", () => void reviewSuggestion(each, memories, into)), dismiss), false);
+    // A stack of memories, marked as Inventory is, in the tile every Today card leads with.
+    node.prepend(markTile(STEP_ICONS.collection));
     node.classList.add("suggestion");
     return node;
   });

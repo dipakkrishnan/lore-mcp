@@ -2633,7 +2633,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "changed" })`);
         const suggested = `[...document.querySelectorAll("#content .row.suggestion")].find((r) => r.querySelector("b")?.textContent === "Pricing lessons")`;
-        check("a suggested collection says what's in it, with no tile", await waitFor(`${suggested}?.querySelector(".t span")?.textContent === ${JSON.stringify(`1 memory · ${kept[0].title}`)}`) && await js(`!${suggested}.querySelector(".routine-mark") && Boolean(${suggested}.querySelector(".dismiss[aria-label='Dismiss Pricing lessons']"))`), await js(`${suggested}?.textContent`));
+        check("a suggested collection says what's in it under Inventory's mark", await waitFor(`${suggested}?.querySelector(".t span")?.textContent === ${JSON.stringify(`1 memory · ${kept[0].title}`)}`) && await js(`${suggested}.querySelector(".routine-mark svg")?.innerHTML === document.querySelector("nav [data-view=inventory] svg").innerHTML && Boolean(${suggested}.querySelector(".dismiss[aria-label='Dismiss Pricing lessons']"))`), await js(`${suggested}?.textContent`));
         await js(`${suggested}.closest(".section").scrollIntoView()`);
         await sleep(300);
         await shot("automations-suggested-collection");
