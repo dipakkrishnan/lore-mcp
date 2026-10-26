@@ -43,14 +43,15 @@ function asking(routine, ask) {
   return { name: routine.id, label: routine.name, item: "", added: 0, ask, title: `“${routine.name}”`, phase: `Working on “${routine.name}”`, by: contributor("routine", routine.id, routine.name, "clock") };
 }
 
-/** What a reading wrote, as the store keeps it. A file outside the memories folder, or one the store did not take, is
- * dropped, and nothing under `work/` is ever offered for sale, whatever the reading said.
- * @param {Reading} reading @param {ReadingReport} report @param {Memory[]} stored @param {string} folder @returns {ReadyRun} */
-function landed(reading, report, stored, folder) {
+/** What a reading wrote, as the store keeps it: what it said it wrote, and every file its runs changed, said or not.
+ * A file outside the memories folder, or one the store did not take, is dropped, and nothing under `work/` is ever
+ * offered for sale, whatever the reading said.
+ * @param {Reading} reading @param {ReadingReport} report @param {Memory[]} stored @param {string} folder @param {string[]} [wrote] @returns {ReadyRun} */
+function landed(reading, report, stored, folder, wrote = []) {
   const work = resolve(folder, "work") + sep;
   /** @type {Map<number, ReadyMemory>} */
   const memories = new Map();
-  for (const entry of report.memories) {
+  for (const entry of [...report.memories, ...wrote.map((file) => ({ file, worth_selling: false, why: "" }))]) {
     const path = resolve(folder, entry.file);
     const memory = stored.find((candidate) => candidate.status === "private" && resolve(candidate.source_path) === path);
     if (!memory || !path.startsWith(folder + sep) || memories.has(memory.id)) continue;
@@ -58,6 +59,13 @@ function landed(reading, report, stored, folder) {
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
   return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
+}
+
+/** APP-233: what one of the owner's agents saved, for Today as soon as it is read in. The agent wrote them as memories
+ * already, so no model has to read them first. @param {Reading} reading @param {Array<{id: number, title: string}>} saves @returns {ReadyRun} */
+function saved(reading, saves) {
+  const memories = saves.map(({ id, title }) => ({ id, title, sell: false, work: false, why: "" }));
+  return { title: reading.title, read: reading.added, memories, at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** The Mac notification for a finished reading. @param {ReadyRun} run @returns {{title: string, body: string}} */
@@ -71,6 +79,9 @@ function announcement(run) {
 
 /** Finished readings kept on disk until the owner clears them, and the dock badge that counts what they have not seen. */
 class Ready {
+  /** Every change waits its turn, so a reading landing while the owner dismisses or deletes can't put back what they removed. @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
   /** @param {string} file @param {(count: number) => void} badge */
   constructor(file, badge) {
     this.file = file;
@@ -88,16 +99,47 @@ class Ready {
   }
 
   /** @param {ReadyRun} run */
-  async add(run) {
-    await this.#save([run, ...(await this.runs())].slice(0, KEPT));
+  add(run) {
+    return this.#change((runs) => [run, ...runs].slice(0, KEPT));
   }
 
-  async seen() {
-    await this.#save((await this.runs()).map((run) => ({ ...run, seen: true })));
+  /** Add to the newest card from the same agent or app instead of putting up another, and bring it to the top. It is
+   * unseen again only if it gained a memory. With none kept, it is a card of its own. @param {ReadyRun} run */
+  extend(run) {
+    return this.#change((runs) => {
+      const kept = runs.find((each) => each.by && run.by && each.by.kind === run.by.kind && each.by.id === run.by.id);
+      if (!kept) return [run, ...runs].slice(0, KEPT);
+      const ids = new Set(run.memories.map((memory) => memory.id));
+      const gained = run.memories.some((memory) => !kept.memories.some((had) => had.id === memory.id));
+      const memories = [...kept.memories.filter((memory) => !ids.has(memory.id)), ...run.memories];
+      return [{ ...kept, memories, seen: kept.seen && !gained }, ...runs.filter((each) => each !== kept)];
+    });
   }
 
-  async clear() {
-    await this.#save([]);
+  seen() {
+    return this.#change((runs) => runs.map((run) => ({ ...run, seen: true })));
+  }
+
+  clear() {
+    return this.#change(() => []);
+  }
+
+  /** Drop the runs one card shows, leaving the rest. @param {unknown} keys */
+  async dismiss(keys) {
+    if (!Array.isArray(keys) || !keys.length || keys.length > KEPT || !keys.every((key) => typeof key?.at === "string" && (key.by === null || typeof key.by === "string"))) throw new Error("Invalid memories");
+    /** @param {ReadyRun} run */
+    const picked = (run) => keys.some((key) => key.at === run.at && key.by === (run.by?.id ?? null));
+    await this.#change((runs) => runs.filter((run) => !picked(run)));
+  }
+
+  /** Take a deleted memory off every card, and a card it leaves empty with it, so Today never opens what is gone.
+   * @param {number} id */
+  async forget(id) {
+    await this.#change((runs) => !runs.some((run) => run.memories.some((memory) => memory.id === id)) ? runs : runs.flatMap((run) => {
+      const memories = run.memories.filter((memory) => memory.id !== id);
+      if (memories.length === run.memories.length) return [run];
+      return memories.length ? [{ ...run, memories }] : [];
+    }));
   }
 
   /** Put the badge back after a relaunch. */
@@ -105,12 +147,73 @@ class Ready {
     this.badge(unseen(await this.runs()));
   }
 
-  /** Written beside the file, then renamed over it, so a crash mid-write leaves the old runs whole. @param {ReadyRun[]} runs */
-  async #save(runs) {
-    await writeFile(`${this.file}.tmp`, JSON.stringify(runs));
-    await rename(`${this.file}.tmp`, this.file);
-    this.badge(unseen(runs));
+  /** Read, change and write the runs in turn; a change that hands the runs back as they were writes nothing. Written
+   * beside the file, then renamed over it, so a crash mid-write leaves the old runs whole. @param {(runs: ReadyRun[]) => ReadyRun[]} change */
+  #change(change) {
+    const next = this.#turn.then(async () => {
+      const kept = await this.runs();
+      const runs = change(kept);
+      if (runs === kept) return;
+      await writeFile(`${this.file}.tmp`, JSON.stringify(runs));
+      await rename(`${this.file}.tmp`, this.file);
+      this.badge(unseen(runs));
+    });
+    this.#turn = next.catch(() => undefined);
+    return next;
   }
+}
+
+/** APP-246: collections an automation suggests, kept until the owner reviews or dismisses each. A suggestion only ever
+ * opens Lore's own picker with its memories ticked; nothing goes in a collection, or on sale, without the owner. */
+class Suggestions {
+  /** @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
+  /** @param {string} file */
+  constructor(file) {
+    this.file = file;
+  }
+
+  /** Newest first; a missing or damaged file reads as none. @returns {Promise<CollectionSuggestion[]>} */
+  async list() {
+    try {
+      const kept = JSON.parse(await readFile(this.file, "utf8"));
+      return Array.isArray(kept) ? kept : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** A newer suggestion for the same name replaces the older. @param {CollectionSuggestion} suggestion */
+  add(suggestion) {
+    const same = (/** @type {CollectionSuggestion} */ each) => each.title.toLowerCase() === suggestion.title.toLowerCase();
+    return this.#change((kept) => [suggestion, ...kept.filter((each) => !same(each))].slice(0, KEPT));
+  }
+
+  /** @param {unknown} at */
+  async drop(at) {
+    if (typeof at !== "string") throw new Error("Invalid suggestion");
+    await this.#change((kept) => kept.filter((each) => each.at !== at));
+  }
+
+  /** @param {(kept: CollectionSuggestion[]) => CollectionSuggestion[]} change */
+  #change(change) {
+    const next = this.#turn.then(async () => {
+      const kept = change(await this.list());
+      await writeFile(`${this.file}.tmp`, JSON.stringify(kept));
+      await rename(`${this.file}.tmp`, this.file);
+    });
+    this.#turn = next.catch(() => undefined);
+    return next;
+  }
+}
+
+/** The memories an automation's suggested collection should hold: the ids it named, and the files it named that Lore
+ * keeps as private memories. @param {NonNullable<ReadingReport["collections"]>[number]} asked @param {Array<{id: number, status: string, source_path: string}>} stored @param {string} folder */
+function suggested(asked, stored, folder) {
+  const files = new Set((asked.files ?? []).map((file) => resolve(folder, file)));
+  const named = stored.filter((memory) => memory.status === "private" && files.has(resolve(memory.source_path))).map((memory) => memory.id);
+  return [...new Set([...(asked.memories ?? []), ...named])];
 }
 
 /** How many memories one report of what the owner saw may name. */
@@ -198,4 +301,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, announcement, Ready, Badge, Seen, seenIds };
+module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds, Suggestions, suggested };

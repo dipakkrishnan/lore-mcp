@@ -15,16 +15,23 @@ contextBridge.exposeInMainWorld("lore", {
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */
   login: (input) => ipcRenderer.invoke("auth:login", input),
+  cancelLogin: () => ipcRenderer.invoke("auth:cancel"),
   /** @param {string} providerId */
   logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
   /** @param {string} query */
   search: (query) => ipcRenderer.invoke("search:query", query),
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
+  gists: () => ipcRenderer.invoke("memory:gists"),
+  suggestions: () => ipcRenderer.invoke("suggestions:list"),
+  /** @param {string} at */
+  dropSuggestion: (at) => ipcRenderer.invoke("suggestions:drop", at),
   /** @param {number} id @param {string} title */
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
   editMemory: (id, content) => ipcRenderer.invoke("memory:edit", id, content),
+  /** @param {number} id */
+  deleteMemory: (id) => ipcRenderer.invoke("memory:delete", id),
   /** @param {{title: string, content: string}} input */
   pasteMemory: (input) => ipcRenderer.invoke("memory:paste", input),
   candidates: () => ipcRenderer.invoke("publication:candidates"),
@@ -39,11 +46,23 @@ contextBridge.exposeInMainWorld("lore", {
   approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
-  push: () => ipcRenderer.invoke("store:push"),
+  push: (/** @type {boolean} */ latest) => ipcRenderer.invoke("store:push", latest === true),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
   setFreeCopies: (count) => ipcRenderer.invoke("pricing:free-copies", count),
+  /** @param {string} [title] */
+  newCollection: (title) => ipcRenderer.invoke("collection:new", title),
+  /** @param {number} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+  addToCollection: (id, input) => ipcRenderer.invoke("collection:add", id, input),
+  /** @param {number} id @param {string} title */
+  renameCollection: (id, title) => ipcRenderer.invoke("collection:rename", id, title),
+  /** @param {number} id @param {number} amount */
+  priceCollection: (id, amount) => ipcRenderer.invoke("collection:price", id, amount),
+  /** @param {number} id @param {number} piece */
+  removeFromCollection: (id, piece) => ipcRenderer.invoke("collection:remove", id, piece),
+  /** @param {number} id */
+  deleteCollection: (id) => ipcRenderer.invoke("collection:delete", id),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
   /** @param {"noticed" | "app.opened"} name */
   usage: (name) => ipcRenderer.invoke("usage:record", name),
@@ -107,6 +126,8 @@ contextBridge.exposeInMainWorld("lore", {
   readyRuns: () => ipcRenderer.invoke("ready:runs"),
   seenMemories: () => ipcRenderer.invoke("ready:seen"),
   clearMemories: () => ipcRenderer.invoke("ready:clear"),
+  /** @param {ReadyKey[]} runs */
+  dismissMemories: (runs) => ipcRenderer.invoke("ready:dismiss", runs),
   /** @param {number} newest */
   memoriesSeen: (newest) => ipcRenderer.invoke("memory:unseen", newest),
   /** @param {number[]} arrivals */

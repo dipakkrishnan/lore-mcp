@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -112,6 +112,17 @@ with Store() as store:
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
+fi
+if [[ "$scenario" == "update" ]]; then
+  # APP-231: a store this Mac put online for sale before Lore kept which store it was: only its payout record says so.
+  (cd "$repo_root" && uv run python -c "import time
+from lore.store import Store
+with Store() as store:
+ store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
+  mkdir -p "$LORE_STORE"
+  echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
 fi
 if [[ "$scenario" == "extras" ]]; then
   # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
@@ -250,8 +261,8 @@ echo "Screenshots land in $root"
 limit="${LORE_EDGE_LIMIT:-180}"
 # The first-run walk relaunches the app five times.
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
-# The agents walk connects four agents and answers two sign-ins (XC-068).
-[[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=240
+# The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
+[[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
