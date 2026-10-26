@@ -34,6 +34,7 @@ from lore.store import (
     Status,
     Store,
     Verdict,
+    gist,
     new_public_id,
     valid_public_id,
 )
@@ -364,6 +365,35 @@ class VerdictTest(LoreTestCase):
             store.judge([Verdict(id=memory, sell=True, work=False, why="rare")])
             self.assertEqual(store.forget("Gone"), 1)
             self.assertEqual(store.verdicts(), {})
+
+
+class GistTest(LoreTestCase):
+    """What a memory is about in a line, so a list can be chosen from by more than its title."""
+
+    def test_the_frontmatter_summary_is_the_gist(self) -> None:
+        content = '---\nname: x\ndescription: "Launch set for Oct 27; maintenance in November"\n---\n# Title\nBody.'
+        self.assertEqual(
+            gist(content), "Launch set for Oct 27; maintenance in November"
+        )
+
+    def test_without_one_the_first_sentence_of_prose_stands_in(self) -> None:
+        self.assertEqual(
+            gist("# Heading\n\nStripe **closed** it. Then reopened."),
+            "Stripe closed it.",
+        )
+
+    def test_a_long_one_ends_on_a_whole_word(self) -> None:
+        said = gist("word " * 100)
+        self.assertLessEqual(len(said), 180)
+        self.assertTrue(said.endswith("word…"))
+
+    def test_kept_memories_have_one_and_discarded_ones_do_not(self) -> None:
+        kept = self.seed_memory("Kept")
+        self.seed_memory("Dropped", status="discarded")
+        with Store() as store:
+            self.assertEqual(list(store.gists()), [kept])
+            rows = store.memory_inventory()
+        self.assertFalse(any("gist" in row for row in rows))
 
 
 class ArrivalTest(LoreTestCase):

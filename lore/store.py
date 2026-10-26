@@ -396,6 +396,37 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n*", re.S)
+GIST_CHARS = 180
+
+
+def gist(content: str) -> str:
+    """What a memory is about, in a line a list can show beside its title: the summary its
+    frontmatter gives, else its first sentence of prose."""
+    head = FRONTMATTER.match(content)
+    if head:
+        said = re.search(r"^description:\s*(.+)$", head.group(1), re.M)
+        if said:
+            return _clip(said.group(1).strip().strip("\"'"))
+    body = content[head.end() :] if head else content
+    prose = " ".join(
+        line.strip()
+        for line in body.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "---"))
+    )
+    first = re.split(r"(?<=[.!?])\s", prose, maxsplit=1)[0]
+    return _clip(first)
+
+
+def _clip(text: str) -> str:
+    text = re.sub(r"[*_`]+", "", re.sub(r"\s+", " ", text)).strip()
+    return (
+        text
+        if len(text) <= GIST_CHARS
+        else text[: GIST_CHARS - 1].rsplit(" ", 1)[0] + "…"
+    )
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -1011,6 +1042,14 @@ class Store:
             for row in rows
         ]
 
+    def gists(self) -> dict[int, str]:
+        """Each kept memory's gist by id: asked for apart from the inventory, which carries no
+        memory's words (APP-001), and only where the owner chooses among them."""
+        rows = self.db.execute(
+            "SELECT id,content FROM memories WHERE status='private'"
+        ).fetchall()
+        return {row["id"]: gist(row["content"]) for row in rows}
+
     def judge(self, verdicts: AbcCollection[Verdict]) -> int:
         """Keep what a reading judged of each memory, the latest over any before it.
         Unknown ids are skipped."""
@@ -1593,13 +1632,39 @@ class Store:
         memory = self.db.execute(
             "SELECT id FROM memories WHERE source_key=?", (source_key,)
         ).fetchone()
+        return self._piece(collection, title, content, memory["id"])
+
+    def add_memory_to_collection(
+        self, collection_id: int, memory_id: int
+    ) -> CollectionPiece:
+        """Put a kept memory on sale as a piece of the collection, as it reads.
+        Choosing it is the owner's approval."""
+        memory = self.get(memory_id)
+        if memory is None or memory.status != "private":
+            raise ValueError(f"memory {memory_id} isn't one Lore keeps")
+        collection = self.collection(collection_id)
+        # Once per memory: two memories that read alike are still two, each cited as itself.
+        already = self.db.execute(
+            "SELECT p.id FROM collection_pieces c JOIN publications p "
+            "ON p.id=c.publication_id, json_each(p.provenance) j "
+            "WHERE c.collection_id=? AND p.active=1 AND j.value=?",
+            (collection_id, memory.id),
+        ).fetchone()
+        if already:
+            return next(p for p in collection.pieces if p.id == already["id"])
+        return self._piece(collection, memory.title, memory.content, memory.id)
+
+    def _piece(
+        self, collection: Collection, title: str, content: str, memory_id: int
+    ) -> CollectionPiece:
+        collection_id = collection.id
         publication_id = self.add_publication(
             title=title,
             content=content,
             kind=PublicationKind.CONTENT,
             topic=collection.title,
             teaser=title,
-            provenance=[memory["id"]],
+            provenance=[memory_id],
         )
         self.db.execute(
             "INSERT INTO collection_pieces(collection_id,publication_id,position) "

@@ -310,6 +310,9 @@ def parser() -> argparse.ArgumentParser:
     memory_delete.add_argument("id", type=int)
     memory_delete.add_argument("--json", action="store_true")
     memory_commands.add_parser("rules", help="print what earns a place in memory")
+    memory_commands.add_parser(
+        "gists", help="print each kept memory's one-line gist by id, as JSON"
+    )
     memory_credit = memory_commands.add_parser(
         "credit", help="record who wrote into memories, as JSON on stdin"
     )
@@ -734,6 +737,10 @@ def main(argv: list[str] | None = None) -> int:
                 from .automation import RULES
 
                 print(RULES, end="")
+                return 0
+            if args.memory_command == "gists":
+                with Store() as store:
+                    print(json.dumps(store.gists()))
                 return 0
             if args.memory_command == "credit":
                 return credit_memories(args.file)
@@ -2394,7 +2401,7 @@ def publication_revoke(publication_id: int) -> int:
 def collection_command(args: argparse.Namespace) -> int:
     """Owner actions on collections; each prints the result as JSON."""
     _owner_action("changing a collection")
-    collections = Collections(lambda: push(str(home() / "node")))
+    collections = Collections(lambda: push(str(store_folder())))
     command = args.collection_command
     if command == "new":
         result: object = collections.new(args.title).model_dump()
