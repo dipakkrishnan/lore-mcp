@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# XC-073: a new push to a pull request cancels the run it supersedes, so a stale
+# run does not hold the macOS runners (capped at five at once) that the fresh one
+# needs. Pushes to main are never cancelled.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-lint:
     name: Python lint
@@ -46,9 +53,16 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  # XC-073: the desktop work is spread over five macOS jobs that run side by side,
+  # so a run finishes in about five minutes instead of twenty. Five because
+  # GitHub-hosted macOS runners are capped at five concurrent jobs per account:
+  # a sixth would only queue. Each walk job's `uv run` builds the project's venv
+  # (including the git-sourced windup dependency) once; setup-uv's cache keeps
+  # that off the network.
   desktop-check:
     name: Desktop macOS checks
     runs-on: macos-14
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: app/desktop
@@ -58,62 +72,137 @@ jobs:
         with:
           node-version: lts/*
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - run: npm ci
       - run: npm run check
       - run: npm test
-      # renderer.js has no unit coverage — it is only reachable through real
-      # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs
-      # here as its own step, so a red step names the persona that broke and
-      # one failure does not hide the rest. test/ci-edge.test.cjs fails when a
-      # persona is added to test:edge without a step. `test:capture` is
-      # attended and stays local (see app/desktop/README.md).
-      - run: support/edge.sh feedback
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        timeout-minutes: 5
-      - run: support/edge.sh faq
-        timeout-minutes: 5
-      - run: support/edge.sh seller
-        timeout-minutes: 5
-      - run: support/edge.sh store
-        timeout-minutes: 5
-      - run: support/edge.sh update
-        timeout-minutes: 5
+      - run: npm run package
+
+  # renderer.js has no unit coverage — it is only reachable through real
+  # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs in
+  # one of the desktop-walks-* jobs below as its own step, so a red step names
+  # the persona that broke and one failure does not hide the rest.
+  # test/ci-edge.test.cjs fails when a persona is added to test:edge without a
+  # step. `test:capture` is attended and stays local (see app/desktop/README.md).
+  #
+  # The walks are sharded by measured time (Oct 2026: agents ~250s, automations
+  # ~90s, connectors and store ~55s, most others 10-50s) so every shard lands at
+  # about four minutes. When a persona is added, or a walk's time changes a lot,
+  # put it in (or move it to) the shortest shard rather than adding a job.
+  desktop-walks-agents:
+    name: "Desktop walks: agents"
+    runs-on: macos-14
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: npm ci
       - run: support/edge.sh agents
         timeout-minutes: 8
-      - run: support/edge.sh provision
-        timeout-minutes: 5
-      - run: support/edge.sh jobs
-        timeout-minutes: 5
-      - run: support/edge.sh fresh
-        timeout-minutes: 5
-      - run: support/edge.sh obsidian
-        timeout-minutes: 5
-      - run: support/edge.sh reading
-        timeout-minutes: 5
-      - run: support/edge.sh schedule
-        timeout-minutes: 5
-      - run: support/edge.sh checkin
-        timeout-minutes: 5
-      - run: support/edge.sh quiet
-        timeout-minutes: 5
+
+  desktop-walks-store:
+    name: "Desktop walks: store, connectors, automations"
+    runs-on: macos-14
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: npm ci
       - run: support/edge.sh automations
         timeout-minutes: 5
-      - run: support/edge.sh sell
-        timeout-minutes: 5
-      - run: support/edge.sh cards
-        timeout-minutes: 5
-      - run: support/edge.sh sales
-        timeout-minutes: 5
-      - run: support/edge.sh settings
-        timeout-minutes: 5
-      - run: support/edge.sh today
+      - run: support/edge.sh connectors
         timeout-minutes: 5
       - run: support/edge.sh connectors
         env:
           LORE_EDGE_APPEARANCE: dark
         timeout-minutes: 5
-      - run: npm run package
+      - run: support/edge.sh store
+        timeout-minutes: 5
+
+  desktop-walks-today:
+    name: "Desktop walks: today, settings, cards"
+    runs-on: macos-14
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: npm ci
+      - run: support/edge.sh checkin
+        timeout-minutes: 5
+      - run: support/edge.sh today
+        timeout-minutes: 5
+      - run: support/edge.sh fresh
+        timeout-minutes: 5
+      - run: support/edge.sh settings
+        timeout-minutes: 5
+      - run: support/edge.sh cards
+        timeout-minutes: 5
+      - run: support/edge.sh seller
+        timeout-minutes: 5
+
+  desktop-walks-rest:
+    name: "Desktop walks: schedule, reading, sales, and the short ones"
+    runs-on: macos-14
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: npm ci
+      - run: support/edge.sh schedule
+        timeout-minutes: 5
+      - run: support/edge.sh quiet
+        timeout-minutes: 5
+      - run: support/edge.sh reading
+        timeout-minutes: 5
+      - run: support/edge.sh update
+        timeout-minutes: 5
+      - run: support/edge.sh sales
+        timeout-minutes: 5
+      - run: support/edge.sh feedback
+        timeout-minutes: 5
+      - run: support/edge.sh obsidian
+        timeout-minutes: 5
+      - run: support/edge.sh jobs
+        timeout-minutes: 5
+      - run: support/edge.sh sell
+        timeout-minutes: 5
+      - run: support/edge.sh faq
+        timeout-minutes: 5
+      - run: support/edge.sh provision
+        timeout-minutes: 5
 
   node-lint:
     name: Node lint

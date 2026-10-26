@@ -20,11 +20,15 @@ npm --prefix app/desktop run test:capture   # attended capture against a disposa
 npm --prefix app/desktop run test:edge      # every renderer persona, driven under real Electron
 ```
 
-CI (`desktop-check` in `.github/workflows/tests.yml`, macOS) runs `check`, `test`,
-every persona in `test:edge` as its own step, and `package`. A persona step needs
-no provider or Cloudflare credential. `test:capture` is the one suite CI does not
-run: it prompts the operator for Return, so it stays attended. Adding a persona to
-`test:edge` without a CI step fails `test/ci-edge.test.cjs`. A
+CI (`.github/workflows/tests.yml`, macOS) runs `check`, `test` and `package` in
+`desktop-check`, and every persona in `test:edge` as its own step in one of the four
+`desktop-walks-*` jobs, which run side by side and are sharded by measured walk time
+so a run finishes in about five minutes (XC-073). A persona step needs no provider
+or Cloudflare credential. `test:capture` is the one suite CI does not run: it
+prompts the operator for Return, so it stays attended. Adding a persona to
+`test:edge` without a CI step fails `test/ci-edge.test.cjs`; give the new step to
+the shortest shard rather than a new job, since GitHub runs at most five macOS jobs
+at once. A
 channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
 reverse, or a `window.lore` member the renderer uses but preload does not expose,
 fails `test/ipc-contract.test.cjs`.
