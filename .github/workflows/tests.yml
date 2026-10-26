@@ -99,9 +99,16 @@ jobs:
         env:
           SCENARIOS: ${{ matrix.scenarios }}
         run: |
+          failed=""
           for scenario in $SCENARIOS; do
-            support/edge.sh "$scenario"
+            echo "::group::$scenario"
+            support/edge.sh "$scenario" || failed="$failed $scenario"
+            echo "::endgroup::"
           done
+          if [ -n "$failed" ]; then
+            echo "::error::Edge scenarios failed:$failed"
+            exit 1
+          fi
         timeout-minutes: 12
       - name: Run dark connector edge scenario
         if: matrix.dark_connectors
