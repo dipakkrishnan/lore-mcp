@@ -51,12 +51,18 @@ function announcements(fresh) {
   );
 }
 
+/** Banners still on screen. Held, because one Electron collects drops its click: the banner shows but opens nothing.
+ * @type {Set<import("electron").Notification>} */
+const showing = new Set();
+
 /** Post one Mac notification: Notification Center's own banner, with Lore's icon. @param {{title: string, body: string}} words @param {() => void} onClick */
 function notify(words, onClick) {
   const { Notification } = require("electron");
   if (!Notification.isSupported()) return;
   const note = new Notification(words);
-  note.on("click", onClick);
+  showing.add(note);
+  note.on("click", () => { showing.delete(note); onClick(); });
+  note.on("close", () => showing.delete(note));
   note.show();
 }
 

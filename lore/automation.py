@@ -577,6 +577,35 @@ class CheckIn(Routine):
             }
 
 
+class Collect(Routine):
+    """APP-246: once a week, Lore's agent groups kept memories that belong together and
+    suggests collections, new or added to. It only suggests: the owner reviews each in
+    the app's picker, and nothing goes in a collection or on sale until they do."""
+
+    id = "collect"
+    kind = "ask"
+    name = "Suggest collections"
+    about = "Once a week, groups memories that go together into collections for you to look over."
+    ask = (
+        "Look over my kept memories, newest first, and find up to three sets that belong "
+        "together and would be worth more sold as one. Add to one of my collections when a "
+        "set fits it (lore desktop-state lists them by title), else give the set a short, "
+        "plain name. Leave out work and anything not worth selling. Write no new memories; "
+        "hand the sets back as collections."
+    )
+
+    def rhythm(self) -> tuple[str, int, int]:
+        saved = self.saved or Saved(since=self.routines.clock())
+        return (
+            saved.cadence or "weekly",
+            10 if saved.hour is None else saved.hour,
+            6 if saved.day is None else saved.day,
+        )
+
+    def run(self) -> dict[str, object]:
+        return {"ask": self.ask}
+
+
 class Ask(Routine):
     """One of the owner's own (APP-200): their sentence, run at their time on Lore's
     agent under the rules its reading keeps, into private memories only."""
