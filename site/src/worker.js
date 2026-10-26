@@ -60,7 +60,11 @@ h1{font:500 clamp(36px,6vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:
 .tabs select{height:30px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font:13px var(--sans);padding:0 8px;flex:none}
 .tape{display:flex;align-items:center;gap:10px;margin:0 0 28px;font-size:13px;color:var(--muted);overflow:hidden}
 .tape>span{flex:none;display:inline-flex;align-items:center;gap:6px;color:var(--ink);font-weight:600}
-.tape>span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.tape>span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-out infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}70%,100%{box-shadow:0 0 0 7px transparent}}
+.tape li.fresh{animation:fresh 2.4s ease-out}
+@keyframes fresh{0%{opacity:0;transform:translateX(-8px);color:var(--accent)}25%{opacity:1;transform:none;color:var(--accent)}100%{color:inherit}}
+@media (prefers-reduced-motion:reduce){.tape>span:before,.tape li.fresh{animation:none}}
 .tape ul{display:flex;gap:22px;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
 .tape ul::-webkit-scrollbar{display:none}
 .tape time{font-family:var(--mono);font-size:12px;color:var(--faint);margin-right:6px}
@@ -118,8 +122,8 @@ code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padd
 `;
 
 // Instant search over the cards already drawn; without it the form searches on the server.
-// The counts show as they are, then follow /marketplace/stats.json and roll only when a real change lands.
-const SCRIPT = `const col="<span class=\\"digit\\" aria-hidden=\\"true\\"><span>"+"0123456789".split("").map(d=>"<i>"+d+"</i>").join("")+"</span></span>";const roll=(b,v)=>{const t=String(v);b.setAttribute("aria-label",t);if(b.dataset.v===t)return;const was=b.dataset.v;b.dataset.v=t;if(!was)return;const from=was.padStart(t.length,"0").slice(-t.length);b.innerHTML=col.repeat(t.length);const cols=[...b.querySelectorAll(".digit>span")];cols.forEach((c,i)=>{c.style.transition="none";c.style.transform="translateY(-"+from[i]+"0%)"});b.offsetHeight;cols.forEach((c,i)=>{c.style.transition="";c.style.transform="translateY(-"+t[i]+"0%)"});b.classList.add("tick");setTimeout(()=>b.classList.remove("tick"),1600)};const stats=[...document.querySelectorAll("[data-stat]")];stats.forEach(b=>roll(b,b.textContent));stats.length&&setInterval(()=>{document.hidden||fetch("/marketplace/stats.json").then(r=>r.ok?r.json():null).then(n=>n&&stats.forEach(b=>typeof n[b.dataset.stat]==="number"&&roll(b,n[b.dataset.stat]))).catch(()=>{})},30000);const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
+// The counts and the Latest strip show as they are, then follow /marketplace/stats.json: a count rolls and news slides in only when a real change lands.
+const SCRIPT = `const col="<span class=\\"digit\\" aria-hidden=\\"true\\"><span>"+"0123456789".split("").map(d=>"<i>"+d+"</i>").join("")+"</span></span>";const roll=(b,v)=>{const t=String(v);b.setAttribute("aria-label",t);if(b.dataset.v===t)return;const was=b.dataset.v;b.dataset.v=t;if(!was)return;const from=was.padStart(t.length,"0").slice(-t.length);b.innerHTML=col.repeat(t.length);const cols=[...b.querySelectorAll(".digit>span")];cols.forEach((c,i)=>{c.style.transition="none";c.style.transform="translateY(-"+from[i]+"0%)"});b.offsetHeight;cols.forEach((c,i)=>{c.style.transition="";c.style.transform="translateY(-"+t[i]+"0%)"});b.classList.add("tick");setTimeout(()=>b.classList.remove("tick"),1600)};const stats=[...document.querySelectorAll("[data-stat]")];stats.forEach(b=>roll(b,b.textContent));const tl=document.querySelector(".tape ul");const news=n=>{if(!tl||typeof n.latest_key!=="string"||n.latest_key===tl.dataset.key)return;const had=new Set(tl.dataset.key.split("|"));tl.dataset.key=n.latest_key;tl.innerHTML=n.latest;n.latest_key.split("|").forEach((k,i)=>had.has(k)||tl.children[i]?.classList.add("fresh"))};stats.length&&setInterval(()=>{document.hidden||fetch("/marketplace/stats.json").then(r=>r.ok?r.json():null).then(n=>{if(!n)return;stats.forEach(b=>typeof n[b.dataset.stat]==="number"&&roll(b,n[b.dataset.stat]));news(n)}).catch(()=>{})},30000);const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
 
 const SEARCH_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
@@ -153,14 +157,20 @@ function card(m) {
 <div class="foot-row"><span>${plural(m.rows.length, "piece")} · ${plural(people.length, "seller")}</span><a href="/marketplace/${m.id}">Open market →</a></div></li>`;
 }
 
-function tape(exchange) {
+/** The latest events as list items, and a key that changes only when they do, so the strip redraws on real news. */
+function latest(exchange) {
   const events = exchange.recent(5);
-  if (!events.length) return "";
   const item = (e) =>
     e.row
       ? `<li><a href="${escape(e.row.url)}"><time>${date(e.day)}</time>Updated in ${escape(e.market.name)}: ${escape(clip(e.row.question, 48))}</a></li>`
       : `<li><a href="${escape(e.seller.store)}"><time>${date(e.day)}</time>${escape(e.seller.name)} opened a store</a></li>`;
-  return `<div class="tape"><span>Latest</span><ul>${events.map(item).join("")}</ul></div>`;
+  return { html: events.map(item).join(""), key: events.map((e) => `${e.day}:${e.row ? e.row.id : e.seller.name}`).join("|") };
+}
+
+function tape(exchange) {
+  const { html, key } = latest(exchange);
+  if (!html) return "";
+  return `<div class="tape"><span>Latest</span><ul data-key="${escape(key)}">${html}</ul></div>`;
 }
 
 function stores(exchange) {
@@ -271,7 +281,10 @@ export default {
       return html(id ? marketPage(null, id) : marketplacePage(null), 200, "no-store");
     }
     const exchange = await Exchange.load(list);
-    if (stats) return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length }, { headers: { "cache-control": "public, max-age=30" } });
+    if (stats) {
+      const { html, key } = latest(exchange);
+      return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length, latest: html, latest_key: key }, { headers: { "cache-control": "public, max-age=30" } });
+    }
     if (id) return html(marketPage(exchange, id), exchange.market(id) ? 200 : 404);
     const params = url.searchParams;
     return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));
