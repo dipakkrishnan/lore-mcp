@@ -750,13 +750,17 @@ async function start(loreHome, outgoing) {
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
       const count = run.memories.length;
-      // A collection the routine was asked for is only suggested: the owner reviews it in Lore's own picker.
-      const picked = report.collection ? reading.suggested(report.collection, stored, join(loreHome, "memories")) : [];
-      if (report.collection && picked.length) {
-        const title = report.collection.title.trim();
-        await suggestions.add({ at: new Date().toISOString(), title, memories: picked, from: read.label });
+      // Collections the routine was asked for are only suggested: the owner reviews each in Lore's own picker.
+      const offered = [];
+      for (const asked of report.collections ?? []) {
+        const picked = reading.suggested(asked, stored, join(loreHome, "memories"));
+        if (!picked.length) continue;
+        await suggestions.add({ at: new Date().toISOString(), title: asked.title.trim(), memories: picked, from: read.label });
+        offered.push(asked.title.trim());
+      }
+      if (offered.length) {
         emit({ type: "changed" });
-        sales.notify({ title: "Lore suggests a collection", body: `${title} · ${reading.plural(picked.length, "memory")}` }, () => reveal({ type: "show", view: "today" }));
+        sales.notify({ title: offered.length === 1 ? "Lore suggests a collection" : `Lore suggests ${offered.length} collections`, body: offered.join(" · ") }, () => reveal({ type: "show", view: "today" }));
       }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
@@ -765,7 +769,7 @@ async function start(loreHome, outgoing) {
       } catch (error) {
         console.error("Lore could not record which memories look worth selling:", error);
       }
-      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : "Nothing new"]);
+      if (read.ask) await lore(loreHome, ["automation", "result", read.name, report.missing ? `${report.missing} isn't connected` : count ? reading.plural(count, "new memory") : offered.length ? `Suggested ${reading.plural(offered.length, "collection")}` : "Nothing new"]);
       emit({ type: "changed" });
       if (!count) return;
       // An agent's saves are on Today already, from when they came in: what reading them wrote joins that card, quietly.

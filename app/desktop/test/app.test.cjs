@@ -2739,10 +2739,10 @@ test("routines are added, paused, retimed and removed through the CLI, refused b
     await changeRoutine(directory, "checkin", "pause");
     await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
     const kept = await listRoutines(directory);
-    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], [added.id, false, false, "daily", 7]]);
+    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], ["collect", true, false, "weekly", 10], [added.id, false, false, "daily", 7]]);
     await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
     await changeRoutine(directory, added.id, "remove");
-    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin"]);
+    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin", "collect"]);
   } finally {
     await rm(directory, { recursive: true });
   }

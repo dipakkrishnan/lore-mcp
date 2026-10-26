@@ -523,7 +523,7 @@ class TakeOverTest(LoreTestCase):
         launched = automation.Routines(clock=lambda: local(14, 19))
         launched.take_over()
         listed = launched.list()
-        self.assertEqual([(r["due"], r["result"]) for r in listed], [(False, "")] * 2)
+        self.assertEqual([(r["due"], r["result"]) for r in listed], [(False, "")] * 3)
         self.assertEqual(listed[1]["next_run"], local(15, 18).isoformat())
 
     def test_only_the_app_moves_it(self) -> None:
@@ -559,15 +559,16 @@ class OnByDefaultTest(LoreTestCase):
     def test_with_no_profile_lore_reads_each_morning_and_checks_in_at_six(
         self,
     ) -> None:
-        reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
+        reading, check_in, collect = automation.Routines(clock=lambda: local(14, 8)).list()
         self.assertEqual(
             (reading["cadence"], reading["hour"], reading["paused"]),
             ("daily", 9, False),
         )
         self.assertEqual((check_in["cadence"], check_in["hour"]), ("weekdays", 18))
         self.assertFalse(check_in["paused"])
+        self.assertEqual((collect["cadence"], collect["day"], collect["hour"]), ("weekly", 6, 10))
         later = automation.Routines(clock=lambda: local(14, 10)).list()
-        self.assertEqual([r["due"] for r in later], [True, False])
+        self.assertEqual([r["due"] for r in later], [True, False, False])
         self.assertEqual(automation.schedule_state()["hour"], 9)
 
     def test_a_pause_kept_by_an_earlier_build_stays(self) -> None:
@@ -583,19 +584,20 @@ class OnByDefaultTest(LoreTestCase):
             )
         )
         listed = automation.Routines(clock=lambda: local(14, 21)).list()
-        self.assertEqual([(r["paused"], r["due"]) for r in listed], [(True, False)] * 2)
+        self.assertEqual([(r["paused"], r["due"]) for r in listed[:2]], [(True, False)] * 2)
         self.assertEqual(listed[1]["hour"], 20)
+        self.assertFalse(listed[2]["paused"], "one Lore added since is on")
 
     def test_turning_on_by_default_never_runs_one_at_once(self) -> None:
         # Upgraded at 7 PM on a weekday, long after both hours had passed.
         upgraded = automation.Routines(clock=lambda: local(14, 19)).list()
-        self.assertEqual([r["due"] for r in upgraded], [False, False])
+        self.assertEqual([r["due"] for r in upgraded], [False, False, False])
         self.assertEqual(
             [r["next_run"] for r in upgraded],
-            [local(15, 9).isoformat(), local(15, 18).isoformat()],
+            [local(15, 9).isoformat(), local(15, 18).isoformat(), local(18, 10).isoformat()],
         )
         relaunched = automation.Routines(clock=lambda: local(14, 23)).list()
-        self.assertEqual([r["due"] for r in relaunched], [False, False])
+        self.assertEqual([r["due"] for r in relaunched], [False, False, False])
 
     def test_being_told_is_remembered(self) -> None:
         def told() -> object:
@@ -773,19 +775,30 @@ class AutomationsTest(LoreTestCase):
         routines = clock.list()
         self.assertEqual(
             [(r["id"], r["built_in"]) for r in routines],
-            [("synthesis", True), ("checkin", True), (added["id"], False)],
+            [("synthesis", True), ("checkin", True), ("collect", True), (added["id"], False)],
         )
-        mine = routines[2]
+        mine = routines[3]
         self.assertEqual(mine["name"], "Every Sunday, remember what I read this week")
         self.assertEqual(mine["next_run"], local(18, 18).isoformat(), "a Sunday")
-        for built_in in ("synthesis", "checkin"):
+        for built_in in ("synthesis", "checkin", "collect"):
             with self.assertRaisesRegex(ValueError, "paused, not removed"):
                 automation.Routines().remove(built_in)
         with captured():
             self.assertEqual(cli.main(["automation", "remove", str(added["id"])]), 0)
         self.assertEqual(
-            [r["id"] for r in automation.Routines().list()], ["synthesis", "checkin"]
+            [r["id"] for r in automation.Routines().list()],
+            ["synthesis", "checkin", "collect"],
         )
+
+    def test_lores_collections_routine_hands_the_app_its_own_sentence(self) -> None:
+        """APP-246: Lore's weekly look for collections runs like the owner's own, on
+        a sentence the owner can't edit, and only ever suggests."""
+        routines = automation.Routines(clock=lambda: local(14, 12))
+        [collect] = [r for r in routines.list() if r["id"] == "collect"]
+        self.assertEqual((collect["kind"], collect["built_in"]), ("ask", True))
+        asked = str(routines.get("collect").run()["ask"])
+        self.assertIn("collections", asked)
+        self.assertIn("Write no new memories", asked)
 
     def test_an_owners_routine_hands_its_sentence_to_the_app_and_keeps_its_result(
         self,

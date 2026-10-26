@@ -209,7 +209,7 @@ class Suggestions {
 }
 
 /** The memories an automation's suggested collection should hold: the ids it named, and the files it named that Lore
- * keeps as private memories. @param {NonNullable<ReadingReport["collection"]>} asked @param {Array<{id: number, status: string, source_path: string}>} stored @param {string} folder */
+ * keeps as private memories. @param {NonNullable<ReadingReport["collections"]>[number]} asked @param {Array<{id: number, status: string, source_path: string}>} stored @param {string} folder */
 function suggested(asked, stored, folder) {
   const files = new Set((asked.files ?? []).map((file) => resolve(folder, file)));
   const named = stored.filter((memory) => memory.status === "private" && files.has(resolve(memory.source_path))).map((memory) => memory.id);

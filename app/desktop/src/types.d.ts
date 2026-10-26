@@ -173,7 +173,7 @@ type SourceRead = { name: string; label?: string; connector?: string | null; app
 type Reading = { name: string; label: string; item: string; added: number; title: string; phase: string; ask?: string; from?: string; by: Contributor };
 
 /** What a reading hands back: how many items it read, and each topic file it wrote. */
-type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string; collection?: { title: string; memories?: number[]; files?: string[] } };
+type ReadingReport = { read: number; memories: Array<{ file: string; worth_selling: boolean; why: string }>; missing?: string; collections?: Array<{ title: string; memories?: number[]; files?: string[] }> };
 
 /** APP-246: a collection an automation suggests: its name (an existing one's, to add to it), the memories it should
  * hold, and the automation that suggested it. The owner reviews it in Lore's own picker before anything changes. */
