@@ -1467,7 +1467,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         const bar = await js(`document.querySelector("#content .store-bar").textContent`);
         check("the store card reads in whole dollars and cents, no extra zeros", await js(`document.querySelector("#content .store-bar .price-row").textContent`) === "$1 a piece · first 3 copies free · $0.10 an answer", bar);
-        check("…with Cloudflare and Payouts as quiet links", await js(`[...document.querySelectorAll("#content .store-bar a")].map((a) => a.className + " " + a.textContent).join("|")`) === "quiet-link Cloudflare ↗|quiet-link Payouts ↗", bar);
+        check("…with Markets, Dashboard and Payouts as quiet links", await js(`[...document.querySelectorAll("#content .store-bar a")].map((a) => a.className + " " + a.textContent + (a.textContent === "Markets ↗" ? " " + a.href : "")).join("|")`) === "quiet-link Markets ↗ https://yourlore.dev/marketplace|quiet-link Dashboard ↗|quiet-link Payouts ↗", bar);
         await shot("store-card");
         await js(`window.__lore.show("settings")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Listed")`);
