@@ -88,6 +88,10 @@ const collectionPicks = new Set();
 let collectionPasting = false;
 /** Whether a collection that already has pieces shows the picker to add more. */
 let collectionAdding = false;
+/** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
+let collectionStep = 0;
+/** The name the chosen memories suggest, offered on the naming step. */
+let collectionSuggestion = "";
 /** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
 let collectionBusy = "";
 let editingCollectionPrice = false;
@@ -1756,9 +1760,10 @@ function storeBar(s) {
   else {
     const newer = newerStore(s);
     if (newer) {
+      // Its own strip along the foot, so the price stays one clean line.
       const line = el("div", "newer-store-line");
       line.append(newer.note, newer.update);
-      prices.append(line);
+      bar.append(line);
     }
   }
   return bar;
@@ -1990,6 +1995,7 @@ function openCollection() {
 /** @param {CollectionItem | undefined} item */
 function collectionEyebrow(item) {
   if (!item) return "Collection";
+  if (collectionStep) return "New collection";
   return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
 }
 
@@ -2030,6 +2036,8 @@ async function newCollection() {
   let made = null;
   if (await act(async () => { made = await window.lore.newCollection(); })) {
     if (made) showCollection(/** @type {NewCollection} */ (made).id);
+    collectionStep = 1;
+    render();
     queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
   }
 }
@@ -2044,6 +2052,9 @@ async function addToCollection(input) {
     return false;
   });
   if (!files.length && !input.items?.length && !input.memories?.length) return;
+  // The topic most of the chosen memories share names the collection, unless the owner already did.
+  const topics = (input.memories ?? []).map((id) => snapshot ? privateMemories(snapshot).find((memory) => memory.id === id)?.project_label ?? "" : "").filter(Boolean);
+  const top = topics.sort((a, b) => topics.filter((t) => t === b).length - topics.filter((t) => t === a).length)[0];
   collectionBusy = "adding";
   render();
   const done = await act(async () => { await window.lore.addToCollection(item.id, { memories: input.memories, items: input.items, files }); });
@@ -2054,6 +2065,10 @@ async function addToCollection(input) {
     if (input.memories?.length) collectionPicks.clear();
     collectionAdding = false;
     collectionPasting = false;
+    if (collectionStep === 1) {
+      collectionSuggestion = item.title !== UNTITLED ? item.title : top ?? (input.items?.[0]?.title ?? "");
+      collectionStep = 2;
+    }
   }
   render();
 }
@@ -2084,6 +2099,7 @@ async function priceCollection(item, amount) {
   collectionBusy = "";
   if (done) {
     editingCollectionPrice = false;
+    collectionStep = 0;
     const live = Boolean(snapshot?.node.url);
     if (amount === 0) tell("Taken off sale. Its pieces are still for sale one by one.");
     else tell(live ? `On sale at ${price(amount)}. Buyers can get all of it in one go.` : `Priced at ${price(amount)}. It goes on sale once your store is open.`, false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
@@ -2150,14 +2166,18 @@ function memoryPicker(s) {
   find.type = "search";
   find.placeholder = "Find a memory";
   find.setAttribute("aria-label", "Find a memory to add");
-  const add = button("", "primary", () => void addToCollection({ memories: [...collectionPicks] }));
+  // Back on the first step with pieces already in, Continue moves on without adding more.
+  const onward = () => collectionStep === 1 && !collectionPicks.size && Boolean(openCollection()?.pieces.length);
+  const add = button("", "primary", () => {
+    if (onward()) { collectionStep = 2; collectionSuggestion = openCollection()?.title ?? ""; render(); } else void addToCollection({ memories: [...collectionPicks] });
+  });
   const chosen = el("span", "hint");
   /** @type {Array<{memory: MemoryItem, tick: HTMLInputElement, line: HTMLElement}>} */
   const all = [];
   const count = () => {
     const n = collectionPicks.size;
-    add.textContent = collectionBusy === "adding" ? "Adding…" : n ? `Add ${n} ${n === 1 ? "memory" : "memories"}` : "Add";
-    add.disabled = busy || !n;
+    add.textContent = collectionBusy === "adding" ? "Adding…" : collectionStep === 1 ? "Continue" : n ? `Add ${n} ${n === 1 ? "memory" : "memories"}` : "Add";
+    add.disabled = busy || (!n && !onward());
     const outside = all.filter((entry) => entry.line.hidden && collectionPicks.has(entry.memory.id)).length;
     chosen.textContent = !n ? "" : outside ? `${n} selected · ${outside} outside this search` : `${n} selected`;
   };
@@ -2274,6 +2294,80 @@ function collectionPiece(item, piece) {
   return row(piece.title, "", trailing, false);
 }
 
+const UNTITLED = "Untitled collection";
+const WIZARD_STEPS = ["Choose memories", "Name it", "Price it"];
+
+/** Where a new collection is in its three steps: done ones ticked, this one lit. */
+function wizardSteps() {
+  const list = el("ol", "wizard-steps");
+  WIZARD_STEPS.forEach((label, index) => {
+    const at = index + 1;
+    const step = el("li", at < collectionStep ? "done" : at === collectionStep ? "now" : "");
+    if (at === collectionStep) step.setAttribute("aria-current", "step");
+    step.append(el("span", "wizard-n", at < collectionStep ? "✓" : String(at)), el("span", "", label));
+    list.append(step);
+  });
+  return list;
+}
+
+/** A new collection, one step on screen at a time. Cancel on the first step leaves nothing behind.
+ * @param {CollectionItem} item @param {HTMLElement} fill */
+function collectionWizard(item, fill) {
+  const nav = el("div", "wizard-nav");
+  /** @type {HTMLElement} */
+  let body;
+  if (collectionStep === 1) {
+    body = el("div", "wizard-body");
+    body.append(el("p", "wizard-lead", "Pick the memories to sell together. Ticking a topic picks everything in it."), fill);
+    // The empty collection is the only trace of starting; Cancel takes it back.
+    const cancel = button("Cancel", "quiet neutral", async () => {
+      collectionStep = 0;
+      if (await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("inventory"); }
+    });
+    // Beside Continue when the picker shows; under the drop zone otherwise.
+    const pickFoot = fill.querySelector(".pick-foot");
+    if (!item.pieces.length) pickFoot ? pickFoot.lastElementChild?.before(cancel) : nav.append(cancel);
+  } else if (collectionStep === 2) {
+    body = /** @type {HTMLFormElement} */ (el("form", "wizard-body"));
+    const name = el("input", "collection-name");
+    name.value = collectionSuggestion || (item.title === UNTITLED ? "" : item.title);
+    name.placeholder = "What buyers will see it called";
+    name.setAttribute("aria-label", "Collection name");
+    name.maxLength = 80;
+    const next = el("button", "btn primary", collectionBusy === "naming" ? "Saving…" : "Continue");
+    next.type = "submit";
+    body.append(el("p", "wizard-lead", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"} in it. Give it a name buyers will understand.`), name);
+    body.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const value = name.value.trim();
+      if (!value) return void tell("Give it a name first.", true);
+      await renameCollection(item, value);
+      collectionStep = 3;
+      editingCollectionPrice = false;
+      render();
+    });
+    nav.append(button("Back", "quiet neutral", () => { collectionStep = 1; render(); }), next);
+    queueMicrotask(() => { name.focus(); name.select(); });
+  } else {
+    body = el("div", "wizard-body");
+    body.append(el("p", "wizard-lead", "One price for everything in it. You can change it any time."), collectionPrice(item));
+    // Put on sale moves to the footer, where every step goes forward.
+    const priced = /** @type {HTMLFormElement | null} */ (body.querySelector(".price-edit"));
+    const sell = priced?.querySelector("button[type=submit]");
+    if (priced && sell) priced.id = "wizard-price";
+    nav.append(button("Back", "quiet neutral", () => { collectionStep = 2; collectionSuggestion = item.title; render(); }), button("Skip for now", "quiet neutral", () => { collectionStep = 0; render(); }));
+    if (sell) { sell.setAttribute("form", "wizard-price"); sell.classList.remove("sm"); nav.append(sell); }
+  }
+  const panel = el("div", "card pad wizard");
+  panel.append(wizardSteps(), body, nav);
+  // The naming step submits from its own Continue, which sits in the nav row.
+  if (body instanceof HTMLFormElement) {
+    body.id = "wizard-form";
+    nav.querySelector("button[type=submit]")?.setAttribute("form", "wizard-form");
+  }
+  return [panel];
+}
+
 /** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
 function renderCollection(s) {
   const item = openCollection();
@@ -2318,6 +2412,7 @@ function renderCollection(s) {
   });
   const foot = el("div", "collection-foot");
   foot.append(remove);
+  if (collectionStep) return collectionWizard(item, fill);
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
@@ -3798,7 +3893,7 @@ function nextRun(iso) {
   return days < 7 ? soon.format(days, "day") : `on ${when(iso)}`;
 }
 
-/** One routine, one line under its name: when, and when next (or that it's paused or running).
+/** One routine: its name, what it's told to do, then when and when next (or that it's paused or running).
  * The schedule retimes it; Run now and the switch show on hover. @param {Routine} routine */
 function routineRow(routine) {
   const busy = running.has(routine.id);
@@ -3815,6 +3910,10 @@ function routineRow(routine) {
   time.addEventListener("click", () => openRoutineTime(routine));
   const detail = el("span", "routine-line");
   detail.append(time, " · ", el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`));
+  const lines = el("div", "routine-lines");
+  // A routine named by its own sentence says it once.
+  if (routine.about && routine.about !== routine.name) lines.append(el("span", "routine-about", routine.about));
+  lines.append(detail);
   const actions = el("div", "routine-actions");
   actions.append(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
   if (!routine.built_in) actions.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
@@ -3829,7 +3928,7 @@ function routineRow(routine) {
     news.addEventListener("click", () => show("inventory"));
     trailing.append(news);
   }
-  const node = row(routine.name, detail, trailing, false);
+  const node = row(routine.name, lines, trailing, false);
   node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : " on"}`));
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
@@ -3846,7 +3945,7 @@ function openRoutine(routine) {
   const form = new FormSheet(routine.name);
   const title = own ? form.title("Title (optional)") : null;
   if (title) title.value = routine.name === routine.about ? "" : routine.name;
-  const text = own ? form.prompt("What Lore does", "Describe what Lore should do.") : null;
+  const text = own ? form.prompt("Instructions", "Describe what Lore should do.") : null;
   if (text) {
     text.value = routine.about;
     text.maxLength = 500;
@@ -3945,7 +4044,7 @@ function heardSchedule(said) {
 function openNewRoutine(said = "") {
   const form = new FormSheet("New automation");
   const name = form.title("Title (optional)");
-  const text = form.prompt("Describe what Lore should do", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
+  const text = form.prompt("Instructions", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
   text.maxLength = 500;
   text.value = said;
   const heard = heardSchedule(said);
@@ -4032,14 +4131,14 @@ function render() {
   renderNotices();
   const detail = view === "today" ? detailTask : null;
   const welcoming = view === "today" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
     : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : view === "automations" ? automationsEyebrow() : "";
   title.textContent = heading;
   // A collection's name is its heading, renamed in place.
-  title.contentEditable = view === "collection" && !detail ? "plaintext-only" : "false";
+  title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
   title.spellcheck = false;
   taskBack.textContent = view === "collection" && !detail ? "← Inventory" : "← Today";
   taskBack.hidden = !detail && view !== "collection";
@@ -4087,7 +4186,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
