@@ -1518,10 +1518,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The account menu's Dark mode switch: one click flips the window, says what it is drawn in, and is kept.
         const switchOn = () => js(`document.querySelector("#dark-mode").getAttribute("aria-checked")`);
         await js(`document.querySelector("#account").click()`);
-        check("the account menu's Dark mode switch shows the window's theme", (await waitFor(`document.querySelector("#account-menu").matches(":popover-open")`)) && (await switchOn()) === String(DARK));
+        // The switch follows the theme's change event, a beat after the window repaints, so both are waited on together.
+        check("the account menu's Dark mode switch shows the window's theme", await waitFor(`document.querySelector("#account-menu").matches(":popover-open") && document.querySelector("#dark-mode").getAttribute("aria-checked") === ${JSON.stringify(String(DARK))}`), await switchOn());
         await shot(`account-menu-dark-mode-${DARK ? "on" : "off"}`);
         await js(`document.querySelector("#dark-mode").click()`);
-        check("…one click flips the window at once, the menu still open", (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)}`)) && (await switchOn()) === String(!DARK) && await js(`document.querySelector("#account-menu").matches(":popover-open")`), await js(BG));
+        check("…one click flips the window at once, the menu still open", (await waitFor(`${BG} === ${JSON.stringify(DARK ? LIGHT_BG : DARK_BG)} && document.querySelector("#dark-mode").getAttribute("aria-checked") === ${JSON.stringify(String(!DARK))}`)) && await js(`document.querySelector("#account-menu").matches(":popover-open")`), await js(BG));
         await shot(`account-menu-dark-mode-${DARK ? "off" : "on"}`);
         await sleep(200);
         const { Appearance } = require(join(src, "appearance.cjs"));
