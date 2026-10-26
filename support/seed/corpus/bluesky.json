@@ -1,0 +1,70 @@
+{
+  "handle": "tidewell-bsky-lore.bsky.social",
+  "fallback_handle": "tidewellapp.bsky.social",
+  "display_name": "Priya @ Tidewell",
+  "bio": "Building Tidewell, bookings and routes for mobile groomers. Seed account for the Lore connector test suite (github.com/… lore-mcp). Nothing here is real.",
+  "records": [
+    {
+      "id": "bs-01",
+      "type": "post",
+      "canary": "canary-bluesky-01",
+      "text": "A reminder SMS two hours before the slot beats one the night before; the night-before one gets ignored. tidewell-seed canary-bluesky-01"
+    },
+    {
+      "id": "bs-02",
+      "type": "post",
+      "canary": "canary-bluesky-02",
+      "text": "Raising $29 to $39 with grandfathering lost nobody; the new price only ever applied to people who never saw the old one. tidewell-seed canary-bluesky-02"
+    },
+    {
+      "id": "bs-03",
+      "type": "post",
+      "canary": "canary-bluesky-03",
+      "text": "41 groomers on Tidewell as of this week, from one van in Port Alder to a two-van shop three towns over. Thank you all. tidewell-seed canary-bluesky-03"
+    },
+    {
+      "id": "bs-04",
+      "type": "post",
+      "canary": "canary-bluesky-04",
+      "text": "Why the route is the product, the long version: https://tidewell-notes.pages.dev/posts/why-the-route-is-the-product.html #mobilegrooming tidewell-seed canary-bluesky-04",
+      "facets": [
+        {
+          "kind": "link",
+          "match": "https://tidewell-notes.pages.dev/posts/why-the-route-is-the-product.html",
+          "uri": "https://tidewell-notes.pages.dev/posts/why-the-route-is-the-product.html"
+        },
+        {
+          "kind": "tag",
+          "match": "#mobilegrooming",
+          "tag": "mobilegrooming"
+        }
+      ]
+    },
+    {
+      "id": "bs-05",
+      "type": "post",
+      "canary": "canary-bluesky-05",
+      "text": "Emoji and <angle> brackets in a post 🚐 <not html> should come through untouched. tidewell-seed canary-bluesky-05"
+    },
+    {
+      "id": "bs-06",
+      "type": "post",
+      "canary": null,
+      "text": "ship it 🚐 tidewell-seed"
+    },
+    {
+      "id": "bs-07",
+      "type": "reply",
+      "reply_to": "bs-01",
+      "canary": "canary-bluesky-07",
+      "text": "Replying to myself: the two-hour window also suits the customer's dog, who has usually finished the walk by then. tidewell-seed canary-bluesky-07"
+    },
+    {
+      "id": "bs-08",
+      "type": "repost",
+      "of": "bs-02",
+      "canary": null,
+      "text": null
+    }
+  ]
+}
