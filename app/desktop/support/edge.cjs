@@ -788,7 +788,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         rmSync(join(process.env.LORE_STORE ?? "", "deployed.json"), { force: true });
         rmSync(join(process.env.LORE_STORE ?? "", "payout.json"), { force: true });
         await settled();
-        check("a store this Mac has no record of putting online is never offered an update", await js(`window.lore.snapshot().then((s) => s.node.store === "unknown")`) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
+        check("a store this Mac has no record of putting online is never offered an update", await waitFor(`window.lore.snapshot().then((s) => s.node.store === "unknown")`, 80) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
@@ -1087,6 +1087,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.signIn()`);
         await waitFor(todayShown);
         // APP-127, APP-214: an owner with nothing connected is pointed at Connectors, and nothing to publish yet.
+        await waitFor(`/Connect the AI you talk to most/.test(document.querySelector("#content").textContent)`, 120);
         const firstToday = await js(`document.querySelector("#content").textContent`);
         check("Today points a new owner at connecting their AI, with nothing to publish yet", /Connect the AI you talk to most/.test(firstToday) && !/something to sell/.test(firstToday), firstToday);
         check("…and names no coding agents", !/Claude Code|Codex/.test(firstToday), firstToday);
@@ -2626,6 +2627,21 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("automations")`);
         await sleep(400);
         await shot("automations-after");
+        // APP-246: a suggested collection reads as its name and what's in it, and Review shows only those memories.
+        const kept = await js(`window.lore.snapshot().then((s) => s.library.items.filter((m) => m.status === "private").map((m) => ({ id: m.id, title: m.title })))`);
+        writeFileSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "collection-suggestions.json"), JSON.stringify([{ at: new Date().toISOString(), title: "Pricing lessons", memories: [kept[0].id], from: "Suggest collections" }]));
+        await js(`window.__lore.show("today")`);
+        await js(`window.__lore.event({ type: "changed" })`);
+        const suggested = `[...document.querySelectorAll("#content .row.suggestion")].find((r) => r.querySelector("b")?.textContent === "Pricing lessons")`;
+        check("a suggested collection says what's in it under Inventory's mark", await waitFor(`${suggested}?.querySelector(".t span")?.textContent === ${JSON.stringify(`1 memory · ${kept[0].title}`)}`) && await js(`${suggested}.querySelector(".routine-mark svg")?.innerHTML === document.querySelector("nav [data-view=inventory] svg").innerHTML && Boolean(${suggested}.querySelector(".dismiss[aria-label='Dismiss Pricing lessons']"))`), await js(`${suggested}?.textContent`));
+        await js(`${suggested}.closest(".section").scrollIntoView()`);
+        await sleep(300);
+        await shot("automations-suggested-collection");
+        await js(`[...${suggested}.querySelectorAll(".btn")].find((b) => b.textContent === "Review").click()`);
+        check("…Review shows only its memories, ticked, with no search", await waitFor(`document.querySelectorAll("#content .pick").length === 1`) && await js(`document.querySelector("#content .pick input").checked && !document.querySelector("#content .pick-find") && document.querySelector("#content .wizard-lead").textContent === "Lore picked this memory. Untick any that don't belong."`), await js(`document.querySelector("#content").textContent`));
+        await shot("automations-suggestion-review");
+        await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Choose from all memories").click()`);
+        check("…and every memory is one tap away, the suggestion's still ticked", await waitFor(`Boolean(document.querySelector("#content .pick-find"))`) && await js(`document.querySelectorAll("#content .pick").length === ${kept.length} && document.querySelectorAll("#content .pick input:checked").length === 1`), await js(`document.querySelectorAll("#content .pick").length`));
       } else if (scenario === "checkin" || scenario === "quiet") {
         // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
         const repo = join(__dirname, "../../..");
