@@ -159,7 +159,6 @@ obsolete), then `priority` (P0 → P3).
 | [MON-041](./monetization/MON-041-explain-free-copies-where-the-price-is-set-and-limit-them-per-reader.md) | Explain free copies where the price is set and limit them per reader | P1 | S | monetization | ready | MON-040, APP-136, MON-035 | — | — | — |
 | [MON-042](./monetization/MON-042-settle-keyless-real-money-stores-through-payai.md) | Settle keyless real-money stores through PayAI, not the test facilitator | P1 | XS | monetization | ready | MON-005, MON-025 | — | — | — |
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
-| [APP-247](./desktop-app/APP-247-offer-the-update-to-a-store-opened-for-agents-only.md) | Offer the update to a store opened for agents only | P1 | S | desktop-app | ready | APP-231, XC-067 | — | — | — |
 | [MON-048](./monetization/MON-048-list-collections-in-a-card-only-stores-discover.md) | List collections in a card-only store's discover | P1 | S | monetization | ready | MON-044, MON-047 | — | — | — |
 | [MON-049](./monetization/MON-049-deliver-the-collection-the-buyer-paid-for.md) | Deliver the collection the buyer paid for, not what is left of it | P1 | M | monetization | ready | MON-044, XC-039 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
