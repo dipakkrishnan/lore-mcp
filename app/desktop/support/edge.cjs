@@ -788,7 +788,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         rmSync(join(process.env.LORE_STORE ?? "", "deployed.json"), { force: true });
         rmSync(join(process.env.LORE_STORE ?? "", "payout.json"), { force: true });
         await settled();
-        check("a store this Mac has no record of putting online is never offered an update", await js(`window.lore.snapshot().then((s) => s.node.store === "unknown")`) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
+        check("a store this Mac has no record of putting online is never offered an update", await waitFor(`window.lore.snapshot().then((s) => s.node.store === "unknown")`, 80) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
