@@ -752,8 +752,10 @@ async function start(loreHome, outgoing) {
       const count = run.memories.length;
       // Collections the routine was asked for are only suggested: the owner reviews each in Lore's own picker.
       const offered = [];
+      // Only memories Lore keeps now: an id the model made up never waits to land on one made later.
+      const kept = report.collections?.length ? new Set(Object.keys(await readGists(loreHome)).map(Number)) : new Set();
       for (const asked of report.collections ?? []) {
-        const picked = reading.suggested(asked, stored, join(loreHome, "memories"));
+        const picked = reading.suggested(asked, stored, join(loreHome, "memories")).filter((id) => kept.has(id));
         if (!picked.length) continue;
         await suggestions.add({ at: new Date().toISOString(), title: asked.title.trim(), memories: picked, from: read.label });
         offered.push(asked.title.trim());

@@ -372,10 +372,15 @@ class GistTest(LoreTestCase):
 
     def test_the_frontmatter_summary_is_the_gist(self) -> None:
         content = '---\nname: x\ndescription: "Launch set for Oct 27; maintenance in November"\n---\n# Title\nBody.'
-        self.assertEqual(gist(content), "Launch set for Oct 27; maintenance in November")
+        self.assertEqual(
+            gist(content), "Launch set for Oct 27; maintenance in November"
+        )
 
     def test_without_one_the_first_sentence_of_prose_stands_in(self) -> None:
-        self.assertEqual(gist("# Heading\n\nStripe **closed** it. Then reopened."), "Stripe closed it.")
+        self.assertEqual(
+            gist("# Heading\n\nStripe **closed** it. Then reopened."),
+            "Stripe closed it.",
+        )
 
     def test_a_long_one_ends_on_a_whole_word(self) -> None:
         said = gist("word " * 100)

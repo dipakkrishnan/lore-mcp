@@ -60,6 +60,15 @@ class Collections:
         if not entries and not drop.memories:
             raise ValueError("there was no text to add")
         with Store() as store:
+            # Every memory checked before any goes in, so a bad one leaves the collection as it was.
+            kept = {memory_id: store.get(memory_id) for memory_id in drop.memories}
+            gone = [
+                i
+                for i, memory in kept.items()
+                if memory is None or memory.status != "private"
+            ]
+            if gone:
+                raise ValueError(f"memory {gone[0]} isn't one Lore keeps")
             pieces = [
                 store.add_memory_to_collection(collection_id, memory_id)
                 for memory_id in drop.memories

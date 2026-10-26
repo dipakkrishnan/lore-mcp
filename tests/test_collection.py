@@ -8,6 +8,7 @@ from unittest.mock import patch
 from helpers import LoreTestCase, captured
 
 from lore import cli
+from lore.collection import Collections, Drop
 from lore.store import Store
 
 
@@ -57,7 +58,9 @@ class CollectionTest(LoreTestCase):
         push.assert_called_once_with(str(cli.store_folder()))
 
     def test_kept_memories_become_pieces_as_they_read(self) -> None:
-        kept = {title: self.seed_memory(title) for title in ("Ship weekly", "Hire slowly")}
+        kept = {
+            title: self.seed_memory(title) for title in ("Ship weekly", "Hire slowly")
+        }
         made = self.run_cli("collection", "new")
         drop = {"memories": [kept["Ship weekly"], kept["Hire slowly"]]}
         added = self.run_cli(
@@ -86,6 +89,35 @@ class CollectionTest(LoreTestCase):
             collection = store.new_collection()
             with self.assertRaisesRegex(ValueError, "isn't one Lore keeps"):
                 store.add_memory_to_collection(collection.id, discarded)
+
+    def test_a_bad_memory_leaves_the_collection_as_it_was(self) -> None:
+        kept = self.seed_memory("Ship weekly")
+        gone = self.seed_memory("Old", status="discarded")
+        with Store() as store:
+            collection = store.new_collection()
+        with self.assertRaisesRegex(ValueError, "isn't one Lore keeps"):
+            Collections(lambda: None).add(collection.id, Drop(memories=[kept, gone]))
+        with Store() as store:
+            self.assertEqual(store.collection(collection.id).pieces, [])
+
+    def test_two_memories_that_read_alike_are_two_pieces(self) -> None:
+        with Store() as store:
+            for title in ("First", "Second"):
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path=title,
+                    source_key=title,
+                    fingerprint=title,
+                    title=title,
+                    content="the same words",
+                )
+            first, second = (store.search(t)[0].id for t in ("First", "Second"))
+            collection = store.new_collection()
+            store.add_memory_to_collection(collection.id, first)
+            piece = store.add_memory_to_collection(collection.id, second)
+            self.assertEqual(piece.title, "Second")
+            self.assertEqual(len(store.collection(collection.id).pieces), 2)
 
     def test_the_same_text_dropped_twice_is_one_piece(self) -> None:
         with Store() as store:

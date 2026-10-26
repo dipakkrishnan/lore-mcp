@@ -2048,6 +2048,13 @@ function showCollection(id) {
 function newCollection(title, picks = []) {
   if (collectionBusy) return;
   gistsAsked = false;
+  // A fresh start: nothing ticked, typed or opened for another collection carries into this one.
+  collectionPicks.clear();
+  collectionDraft = "";
+  pickQuery = "";
+  collectionPasting = false;
+  collectionAdding = false;
+  editingCollectionPrice = false;
   collectionPending = title ?? UNTITLED;
   showCollection(0);
   collectionStep = 1;
@@ -2308,7 +2315,9 @@ function suggestionsCard(s) {
   const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
   if (!live.length) return null;
   const rows = live.map(({ each, memories }) => {
-    const into = (s.collections?.items ?? []).find((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    // Added to only when one collection has that name; with two alike it starts its own, which the owner names.
+    const named = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    const into = named.length === 1 ? named[0] : undefined;
     const detail = `${into ? `Add ${memories.length} to it` : `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`} · from ${each.from}`;
     const node = row(each.title, detail, cell(
       button("Dismiss", "quiet neutral", () => void dropSuggestion(each)),
@@ -2334,6 +2343,7 @@ async function reviewSuggestion(each, memories, into) {
   await dropSuggestion(each);
   if (!into) return void newCollection(each.title, memories);
   showCollection(into.id);
+  gistsAsked = false;
   collectionAdding = true;
   for (const id of memories) collectionPicks.add(id);
   render();
@@ -2493,7 +2503,7 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; render(); });
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; if (collectionAdding) gistsAsked = false; render(); });
   const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
   contents.classList.add("collection-contents");
   return [

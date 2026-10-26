@@ -559,14 +559,18 @@ class OnByDefaultTest(LoreTestCase):
     def test_with_no_profile_lore_reads_each_morning_and_checks_in_at_six(
         self,
     ) -> None:
-        reading, check_in, collect = automation.Routines(clock=lambda: local(14, 8)).list()
+        reading, check_in, collect = automation.Routines(
+            clock=lambda: local(14, 8)
+        ).list()
         self.assertEqual(
             (reading["cadence"], reading["hour"], reading["paused"]),
             ("daily", 9, False),
         )
         self.assertEqual((check_in["cadence"], check_in["hour"]), ("weekdays", 18))
         self.assertFalse(check_in["paused"])
-        self.assertEqual((collect["cadence"], collect["day"], collect["hour"]), ("weekly", 6, 10))
+        self.assertEqual(
+            (collect["cadence"], collect["day"], collect["hour"]), ("weekly", 6, 10)
+        )
         later = automation.Routines(clock=lambda: local(14, 10)).list()
         self.assertEqual([r["due"] for r in later], [True, False, False])
         self.assertEqual(automation.schedule_state()["hour"], 9)
@@ -584,7 +588,9 @@ class OnByDefaultTest(LoreTestCase):
             )
         )
         listed = automation.Routines(clock=lambda: local(14, 21)).list()
-        self.assertEqual([(r["paused"], r["due"]) for r in listed[:2]], [(True, False)] * 2)
+        self.assertEqual(
+            [(r["paused"], r["due"]) for r in listed[:2]], [(True, False)] * 2
+        )
         self.assertEqual(listed[1]["hour"], 20)
         self.assertFalse(listed[2]["paused"], "one Lore added since is on")
 
@@ -594,7 +600,11 @@ class OnByDefaultTest(LoreTestCase):
         self.assertEqual([r["due"] for r in upgraded], [False, False, False])
         self.assertEqual(
             [r["next_run"] for r in upgraded],
-            [local(15, 9).isoformat(), local(15, 18).isoformat(), local(18, 10).isoformat()],
+            [
+                local(15, 9).isoformat(),
+                local(15, 18).isoformat(),
+                local(18, 10).isoformat(),
+            ],
         )
         relaunched = automation.Routines(clock=lambda: local(14, 23)).list()
         self.assertEqual([r["due"] for r in relaunched], [False, False, False])
@@ -775,7 +785,12 @@ class AutomationsTest(LoreTestCase):
         routines = clock.list()
         self.assertEqual(
             [(r["id"], r["built_in"]) for r in routines],
-            [("synthesis", True), ("checkin", True), ("collect", True), (added["id"], False)],
+            [
+                ("synthesis", True),
+                ("checkin", True),
+                ("collect", True),
+                (added["id"], False),
+            ],
         )
         mine = routines[3]
         self.assertEqual(mine["name"], "Every Sunday, remember what I read this week")
