@@ -1054,6 +1054,23 @@ test("the profile saves only after the owner sees every part of it in full", asy
   }
 });
 
+test("a shell command with no limit of its own stops at Lore's default", { skip: process.platform !== "darwin" }, async () => {
+  const { createSandboxedBashOperations, BASH_TIMEOUT_S } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  try {
+    assert.equal(BASH_TIMEOUT_S, 600);
+    const started = Date.now();
+    await assert.rejects(createSandboxedBashOperations(place, "capture", 1).exec("sleep 30", loreHome, { onData: () => {} }), /timeout/);
+    assert.ok(Date.now() - started < 10_000);
+    // A limit the agent names wins.
+    assert.equal((await createSandboxedBashOperations(place, "capture", 1).exec("sleep 2", loreHome, { onData: () => {}, timeout: 10 })).exitCode, 0);
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("each task reads only its own conversation, and no read runs long or large", { skip: process.platform !== "darwin" }, async () => {
   const { createSandboxedReadOperations, READ_CAP } = await import("../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
@@ -2021,6 +2038,25 @@ test("a damaged sales marker reads as a first read, and the next write repairs i
     await assert.rejects(access(`${file}.tmp`));
   } finally {
     await rm(directory, { recursive: true });
+  }
+});
+
+test("packaging refuses while a copy runs from the output bundle", async () => {
+  const bundle = await mkdtemp(join(tmpdir(), "lore-guard-"));
+  const binary = join(bundle, "Contents/MacOS/Lore");
+  await mkdir(dirname(binary), { recursive: true });
+  await writeFile(binary, "#!/bin/bash\nsleep 30\n", { mode: 0o755 });
+  const guard = () => spawnSync(join(__dirname, "../support/guard-running.sh"), { env: { ...process.env, LORE_GUARD_BUNDLE: bundle }, encoding: "utf8" });
+  assert.equal(guard().status, 0, "nothing running: packaging proceeds");
+  const running = spawn(binary, { stdio: "ignore" });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const refused = guard();
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /Quit it first/);
+  } finally {
+    running.kill();
+    await rm(bundle, { recursive: true, force: true });
   }
 });
 

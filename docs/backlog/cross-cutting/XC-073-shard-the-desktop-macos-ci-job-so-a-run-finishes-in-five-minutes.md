@@ -70,10 +70,16 @@ Two at a time is free; three saturates the CPU and fails. So:
 - `timeout-minutes: 15` on each macOS job, and `setup-uv`'s cache.
 
 This PR also carries #559's second pruning pass (XC-043 is already `completed`,
-so the pass is recorded here): 21 low-signal tests removed, the secret and
-recovery-phrase skill checks folded into one scan, local HTTP fixtures polling
-every 10ms on shutdown, and the CLI push retry's sleep mocked. Python unit tests
-went from ~85s to ~27s locally.
+so the pass is recorded here): local HTTP fixtures polling every 10ms on
+shutdown, the CLI push retry's sleep mocked, the recovery-phrase check folded into
+the secret scan, and the prose-grep tests removed. Python unit tests went from
+~85s to ~27s locally; nearly all of that is the fixture polling. #559's round-1
+review found the pass had also deleted behaviour tests that XC-043 says never to
+delete, and they are kept here: the five skill safety-boundary tests (payments,
+proxy answers, capture approval, the reading skill's privacy, the check-in's
+silence), the shell command's default timeout, the packaging guard, and the store
+test for processes waiting out a migration already under way. Together they cost
+about twelve seconds.
 
 ## Acceptance criteria
 

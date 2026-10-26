@@ -292,6 +292,97 @@ class SkillContractTest(unittest.TestCase):
                         r"^(cat|echo|printf|tee)\b.*>\s*[\"']?[~$]?/?\.?lore/",
                     )
 
+    def test_the_payment_skill_refuses_the_secret_out_loud(self) -> None:
+        """Saying it is not enough, but not saying it guarantees someone pastes one."""
+        skill = (
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
+            .read_text(encoding="utf-8")
+            .lower()
+        )
+        # The buyer key goes into `.buyer.env`, edited by the owner in their own
+        # editor — never pasted into the conversation an agent later synthesizes.
+        self.assertIn(".buyer.env", skill)
+        self.assertIn("themselves", skill)
+        for promise in ("never holds", "test network", "explicit"):
+            with self.subTest(promise=promise):
+                self.assertIn(promise, skill)
+
+    def test_owner_handoffs_offer_and_decline_paid_proxy_answers(self) -> None:
+        onboard = " ".join(
+            (OWNER_SKILLS / "lore-onboard/SKILL.md").read_text().lower().split()
+        )
+        publish = " ".join(
+            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
+        )
+        payments = " ".join(
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
+        )
+
+        self.assertIn("only after a publication is approved", onboard)
+        for product in ("`get`", "`answer`", "or also add"):
+            self.assertIn(product, publish)
+            self.assertIn(product, payments)
+        for boundary in (
+            "public behavior guidance",
+            "not an api key",
+            "does not mean the owner is present",
+            "lore answer on <temporary-proxy-file> <per-answer-price>",
+            "a rejection saves nothing",
+            "publication-only, free, and private-only are complete outcomes",
+        ):
+            self.assertIn(boundary, payments)
+
+    def test_capture_skill_requires_private_approval_before_publish_handoff(
+        self,
+    ) -> None:
+        skill = (
+            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text(encoding="utf-8").lower()
+        )
+        for boundary in (
+            "save nothing until the owner clearly approves",
+            "stores every entry as `private`",
+            "never edit `lore.db`",
+            "lore-publish",
+            "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_reading_skill_keeps_work_private_and_never_sells(self) -> None:
+        """AUT-005: it runs with nobody watching, so its boundaries are the only guard."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-synthesize/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "run `lore memory rules`",
+            "never ask the owner anything",
+            "when unsure, it is work",
+            "never suggest anything under `work/`",
+            "no company, people, client, or product names",
+            "`memories_ready`",
+            "never publish",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_the_check_in_skill_defaults_to_silence_and_saves_nothing(self) -> None:
+        """AUT-008: a check-in that nags gets turned off, so silence is the default."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-check-in/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "silence is the normal outcome",
+            "the library does not already explain",
+            "one to three questions, each about one specific item",
+            "never ask the owner anything",
+            "`check_in` once",
+            "the app, not you, decides whether anything is posted",
+            "only after they approve them",
+            "never save a memory, draft a publication",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
     def test_no_skill_can_carry_a_payment_secret(self) -> None:
         """The one review finding that would silently regress on any future edit.
 
