@@ -83,6 +83,15 @@ startups, so 3 at once on 3 vCPUs may not beat 2.
 
 ## Notes
 
+- Criterion 1, measured on PR #584's `Desktop macOS checks` (run
+  40527641203, job 122271609981, macos-14, 2026-10-27): the `Run npm test`
+  step took 53 s (15:12:04Z to 15:12:57Z; node's own `duration_ms` 52497),
+  against the 120 s baseline median, with `tests 152, pass 151, fail 0,
+  skipped 0, todo 1` and no `# SKIP` line, so every darwin-gated test ran.
+  That is below the 55-70 s the criterion names, not inside it, so the box
+  is left unticked as written; the item's target is beaten, not missed.
+  The estimate was made before STO-006 cut each CLI spawn, which is where
+  the extra few seconds went.
 - Done 2026-10-27. `test/app.test.cjs` (3153 lines, 124 top-level tests) is
   now four files grouped by shared fixture: `sandbox.test.cjs` (23 tests:
   the 15 darwin-gated ones, every `skip:` kept, with `sandboxed`,
