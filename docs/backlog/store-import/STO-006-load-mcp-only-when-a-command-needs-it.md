@@ -1,16 +1,16 @@
 ---
 id: STO-006
 title: Load mcp only when a command needs it
-priority: P2
+priority: P1
 effort: S
 component: store-import
-status: in-review
+status: ready
 related: [XC-077, APP-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
