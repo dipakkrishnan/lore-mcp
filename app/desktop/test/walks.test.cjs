@@ -45,7 +45,14 @@ const walk = (names, env, { ci = true } = {}) => {
     const match = /^(.+)\.(\d+)$/.exec(entry);
     if (!match) continue;
     attempts[match[1]] = Math.max(attempts[match[1]] ?? 0, Number(match[2]));
-    const stamp = (/** @type {string} */ file) => Number(readFileSync(join(dir, entry, file), "utf8"));
+    // A walk the runner killed never wrote `ended`; NaN there fails a window assertion instead of hiding the cause.
+    const stamp = (/** @type {string} */ file) => {
+      try {
+        return Number(readFileSync(join(dir, entry, file), "utf8"));
+      } catch {
+        return NaN;
+      }
+    };
     windows.push({ key: match[1], attempt: Number(match[2]), started: stamp("started"), ended: stamp("ended") });
   }
   const table = readFileSync(summary, "utf8");

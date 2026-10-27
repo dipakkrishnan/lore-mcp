@@ -128,17 +128,13 @@ const run = async (walk, attempts) => {
 /** Runs these walks `width` at a time; a failed first attempt goes to the back of this same queue. @param {typeof WALKS} walks @param {number} width */
 const pool = async (walks, width) => {
   const pending = walks.map((walk) => ({ walk, attempts: 1 }));
-  /** @type {typeof WALKS} */
-  const failedTwice = [];
   await Promise.all(Array.from({ length: Math.min(width, pending.length) }, async () => {
     for (let next = pending.shift(); next; next = pending.shift()) {
       const ok = await run(next.walk, next.attempts);
       // Once more, at the back of the queue, so a retry never delays a first attempt. Never a third time.
       if (!ok && next.attempts === 1) pending.push({ walk: next.walk, attempts: 2 });
-      else if (!ok) failedTwice.push(next.walk);
     }
   }));
-  return failedTwice;
 };
 
 (async () => {

@@ -16,8 +16,8 @@ updated: 2026-10-27
 ## Problem
 
 XC-077 runs the desktop walks two at a time on the 3-core `macos-14` runner.
-Its measurement (all 22 walks passing two at a time, 466 s) held for the first
-CI run, but the next three runs each lost `agents` on its first attempt:
+Its first CI run passed all 22 walks in 510 s (466 s in the local measurement),
+but the next three runs each lost `agents` on its first attempt:
 
 | run | `agents` | what failed |
 |---|---|---|
@@ -48,12 +48,18 @@ pool has drained (XC-080's rule that a retry never delays a first attempt
 still holds, and a retry never changes what runs beside a walk).
 
 Expected cost: `agents` alone is about 215 s on the runner, and the remaining
-20 walks (APP-247 removes the dark `connectors` run) sum to about 700 s, so two
-at a time about 350 s: roughly 565 s of walks against 466-510 s, about one
-to two minutes more per green job, and a job still about 12-13 minutes against
-19 before XC-077. Against that, a first-attempt `agents` failure costs about 4
-minutes of retry and, under XC-078's filter, happens on most PRs that touch the
-app.
+20 walks (APP-247 removes the dark `connectors` run) sum to 663 s by the
+`seconds` in `walks.cjs`, so two at a time about 330 s: roughly 550 s of walks
+against the 510 s measured with 22 walks two at a time, about one minute more
+per green job, and a job still about 12-13 minutes against 19 before XC-077.
+Against that, a first-attempt `agents` failure costs about 4 minutes of retry
+and, under XC-078's filter, happens on most PRs that touch the app.
+
+The walks step's cap goes from 15 to 20 minutes at the same time: run
+40454899712 (#579) hit the 15-minute cap on a slow runner when `agents` failed
+and its retry ran last, and a step that times out prints no summary table and
+saves no cache. Twenty minutes is still inside the 19-minute job XC-077
+replaced.
 
 The flag is data, not policy: if XC-072's condition waits land and `agents`
 stops failing beside a neighbour, drop the flag and the two minutes come back.
@@ -64,7 +70,7 @@ stops failing beside a neighbour, drop the flag and the two minutes come back.
       flight, first attempts before the shared pool and any retry after it, and
       `test/walks.test.cjs` proves no other walk starts or ends inside a solo
       walk's window.
-- [x] The implementing PR's `Desktop macOS checks` run shows `agents` passing on
+- [ ] The implementing PR's `Desktop macOS checks` run shows `agents` passing on
       its first attempt alone, and the job finishes in under 14 minutes.
 
 The trailing check, "over the 50 CI runs after it lands, `agents` fails its first

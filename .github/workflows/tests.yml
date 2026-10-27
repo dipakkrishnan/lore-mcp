@@ -122,8 +122,11 @@ jobs:
       # before any of them.
       - run: uv sync --locked
         working-directory: .
+      # XC-084: twenty minutes, not fifteen: a slow runner plus a retried
+      # `agents` ran past 15 once, and a step that times out prints no summary
+      # and saves no cache. Still inside the 19-minute job XC-077 replaced.
       - run: node support/walks.cjs --jobs 2
-        timeout-minutes: 15
+        timeout-minutes: 20
       # XC-082: whisper.sh clones and builds whisper.cpp at a pinned tag (about a
       # minute) and node.sh downloads a pinned npm, the same bytes every run.
       # Both scripts already skip their work when their outputs are in place,
