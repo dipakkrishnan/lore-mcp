@@ -2632,12 +2632,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         writeFileSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "collection-suggestions.json"), JSON.stringify([{ at: new Date().toISOString(), title: "Pricing lessons", memories: [kept[0].id], from: "Suggest collections" }]));
         await js(`window.__lore.show("today")`);
         await js(`window.__lore.event({ type: "changed" })`);
-        const suggested = `[...document.querySelectorAll("#content .row.suggestion")].find((r) => r.querySelector("b")?.textContent === "Pricing lessons")`;
+        const suggested = `[...document.querySelectorAll("#content .ready-head.suggestion")].find((r) => r.querySelector("b")?.textContent === "Pricing lessons")`;
         check("a suggested collection says what's in it under Inventory's mark", await waitFor(`${suggested}?.querySelector(".t span")?.textContent === ${JSON.stringify(`1 memory · ${kept[0].title}`)}`) && await js(`${suggested}.querySelector(".routine-mark svg")?.innerHTML === document.querySelector("nav [data-view=inventory] svg").innerHTML && Boolean(${suggested}.querySelector(".dismiss[aria-label='Dismiss Pricing lessons']"))`), await js(`${suggested}?.textContent`));
         await js(`${suggested}.closest(".section").scrollIntoView()`);
         await sleep(300);
         await shot("automations-suggested-collection");
-        await js(`[...${suggested}.querySelectorAll(".btn")].find((b) => b.textContent === "Review").click()`);
+        await js(`${suggested}.querySelector("button.inline").click()`);
         check("…Review shows only its memories, ticked, with no search", await waitFor(`document.querySelectorAll("#content .pick").length === 1`) && await js(`document.querySelector("#content .pick input").checked && !document.querySelector("#content .pick-find") && document.querySelector("#content .wizard-lead").textContent === "Lore picked this memory. Untick any that don't belong."`), await js(`document.querySelector("#content").textContent`));
         await shot("automations-suggestion-review");
         await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Choose from all memories").click()`);
@@ -2646,7 +2646,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Cancel").click()`);
         await js(`window.__lore.show("today")`);
         check("…Cancel leaves the suggestion on Today to come back to", await waitFor(`Boolean(${suggested})`) && await js(`window.lore.suggestions().then((all) => all.length === 1)`));
-        await js(`[...${suggested}.querySelectorAll(".btn")].find((b) => b.textContent === "Review").click()`);
+        await js(`${suggested}.querySelector("button.inline").click()`);
         await waitFor(`document.querySelectorAll("#content .pick").length === 1`);
         await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Continue").click()`);
         check("…and Continue puts its memories in, then clears it", await waitFor(`Boolean(document.querySelector("#content .collection-name"))`) && await (async () => { for (let i = 0; i < 20; i++) { if (await js(`window.lore.suggestions().then((all) => all.length === 0)`)) return true; await sleep(250); } return false; })());
