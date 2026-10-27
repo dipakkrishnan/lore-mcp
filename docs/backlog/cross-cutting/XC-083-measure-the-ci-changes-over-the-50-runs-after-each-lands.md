@@ -44,8 +44,13 @@ item for the regression rather than silently reverting.
 - [ ] XC-077 (walks two at a time): over the 50 `tests.yml` runs after it lands,
       the `Desktop macOS checks` job's failure rate is no worse than the baseline
       of 48 of 228 macOS jobs (21.1%) over Oct 20-26, 2026.
+- [ ] XC-078 (skip the desktop job for PRs that touch nothing it walks): over
+      the 50 pull-request runs after it lands, the share of PR runs that start a
+      macOS job is about 68% or less (130 of 191 merged PRs in the 30 days to
+      2026-10-26 touched a walk input). Count runs where `Desktop macOS checks`
+      has a conclusion other than `skipped`.
 - [ ] Any later CI item from the same investigation that moves a trailing-window
-      criterion here (XC-078, XC-080, XC-081) has its line added above when its PR
+      criterion here (XC-080, XC-081) has its line added above when its PR
       merges, and that line is measured the same way.
 
 ## Notes
