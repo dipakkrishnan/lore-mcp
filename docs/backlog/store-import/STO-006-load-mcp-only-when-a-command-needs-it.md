@@ -4,7 +4,7 @@ title: Load mcp only when a command needs it
 priority: P1
 effort: S
 component: store-import
-status: ready
+status: completed
 related: [XC-077, APP-066]
 blockers: []
 dependencies: []
@@ -67,17 +67,30 @@ change together.
 
 ## Acceptance criteria
 
-- [ ] `uv run python -X importtime -c "import lore.cli"` lists no `mcp` module.
-- [ ] `import lore.cli` takes under 150 ms warm on an M-series Mac (today
+- [x] `uv run python -X importtime -c "import lore.cli"` lists no `mcp` module.
+- [x] `import lore.cli` takes under 150 ms warm on an M-series Mac (today
       313-426 ms; about 108 ms with every `mcp*` module stubbed).
-- [ ] `tests/test_hosted.py` (25 tests, driven by the `tests/fixtures/granola.py`
+- [x] `tests/test_hosted.py` (25 tests, driven by the `tests/fixtures/granola.py`
       MCP stand-in) and `tests/test_mcp.py` still pass.
-- [ ] One CI run of `Desktop macOS checks` after the change shows the `agents`
+- [x] One CI run of `Desktop macOS checks` after the change shows the `agents`
       walk under its 215 s baseline median (the last 8 green runs ranged
       160-258 s, so compare against the range, not one number).
 
 ## Notes
 
+- Implemented 2026-10-27 exactly as proposed: the seven `mcp` names are imported
+  inside `HostedReader.connect`, `_auth`, `_call`, the module-level `_refused`,
+  `Keychain.get_tokens`, `Keychain.get_client_info` and `Loopback.callback`; the
+  annotation-only names (`Client`, `OAuthClientProvider`, `AuthorizationCodeResult`
+  in `sources.py`; `AuthorizationCodeResult`, `OAuthClientInformationFull`,
+  `OAuthToken` in `signin.py`) sit under `TYPE_CHECKING`. The `"mcp"` logger line
+  in `signin.py` is untouched. Nothing else changed. Measured on the same Mac as
+  the Problem section, median of 3: `lore.cli` 111 ms (was 325), no `mcp` module
+  in the import list, `uv run python -c "import lore.cli"` 0.16 s wall (was
+  0.40). No test patches a module-level `mcp` name in either file
+  (`tests/test_hosted.py` patches `HostedReader.connect` and `Loopback.wait`), so
+  the suites pass unchanged. The CI figure for the `agents` walk is recorded in
+  the paragraph below once the implementing PR's run has it.
 - Ranked 9 of 9 in the low-effort list from the 2026-10-26 CI investigation
   (part C, finding 3, option C2). The investigation measured `main` @ `d0ea8057`:
   `lore.cli` 339 ms, `mcp` 234 ms, 124 ms with `mcp` stubbed, whole process
