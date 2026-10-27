@@ -27,17 +27,25 @@ item and move its trailing-window check here.
 
 ## Proposed approach
 
-After each listed item merges, wait until 50 `tests.yml` runs have completed on
-`main` and on pull requests, then measure with:
+The whole stack merged on 2026-10-27 between 13:50Z and 13:58Z, so every window
+starts there. `docs/backlog/agents/measure_ci_window.py` computes all six rows
+from the Actions API (runs, each run's `Desktop macOS checks` job, and that
+job's log for the `agents` first attempt, the `K of N walks passed on retry.`
+line and the cache lines) and prints a Markdown table with the value, the
+baseline and a verdict, or "window too short" until 50 runs (200 for XC-081)
+are in:
 
 ```sh
-gh run list --workflow=tests.yml --limit 200 --json databaseId,createdAt,conclusion,event
-gh run view <id> --json jobs --jq '.jobs[] | select(.name == "Desktop macOS checks") | {conclusion, startedAt, completedAt}'
+uv run python docs/backlog/agents/measure_ci_window.py --since 2026-10-27T13:50:00Z --json runs.json
 ```
 
-Record the figure in the originating item's `## Notes` with the window's dates and
-tick the matching box below. If a figure is worse than its baseline, open a new
-item for the regression rather than silently reverting.
+Two scheduled Claude routines run it, on 2026-10-29 (the 50-run rows) and
+2026-11-02 (the 200-run XC-081 row), and open a `XC-083:` pull request that
+pastes the table into this item's Notes, records each figure in the originating
+item's `## Notes` with the window's dates, ticks the matching boxes below, and
+flips this item to `completed` when all are ticked. If a figure is worse than its
+baseline, the PR says so and a new item is filed for the regression rather than
+silently reverting.
 
 ## Acceptance criteria
 
