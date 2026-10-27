@@ -81,9 +81,12 @@ checked in the implementing PR; it moved to XC-083.
 ## Notes
 
 Implemented 2026-10-27 as the block above, verbatim, at the top of `tests.yml`.
-Criteria 1 and 3 are verified on the implementing PR by its own second push
-(this Notes paragraph); the run ids are recorded in the paragraph below once
-observed. Criterion 2 rests on the key: a push to `main` is grouped by
+Criteria 1 and 3 were verified on the implementing PR by its own second push,
+the commit that added this paragraph: the first push's run, 40454453415 (head
+`86ca6db2`, queued at 05:17Z), was cancelled when this commit's run was created,
+with the "higher priority waiting request for ci-CI-refs/pull/578/merge"
+annotation, while the sibling PRs' runs (#575, #577) kept going; this commit's
+run is the PR's green one. Criterion 2 rests on the key: a push to `main` is grouped by
 `github.sha`, so no two `main` runs share a group and GitHub has nothing to
 cancel or to drop as a second pending run; it was not exercised with three live
 pushes to `main` before merge. The 200-run check moved to XC-083.
