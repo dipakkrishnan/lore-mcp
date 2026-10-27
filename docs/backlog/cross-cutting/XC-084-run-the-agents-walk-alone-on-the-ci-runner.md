@@ -4,7 +4,7 @@ title: Run the agents walk alone on the CI runner
 priority: P1
 effort: XS
 component: cross-cutting
-status: completed
+status: in-review
 related: [XC-077, XC-080, XC-072, XC-083]
 blockers: []
 dependencies: []
@@ -88,10 +88,23 @@ beside `agents`'s neighbours too (twice in four runs), which the solo phase also
 changes, since `schedule` then shares the runner with one short walk rather than
 with the tail of `agents`.
 
-First run with the flag, 40456592452 (#581, 2026-10-27): `PASS agents (alone)
-(208s)` on its first attempt, 21 of 21 walks in 646 s with none retried, job
-14 min 18 s of which about 75 s was XC-082's one-off cache-miss build; the
-second criterion stays open until a run lands under 14 minutes.
+Two runs with the flag (#581, 2026-10-27), and they disagree:
+
+| run | head | `agents (alone)` | walks | `Desktop macOS checks` |
+|---|---|---|---|---|
+| 40456592452 | earlier push | PASS, 208 s, first attempt | 21 of 21 in 646 s, none retried | 14 min 18 s (about 75 s of it XC-082's one-off cache-miss build) |
+| 40458112153 | `e26e105` (this PR's head) | FAIL, 222 s, load 44.3, then PASS on retry, 237 s, load 26.1 | 21 of 21 in 1048 s, 2 passed on retry (`agents`, `schedule`) | 20 min 42 s (the walks step 17.5 min of the 20-minute cap) |
+
+In the failing run `agents` lost its first attempt while running alone, on
+"the sheet counts what Grok Bot saved, one click from seeing it" (`readAfterMs`
+15,023), the same check the Problem table blames on a neighbouring walk. So the
+premise, that `agents` loses its first attempt beside another walk and does not
+alone, has one passing sample and one failing sample. A load of 44 with no
+sibling walk running points at `agents`' own 258 CLI calls or at the runner, not
+only at its neighbours. This item does not settle that: the first attempt rate
+over 50 runs is XC-083's measure. Neither criterion above is met by the head run
+(`agents` did not pass first time, and the job took 20 min 42 s), so the item
+stays `in-review`, not `completed`.
 
 The run ids in the Problem table are the evidence; the per-check timings come
 from the FAIL lines XC-077's `edge.sh` change now prints into the log group.
