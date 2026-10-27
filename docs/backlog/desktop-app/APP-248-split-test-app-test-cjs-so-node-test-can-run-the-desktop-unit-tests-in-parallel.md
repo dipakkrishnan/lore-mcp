@@ -4,13 +4,13 @@ title: Split test/app.test.cjs so node --test can run the desktop unit tests in 
 priority: P2
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [XC-077, XC-072]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -72,17 +72,53 @@ startups, so 3 at once on 3 vCPUs may not beat 2.
 
 - [ ] `npm test` in `app/desktop` finishes in 55-70 s on `macos-14`,
       measured on one CI run of the change (baseline median 120 s).
-- [ ] The same tests pass: 143 top-level tests across the files, with
+- [x] The same tests pass: 143 top-level tests across the files, with
       146 pass + 1 todo in the summary as today (local run on
       2026-10-26: exit 0 in 70 s; CI run 40343764690: 115.8 s).
-- [ ] No test shares mutable globals across files: each file sets its own
+- [x] No test shares mutable globals across files: each file sets its own
       `LORE_STORE`, `lore-keys-*` folder, `useKeys` and `useRuntime`, and
       no test reads a value another file wrote.
-- [ ] The 15 darwin-gated tests stay gated and still run (not skipped) on
+- [x] The 15 darwin-gated tests stay gated and still run (not skipped) on
       the macOS job.
 
 ## Notes
 
+- Done 2026-10-27. `test/app.test.cjs` (3153 lines, 124 top-level tests) is
+  now four files grouped by shared fixture: `sandbox.test.cjs` (23 tests:
+  the 15 darwin-gated ones, every `skip:` kept, with `sandboxed`,
+  `swapping`, `TASKS_ALL`), `store.test.cjs` (25: openStore/payout/
+  confirm and the CLI round-trips, with `recordingCli`, `recordPayout`,
+  `confirming`), `agent.test.cjs` (49: scripted-agent turns, readings,
+  check-ins, routines, agents, with `checkInWith`, `TODAY`) and
+  `app.test.cjs` (27: the rest). The grouping is the balanced one from the
+  plan, not the item's literal three-group suggestion, which measured
+  40/19/2.5/5.5 s locally and would have left one file as the long pole.
+- The per-process scratch (old lines 10-23) moved to
+  `support/scratch.cjs`, which each test file requires before anything
+  loads `src/state.cjs` (that module reads `LORE_STORE` once, on require).
+  It exports `{ KEYS, CLI, readState }` and removes both its `lore-keys-*`
+  and `lore-store-*` folders on exit. `scriptedAgent` and `until` are in
+  `support/scripted.cjs`. Neither is under `test/` and neither is named
+  `test-*`: `node --test` with no arguments matches `**/test/**/*.cjs` and
+  `**/test-*.cjs`, so helpers named that way run as empty tests and change
+  the pass count (a first cut as `support/test-scratch.cjs` reported 154
+  tests instead of 152). `tsconfig.json` includes only `src`, so nothing
+  type-checks the helpers, as before.
+- `store.test.cjs` changes the two bare `useRuntime()` calls (old lines
+  807, 832) to `useRuntime(CLI)`: they reset to the real `uv run lore`,
+  dropping the attended-folder shim until the next `useRuntime(CLI)`,
+  harmless while the next test ran no CLI but order-dependent once the
+  real-CLI tests share the process.
+- Local measurement (M2 Pro, 2026-10-27, after STO-006 cut each CLI
+  spawn): `npm test` on main 45.2 s wall (`tests 152, pass 151, todo 1`);
+  after the split 20.8 / 20.6 / 20.5 s over three runs, same totals, exit
+  0, no `# SKIP`. Each file alone: sandbox 20.7 s, store 9.8 s, agent
+  8.4 s, app 7.7 s, so the sandbox file is now the long pole; the plan's
+  19/19/14/14 s was measured before STO-006 shrank the CLI-heavy groups.
+  Moving a few darwin-gated tests out of `sandbox.test.cjs` would cut
+  another few seconds, if anyone wants it.
+- The `lore-sandbox-*` `ENOTEMPTY` teardown race (XC-072) is untouched; it
+  did not show in any of the local runs.
 - Rank 8 of 9 in the 2026-10-26 CI investigation's low-effort list; the
   C report's finding 5 and option C3 are the source, re-read against
   `main` @ d8530d95. The 55-70 s estimate extrapolates from a local run,
