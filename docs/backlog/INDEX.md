@@ -141,7 +141,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-238](./desktop-app/APP-238-late-night-greeting.md) | Today says Good evening after midnight, not Good morning | P3 | S | desktop-app | in-review | — | — | — | — |
 | [APP-241](./desktop-app/APP-241-one-readable-column.md) | Keep each page to one readable column on a wide window | P3 | S | desktop-app | in-review | — | — | — | — |
 | [STO-006](./store-import/STO-006-load-mcp-only-when-a-command-needs-it.md) | Load mcp only when a command needs it | P1 | S | store-import | ready | XC-077, APP-066 | — | — | — |
-| [XC-077](./cross-cutting/XC-077-run-the-desktop-walks-two-at-a-time-on-one-runner.md) | Run the desktop walks two at a time on one runner | P1 | S | cross-cutting | ready | XC-072, APP-066 | — | — | — |
 | [XC-078](./cross-cutting/XC-078-skip-the-desktop-macos-job-for-prs-that-touch-nothing-it-walks.md) | Skip the desktop macOS job for PRs that touch nothing it walks | P1 | S | cross-cutting | ready | XC-077, XC-079, XC-081 | — | — | — |
 | [XC-080](./cross-cutting/XC-080-retry-a-failed-desktop-walk-once-and-report-every-retry.md) | Retry a failed desktop walk once, and report every retry | P1 | S | cross-cutting | ready | XC-072, XC-077 | — | — | — |
 | [APP-063](./desktop-app/APP-063-test-the-renderers-untrusted-text-boundary.md) | Test the renderer's untrusted-text boundary and its CSP | P1 | S | desktop-app | ready | APP-066, APP-010, APP-008 | — | — | — |
@@ -190,6 +189,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
 | [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
+| [XC-083](./cross-cutting/XC-083-measure-the-ci-changes-over-the-50-runs-after-each-lands.md) | Measure the CI changes over the 50 runs after each lands | P2 | XS | cross-cutting | ready | XC-077, XC-078, XC-080, XC-081, XC-072 | XC-077 | — | — |
 | [APP-086](./desktop-app/APP-086-show-attached-file-names-in-the-capture-thread.md) | Show attached file names in the capture thread | P3 | XS | desktop-app | ready | APP-003 | — | — | — |
 | [STO-004](./store-import/STO-004-wait-out-the-first-migration-instead-of-failing-with-database-is-locked.md) | Wait out the first migration instead of failing with database is locked | P1 | XS | store-import | in-progress | APP-181 | — | — | — |
 | [APP-058](./desktop-app/APP-058-measure-the-alpha-activation-funnel.md) | Measure the alpha activation funnel | P1 | S | desktop-app | in-progress | APP-001, APP-041, XC-030, XC-029, CLI-004 | XC-029, CLI-004 | — | — |
@@ -227,6 +227,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [XC-077](./cross-cutting/XC-077-run-the-desktop-walks-two-at-a-time-on-one-runner.md) | Run the desktop walks two at a time on one runner | P1 | S | cross-cutting | completed | XC-072, APP-066, XC-083 | — | — | — |
 | [XC-030](./cross-cutting/XC-030-adopt-an-opentelemetry-shaped-telemetry-model.md) | Adopt an OpenTelemetry-shaped telemetry model and restate the privacy contract | P1 | S | cross-cutting | completed | MON-020, MON-021, XC-029, CLI-004, APP-058 | — | — | — |
 | [MON-017](./monetization/MON-017-refuse-paid-answers-until-the-model-provider-is-ready.md) | Refuse paid answers until the model provider is ready | P1 | S | monetization | completed | MCP-003, APP-035, EVAL-002 | — | — | — |
 | [APP-066](./desktop-app/APP-066-run-the-desktop-renderer-tests-in-ci.md) | Run the desktop renderer's persona tests in CI | P1 | S | desktop-app | completed | APP-054, APP-055, APP-056, APP-057, APP-007, XC-004, XC-014 | — | — | — |

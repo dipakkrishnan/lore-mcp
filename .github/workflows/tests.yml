@@ -62,57 +62,24 @@ jobs:
       - run: npm run check
       - run: npm test
       # renderer.js has no unit coverage — it is only reachable through real
-      # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs
-      # here as its own step, so a red step names the persona that broke and
-      # one failure does not hide the rest. test/ci-edge.test.cjs fails when a
-      # persona is added to test:edge without a step. `test:capture` is
+      # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
+      # list of walks that `npm run test:edge` and CI both run, two at a time
+      # on this one runner (macos-14, three cores: two side by side take as
+      # long as one alone; a third slows every walk two to two and a half times
+      # and fails a third of them, so --jobs stays at 2). One macOS job per
+      # run, on purpose: the account is capped at five macOS jobs at once and
+      # the arm64 pool queues at busy hours, so more jobs per run meant more
+      # waiting, not less (#559, #560). A failing walk is a `FAIL <walk>` log
+      # group holding its output, an ::error annotation naming it, and a
+      # **FAIL** row in the step summary; one failure does not stop the others.
+      # A new walk is one line in support/walks.cjs. `test:capture` is
       # attended and stays local (see app/desktop/README.md).
-      - run: support/edge.sh feedback
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        timeout-minutes: 5
-      - run: support/edge.sh faq
-        timeout-minutes: 5
-      - run: support/edge.sh seller
-        timeout-minutes: 5
-      - run: support/edge.sh store
-        timeout-minutes: 5
-      - run: support/edge.sh update
-        timeout-minutes: 5
-      - run: support/edge.sh agents
-        timeout-minutes: 8
-      - run: support/edge.sh provision
-        timeout-minutes: 5
-      - run: support/edge.sh jobs
-        timeout-minutes: 5
-      - run: support/edge.sh fresh
-        timeout-minutes: 5
-      - run: support/edge.sh obsidian
-        timeout-minutes: 5
-      - run: support/edge.sh reading
-        timeout-minutes: 5
-      - run: support/edge.sh schedule
-        timeout-minutes: 5
-      - run: support/edge.sh checkin
-        timeout-minutes: 5
-      - run: support/edge.sh quiet
-        timeout-minutes: 5
-      - run: support/edge.sh automations
-        timeout-minutes: 5
-      - run: support/edge.sh sell
-        timeout-minutes: 5
-      - run: support/edge.sh cards
-        timeout-minutes: 5
-      - run: support/edge.sh sales
-        timeout-minutes: 5
-      - run: support/edge.sh settings
-        timeout-minutes: 5
-      - run: support/edge.sh today
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        env:
-          LORE_EDGE_APPEARANCE: dark
-        timeout-minutes: 5
+      # Walks start side by side, so the project's environment is built once,
+      # before any of them.
+      - run: uv sync --locked
+        working-directory: .
+      - run: node support/walks.cjs --jobs 2
+        timeout-minutes: 15
       - run: npm run package
 
   node-lint:
