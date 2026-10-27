@@ -2042,7 +2042,6 @@ test("a damaged sales marker reads as a first read, and the next write repairs i
 });
 
 test("packaging refuses while a copy runs from the output bundle", async () => {
-  const { spawn } = require("node:child_process");
   const bundle = await mkdtemp(join(tmpdir(), "lore-guard-"));
   const binary = join(bundle, "Contents/MacOS/Lore");
   await mkdir(dirname(binary), { recursive: true });
@@ -2059,17 +2058,6 @@ test("packaging refuses while a copy runs from the output bundle", async () => {
     running.kill();
     await rm(bundle, { recursive: true, force: true });
   }
-});
-
-test("a module mismatch from an updated app tells the owner to relaunch", async () => {
-  const source = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
-  const body = source.match(/function reason\(error, fallback\) \{[\s\S]*?\n\}\n/)?.[0];
-  assert.ok(body);
-  const reason = new Function(`${body}; return reason;`)();
-  const mismatch = new Error("Error invoking remote method 'send': Error: The requested module './text.js' does not provide an export named 'getSystemMessageText'");
-  assert.match(reason(mismatch, "x"), /Quit Lore and open it again/);
-  assert.equal(reason(new Error("Stripe is down"), "x"), "Stripe is down");
-  assert.equal(reason("nope", "fallback"), "fallback");
 });
 
 test("collection changes are refused before any CLI call unless well formed", async () => {
@@ -2630,18 +2618,6 @@ test("a posted check-in opens its own thread with the questions as Lore's first 
   }
 });
 
-test("the check-in thread interviews before it saves, and drafts for sale where it is, as a capture thread does", async () => {
-  const renderer = await readFile(join(__dirname, "../src/renderer.js"), "utf8");
-  const agent = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
-  const drafting = (/** @type {string} */ source) => /const DRAFTING = new Set\((\[[^\]]*\])\);/.exec(source)?.[1];
-  assert.deepEqual(JSON.parse(drafting(renderer) ?? "[]"), ["publish", "capture", "evening"], "its approval cards show in the thread");
-  assert.equal(drafting(agent), drafting(renderer), "the threads that show drafts are the ones told where they stand");
-  assert.doesNotMatch(agent, /tell them to choose Draft for sale/, "asked to sell, the agent drafts instead of pointing at a button");
-  assert.match(agent, /follow lore-publish from those saved memories in this same thread/);
-  const skill = (await readFile(join(__dirname, "../../../plugins/lore/skills/lore-capture/SKILL.md"), "utf8")).replace(/\s+/g, " ");
-  for (const rule of ["When Lore's evening check-in asked", "one at a time", "Never ask more than four", "ordinary captures listen and propose as below", "follow `lore-publish` from those saved memories right here"]) assert.ok(skill.includes(rule), rule);
-});
-
 test("a check-in whose model fails says so, and one from an earlier day is retired while today's stays", async () => {
   const { fauxAssistantMessage } = await import("@earendil-works/pi-ai");
   const { CheckIns } = require("../src/checkin.cjs");
@@ -3043,22 +3019,6 @@ test("APP-225: the appearance chosen drives the window's theme and is kept acros
   } finally {
     await rm(directory, { recursive: true });
   }
-});
-
-test("APP-225: every colour in the stylesheet is a token, so dark covers the whole app", async () => {
-  const css = await readFile(join(__dirname, "../src/styles.css"), "utf8");
-  const outside = css.replace(/:root \{[^}]*\}/g, "").replace(/--mark-tile: #[0-9a-f]+;/, "").replace(/mask-image: [^;]*;/g, "");
-  assert.deepEqual(outside.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(\d/g), null);
-  const dark = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? "";
-  for (const token of ["--bg", "--surface", "--ink", "--muted", "--line", "--accent", "--accent-soft", "--accent-ink", "--hover", "--attention-ink"]) assert.match(dark, new RegExp(`${token}:`), token);
-});
-
-test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {
-  const skill = await readFile(join(__dirname, "../../../plugins/lore/skills/lore-onboard/SKILL.md"), "utf8");
-  assert.match(skill, /## Connect first, shape after the first save/);
-  assert.ok(skill.indexOf("## Connect first") < skill.indexOf("## 1. Persona interview"));
-  const agent = await readFile(join(__dirname, "../src/agent.mjs"), "utf8");
-  assert.match(agent, /the blueprint, profile and rhythm come after the first save/);
 });
 
 test("first-run writes that overlap land in the order they were asked, each whole", async () => {

@@ -5,6 +5,13 @@ on:
   push:
     branches: [main]
 
+# XC-073: a new push to a pull request cancels the run it supersedes, so a stale
+# run does not hold the macOS runners (capped at five at once) that the fresh one
+# needs. Pushes to main are never cancelled.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-lint:
     name: Python lint
@@ -46,9 +53,16 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  # XC-073: the desktop work is three macOS jobs: this one, and the walks in two shards of desktop-walks. GitHub runs at
+  # most five macOS jobs at once across the whole account, and at busy hours CI asks for more macOS time than that, so
+  # what decides how long a pull request waits is the macOS time each run uses, not how finely it is split. Measured on
+  # macos-14 (three cores): two walks side by side take as long as one alone, so every walk runs beside another; a
+  # third slows each walk two to two and a half times and fails a third of them. That is about 13 macOS minutes a run,
+  # down from 20, finishing in about five.
   desktop-check:
     name: Desktop macOS checks
     runs-on: macos-14
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: app/desktop
@@ -58,62 +72,42 @@ jobs:
         with:
           node-version: lts/*
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
       - run: npm ci
       - run: npm run check
       - run: npm test
-      # renderer.js has no unit coverage — it is only reachable through real
-      # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs
-      # here as its own step, so a red step names the persona that broke and
-      # one failure does not hide the rest. test/ci-edge.test.cjs fails when a
-      # persona is added to test:edge without a step. `test:capture` is
-      # attended and stays local (see app/desktop/README.md).
-      - run: support/edge.sh feedback
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        timeout-minutes: 5
-      - run: support/edge.sh faq
-        timeout-minutes: 5
-      - run: support/edge.sh seller
-        timeout-minutes: 5
-      - run: support/edge.sh store
-        timeout-minutes: 5
-      - run: support/edge.sh update
-        timeout-minutes: 5
-      - run: support/edge.sh agents
-        timeout-minutes: 8
-      - run: support/edge.sh provision
-        timeout-minutes: 5
-      - run: support/edge.sh jobs
-        timeout-minutes: 5
-      - run: support/edge.sh fresh
-        timeout-minutes: 5
-      - run: support/edge.sh obsidian
-        timeout-minutes: 5
-      - run: support/edge.sh reading
-        timeout-minutes: 5
-      - run: support/edge.sh schedule
-        timeout-minutes: 5
-      - run: support/edge.sh checkin
-        timeout-minutes: 5
-      - run: support/edge.sh quiet
-        timeout-minutes: 5
-      - run: support/edge.sh automations
-        timeout-minutes: 5
-      - run: support/edge.sh sell
-        timeout-minutes: 5
-      - run: support/edge.sh cards
-        timeout-minutes: 5
-      - run: support/edge.sh sales
-        timeout-minutes: 5
-      - run: support/edge.sh settings
-        timeout-minutes: 5
-      - run: support/edge.sh today
-        timeout-minutes: 5
-      - run: support/edge.sh connectors
-        env:
-          LORE_EDGE_APPEARANCE: dark
-        timeout-minutes: 5
       - run: npm run package
+
+  # renderer.js has no unit coverage — it is only reachable through real Electron (support/edge.cjs). Every walk in
+  # support/walks.cjs, the same list `npm run test:edge` runs, runs in one of these shards, balanced by each walk's
+  # measured time; a new walk is one line there. A walk that fails is a FAIL group and an error naming it in the log,
+  # and the shard's summary lists every walk's result. To add a shard, add a number to `shard`; keep the walks two at
+  # a time. `test:capture` is attended and stays local (see app/desktop/README.md).
+  desktop-walks:
+    name: Desktop walks (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: macos-14
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    defaults:
+      run:
+        working-directory: app/desktop
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: npm ci
+      # Walks start side by side, so the project's environment is built once, before any of them.
+      - run: uv sync --locked
+        working-directory: .
+      - run: node support/walks.cjs --jobs 2 --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
   node-lint:
     name: Node lint
