@@ -5,7 +5,7 @@ priority: P2
 effort: XS
 component: cross-cutting
 status: ready
-related: [XC-077, XC-078, XC-080, XC-081, XC-072]
+related: [XC-077, XC-078, XC-080, XC-081, XC-072, APP-247, XC-084]
 blockers: [XC-077]
 dependencies: []
 github_issue: null
@@ -59,6 +59,16 @@ item for the regression rather than silently reverting.
       `Desktop macOS checks` job finishes after a newer run on the same PR has
       already started (baseline 15 runs, 187.4 macOS-min, in the Oct 20-26
       window).
+- [ ] APP-247 (one connectors walk): over the next 8 green `Desktop macOS
+      checks` runs after it lands, the job's median duration is at least 40 s
+      lower than without it (the dark connectors walk took a median 52 s, 54 s
+      over the last 3 green `main` runs before 2026-10-26), and no check is
+      missing from the walk log that the dark run used to make.
+- [ ] XC-084 (agents walk alone): over the 50 CI runs after it lands, `agents`
+      fails its first attempt on no more than 5% of runs (the one-at-a-time
+      baseline: 11 of 228 jobs; beside another walk it failed 3 first attempts
+      in 4 runs on 2026-10-27), read from each run's `FAIL agents (alone)` log
+      groups and `passed on retry` lines.
 
 ## Notes
 

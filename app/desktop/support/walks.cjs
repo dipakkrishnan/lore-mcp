@@ -5,7 +5,10 @@
 //               alone; a third slows each walk two to two and a half times and fails a third of them)
 //   name ...    run only these walks
 // XC-077: this list is the one CI runs and `npm run test:edge` runs. `seconds` is the walk's time alone on a CI runner
-// (Oct 2026); it only orders the queue, longest first, so a rough figure is fine.
+// (Oct 2026); it only orders the queue, longest first, so a rough figure is fine. `appearance` sets
+// LORE_EDGE_APPEARANCE for that walk: the app boots with that choice kept, and edge.cjs checks it is drawn so.
+// XC-084: a walk marked `solo` runs with nothing beside it: solo walks go first, one after another, then the rest
+// `--jobs` at a time. A solo walk that failed is retried last, alone again, after the shared pool has drained.
 // XC-080: a walk that fails is run once more, after everything still waiting, and never a third time. A walk that
 // passes on retry leaves the step green but is reported three ways: both attempts' log groups, a ::warning annotation
 // naming the walk, and a `pass (retry)` row with a `K of N walks passed on retry` line in the step summary. The summary
@@ -17,12 +20,13 @@ const { appendFileSync } = require("node:fs");
 const { loadavg } = require("node:os");
 const { join } = require("node:path");
 
-/** @type {{ name: string, seconds: number, appearance?: string }[]} */
+/** @type {{ name: string, seconds: number, appearance?: string, solo?: boolean }[]} */
 const WALKS = [
-  { name: "agents", seconds: 215 },
+  // XC-084: 258 app CLI calls and 105 fixture calls, each a Python start-up, and waits on a stand-in node that has to
+  // answer in time: beside another walk it lost three first attempts in four CI runs, against one in twenty alone.
+  { name: "agents", seconds: 215, solo: true },
   { name: "automations", seconds: 96 },
   { name: "connectors", seconds: 55 },
-  { name: "connectors", appearance: "dark", seconds: 55 },
   { name: "store", seconds: 52 },
   { name: "checkin", seconds: 46 },
   { name: "fresh", seconds: 45 },
@@ -39,7 +43,10 @@ const WALKS = [
   { name: "obsidian", seconds: 20 },
   { name: "sell", seconds: 14 },
   { name: "jobs", seconds: 13 },
-  { name: "faq", seconds: 10 },
+  // APP-247: the one check only a dark launch makes (a kept dark choice is applied at boot, before any branch runs)
+  // rides on the cheapest walk that never reads DARK. The connectors walk re-shoots its own surfaces in dark inside
+  // its light run, in place of a second connectors walk launched dark. `settings` stays light: its checks branch on DARK.
+  { name: "faq", appearance: "dark", seconds: 10 },
   { name: "provision", seconds: 8 },
 ];
 // Past edge.sh's own watchdog (six minutes for agents), so a walk that hangs somewhere it does not watch still ends.
@@ -109,7 +116,7 @@ const run = async (walk, attempts) => {
   record.attempts.push(result);
   // One walk's output stays together, printed when it ends, rather than interleaved with its neighbours'.
   const retrying = !result.ok && attempts === 1;
-  const heading = `${result.ok ? "PASS" : "FAIL"} ${name}${attempts > 1 ? " on retry" : ""} (${result.seconds}s, load ${result.load.toFixed(1)})${retrying ? ", retrying" : ""}`;
+  const heading = `${result.ok ? "PASS" : "FAIL"} ${name}${attempts > 1 ? " on retry" : ""}${walk.solo ? " (alone)" : ""} (${result.seconds}s, load ${result.load.toFixed(1)})${retrying ? ", retrying" : ""}`;
   console.log(ci ? `::group::${heading}` : `\n== ${heading}`);
   process.stdout.write(result.output.endsWith("\n") ? result.output : `${result.output}\n`);
   if (ci) console.log("::endgroup::");
@@ -118,17 +125,29 @@ const run = async (walk, attempts) => {
   return result.ok;
 };
 
-(async () => {
-  const started = Date.now();
-  console.log(`Walking ${queue.map(label).join(", ")} (${jobs} at a time)`);
-  const pending = queue.map((walk) => ({ walk, attempts: 1 }));
-  await Promise.all(Array.from({ length: Math.min(jobs, pending.length) }, async () => {
+/** Runs these walks `width` at a time; a failed first attempt goes to the back of this same queue. @param {typeof WALKS} walks @param {number} width */
+const pool = async (walks, width) => {
+  const pending = walks.map((walk) => ({ walk, attempts: 1 }));
+  await Promise.all(Array.from({ length: Math.min(width, pending.length) }, async () => {
     for (let next = pending.shift(); next; next = pending.shift()) {
       const ok = await run(next.walk, next.attempts);
       // Once more, at the back of the queue, so a retry never delays a first attempt. Never a third time.
       if (!ok && next.attempts === 1) pending.push({ walk: next.walk, attempts: 2 });
     }
   }));
+};
+
+(async () => {
+  const started = Date.now();
+  const solo = queue.filter((walk) => walk.solo);
+  const shared = queue.filter((walk) => !walk.solo);
+  console.log(`Walking ${queue.map(label).join(", ")} (${jobs} at a time${solo.length ? `; ${solo.map(label).join(", ")} alone` : ""})`);
+  // Solo first attempts, one at a time with nothing beside them; then the shared pool; then any solo retry, alone again.
+  /** @type {typeof WALKS} */
+  const soloRetries = [];
+  for (const walk of solo) if (!(await run(walk, 1))) soloRetries.push(walk);
+  await pool(shared, jobs);
+  for (const walk of soloRetries) await run(walk, 2);
   const rows = [...results].map(([walk, { attempts }]) => ({ walk, ok: attempts.at(-1)?.ok ?? false, retried: attempts.length > 1, attempts }));
   const failed = rows.filter((row) => !row.ok);
   const retried = rows.filter((row) => row.ok && row.retried);
