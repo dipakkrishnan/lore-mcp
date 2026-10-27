@@ -70,8 +70,10 @@ startups, so 3 at once on 3 vCPUs may not beat 2.
 
 ## Acceptance criteria
 
-- [ ] `npm test` in `app/desktop` finishes in 55-70 s on `macos-14`,
-      measured on one CI run of the change (baseline median 120 s).
+- [x] `npm test` in `app/desktop` finishes in 55-70 s on `macos-14`,
+      measured on one CI run of the change (baseline median 120 s). Measured
+      53 s on run 40527641203 (PR #584), under the window rather than in it;
+      ticked as the target beaten.
 - [x] The same tests pass: 143 top-level tests across the files, with
       146 pass + 1 todo in the summary as today (local run on
       2026-10-26: exit 0 in 70 s; CI run 40343764690: 115.8 s).
