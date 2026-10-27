@@ -124,7 +124,30 @@ jobs:
         working-directory: .
       - run: node support/walks.cjs --jobs 2
         timeout-minutes: 15
+      # XC-082: whisper.sh clones and builds whisper.cpp at a pinned tag (about a
+      # minute) and node.sh downloads a pinned npm, the same bytes every run.
+      # Both scripts already skip their work when their outputs are in place,
+      # so a cache hit makes `npm run package` about 25 s instead of 83. Keyed
+      # on the two scripts only: a change to a tag or a flag misses and
+      # rebuilds; a change to src/ hits. No restore-keys, so a miss is visible
+      # rather than papered over by a binary from another tag. The cache is
+      # saved only when the job succeeds, so the first save after a key change
+      # waits for a green job.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            app/desktop/packaging/out/whisper
+            app/desktop/packaging/out/node
+          key: packaging-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/desktop/packaging/whisper.sh', 'app/desktop/packaging/node.sh') }}
       - run: npm run package
+      # The packaged app carries whisper-cli at the tag whisper.sh pins, on a
+      # cache hit as on a miss.
+      - name: Packaged whisper is the pinned tag
+        run: |
+          shipped="$(cat out/Lore-darwin-arm64/Lore.app/Contents/Resources/whisper/version)"
+          pinned="$(sed -n 's/^WHISPER_TAG=//p' packaging/whisper.sh)"
+          echo "shipped $shipped, pinned $pinned"
+          [ "$shipped" = "$pinned" ] || { echo "::error title=stale whisper-cli::The packaged app carries whisper.cpp $shipped but whisper.sh pins $pinned."; exit 1; }
 
   node-lint:
     name: Node lint
