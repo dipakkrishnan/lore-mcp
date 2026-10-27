@@ -49,9 +49,14 @@ item for the regression rather than silently reverting.
       macOS job is about 68% or less (130 of 191 merged PRs in the 30 days to
       2026-10-26 touched a walk input). Count runs where `Desktop macOS checks`
       has a conclusion other than `skipped`.
+- [ ] XC-080 (retry a failed walk once): over the 50 `tests.yml` runs after it
+      lands, `Desktop macOS checks` fails on fewer than 3% of runs (baseline
+      21.1%; expected about 0.3%), and the retried-walk count over the same runs
+      is recorded alongside it, read from each run's `K of N walks passed on
+      retry.` summary line, so the flake rate XC-072 tracks stays visible.
 - [ ] Any later CI item from the same investigation that moves a trailing-window
-      criterion here (XC-080, XC-081) has its line added above when its PR
-      merges, and that line is measured the same way.
+      criterion here (XC-081) has its line added above when its PR merges, and
+      that line is measured the same way.
 
 ## Notes
 

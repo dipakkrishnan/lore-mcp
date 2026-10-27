@@ -277,7 +277,7 @@ fi
 # Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
 code=0
 wait "$walk" 2>/dev/null || code=$?
-grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || code=1
+grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
