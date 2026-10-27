@@ -130,3 +130,5 @@ because each can land alone: this item (skip on PRs that cannot affect the app),
 XC-079 (skip on pushes to `main`, which depends on the ruleset staying strict)
 and XC-081 (cancel a PR's superseded run). Their savings overlap; do not add them.
 XC-077 shortens the job itself and is independent of all three.
+
+Probe PR for XC-078: this file is the only change, so `Desktop macOS checks` must be skipped. Not for merging.
