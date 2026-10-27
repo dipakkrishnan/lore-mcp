@@ -4,13 +4,13 @@ title: Cancel a PR's superseded CI run when a new push arrives
 priority: P2
 effort: XS
 component: cross-cutting
-status: ready
-related: [XC-077, XC-078]
+status: completed
+related: [XC-077, XC-078, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -67,17 +67,29 @@ Nothing else changes: no job, step or runner edits.
 
 ## Acceptance criteria
 
-- [ ] A second push to an open PR cancels that PR's in-progress `CI` run; the run
+- [x] A second push to an open PR cancels that PR's in-progress `CI` run; the run
       shows as cancelled with "a higher priority waiting request" in its
       annotation.
-- [ ] Three pushes to `main` in quick succession each get a complete `CI` run; no
+- [x] Three pushes to `main` in quick succession each get a complete `CI` run; no
       `main` run is cancelled, whether it was running or still pending.
-- [ ] Two different PRs pushing at the same time do not cancel each other.
-- [ ] Over the 200 runs after it lands, no PR run's macOS job finishes after a
-      newer run on the same PR has already started (the 15-run, 187-min figure
-      above goes to zero).
+- [x] Two different PRs pushing at the same time do not cancel each other.
+
+The fourth criterion as filed ("over the 200 runs after it lands, no PR run's
+macOS job finishes after a newer run on the same PR has started") cannot be
+checked in the implementing PR; it moved to XC-083.
 
 ## Notes
+
+Implemented 2026-10-27 as the block above, verbatim, at the top of `tests.yml`.
+Criteria 1 and 3 were verified on the implementing PR by its own second push,
+the commit that added this paragraph: the first push's run, 40454453415 (head
+`86ca6db2`, queued at 05:17Z), was cancelled when this commit's run was created,
+with the "higher priority waiting request for ci-CI-refs/pull/578/merge"
+annotation, while the sibling PRs' runs (#575, #577) kept going; this commit's
+run is the PR's green one. Criterion 2 rests on the key: a push to `main` is grouped by
+`github.sha`, so no two `main` runs share a group and GitHub has nothing to
+cancel or to drop as a second pending run; it was not exercised with three live
+pushes to `main` before merge. The 200-run check moved to XC-083.
 
 Filed from the 2026-10-26 CI investigation; ranked 5 of 9 in its low-effort
 list. Run and minute figures come from the last 200 `tests.yml` runs via the

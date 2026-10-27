@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: desktop-app
 status: in-review
-related: [APP-220, APP-222]
+related: [APP-220, APP-222, APP-247]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -48,5 +48,7 @@ one bright window, and the owner could not choose otherwise.
 - [x] No literal colour outside the token blocks (unit test)
 - [x] Dark marks readable on dark without recolouring
 - [x] Edge walks run dark with `LORE_EDGE_APPEARANCE=dark`. Each walk checks
-  the theme it was drawn in. The settings walk switches Appearance live. CI walks
-  connectors in dark.
+  the theme it was drawn in. The settings walk switches Appearance live. CI
+  launches `faq` dark for the boot-time check, and the connectors walk re-shoots
+  its list and a Manage sheet in dark from inside its light run (APP-247; until
+  2026-10-27 CI walked connectors a second time, launched dark).
