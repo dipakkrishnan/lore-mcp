@@ -88,5 +88,10 @@ beside `agents`'s neighbours too (twice in four runs), which the solo phase also
 changes, since `schedule` then shares the runner with one short walk rather than
 with the tail of `agents`.
 
+First run with the flag, 40456592452 (#581, 2026-10-27): `PASS agents (alone)
+(208s)` on its first attempt, 21 of 21 walks in 646 s with none retried, job
+14 min 18 s of which about 75 s was XC-082's one-off cache-miss build; the
+second criterion stays open until a run lands under 14 minutes.
+
 The run ids in the Problem table are the evidence; the per-check timings come
 from the FAIL lines XC-077's `edge.sh` change now prints into the log group.
