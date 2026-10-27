@@ -98,6 +98,8 @@ let collectionPasting = false;
 let collectionAdding = false;
 /** A suggestion under review shows only its own memories, not every one kept; null shows them all. @type {number[] | null} */
 let pickBundle = null;
+/** The suggestion being reviewed: it leaves Today only once its memories go in, so stepping away keeps it. @type {CollectionSuggestion | null} */
+let reviewing = null;
 /** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
 let collectionStep = 0;
 /** The name the chosen memories suggest, offered on the naming step. */
@@ -2058,6 +2060,7 @@ function newCollection(title, picks = []) {
   if (collectionBusy) return;
   gistsAsked = false;
   // A fresh start: nothing ticked, typed or opened for another collection carries into this one.
+  reviewing = null;
   collectionPicks.clear();
   collectionDraft = "";
   pickQuery = "";
@@ -2104,6 +2107,7 @@ async function addToCollection(input) {
   if (done) {
     if (input.items?.length) collectionDraft = "";
     if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; pickBundle = null; }
+    if (reviewing) { void dropSuggestion(reviewing); reviewing = null; }
     collectionAdding = false;
     collectionPasting = false;
     if (collectionStep === 1) {
@@ -2339,7 +2343,7 @@ function suggestionsCard(s) {
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
     dismiss.addEventListener("click", () => void dropSuggestion(each));
-    const node = row(each.title, detail, cell(button("Review", "quiet", () => void reviewSuggestion(each, memories, into)), dismiss), false);
+    const node = row(each.title, detail, cell(button("Review", "quiet", () => reviewSuggestion(each, memories, into)), dismiss), false);
     // A stack of memories, marked as Inventory is, in the tile every Today card leads with.
     node.prepend(markTile(STEP_ICONS.collection));
     node.classList.add("suggestion");
@@ -2357,10 +2361,14 @@ async function dropSuggestion(each) {
 
 /** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
  * @param {CollectionSuggestion} each @param {number[]} memories @param {CollectionItem | undefined} into */
-async function reviewSuggestion(each, memories, into) {
-  await dropSuggestion(each);
-  if (!into) return void newCollection(each.title, memories);
+function reviewSuggestion(each, memories, into) {
+  if (!into) {
+    newCollection(each.title, memories);
+    reviewing = each;
+    return;
+  }
   showCollection(into.id);
+  reviewing = each;
   gistsAsked = false;
   collectionAdding = true;
   pickBundle = [...memories];
@@ -2523,7 +2531,7 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; if (collectionAdding) gistsAsked = false; render(); });
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
   const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
   contents.classList.add("collection-contents");
   return [
@@ -4296,7 +4304,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
