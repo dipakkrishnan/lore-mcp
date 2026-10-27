@@ -716,8 +716,11 @@ function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
   box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  // Where buyers browse every store, this one among them.
+  box.append(outLink("Markets ↗", MARKETS, "quiet-link"));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  // The store's own dashboard, named for what it is to the owner, not who hosts it.
+  if (console) box.append(outLink("Dashboard ↗", console, "quiet-link"));
   const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
@@ -738,6 +741,9 @@ function greeting() {
 function lineIcon(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
+
+/** The public exchange every open store is part of. */
+const MARKETS = "https://yourlore.dev/marketplace";
 
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
