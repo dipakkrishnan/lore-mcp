@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 from typing import (
+    TYPE_CHECKING,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -36,15 +37,6 @@ from xml.etree.ElementTree import Element, ParseError
 import anyio
 import httpx2
 from defusedxml.ElementTree import fromstring
-from mcp import Client
-from mcp.client.auth import (
-    AuthorizationCodeResult,
-    OAuthClientProvider,
-    OAuthFlowError,
-)
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientMetadata
-from mcp.types import TextContent
 from pydantic import (
     AliasChoices,
     AliasPath,
@@ -62,6 +54,13 @@ from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
 from .store import Contributor, Memory, Store
+
+# STO-006: the MCP SDK is about two thirds of `import lore.cli` (220 of 325 ms), and only
+# the hosted readers use it, so it is imported where it is called. These names appear in
+# annotations only; with `from __future__ import annotations` they never evaluate.
+if TYPE_CHECKING:
+    from mcp import Client
+    from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider
 
 Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
@@ -1402,6 +1401,9 @@ class HostedReader(Reader):
 
     @asynccontextmanager
     async def connect(self, auth: OAuthClientProvider) -> AsyncIterator[Client]:
+        from mcp import Client
+        from mcp.client.streamable_http import streamable_http_client
+
         async with (
             httpx2.AsyncClient(auth=auth) as http,
             Client(
@@ -1416,6 +1418,9 @@ class HostedReader(Reader):
         redirect: Callable[[str], Awaitable[None]] | None = None,
         callback: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
     ) -> OAuthClientProvider:
+        from mcp.client.auth import OAuthClientProvider
+        from mcp.shared.auth import OAuthClientMetadata
+
         # Without a redirect handler an expired sign-in raises instead of opening a browser.
         return OAuthClientProvider(
             self.source.locator,
@@ -1481,6 +1486,8 @@ class HostedReader(Reader):
 
     @staticmethod
     async def _call(client: Client, tool: str, arguments: dict[str, object]) -> str:
+        from mcp.types import TextContent
+
         answer = await client.call_tool(tool, arguments)
         text = "\n".join(
             block.text for block in answer.content if isinstance(block, TextContent)
@@ -1500,6 +1507,8 @@ def _says(error: BaseException, phrase: str) -> bool:
 
 def _refused(error: BaseException) -> bool:
     """Whether a failure, however deep in the SDK's task groups, was the sign-in's."""
+    from mcp.client.auth import OAuthFlowError
+
     if isinstance(error, OAuthFlowError):
         return True
     return any(_refused(inner) for inner in getattr(error, "exceptions", ()))
