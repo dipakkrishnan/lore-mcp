@@ -142,7 +142,7 @@ if (scenario === "listing") {
   // the store this Lore ships on record, as a deploy that went out does. Nothing reaches a real account.
   const bin = join(S, "update-bin");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "lore"), `#!/bin/sh\nif [ "$1 $2" = "node deploy" ]; then echo "$*" >> ${JSON.stringify(join(S, "deploys"))}; cd ${JSON.stringify(join(__dirname, "../../.."))} && uv run python -c "from lore import deploy; deploy._record_store(deploy.store_folder())"; echo "Deployed"; exit 0; fi\nexec ${JSON.stringify(cli.bin)} "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, "lore"), `#!/bin/sh\nif [ "$1 $2" = "node deploy" ]; then cd ${JSON.stringify(join(__dirname, "../../.."))} && uv run python -c "from lore import deploy; deploy._record_store(deploy.store_folder())"; echo "$*" >> ${JSON.stringify(join(S, "deploys"))}; echo "Deployed"; exit 0; fi\nexec ${JSON.stringify(cli.bin)} "$@"\n`, { mode: 0o755 });
   process.env.LORE_DESKTOP_BIN_DIR = bin;
   require(join(src, "main.cjs"));
 } else if (scenario === "feedback") {
