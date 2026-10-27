@@ -98,6 +98,8 @@ let collectionPasting = false;
 let collectionAdding = false;
 /** A suggestion under review shows only its own memories, not every one kept; null shows them all. @type {number[] | null} */
 let pickBundle = null;
+/** The suggestion being reviewed: it leaves Today only once its memories go in, so stepping away keeps it. @type {CollectionSuggestion | null} */
+let reviewing = null;
 /** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
 let collectionStep = 0;
 /** The name the chosen memories suggest, offered on the naming step. */
@@ -714,8 +716,11 @@ function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
   box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  // Where buyers browse every store, this one among them.
+  box.append(outLink("Markets ↗", MARKETS, "quiet-link"));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  // The store's own dashboard, named for what it is to the owner, not who hosts it.
+  if (console) box.append(outLink("Dashboard ↗", console, "quiet-link"));
   const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
@@ -737,6 +742,9 @@ function lineIcon(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
+/** The public exchange every open store is part of. */
+const MARKETS = "https://yourlore.dev/marketplace";
+
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
@@ -745,6 +753,7 @@ const STEP_ICONS = {
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
   collection: lineIcon(`<path d="M3.5 7.5L12 3l8.5 4.5L12 12z"></path><path d="M3.5 12L12 16.5 20.5 12"></path><path d="M3.5 16.5L12 21l8.5-4.5"></path>`),
+  ask: lineIcon(`<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
 
@@ -859,20 +868,31 @@ function displayTasks() {
   return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn) && (item.state === "working" || recent(item.updatedAt))).slice(0, 3);
 }
 
-/** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
+/** The evening check-in leads Today: a card shaped like New memories, its questions whole beneath it, and a way to say not today.
+ * @param {CheckIn} asked */
 function checkInCard(asked) {
-  const answer = button("Answer", "primary", () => void openTask("evening"));
-  const later = button("Not today", "quiet", () => {
+  const answer = () => void openTask("evening");
+  const later = inline("Not today", () => {
     loads++;
     checkIn = null;
     render();
     void window.lore.dismissCheckIn();
   });
-  const [first, ...rest] = asked.questions;
-  return section("Check in", card([
-    row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
-    ...rest.map((each) => row(each.question, `About ${each.title}`, cell(), false))
-  ]));
+  const head = el("div", "row routine ready-head");
+  const text = el("div", "t");
+  text.append(el("b", "sans", asked.questions.length === 1 ? "A question about today" : `${asked.questions.length} questions about today`), el("span", "", "Five minutes? Lore saves only what you approve."));
+  head.append(markTile(STEP_ICONS.ask), text, later, button("Answer", "primary", answer));
+  const items = el("div", "ready-items");
+  for (const each of asked.questions) {
+    const question = row(each.question, `About ${each.title}`, undefined, false);
+    question.addEventListener("click", answer);
+    items.append(question);
+  }
+  const box = el("div", "ready-group open check-in");
+  box.append(head, items);
+  const list = el("div", "routines today-cards");
+  list.append(box);
+  return section("Check in", list);
 }
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
@@ -2052,6 +2072,7 @@ function newCollection(title, picks = []) {
   if (collectionBusy) return;
   gistsAsked = false;
   // A fresh start: nothing ticked, typed or opened for another collection carries into this one.
+  reviewing = null;
   collectionPicks.clear();
   collectionDraft = "";
   pickQuery = "";
@@ -2098,6 +2119,7 @@ async function addToCollection(input) {
   if (done) {
     if (input.items?.length) collectionDraft = "";
     if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; pickBundle = null; }
+    if (reviewing) { void dropSuggestion(reviewing); reviewing = null; }
     collectionAdding = false;
     collectionPasting = false;
     if (collectionStep === 1) {
@@ -2329,17 +2351,28 @@ function suggestionsCard(s) {
     const into = alike.length === 1 ? alike[0] : undefined;
     const count = `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`;
     const detail = `${into ? `Adds ${count} to it` : count} · ${named(memories.map((id) => kept.get(id) ?? ""))}`;
+    const review = () => reviewSuggestion(each, memories, into);
     const dismiss = el("button", "dismiss", "×");
     dismiss.type = "button";
     dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
     dismiss.addEventListener("click", () => void dropSuggestion(each));
-    const node = row(each.title, detail, cell(button("Review", "quiet", () => void reviewSuggestion(each, memories, into)), dismiss), false);
-    // A stack of memories, marked as Inventory is, in the tile every Today card leads with.
-    node.prepend(markTile(STEP_ICONS.collection));
-    node.classList.add("suggestion");
-    return node;
+    // Shaped as a New memories row: a stack of memories, marked as Inventory is, then its name, what's in it and Review.
+    const head = el("div", "row routine ready-head suggestion");
+    const text = el("div", "t");
+    text.append(el("b", "sans", each.title), el("span", "", detail));
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(markTile(STEP_ICONS.collection), text, inline("Review →", review), chevron, dismiss);
+    head.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element && event.target.closest("button"))) review();
+    });
+    const box = el("div", "ready-group");
+    box.append(head);
+    return box;
   });
-  return section("Suggested collections", card(rows));
+  const list = el("div", "routines today-cards");
+  list.append(...rows);
+  return section("Suggested collections", list);
 }
 
 /** @param {CollectionSuggestion} each */
@@ -2351,10 +2384,14 @@ async function dropSuggestion(each) {
 
 /** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
  * @param {CollectionSuggestion} each @param {number[]} memories @param {CollectionItem | undefined} into */
-async function reviewSuggestion(each, memories, into) {
-  await dropSuggestion(each);
-  if (!into) return void newCollection(each.title, memories);
+function reviewSuggestion(each, memories, into) {
+  if (!into) {
+    newCollection(each.title, memories);
+    reviewing = each;
+    return;
+  }
   showCollection(into.id);
+  reviewing = each;
   gistsAsked = false;
   collectionAdding = true;
   pickBundle = [...memories];
@@ -2517,7 +2554,7 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; if (collectionAdding) gistsAsked = false; render(); });
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
   const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
   contents.classList.add("collection-contents");
   return [
@@ -4290,7 +4327,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
@@ -6017,7 +6054,6 @@ function startNew(what) {
   closeNewMenu();
   if (what === "collection") void newCollection();
   else if (what === "automation") { show("automations"); openNewRoutine(); }
-  else startCapture();
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
 newMenu.addEventListener("keydown", (event) => {
@@ -6225,7 +6261,7 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew(event.shiftKey ? "collection" : "memory"); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew("collection"); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
