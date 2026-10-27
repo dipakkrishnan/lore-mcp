@@ -141,7 +141,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-238](./desktop-app/APP-238-late-night-greeting.md) | Today says Good evening after midnight, not Good morning | P3 | S | desktop-app | in-review | — | — | — | — |
 | [APP-241](./desktop-app/APP-241-one-readable-column.md) | Keep each page to one readable column on a wide window | P3 | S | desktop-app | in-review | — | — | — | — |
 | [STO-006](./store-import/STO-006-load-mcp-only-when-a-command-needs-it.md) | Load mcp only when a command needs it | P1 | S | store-import | ready | XC-077, APP-066 | — | — | — |
-| [XC-078](./cross-cutting/XC-078-skip-the-desktop-macos-job-for-prs-that-touch-nothing-it-walks.md) | Skip the desktop macOS job for PRs that touch nothing it walks | P1 | S | cross-cutting | ready | XC-077, XC-079, XC-081 | — | — | — |
 | [XC-080](./cross-cutting/XC-080-retry-a-failed-desktop-walk-once-and-report-every-retry.md) | Retry a failed desktop walk once, and report every retry | P1 | S | cross-cutting | ready | XC-072, XC-077 | — | — | — |
 | [APP-063](./desktop-app/APP-063-test-the-renderers-untrusted-text-boundary.md) | Test the renderer's untrusted-text boundary and its CSP | P1 | S | desktop-app | ready | APP-066, APP-010, APP-008 | — | — | — |
 | [MON-031](./monetization/MON-031-say-what-becomes-public-when-a-seller-takes-cards.md) | Tell sellers and buyers what card checkout makes visible about them | P1 | S | monetization | ready | MON-025, MON-030 | — | — | — |
@@ -227,6 +226,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [XC-078](./cross-cutting/XC-078-skip-the-desktop-macos-job-for-prs-that-touch-nothing-it-walks.md) | Skip the desktop macOS job for PRs that touch nothing it walks | P1 | S | cross-cutting | completed | XC-077, XC-079, XC-081, XC-083 | — | — | — |
 | [XC-077](./cross-cutting/XC-077-run-the-desktop-walks-two-at-a-time-on-one-runner.md) | Run the desktop walks two at a time on one runner | P1 | S | cross-cutting | completed | XC-072, APP-066, XC-083 | — | — | — |
 | [XC-030](./cross-cutting/XC-030-adopt-an-opentelemetry-shaped-telemetry-model.md) | Adopt an OpenTelemetry-shaped telemetry model and restate the privacy contract | P1 | S | cross-cutting | completed | MON-020, MON-021, XC-029, CLI-004, APP-058 | — | — | — |
 | [MON-017](./monetization/MON-017-refuse-paid-answers-until-the-model-provider-is-ready.md) | Refuse paid answers until the model provider is ready | P1 | S | monetization | completed | MCP-003, APP-035, EVAL-002 | — | — | — |
