@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev ruff check lore tests evals .github/scripts docs/backlog/agents
-      - run: uv run --extra dev ruff format --check lore tests evals .github/scripts docs/backlog/agents
+      - run: uv run --extra dev ruff check lore tests evals .github/scripts docs/backlog/agents support/seed
+      - run: uv run --extra dev ruff format --check lore tests evals .github/scripts docs/backlog/agents support/seed
 
   python-unit:
     name: Python unit tests
@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run --extra dev mypy lore evals .github/scripts docs/backlog/agents
+      - run: uv run --extra dev mypy lore evals .github/scripts docs/backlog/agents support/seed
 
   bridge-check:
     name: Bridge compiler checks
@@ -62,8 +62,11 @@ jobs:
       - run: npm run check
       - run: npm test
       # renderer.js has no unit coverage — it is only reachable through real
-      # Electron (support/edge.cjs). The rest of `test:edge` stays a local,
-      # attended check.
+      # Electron (support/edge.cjs). Every persona in `npm run test:edge` runs
+      # here as its own step, so a red step names the persona that broke and
+      # one failure does not hide the rest. test/ci-edge.test.cjs fails when a
+      # persona is added to test:edge without a step. `test:capture` is
+      # attended and stays local (see app/desktop/README.md).
       - run: support/edge.sh feedback
         timeout-minutes: 5
       - run: support/edge.sh connectors
@@ -74,7 +77,41 @@ jobs:
         timeout-minutes: 5
       - run: support/edge.sh store
         timeout-minutes: 5
+      - run: support/edge.sh update
+        timeout-minutes: 5
       - run: support/edge.sh agents
+        timeout-minutes: 8
+      - run: support/edge.sh provision
+        timeout-minutes: 5
+      - run: support/edge.sh jobs
+        timeout-minutes: 5
+      - run: support/edge.sh fresh
+        timeout-minutes: 5
+      - run: support/edge.sh obsidian
+        timeout-minutes: 5
+      - run: support/edge.sh reading
+        timeout-minutes: 5
+      - run: support/edge.sh schedule
+        timeout-minutes: 5
+      - run: support/edge.sh checkin
+        timeout-minutes: 5
+      - run: support/edge.sh quiet
+        timeout-minutes: 5
+      - run: support/edge.sh automations
+        timeout-minutes: 5
+      - run: support/edge.sh sell
+        timeout-minutes: 5
+      - run: support/edge.sh cards
+        timeout-minutes: 5
+      - run: support/edge.sh sales
+        timeout-minutes: 5
+      - run: support/edge.sh settings
+        timeout-minutes: 5
+      - run: support/edge.sh today
+        timeout-minutes: 5
+      - run: support/edge.sh connectors
+        env:
+          LORE_EDGE_APPEARANCE: dark
         timeout-minutes: 5
       - run: npm run package
 
@@ -246,8 +283,9 @@ jobs:
           # desktop app's launch key (lore/cli.py:_attended), so CI writes one.
           LORE_ATTENDED_KEY: ci
         run: |
-          mkdir -p ~/"Library/Application Support/Lore"
-          printf ci > ~/"Library/Application Support/Lore/attended"
+          # As the app writes it: a folder and a file only the owner can open.
+          (umask 077 && mkdir -p ~/"Library/Application Support/Lore/attended.d" &&
+            printf '%s\nci\n' "$$" > ~/"Library/Application Support/Lore/attended.d/ci")
           export LORE_HOME="$(mktemp -d)"
           uv run --project .. python ../../.github/scripts/seed_worker_smoke.py
           uv run --project .. lore push --local --worker-dir .

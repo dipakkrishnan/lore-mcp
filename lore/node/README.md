@@ -63,6 +63,14 @@ existing D1 database so a fresh Worker invocation can resume the same ticket.
 Pi's packaged SQLite session adapter uses Node's `node:sqlite` and cannot run in
 a Worker isolate.
 
+The node checks that the selected model's secret is present before it sells
+anything. If it is missing, or `LORE_ANSWER_MODEL` names an unsupported model,
+`discover` leaves out `answer_price_usd` and `answer` refuses with
+`answer_unavailable`, naming the missing secret or the model, with no payment
+challenge, so a buyer is never charged for an answer the node could not run.
+`result` stays free for tickets already paid for. Set the secret and a
+new session sells again.
+
 ## Make the test payment
 
 In this directory:

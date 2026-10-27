@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -159,6 +160,36 @@ class SkillContractTest(unittest.TestCase):
         codex = json.loads((ROOT / ".agents/plugins/marketplace.json").read_text())
         self.assertEqual(claude["plugins"][0]["source"], "./plugins/lore")
         self.assertEqual(codex["plugins"][0]["source"]["path"], "./plugins/lore")
+
+    def test_the_plugin_ships_the_tested_skills_and_no_second_copy(self) -> None:
+        """XC-006: one set of skill files, so a fix reaches every channel at once.
+
+        The plugin, the installer and the tests in this file all read
+        `plugins/lore/skills`. A manifest pointed somewhere else, or a second real
+        `lore-*` skill folder elsewhere in the tree, is a fork these tests never see.
+        """
+        claude = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
+        codex = json.loads((PLUGIN / ".codex-plugin/plugin.json").read_text())
+        # Claude Code ships the `skills/` beside the manifest unless told otherwise.
+        self.assertNotIn("skills", claude)
+        self.assertEqual((PLUGIN / codex["skills"]).resolve(), OWNER_SKILLS.resolve())
+
+        if not (ROOT / ".git").exists():
+            self.skipTest("listing the tree needs the git checkout")
+        # Untracked files count: a copy is a fork before it is ever committed. The
+        # host links under `.claude/skills` and `.agents/skills` are tracked as
+        # links, so they list no `SKILL.md` of their own.
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.splitlines()
+        self.assertEqual(
+            {path for path in listed if re.search(r"(^|/)lore-[^/]+/SKILL\.md$", path)},
+            {f"plugins/lore/skills/{name}/SKILL.md" for name in EXTERNAL_SKILLS},
+        )
 
     def test_every_skill_says_when_to_use_it(self) -> None:
         """A description with no trigger phrasing is a skill that never fires."""
@@ -305,8 +336,9 @@ class SkillContractTest(unittest.TestCase):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
 
-    def test_the_desktop_store_asks_for_the_payout_address_last(self) -> None:
-        """MON-025: the address is where new owners stalled, so it comes after value."""
+    def test_the_desktop_store_asks_how_the_owner_gets_paid_last(self) -> None:
+        """MON-025: payouts are where new owners stalled, so they come after value;
+        MON-047: card payments are enough, so the address is optional."""
         skill = " ".join(
             (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
         )
@@ -314,12 +346,12 @@ class SkillContractTest(unittest.TestCase):
             skill.index("no active publication"),
             skill.index("price through `propose_price`"),
             skill.index("call `cloudflare_login` if the owner has not signed in"),
-            skill.index("the payout address, last"),
-            skill.index("`open_store` with network `real` and the address"),
+            skill.index("how the owner gets paid, last"),
+            skill.index("`open_store` with network `real` and no address"),
         ]
         self.assertEqual(order, sorted(order))
         self.assertIn("no coinbase developer keys in the app", skill)
-        self.assertIn("never asks: call `open_store` without an address", skill)
+        self.assertIn("a payout address is optional", skill)
 
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
@@ -379,6 +411,21 @@ class SkillContractTest(unittest.TestCase):
         ):
             self.assertIn(boundary, payments)
 
+    def test_the_publish_skill_says_why_a_memory_is_weak_before_it_asks(
+        self,
+    ) -> None:
+        """APP-235: a question about another topic baffles an owner never told why."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "first say why in one plain sentence",
+            "never ask a question whose premise the owner hasn't been told",
+            "draft it anyway, draft it",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,
     ) -> None:
@@ -391,6 +438,21 @@ class SkillContractTest(unittest.TestCase):
             "never edit `lore.db`",
             "lore-publish",
             "capture never creates a publication itself",
+        ):
+            with self.subTest(boundary=boundary):
+                self.assertIn(boundary, skill)
+
+    def test_capture_interviews_only_when_the_check_in_asked(self) -> None:
+        """APP-236: one sentence restates the paper; the detail around it sells."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text().lower().split()
+        )
+        for boundary in (
+            "### when lore's evening check-in asked",
+            "two to four short follow-ups, one at a time",
+            "never ask more than four",
+            "this is only for the check-in",
+            "follow `lore-publish` from those saved memories right here",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)

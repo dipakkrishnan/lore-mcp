@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
-import { isAgentPath, serveAgent } from "./agent.js";
+import { isAgentPath, serveAgent, signIn } from "./agent.js";
 import {
   type AnswerSettings,
   type Catalog,
@@ -15,19 +15,25 @@ import {
   ticketResult,
   validPublicId
 } from "./answer-state.js";
-import { runAnswer } from "./answer.js";
+import { type Collection, collectionCopy, collections, listing, members, toolName } from "./collections.js";
+import { answerReadiness, runAnswer } from "./answer.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
 import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
 import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
-import { type Piece, type Store, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
+import { SignIn } from "./signin.js";
+import { type Piece, type Store, collectionPage, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { countView } from "./views.js";
 import { payTo, takesAgentPayments } from "./wallet.js";
 
 const ANSWER_DISABLED = { error: "the answer tier is not enabled on this node" };
+const answerUnavailable = (reason: string) => ({
+  error: `the answer tier is unavailable on this node: ${reason}`,
+  code: "answer_unavailable"
+});
 /** What a store online only for its owner's agents answers (XC-069): stable, so buyers' agents can rely on it. */
 const NOTHING_FOR_SALE = { error: "nothing is for sale here yet", code: "nothing_for_sale" };
 /** What a store that sells only by card answers when an agent tries to pay it directly. */
@@ -88,14 +94,40 @@ export class LorePaidMCP extends McpAgent<Env> {
     await this.keepAliveWhile(() => runAnswer(this.env, payload.ticketId));
   }
 
+  /** One paid tool per collection, since an x402 tool has one price. */
+  sellCollection(paid: NonNullable<LorePaidMCP["paid"]>, set: Collection) {
+    const tool = paid.paidTool(
+      toolName(set),
+      `Buy the collection ${set.id} from the discover catalog: all ${set.pieces.length} of its publications in one payment.`,
+      set.price_usd,
+      {},
+      {},
+      async () =>
+        withSpan("lore.collection", async (setAttributes) => {
+          const found = await members(this.env.LORE_DB, set);
+          setAttributes(() =>
+            toolSpanAttributes({ tool: "collection", outcome: found.length ? "ok" : "not_found", paid: true, itemId: set.id })
+          );
+          return asText(
+            found.length
+              ? { collection: { id: set.id, title: set.title }, pieces: found, disclosure: ATTRIBUTION }
+              : { error: `collection not found: ${set.id}` },
+            !found.length
+          );
+        })
+    );
+    recorded(this.env.LORE_DB, tool, "publication", set.price_usd, () => ({ item: set.id, title: `Collection: ${set.title}` }));
+  }
+
   async init() {
     await ensureAnswerSchema(this.env.LORE_DB);
     await ensureSalesSchema(this.env.LORE_DB);
     await ensureRefundTracking(this.env.LORE_DB);
     this.registerResult();
     const settings = await readAnswerSettings(this.env.LORE_DB);
+    const sets = await collections(this.env.LORE_DB);
     if (!settings.selling) this.sellNothing();
-    else if (this.paid) this.sell(this.paid, settings);
+    else if (this.paid) this.sell(this.paid, settings, sets);
     else this.sellByCardOnly(settings);
   }
 
@@ -138,7 +170,11 @@ export class LorePaidMCP extends McpAgent<Env> {
     });
   }
 
-  private sell(paid: NonNullable<LorePaidMCP["paid"]>, settings: AnswerSettings) {
+  private sell(paid: NonNullable<LorePaidMCP["paid"]>, settings: AnswerSettings, sets: Collection[]) {
+    // MON-017: enabled settings are not enough. Without the selected provider's key the job would
+    // fail after the buyer had paid, so `answer` is neither advertised nor charged for until it can run.
+    const readiness = settings.enabled ? answerReadiness(this.env) : undefined;
+    const answering = readiness?.ready === true;
     this.server.registerTool(
       "discover",
       {
@@ -154,10 +190,11 @@ export class LorePaidMCP extends McpAgent<Env> {
             payout: payTo(this.env),
             price_usd: priceOf(settings),
             listed: settings.listedName !== "",
+            ...(sets.length ? { collections: sets.map((set) => listing(set, priceOf(settings))) } : {}),
             for_sale: true,
             ...(settings.freeCopies ? { free_copies: settings.freeCopies } : {}),
             ...(settings.listedName ? { name: settings.listedName } : {}),
-            ...(settings.enabled
+            ...(answering
               ? {
                   answer_price_usd: settings.priceUsd,
                   answer_retention_disclosure: RETENTION_DISCLOSURE
@@ -165,6 +202,7 @@ export class LorePaidMCP extends McpAgent<Env> {
               : {}),
             disclosure:
               "Choose any advertised ids; get buys one publication per call." +
+              (sets.length ? " Each collection's tool buys all of its pieces in one call." : "") +
               (settings.freeCopies ? ` The first ${settings.freeCopies} copies of each are free, while they last.` : "")
           });
         })
@@ -212,7 +250,9 @@ export class LorePaidMCP extends McpAgent<Env> {
       })
     );
 
-    if (settings.enabled) {
+    for (const set of sets) this.sellCollection(paid, set);
+
+    if (answering) {
       const answer = paid.paidTool(
         "answer",
         ANSWER,
@@ -244,7 +284,7 @@ export class LorePaidMCP extends McpAgent<Env> {
         async () =>
           withSpan("lore.answer", (setAttributes) => {
             setAttributes(() => toolSpanAttributes({ tool: "answer", outcome: "disabled" }));
-            return asText(ANSWER_DISABLED, true);
+            return asText(readiness?.ready === false ? answerUnavailable(readiness.reason) : ANSWER_DISABLED, true);
           })
       );
     }
@@ -309,16 +349,61 @@ async function paidFor(env: Env, account: string, session: string, piece: { id: 
 
 type Settled = Paid & { id: string; title: string; copy: Copy | null };
 
-/** A payment checkout confirms into this store's account, for this piece in this store, and what it
- * bought: the piece as it stands, or nothing if it has since been taken down. */
-async function settled(env: Env, account: string, session: string, id: string, origin: string, found?: Piece): Promise<Settled | null> {
+/** What a card can buy here: one piece, or a whole collection kept as one copy. */
+type Sellable = {
+  id: string;
+  teaser: string;
+  priceUsd: number;
+  /** Set for a piece; a collection's receipt is drawn from its kept copy. */
+  piece?: Piece;
+  /** The sale's title in the ledger. */
+  sold: (copy: Copy) => string;
+  copy: () => Promise<Copy | null>;
+  page: (store: Store, problem: string, left?: number) => string;
+};
+
+async function pieceCopy(db: D1Database, found: Piece): Promise<Copy | null> {
+  const current = await db
+    .prepare("SELECT title, content FROM publications WHERE public_id = ?1")
+    .bind(found.id)
+    .first<{ title: string; content: string }>();
+  return current && { piece_id: found.id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current };
+}
+
+function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: AnswerSettings, id: string): Sellable | undefined {
+  const all = pieces(catalog);
+  const found = all.find((piece) => piece.id === id);
+  if (found) {
+    return {
+      id,
+      teaser: found.teaser,
+      priceUsd: priceOf(settings),
+      piece: found,
+      sold: (copy) => copy.title,
+      copy: () => pieceCopy(env.LORE_DB, found),
+      page: (store, problem, left = 0) => publicationPage(found, store, problem, left)
+    };
+  }
+  const set = sets.find((candidate) => candidate.id === id);
+  if (!set) return undefined;
+  const entries = set.pieces.flatMap((member) => all.filter((piece) => piece.id === member));
+  return {
+    id,
+    teaser: set.title,
+    priceUsd: set.price_usd,
+    sold: (copy) => `Collection: ${copy.title}`,
+    copy: () => collectionCopy(env.LORE_DB, set),
+    page: (store, problem) => collectionPage(set, entries, store, priceOf(settings), problem)
+  };
+}
+
+/** A payment checkout confirms into this store's account, for this item in this store, and what it
+ * bought: the item as it stands, or nothing if it has since been taken down. */
+async function settled(env: Env, account: string, session: string, id: string, origin: string, item?: Sellable): Promise<Settled | null> {
   const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, { id }, origin) : null;
   if (!paid) return null;
-  const current = found
-    ? await env.LORE_DB.prepare("SELECT title, content FROM publications WHERE public_id = ?1").bind(id).first<{ title: string; content: string }>()
-    : null;
-  const copy = found && current ? { piece_id: id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current } : null;
-  return { ...paid, id, title: copy?.title ?? found?.teaser ?? "A piece since taken down", copy };
+  const copy = item ? await item.copy() : null;
+  return { ...paid, id, title: copy && item ? item.sold(copy) : (item?.teaser ?? "A piece since taken down"), copy };
 }
 
 /** Keep the copy and count the sale together, once each; a payment with nothing left to keep is owed back. */
@@ -331,23 +416,23 @@ async function keep(env: Env, session: string, sale: Settled): Promise<void> {
   ]);
 }
 
-async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, found: Piece | undefined): Promise<Response> {
+async function receiptPage(env: Env, store: Store, account: string, session: string, id: string, item: Sellable | undefined): Promise<Response> {
   // A kept copy opens whatever happened since: an edit, a takedown, or cards turned off.
   const free = FREE_LINK.test(session);
   const kept = SESSION.test(session) || free ? await keptCopy(env.LORE_DB, session, id) : null;
-  const sale = kept || !found ? null : await settled(env, account, session, id, store.origin, found);
+  const sale = kept || !item ? null : await settled(env, account, session, id, store.origin, item);
   // The buyer has paid; a bookkeeping failure must never cost them the piece.
   if (sale) await keep(env, session, sale).catch(() => console.error("receiptPage(): failed to keep a paid card session"));
   const copy = kept ?? sale?.copy;
   if (copy) {
-    const piece = found ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
+    const piece = item?.piece ?? { id, teaser: copy.teaser, kind: copy.kind, updated_at: copy.updated_at, topic: "", section: 0 };
     return html(unlockedPage(piece, store, copy, free), 200, PRIVATE);
   }
-  if (!found) return html(notFound(store), 404, PRIVATE);
+  if (!item) return html(notFound(store), 404, PRIVATE);
   const problem = free
     ? "This link doesn't open a free copy here."
-    : "We couldn't find a finished card payment for this piece. If you just paid, wait a minute and reload this page.";
-  return html(publicationPage(found, store, problem), 200, PRIVATE);
+    : `We couldn't find a finished card payment for this ${item.piece ? "piece" : "collection"}. If you just paid, wait a minute and reload this page.`;
+  return html(item.page(store, problem), 200, PRIVATE);
 }
 
 const FREE_COOKIE = /(?:^|;\s*)lore_free=(free_[0-9a-f]{32})/;
@@ -359,10 +444,7 @@ async function readFree(request: Request, env: Env, store: Store, id: string, fo
   await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
   const cookie = request.headers.get("cookie")?.match(FREE_COOKIE)?.[1];
   const mine = cookie && (await keptCopy(db, cookie, id)) ? cookie : null;
-  const current = mine || !found
-    ? null
-    : await db.prepare("SELECT title, content FROM publications WHERE public_id = ?1").bind(id).first<{ title: string; content: string }>();
-  const copy = found && current && { piece_id: id, teaser: found.teaser, kind: found.kind, updated_at: found.updated_at, ...current };
+  const copy = mine || !found ? null : await pieceCopy(db, found);
   const link = mine ?? (copy ? await giveCopy(db, copy, store.freeCopies ?? 0) : null);
   if (link) {
     const cookie = `lore_free=${link}; Path=/p/${id}; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax`;
@@ -372,31 +454,32 @@ async function readFree(request: Request, env: Env, store: Store, id: string, fo
   return html(publicationPage(found, store, "There are no free copies of this piece left."), 200, PRIVATE);
 }
 
-function storeFor(env: Env, url: URL, settings: AnswerSettings): Store {
+function storeFor(env: Env, url: URL, settings: AnswerSettings, priceUsd = priceOf(settings)): Store {
   return {
     name: settings.listedName,
-    priceUsd: priceOf(settings),
+    priceUsd,
     origin: url.origin,
     test: network(env) === TESTNET,
     freeCopies: settings.freeCopies,
     support: settings.supportEmail,
     selling: settings.selling,
-    ...(settings.selling && takesCards(settings) ? { checkout: env.CHECKOUT_URL } : {})
+    agentsPay: takesAgentPayments(env),
+    ...(settings.selling && takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
   };
 }
 
-const takesCards = (settings: AnswerSettings) => STRIPE_ACCOUNT.test(settings.stripeAccount) && priceOf(settings) >= CARD_MINIMUM_USD;
+const takesCards = (settings: AnswerSettings, priceUsd: number) => STRIPE_ACCOUNT.test(settings.stripeAccount) && priceUsd >= CARD_MINIMUM_USD;
 /** What a piece costs: the owner's pushed price, so a new price needs no redeploy; the deployed one until a push carries it. */
 const priceOf = (settings: AnswerSettings) => settings.publicationPriceUsd || PRICE_USD;
 
 /** Lore's checkout saying a card payment finished, so the sale counts even if the buyer never returns. The
  * notice only names a session: it is checked with checkout before anything is written. */
-async function paidNotice(request: Request, env: Env, account: string, origin: string, id: string, found: Piece | undefined): Promise<Response> {
+async function paidNotice(request: Request, env: Env, account: string, origin: string, id: string, item: Sellable | undefined): Promise<Response> {
   const form = await request.formData().catch(() => null);
   const session = form?.get("session_id");
   if (typeof session !== "string") return Response.json({ recorded: false }, { status: 400, headers: PRIVATE });
   // Only the account this store takes cards into; nothing in the notice names the payee.
-  const sale = await settled(env, account, session, id, origin, found);
+  const sale = await settled(env, account, session, id, origin, item);
   if (!sale) return Response.json({ recorded: false }, { status: 404, headers: PRIVATE });
   // A failed write answers 5xx, so checkout fails the webhook and Stripe sends it again.
   return keep(env, session, sale).then(
@@ -405,48 +488,59 @@ async function paidNotice(request: Request, env: Env, account: string, origin: s
   );
 }
 
+/** The owner's agents' endpoint and its sign-in (XC-068), or else the buyers' `/mcp`. */
+function agentOrBuyer(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
+  const { pathname } = url;
+  if (isAgentPath(pathname)) return serveAgent(request, env, ctx);
+  if (pathname === "/authorize" && request.method === "GET") return signIn(url.origin).authorize(request, env);
+  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(url.origin).wait(request, env);
+  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(url.origin).resource.fetch(request, env, ctx);
+  if (SignIn.owns(pathname)) return signIn(url.origin).server.fetch(request, env, ctx);
+  return mcp.fetch(request, env, ctx);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
     const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
     if (page && (request.method === "GET" || request.method === "HEAD")) {
       const settings = await readAnswerSettings(env.LORE_DB);
-      const catalog = await catalogOf(env, settings);
-      const store = storeFor(env, url, settings);
+      const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
       const [, id, format] = url.pathname.match(/^\/p\/([0-9a-f]{24})(\.json|\/)?$/) ?? [];
-      const found = pieces(catalog).find((piece) => piece.id === id);
+      const item = id ? sellable(env, catalog, sets, settings, id) : undefined;
+      const store = storeFor(env, url, settings, item?.priceUsd);
       if (format === ".json") {
         // What Lore's checkout reads before charging: only what the page already shows, plus the payee.
-        const listing = found && {
-          id: found.id,
-          teaser: found.teaser,
-          price_usd: priceOf(settings),
-          stripe_account: takesCards(settings) ? settings.stripeAccount : "",
+        const forSale = item && {
+          id: item.id,
+          teaser: item.teaser,
+          price_usd: item.priceUsd,
+          stripe_account: takesCards(settings, item.priceUsd) ? settings.stripeAccount : "",
           test: store.test
         };
-        return Response.json(listing ?? { error: "not for sale here" }, { status: listing ? 200 : 404, headers: PUBLIC });
+        return Response.json(forSale ?? { error: "not for sale here" }, { status: forSale ? 200 : 404, headers: PUBLIC });
       }
       const session = url.searchParams.get("session_id");
       if (id && session !== null) {
-        const response = await receiptPage(env, store, settings.stripeAccount, session, id, found);
+        const response = await receiptPage(env, store, settings.stripeAccount, session, id, item);
         return request.method === "HEAD" ? html(null, response.status, PRIVATE) : response;
       }
       // Counted after the response; a buyer reopening their receipt returned above and is never a view.
-      if (found && request.method === "GET") ctx.waitUntil(countView(env.LORE_DB, found.id).catch(() => undefined));
-      const left = found ? await freeLeft(env.LORE_DB, found.id, settings.freeCopies) : 0;
-      const body = url.pathname === "/" ? storefront(catalog, store) : found ? publicationPage(found, store, "", left) : notFound(store);
-      return html(request.method === "HEAD" ? null : body, url.pathname === "/" || found ? 200 : 404, PUBLIC);
+      if (item && request.method === "GET") ctx.waitUntil(countView(env.LORE_DB, item.id).catch(() => undefined));
+      const left = item?.piece ? await freeLeft(env.LORE_DB, item.id, settings.freeCopies) : 0;
+      const body = url.pathname === "/" ? storefront(catalog, store, sets) : item ? item.page(store, "", left) : notFound(store);
+      return html(request.method === "HEAD" ? null : body, url.pathname === "/" || item ? 200 : 404, PUBLIC);
     }
     const [, posted, action] = url.pathname.match(/^\/p\/([0-9a-f]{24})\/(paid|free)$/) ?? [];
     if (posted && request.method === "POST") {
       const settings = await readAnswerSettings(env.LORE_DB);
-      const catalog = await catalogOf(env, settings);
-      const found = pieces(catalog).find((piece) => piece.id === posted);
+      const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
+      const item = sellable(env, catalog, sets, settings, posted);
       return action === "free"
-        ? readFree(request, env, storeFor(env, url, settings), posted, found)
-        : paidNotice(request, env, settings.stripeAccount, url.origin, posted, found);
+        ? readFree(request, env, storeFor(env, url, settings), posted, item?.piece)
+        : paidNotice(request, env, settings.stripeAccount, url.origin, posted, item);
     }
-    const response = isAgentPath(url.pathname) ? await serveAgent(request, env) : await mcp.fetch(request, env, ctx);
+    const response = await agentOrBuyer(request, url, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
     const uncached = new Response(response.body, response);
     uncached.headers.set("cache-control", "no-store");

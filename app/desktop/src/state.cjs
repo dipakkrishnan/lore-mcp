@@ -2,7 +2,7 @@ const { execFile, spawn } = require("node:child_process");
 const { createInterface } = require("node:readline");
 const { promisify } = require("node:util");
 const { randomBytes } = require("node:crypto");
-const { mkdirSync, readFileSync, writeFileSync } = require("node:fs");
+const { chmodSync, closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeSync } = require("node:fs");
 const { homedir, userInfo } = require("node:os");
 const { dirname, join, resolve } = require("node:path");
 
@@ -13,17 +13,116 @@ const root = resolve(__dirname, "../../..");
 let runtime = { file: "uv", args: ["run", "lore"], cwd: root };
 
 /** Where the CLI checks a decision came from this app: outside every root the agent's sandbox can read, in the account's own home rather than whatever HOME says. */
-const ATTENDED_KEY = join(userInfo().homedir, "Library", "Application Support", "Lore", "attended");
+const ATTENDED_KEYS = join(userInfo().homedir, "Library", "Application Support", "Lore", "attended.d");
 /** The store's code and tools, outside Lore's home, as the CLI finds them (lore/paths.py store_folder). */
 const STORE = process.env.LORE_STORE || join(homedir(), "Library", "Application Support", "Lore", "store");
-/** Fresh each launch and never in process.env, so the agent's shell cannot pass it. */
-const attendedKey = randomBytes(32).toString("hex");
 
-/** Rewritten on every decision, so the app that launched last still answers for itself. */
-function attended() {
-  mkdirSync(dirname(ATTENDED_KEY), { recursive: true });
-  writeFileSync(ATTENDED_KEY, attendedKey, { mode: 0o600 });
-  return { LORE_ATTENDED_KEY: attendedKey };
+/** This launch's key, in a file of its own so every running app and test run keeps its key; the key is fresh each launch and never in process.env, so the agent's shell cannot pass it. */
+class LaunchKey {
+  /** An empty or unreadable file is cleared after this long; a running app's file never is. */
+  static STALE_MS = 7 * 24 * 60 * 60 * 1000;
+  /** A key file holds a pid and the key; the CLI reads no more than this either (lore/cli.py KEY_FILE_BYTES). */
+  static FILE_BYTES = 256;
+
+  /** @param {string} folder */
+  constructor(folder) {
+    this.folder = folder;
+    this.key = randomBytes(32).toString("hex");
+    /** @type {string | undefined} */
+    this.file = undefined;
+    this.started = false;
+  }
+
+  /** The key for a CLI call. The file is written once and never rewritten; if something removed it, a new one takes its place. @returns {{LORE_ATTENDED_KEY: string}} */
+  env() {
+    this.trust();
+    if (!this.started) {
+      this.started = true;
+      this.prune();
+      process.once("exit", () => this.remove());
+    }
+    if (!this.file || !lstatSync(this.file, { throwIfNoEntry: false })?.isFile()) this.write();
+    return { LORE_ATTENDED_KEY: this.key };
+  }
+
+  remove() {
+    if (this.file) rmSync(this.file, { force: true });
+    this.file = undefined;
+  }
+
+  /** The folder must be a real folder of this account's, closed to everyone else. */
+  trust() {
+    mkdirSync(this.folder, { recursive: true, mode: 0o700 });
+    const folder = lstatSync(this.folder);
+    if (!folder.isDirectory() || folder.uid !== process.getuid?.()) throw new Error(`${this.folder} is not a folder Lore can trust`);
+    if ((folder.mode & 0o777) !== 0o700) chmodSync(this.folder, 0o700);
+  }
+
+  /** Created whole under a name of its own, never the key, and closed to everyone else. */
+  write() {
+    const file = join(this.folder, randomBytes(16).toString("hex"));
+    const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      fchmodSync(fd, 0o600);
+      writeSync(fd, `${process.pid}\n${this.key}\n`);
+    } finally {
+      closeSync(fd);
+    }
+    this.file = file;
+  }
+
+  /** Clear the files of apps that are no longer running, and empty ones left long ago. */
+  prune() {
+    for (const name of readdirSync(this.folder)) {
+      const file = join(this.folder, name);
+      const read = LaunchKey.read(file);
+      if (!read || file === this.file) continue;
+      const pid = Number(read.text.split("\n")[0]);
+      const gone = Number.isInteger(pid) && pid > 0 ? !LaunchKey.running(pid) : Date.now() - read.mtimeMs > LaunchKey.STALE_MS;
+      if (gone) rmSync(file, { force: true });
+    }
+  }
+
+  /** The start of one of this account's regular files, opened without following a link or waiting on a pipe. @param {string} file */
+  static read(file) {
+    let fd;
+    try {
+      fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    } catch {
+      return undefined;
+    }
+    try {
+      const info = fstatSync(fd);
+      if (!info.isFile() || info.uid !== process.getuid?.()) return undefined;
+      const buffer = Buffer.alloc(LaunchKey.FILE_BYTES);
+      const size = readSync(fd, buffer, 0, buffer.length, 0);
+      return { text: buffer.toString("utf8", 0, size), mtimeMs: info.mtimeMs };
+    } finally {
+      closeSync(fd);
+    }
+  }
+
+  /** @param {number} pid */
+  static running(pid) {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error) {
+      return /** @type {NodeJS.ErrnoException} */ (error).code === "EPERM";
+    }
+  }
+}
+
+let launchKey = new LaunchKey(ATTENDED_KEYS);
+
+/** Tests keep their launch keys in scratch; the app never calls this. @param {string} folder */
+function useKeys(folder) {
+  launchKey = new LaunchKey(folder);
+}
+
+/** On quit: this launch's key file goes with it. */
+function forgetKey() {
+  launchKey.remove();
 }
 
 /** @param {string} [file] */
@@ -33,7 +132,8 @@ function useRuntime(file) {
 
 /** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {AbortSignal} [signal] */
 async function lore(loreHome, args, decision, signal) {
-  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", ...(decision === undefined ? {} : attended()) };
+  // What a decision would put on the store waits for the owner's yes to it (APP-226); the app pushes after.
+  const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", LORE_HOLD_PUSH: "1", ...(decision === undefined ? {} : launchKey.env()) };
   const pending = run(runtime.file, [...runtime.args, ...args], {
     cwd: runtime.cwd ?? loreHome,
     env,
@@ -87,69 +187,223 @@ const grouped = (address) => `0x ${address.slice(2).match(/.{1,4}/g)?.join(" ")}
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 
-/** Where the store pays out and on which network, as its last deploy recorded it in the store's own folder, which the agent can't touch; null when there is none. @returns {{address: string, network: "real" | "test" | null} | null} */
-function recordedPayout() {
+/** What the store's last deploy recorded in the store's own folder, which the agent can't touch. @returns {{address?: unknown, network?: unknown}} */
+function recorded() {
   try {
-    const { address, network } = JSON.parse(readFileSync(join(STORE, "payout.json"), "utf8"));
-    if (typeof address !== "string" || !ADDRESS.test(address)) return null;
-    return { address, network: network === "real" || network === "test" ? network : null };
+    return JSON.parse(readFileSync(join(STORE, "payout.json"), "utf8")) ?? {};
   } catch {
-    return null;
+    return {};
   }
 }
+
+/** Where the store pays out and on which network, as its last deploy recorded it; null when there is none. @returns {{address: string, network: "real" | "test" | null} | null} */
+function recordedPayout() {
+  const { address, network } = recorded();
+  if (typeof address !== "string" || !ADDRESS.test(address)) return null;
+  return { address, network: network === "real" || network === "test" ? network : null };
+}
+
+/** The network a store that sells by card alone last opened on: it has no address on record, only that. @returns {"real" | "test" | null} */
+function recordedNetwork() {
+  const { network } = recorded();
+  return network === "real" || network === "test" ? network : null;
+}
+
+/** Whether the owner takes card payments, which is enough for a store to sell without a payout address. @param {string} loreHome */
+async function takesCards(loreHome) {
+  return Boolean((await cardStatus(loreHome).catch(() => null))?.account);
+}
+
+/** What the owner answers on the payout card to sell by card instead of to an address. */
+const BY_CARD = "By card";
 
 /** Six decimals, as the renderer shows prices: a price below a cent must not read as $0.00 on a card the owner confirms. */
 const dollars = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 
+const ON_SALE = "Going on sale";
+const UPDATED = "Updated";
+const COMING_OFF = "Coming off";
+/** @param {"real" | "test"} network */
+const networkName = (network) => (network === "real" ? "Real money" : "Test network");
+/** @param {number | null} usd */
+const each = (usd) => (usd === null ? "No price set" : `${dollars.format(usd)} a piece`);
+
 /**
- * Deploy or redeploy the owner's store from the app, outside the agent's sandbox, once the owner says yes
- * on a card naming the network, the whole payout address, and the price and free copies it goes live with;
- * then say how it went. A redeploy pays out where the store's last deploy recorded, and nothing Lore's home
- * holds; with no record the owner types the address on the app's own card. The deploy always carries the
- * address and network the card showed. It fails fast when Cloudflare is not signed in, so the agent can ask
- * for the sign-in and retry.
- * `inboxOnly` puts the store online for the owner's agents only (XC-069): no network, payout or price, so the card
- * asks only whether to put it online.
- * @param {string} loreHome @param {OpenStore} store @param {Ask} ask
+ * APP-226: what a store update puts out, one line each: pieces going on sale, pieces whose free parts changed
+ * (`updated`, by publication id), pieces coming off, and a new price. A deploy for sale (`deploy`) also names its
+ * network and payout and, opening the store, its free copies and new address. A store that sells nothing puts no
+ * piece out when it updates, so it changes nothing here.
+ * @param {Snapshot} state @param {Iterable<number>} [updated] @param {SaleDeploy} [deploy] @returns {StoreChange[]}
  */
-async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask) {
+function storeChanges(state, updated = [], deploy) {
+  const opening = Boolean(deploy) && !state.node.selling;
+  if (!opening && !state.node.selling) return [];
+  const ids = new Set(updated);
+  /** @type {StoreChange[]} */
+  const changes = [];
+  for (const item of state.publications.items) {
+    if (item.state === "approved" && (opening || item.live === false)) changes.push({ group: ON_SALE, label: item.title });
+    else if (item.state === "approved" && ids.has(item.id)) changes.push({ group: UPDATED, label: item.title });
+    else if (item.state === "revoked" && item.live === true) changes.push({ group: COMING_OFF, label: item.title });
+  }
+  const price = state.pricing.publication_usd;
+  const charged = state.node.live.price_usd;
+  if (opening) {
+    const free = state.pricing.free_copies ?? 0;
+    changes.push({ group: "", label: "Price", to: each(price) }, { group: "", label: "Free copies", to: free ? `The first ${free} of each piece` : "None" });
+  } else if (typeof charged === "number" && typeof price === "number" && charged !== price) {
+    changes.push({ group: "", label: "Price", from: each(charged), to: each(price) });
+  }
+  if (!deploy) return changes;
+  const { network, payout, recorded } = deploy;
+  if (payout === null) {
+    // By card alone: Stripe pays the owner's bank, and only a store opening says so.
+    if (opening) changes.push({ group: "", label: "Payments", to: network === "real" ? "By card" : "By card, with Stripe's test cards" }, { group: "", label: "Paid to", to: "Your bank, through Stripe" });
+    if (opening && !state.node.url) changes.push({ group: "", label: "Address", to: "A new one, made as it opens" });
+    return changes;
+  }
+  const switched = !opening && recorded?.network && recorded.network !== network ? recorded.network : null;
+  if (opening || switched) changes.push({ group: "", label: "Payments", ...(switched ? { from: networkName(switched) } : {}), to: networkName(network) });
+  // A new address where the store already pays somewhere is a change, and the card names both.
+  const moved = recorded && recorded.address.toLowerCase() !== payout.toLowerCase() ? grouped(recorded.address) : null;
+  if (opening || moved) changes.push({ group: "", label: "Paid to", ...(moved ? { from: moved } : {}), to: grouped(payout) });
+  if (opening && !state.node.url) changes.push({ group: "", label: "Address", to: "A new one, made as it opens" });
+  return changes;
+}
+
+/** APP-231: the newer store this Lore ships, as the owner's card names it. */
+const LATEST = { group: "", label: "Store", to: "The latest from Lore" };
+
+/** What an update puts out, and the newer store too when the one online is older than this Lore's: a deploy always
+ * puts out the store this Lore ships. @param {Snapshot} state @param {StoreChange[]} changes */
+const withLatest = (state, changes) => (state.node.store === "outdated" ? [...changes, LATEST] : changes);
+
+/** Only taking pieces down goes out without the owner's yes. @param {StoreChange[]} changes */
+const asks = (changes) => changes.some((change) => change.group !== COMING_OFF);
+
+/** APP-226: store updates wait on the owner's yes to each change they put out. Pieces whose free parts the owner
+ * approved go out marked as updated until an update lands. */
+class Outgoing {
+  /** @param {string} loreHome @param {Confirm} confirm */
+  constructor(loreHome, confirm) {
+    this.loreHome = loreHome;
+    this.confirm = confirm;
+    /** @type {Set<number>} */
+    this.updated = new Set();
+  }
+
+  /** @param {number[]} ids */
+  mark(ids) {
+    for (const id of ids) this.updated.add(id);
+  }
+
+  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. Every caller deploys
+   * it, so the newer store goes out with it. */
+  async changes() {
+    const state = await readState(this.loreHome);
+    return withLatest(state, storeChanges(state, this.updated));
+  }
+
+  /** Whether the owner said yes to what an update with no terms of its own puts out; one with nothing to confirm goes ahead. */
+  async confirmed() {
+    const changes = await this.changes();
+    return !asks(changes) || (await this.confirm("Update your store", changes));
+  }
+
+  /** Push the pieces and price of a store that sells, once the owner says yes to what it puts out; one with nothing
+   * to confirm goes ahead. Resolves to whether it went. `latest`, the owner's own optional Update where the store
+   * shows, also puts out the newer store this Lore ships (APP-231), as it was last opened: for sale on its network and
+   * payout, or for agents only. Every other push leaves the store as it is, so it never asks about more than it says. */
+  async push({ latest = false } = {}) {
+    const state = await readState(this.loreHome);
+    const newer = latest && state.node.store === "outdated";
+    if (!state.node.selling && !newer) return false;
+    const changes = storeChanges(state, this.updated);
+    const out = newer ? [...changes, LATEST] : changes;
+    if (asks(out) && !(await this.confirm("Update your store", out))) return false;
+    if (newer) {
+      const said = await this.deploy(state.node.selling ? redeploy() : ["node", "deploy", "--inbox-only"]);
+      if (!said.startsWith("The store is deployed")) throw new Error(said);
+      return true;
+    }
+    await lore(this.loreHome, ["push"], "");
+    this.updated.clear();
+    return true;
+  }
+
+  /** Run a deploy the owner said yes to, and say how it went. @param {string[]} args */
+  async deploy(args) {
+    const said = await deployStore(this.loreHome, args);
+    if (said.startsWith("The store is deployed")) this.updated.clear();
+    return said;
+  }
+}
+
+/** A store for sale goes out again as its last deploy recorded it: its network, and its payout address when it has
+ * one; a store that sells by card alone has only the network. @returns {string[]} */
+function redeploy() {
+  const payout = recordedPayout();
+  const network = payout?.network ?? recordedNetwork();
+  return ["node", "deploy", ...(network ? ["--network", network] : []), ...(payout ? ["--wallet", payout.address] : [])];
+}
+
+/**
+ * Deploy or redeploy the owner's store from the app, outside the agent's sandbox, once the owner says yes on the
+ * app's own card to each change it puts out: the pieces, the price, and the network and whole payout address; then
+ * say how it went. A redeploy pays out where the store's last deploy recorded, and nothing Lore's home holds; with no
+ * record the owner types the address on the app's own card. The deploy always carries the address and network the
+ * card showed. It fails fast when Cloudflare is not signed in, so the agent can ask for the sign-in and retry.
+ * `inboxOnly` puts the store online for the owner's agents only (XC-069): no network, payout or price, so the card
+ * asks only whether to put it online, unless a store already selling would put out changes of its own.
+ * @param {string} loreHome @param {OpenStore} store @param {Ask} ask @param {Outgoing} outgoing
+ */
+async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, outgoing) {
   if (inboxOnly) {
-    if (!(await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few minutes"))) return "The owner chose not to put the store online right now.";
-    return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+    const changes = await outgoing.changes();
+    const yes = asks(changes)
+      ? await outgoing.confirm("Update your store", changes)
+      : await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few minutes");
+    if (!yes) return "The owner chose not to put the store online right now.";
+    return outgoing.deploy(["node", "deploy", "--inbox-only"]);
   }
   if (asked !== undefined && asked !== "real" && asked !== "test") return "The store opens on real money or the test network; nothing else.";
   if (wallet !== undefined && !ADDRESS.test(wallet)) return "That payout address is not valid; ask the owner for it again.";
   const recorded = recordedPayout();
-  const network = asked ?? recorded?.network;
+  /** @type {string | null} */
+  let payout = wallet ?? recorded?.address ?? null;
+  // With nowhere on record to pay, card payments are enough: the store sells by card alone, on real money unless it
+  // last opened on the test network, and the owner is never asked for an address.
+  let byCard = !payout && (await takesCards(loreHome));
+  const network = asked ?? recorded?.network ?? (byCard ? recordedNetwork() ?? "real" : undefined);
   if (!network) return "Say which network the store opens on: real money or the test network.";
-  let payout = wallet ?? recorded?.address;
-  if (!payout) {
+  if (!payout && !byCard) {
     const question = "Where should buyers' payments go?";
-    payout = (await ask([{ question, header: "Payouts", options: [], format: "evm_address", multiSelect: false }]))?.[question]?.trim() ?? "";
-    if (!ADDRESS.test(payout)) return "The owner gave no payout address, so the store did not open.";
+    const answer = (await ask([{ question, header: "Payouts", options: [], format: "evm_address", multiSelect: false }]))?.[question]?.trim() ?? "";
+    // The card answers By card only once Stripe cleared the owner; the CLI is asked again rather than trusted.
+    byCard = answer === BY_CARD && (await takesCards(loreHome));
+    if (answer === BY_CARD && !byCard) return "Card payments aren't on yet, so the store did not open.";
+    if (!byCard && !ADDRESS.test(answer)) return "The owner gave no payout address, so the store did not open.";
+    if (!byCard) payout = answer;
   }
-  const { pricing } = await readState(loreHome);
-  const price = pricing.publication_usd === null ? "no price set" : `${dollars.format(pricing.publication_usd)} a piece`;
-  const free = pricing.free_copies ?? 0;
-  // A new address where the store already pays somewhere is a change, and the card says so, naming both.
-  const moved = recorded && recorded.address.toLowerCase() !== payout.toLowerCase() ? recorded.address : null;
-  const terms = [
-    network === "real" ? "Real money" : "The test network",
-    moved ? `from ${grouped(moved)} to ${grouped(payout)}` : `paid to ${grouped(payout)}`,
-    price,
-    free ? `the first ${free} ${free === 1 ? "copy" : "copies"} of each piece free` : "no free copies"
-  ].join(" · ");
-  const question = moved ? `Change where your sales are paid? ${terms}` : `Open your store? ${terms}`;
-  if (!(await confirmed(ask, moved ? "Payouts" : "Open store", question, moved ? "Change it" : "Open it", "Takes a few minutes"))) return "The owner chose not to open the store right now.";
-  return deployStore(loreHome, ["node", "deploy", "--network", network, "--wallet", payout]);
+  const state = await readState(loreHome);
+  const changes = withLatest(state, storeChanges(state, outgoing.updated, { network, payout, recorded }));
+  const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
+  const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
+  if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
+  const said = await outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  // Said plainly, so the agent never reads a card-only store's missing payout address as something left undone.
+  return byCard && said.startsWith("The store is deployed") ? `${said}\n${BY_CARD_ONLY}` : said;
 }
+
+const BY_CARD_ONLY = "It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
 async function deployStore(loreHome, args) {
   const lines = /** @type {string[]} */ ([]);
   try {
     await stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line), runtime.cwd ?? loreHome);
-    return `The store is deployed.\n${lines.slice(-8).join("\n")}`;
+    // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
+    return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {
     const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
     // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
@@ -239,9 +493,18 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** A list of records from the CLI, or a refusal naming it: what it parsed is otherwise handed on unchecked (APP-060).
+ * @param {string} output @param {string} what */
+function records(output, what) {
+  const value = JSON.parse(output);
+  if (Array.isArray(value) && value.every((row) => row !== null && typeof row === "object")) return value;
+  console.error(`lore returned ${what} that is not a list of records: ${output.slice(0, 200)}`);
+  throw new Error(`Lore returned unreadable ${what}`);
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
-  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+  return records(await lore(loreHome, ["node", "sales", "--json"]), "sales");
 }
 
 /** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
@@ -264,6 +527,14 @@ async function readMemory(loreHome, id) {
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
 }
 
+/** Each kept memory's one-line gist by id, read only where the owner chooses among them; the snapshot carries no memory's words.
+ * @param {string} loreHome @returns {Promise<Record<string, string>>} */
+async function readGists(loreHome) {
+  const value = JSON.parse(await lore(loreHome, ["memory", "gists"]));
+  if (!value || typeof value !== "object" || Array.isArray(value) || !Object.values(value).every((gist) => typeof gist === "string")) throw new Error("Lore returned unreadable gists");
+  return value;
+}
+
 /** How many memories one `lore memory credit` names, as the CLI takes them. */
 const CREDIT_AT_ONCE = 500;
 
@@ -272,6 +543,15 @@ const CREDIT_AT_ONCE = 500;
 async function creditMemories(loreHome, ids, by) {
   for (let start = 0; start < ids.length; start += CREDIT_AT_ONCE) {
     await lore(loreHome, ["memory", "credit", "-"], JSON.stringify({ ids: ids.slice(start, start + CREDIT_AT_ONCE), by }));
+  }
+}
+
+/** Keep what a reading judged of each memory it wrote (APP-235), so its sheet offers Draft for sale only where it
+ * makes sense. @param {string} loreHome @param {ReadyMemory[]} memories */
+async function judgeMemories(loreHome, memories) {
+  for (let start = 0; start < memories.length; start += CREDIT_AT_ONCE) {
+    const judged = memories.slice(start, start + CREDIT_AT_ONCE).map(({ id, sell, work, why }) => ({ id, sell, work, why }));
+    await lore(loreHome, ["memory", "judge", "-"], JSON.stringify({ memories: judged }));
   }
 }
 
@@ -290,6 +570,12 @@ async function editMemory(loreHome, id, content) {
   if (!trimmed) throw new Error("Content cannot be empty");
   // Over stdin, not argv: content that starts with a dash is not an option.
   return JSON.parse(await lore(loreHome, ["memory", "edit", String(id), "--stdin", "--json"], trimmed));
+}
+
+/** @param {string} loreHome @param {unknown} id @returns {Promise<{deleted: number}>} */
+async function deleteMemory(loreHome, id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
+  return JSON.parse(await lore(loreHome, ["memory", "delete", String(id), "--json"]));
 }
 
 /** Save the memories exactly as the owner kept them on the card. @param {string} loreHome @param {ProposedMemory[]} entries @returns {Promise<SavedMemory[]>} */
@@ -337,9 +623,63 @@ async function setFreeCopies(loreHome, count) {
   await lore(loreHome, ["free-copies", String(count)], "");
 }
 
+/** @param {unknown} id */
+function collectionId(id) {
+  if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid collection");
+  return String(id);
+}
+
+/** A collection exists the moment it's asked for; naming it can wait. Attended: it's the owner's click.
+ * @param {string} loreHome @param {string} [title] @returns {Promise<NewCollection>} */
+async function newCollection(loreHome, title) {
+  const named = typeof title === "string" ? title.trim() : "";
+  return JSON.parse(await lore(loreHome, ["collection", "new", ...(named ? ["--title", named] : [])], ""));
+}
+
+/** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
+ * @param {string} loreHome @param {unknown} id @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
+async function addToCollection(loreHome, id, input) {
+  const which = collectionId(id);
+  const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
+  const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  const memories = (input.memories ?? []).filter((id) => Number.isInteger(id) && id > 0);
+  if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
+  if (!memories.length && !items.length && !files.length) throw new Error("Choose a memory, drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ memories, items, files })));
+}
+
+/** @param {string} loreHome @param {unknown} id @param {string} title */
+async function renameCollection(loreHome, id, title) {
+  const which = collectionId(id);
+  const trimmed = title.trim();
+  if (!trimmed) throw new Error("A collection needs a name");
+  await lore(loreHome, ["collection", "rename", which, "--", trimmed], "");
+}
+
+/** Zero takes it off sale; anything above puts it on sale at that price.
+ * @param {string} loreHome @param {unknown} id @param {unknown} amount */
+async function priceCollection(loreHome, id, amount) {
+  const which = collectionId(id);
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) throw new Error("A price has to be a number, zero or more");
+  await lore(loreHome, ["collection", "price", which, String(amount)], "");
+}
+
+/** Takes one piece out of the collection and off sale. @param {string} loreHome @param {unknown} id @param {unknown} piece */
+async function removeFromCollection(loreHome, id, piece) {
+  const which = collectionId(id);
+  if (!Number.isInteger(piece) || /** @type {number} */ (piece) < 1) throw new Error("Invalid piece");
+  await lore(loreHome, ["collection", "remove", which, String(piece)], "");
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function deleteCollection(loreHome, id) {
+  await lore(loreHome, ["collection", "delete", collectionId(id)], "");
+}
+
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
-  return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
+  return records(await lore(loreHome, ["publication", "candidates"]), "drafts");
 }
 
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */
@@ -515,7 +855,31 @@ async function disconnectAgent(loreHome, source, keep) {
   return JSON.parse(await lore(loreHome, ["agents", "revoke", agentSource(source), keep ? "--keep" : "--delete", "--json"], ""));
 }
 
-/** Which agents saved something Lore hasn't brought in yet. @param {string} loreHome @returns {Promise<{waiting: number, sources: string[]}>} */
+/** The plain address an app signs in at (XC-068); Lore listens for its sign-in a while after. @param {string} loreHome
+ * @returns {Promise<{mcp_url: string}>} */
+async function agentAddress(loreHome) {
+  return JSON.parse(await lore(loreHome, ["agents", "address", "--json"]));
+}
+
+/** @param {unknown} id */
+function signInId(id) {
+  if (typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id)) throw new Error("Unknown sign-in");
+  return id;
+}
+
+/** Let an app that asked to sign in save to Lore, as the agent the owner was connecting. Attended, like a key.
+ * @param {string} loreHome @param {{id?: unknown, app?: unknown, name?: unknown}} input @returns {Promise<AllowedAgent>} */
+async function allowSignIn(loreHome, input) {
+  const as = AGENT_APPS.has(/** @type {string} */ (input?.app)) && typeof input.name === "string" && input.name.trim() ? ["--app", String(input.app), "--name", input.name.trim().slice(0, 40)] : [];
+  return JSON.parse(await lore(loreHome, ["agents", "allow", signInId(input?.id), ...as, "--json"], ""));
+}
+
+/** @param {string} loreHome @param {unknown} id */
+async function denySignIn(loreHome, id) {
+  return JSON.parse(await lore(loreHome, ["agents", "deny", signInId(id), "--json"], ""));
+}
+
+/** Which agents saved something Lore hasn't brought in yet, and which apps ask to sign in. @param {string} loreHome @returns {Promise<AgentsWaiting>} */
 async function agentsWaiting(loreHome) {
   return JSON.parse(await lore(loreHome, ["agents", "waiting", "--json"]));
 }
@@ -582,13 +946,22 @@ module.exports = {
   readViews,
   searchMemories,
   readMemory,
+  readGists,
+  judgeMemories,
   creditMemories,
   renameMemory,
   editMemory,
+  deleteMemory,
   captureMemories,
   previewPage,
   setPrice,
   setFreeCopies,
+  newCollection,
+  addToCollection,
+  renameCollection,
+  priceCollection,
+  removeFromCollection,
+  deleteCollection,
   candidates,
   decide,
   extrasCandidates,
@@ -611,12 +984,20 @@ module.exports = {
   agentKey,
   disconnectAgent,
   agentsWaiting,
+  agentAddress,
+  allowSignIn,
+  denySignIn,
   useRuntime,
   openStore,
+  storeChanges,
+  Outgoing,
   storeOnline,
   cloudflareSignIn,
   SIGN_IN_UNFINISHED,
   saveProfile,
-  ATTENDED_KEY,
+  ATTENDED_KEYS,
+  LaunchKey,
+  useKeys,
+  forgetKey,
   STORE
 };

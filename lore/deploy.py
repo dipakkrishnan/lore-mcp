@@ -10,6 +10,7 @@ and the Worker share a D1 schema (MON-003).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -20,6 +21,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
+from fnmatch import fnmatch
 from importlib import resources
 from pathlib import Path
 from typing import Iterator, Literal
@@ -39,6 +41,8 @@ WRANGLER = "node_modules/.bin/wrangler"
 INSTALLED = ".installed"
 # Where the store pays out, written only by a deploy that set it.
 PAYOUT = "payout.json"
+# Which store this Lore last put online from this Mac, written by every deploy that went out.
+DEPLOYED = "deployed.json"
 DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
@@ -120,6 +124,13 @@ def selling(store: Store) -> bool:
     """Whether the store is online and open for sale, not only for agents: an
     address, and no explicit no."""
     return bool(store.setting("node_url", None)) and choice(store) is not False
+
+
+def takes_cards() -> bool:
+    """Whether the owner takes card payments (XC-039), which is enough for the
+    store to sell with no payout address."""
+    with Store() as store:
+        return bool(store.setting("stripe_account", ""))
 
 
 def _refuse_dev_source_drift(packaged: Path) -> None:
@@ -248,6 +259,50 @@ def materialize(price_usd: float | None) -> Path:
     return target
 
 
+def shipped_store() -> str:
+    """A digest of the store this Lore ships: every packaged file a deploy lays
+    down, by path and content. Two Lore releases that ship the same store agree."""
+    digest = hashlib.sha256()
+    with resources.as_file(resources.files("lore") / "node") as source_dir:
+        for root, dirs, files in os.walk(source_dir):
+            dirs[:] = sorted(d for d in dirs if not _excluded(d))
+            for name in sorted(files):
+                if _excluded(name):
+                    continue
+                path = Path(root, name)
+                digest.update(path.relative_to(source_dir).as_posix().encode())
+                digest.update(b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _excluded(name: str) -> bool:
+    return any(fnmatch(name, pattern) for pattern in EXCLUDED)
+
+
+def _record_store(target: Path) -> None:
+    """Keep which store went online, beside its payout record: the app offers an
+    update once this Lore ships a newer one."""
+    _replace(target / DEPLOYED, json.dumps({"store": shipped_store()}))
+
+
+def store_state(node_url: object) -> Literal["current", "outdated", "unknown"]:
+    """Whether the store online is the one this Lore ships (APP-231). Only a store
+    this Mac put online can be behind: one with no record here is unknown, never
+    outdated, so the app never offers to update a store another Mac set up. A
+    store put online from this Mac before the record was kept has its payout
+    record instead, which only a deploy from here writes."""
+    if not node_url:
+        return "unknown"
+    target = store_folder()
+    try:
+        kept = json.loads((target / DEPLOYED).read_text()).get("store")
+    except (OSError, ValueError, AttributeError):
+        kept = None
+    if not isinstance(kept, str):
+        return "outdated" if (target / PAYOUT).is_file() else "unknown"
+    return "current" if kept == shipped_store() else "outdated"
+
+
 def installed(target: Path) -> bool:
     """Whether the store's packages finished installing, not just started."""
     return (target / INSTALLED).is_file() and (target / WRANGLER).exists()
@@ -297,16 +352,19 @@ def _record_payout(target: Path, wallet: str | None, network: str | None) -> Non
     """Keep where this store pays out, and on which network, beside its code: the
     desktop app shows the owner exactly this before a redeploy and deploys it
     again, and the agent can neither read nor write it there. Every deploy that
-    gets this far rewrites it, a wallet-less one keeping the recorded address."""
+    gets this far rewrites it, a wallet-less one keeping the recorded address.
+    A store that sells by card alone has no address, so only its network is kept."""
     path = target / PAYOUT
     kept = _recorded(target)
     address = wallet or kept.get("address")
-    if not isinstance(address, str) or not WALLET.fullmatch(address):
+    if address is not None and (
+        not isinstance(address, str) or not WALLET.fullmatch(address)
+    ):
         return
-    _replace(
-        path,
-        json.dumps({"address": address, "network": network or kept.get("network")}),
-    )
+    chosen = network or kept.get("network")
+    if address is None and chosen is None:
+        return
+    _replace(path, json.dumps({"address": address, "network": chosen}))
 
 
 def install(target: Path) -> None:
@@ -535,6 +593,11 @@ def login() -> int:
 def _read(query: str, fail: str) -> list[dict[str, object]]:
     """Run `query` on the node's database through the owner's Cloudflare login,
     the same way `lore push` writes it, and return its last statement's rows."""
+    return _read_all(query, fail)[-1]
+
+
+def _read_all(query: str, fail: str) -> list[list[dict[str, object]]]:
+    """Every statement's rows, in order, from one run of `query`."""
     target = tools()
     wrangler = target / WRANGLER
     result = _run(
@@ -552,8 +615,7 @@ def _read(query: str, fail: str) -> list[dict[str, object]]:
         fail=fail,
         retry=True,
     )
-    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
-    return rows
+    return [statement["results"] for statement in json.loads(result.stdout)]
 
 
 def sales() -> list[Sale]:
@@ -738,10 +800,11 @@ def _deploy(
                 f"Cloudflare login failed; run `npx wrangler login` in {target}"
             )
 
-    if not wallet and not inbox_only:
+    if not wallet and not inbox_only and not takes_cards():
         # This check exists so a missing payout address costs seconds, not a
         # deploy. A listing that failed says nothing about the wallet, so it
-        # stops the deploy rather than being read as "no wallet".
+        # stops the deploy rather than being read as "no wallet". Card
+        # payments are enough on their own: such a store sells by card alone.
         listing = _run(
             (wrangler, "secret", "list"),
             target,
@@ -749,7 +812,8 @@ def _deploy(
         )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
-                "the node has no payout address; rerun with --wallet 0x<your public address>"
+                "your store has no way to be paid yet; turn on card payments "
+                "(lore cards connect) or rerun with --wallet 0x<your public address>"
             )
 
     _ensure_d1(wrangler, target)
@@ -764,6 +828,7 @@ def _deploy(
     if deployed.returncode:
         raise OSError(f"deploy failed:\n{_detail(deployed)}")
     print(deployed.stdout.strip())
+    _record_store(target)
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+
     # cannot swallow them into the matched address.

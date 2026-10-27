@@ -4,6 +4,7 @@
 // headline, the sample and fit lines are free extras the owner approved, and
 // neither the title nor the text ever reaches a free page.
 import type { Catalog, CatalogEntry } from "./answer-state.js";
+import { type Collection, toolName } from "./collections.js";
 
 export type Store = {
   /** The name the owner chose when listing; empty when unlisted. */
@@ -20,7 +21,12 @@ export type Store = {
   support?: string;
   /** False while the store is online only for its owner's agents (XC-069): no prices, no buying. */
   selling?: boolean;
+  /** False for a store that sells by card alone (MON-047): no wallet, so an agent buys on the page, in a browser. */
+  agentsPay?: boolean;
 };
+
+/** Whether agents can pay this store over MCP; a store says so unless it sells by card alone. */
+const agentsPay = (store: Store) => store.agentsPay !== false;
 
 /** A piece the buyer has paid for, shown to them in full. */
 export type Unlocked = { title: string; content: string };
@@ -30,10 +36,10 @@ export type Piece = CatalogEntry & { topic: string; section: number };
 
 const MARKETPLACE = "https://yourlore.dev/marketplace";
 const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
-const KINDS: Record<string, string> = { claim: "Note", content: "Write-up" };
+const KINDS: Record<string, string> = { claim: "Note", content: "Write-up", collection: "Collection" };
 const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 
-const escape = (text: string) =>
+export const escape = (text: string) =>
   text.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 // JSON-LD sits inside <script>; "<" is the one character that can end it early.
 const jsonLd = (data: unknown) => JSON.stringify(data).replace(/</g, "\\u003c");
@@ -113,6 +119,8 @@ code{font:13px var(--mono);background:var(--accent-soft);color:var(--ink);paddin
 .notice{margin:0 0 28px;padding:12px 16px;border-radius:10px;background:var(--accent-soft);font-size:14px}
 .listed{display:inline-flex;align-items:center;gap:6px;margin-top:20px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted);text-decoration:none}.listed:hover{border-color:var(--accent);color:var(--ink)}.listed .mark{width:14px;height:14px}
 .foot{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted)}
+.pair{display:inline-block;margin:6px 0 22px;padding:14px 22px;border:1px solid var(--line);border-radius:14px;background:var(--surface);font:600 34px/1 var(--mono);letter-spacing:.2em}
+.wait{display:flex;align-items:center;gap:10px;color:var(--muted)}.wait::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.25}}
 .back{display:inline-block;margin-bottom:18px;font-size:14px;color:var(--muted);text-decoration:none}.back:hover{color:var(--ink)}
 `;
 
@@ -135,6 +143,13 @@ function page(title: string, description: string, canonical: string, body: strin
 ${body}</main><script>${SCRIPT}</script></body></html>`;
 }
 
+/** A page of Lore's own, apart from any store's catalog, like the one an agent signs in on. */
+export function plainPage(title: string, body: string, script = ""): string {
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex"><title>${escape(title)}</title><style>${STYLE}</style></head>
+<body><main><nav class="bar"><span class="brand">${MARK}Lore</span></nav>${body}</main>${script ? `<script>${script}</script>` : ""}</body></html>`;
+}
+
 function offer(store: Store, piece: Piece) {
   if (store.test) return undefined;
   return {
@@ -142,7 +157,7 @@ function offer(store: Store, piece: Piece) {
     price: String(store.priceUsd),
     priceCurrency: "USD",
     availability: "https://schema.org/InStock",
-    description: `Paid in USDC by an MCP client at ${store.origin}/mcp.`,
+    description: agentsPay(store) ? `Paid in USDC by an MCP client at ${store.origin}/mcp.` : `Paid by card at ${store.origin}/p/${piece.id}.`,
     url: `${store.origin}/p/${piece.id}`,
     seller: person(store)
   };
@@ -154,13 +169,35 @@ const notice = (store: Store) =>
 // Listing pushes the listed name and delisting clears it, so a name means listed.
 const listed = (store: Store) => (store.name ? `<a class="listed" href="${MARKETPLACE}">${MARK}Listed on Lore marketplace</a>` : "");
 
-function agentsNote(store: Store, id?: string): string {
-  const call = id ? `<p>Then buy this piece:</p><code class="endpoint">${escape(`get {"id": "${id}"}`)}</code>` : "";
+function agentsNote(store: Store, id?: string, collection?: Collection): string {
+  const [what, tool] = collection ? ["the whole collection", `${toolName(collection)} {}`] : ["this piece", `get {"id": "${id}"}`];
+  const call = id ? `<p>Then buy ${what}:</p><code class="endpoint">${escape(tool)}</code>` : "";
+  if (!agentsPay(store)) {
+    const given = store.freeCopies ? `, and the first ${store.freeCopies} copies of each piece are free` : "";
+    return `<section class="agents"><h2>For agents</h2><p>This store sells by card${given}. An agent that can use a browser buys each piece on its page, the same way a person does. Reading the catalog over MCP is free:</p><code class="endpoint">${escape(store.origin)}/mcp</code></section>${listed(store)}`;
+  }
   const free = store.freeCopies ? `the first ${store.freeCopies} copies of each piece are free, then ` : "";
-  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${free}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC.</p></section>${listed(store)}`;
+  const pays = collection
+    ? `one call pays the seller ${money(collection.price_usd)} in USDC for every piece in it`
+    : `${free}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC`;
+  return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p></section>${listed(store)}`;
 }
 
-export function storefront(catalog: Catalog, store: Store): string {
+const worth = (collection: Collection, store: Store) => money(collection.pieces.length * store.priceUsd);
+const count = (n: number) => `${n} ${n === 1 ? "piece" : "pieces"}`;
+
+function shelf(sets: Collection[], store: Store): string {
+  if (!sets.length) return "";
+  const cards = sets
+    .map(
+      (set) =>
+        `<li><a class="card" href="/p/${escape(set.id)}"><h3>${escape(set.title)}</h3><div class="meta"><span>Collection</span><span>${count(set.pieces.length)}</span><span>Worth ${worth(set, store)} separately</span><span class="price">${money(set.price_usd)}</span><span class="go">View →</span></div></a></li>`
+    )
+    .join("");
+  return `<section id="collections"><h2>Collections <small>${sets.length}</small></h2><ul class="cards">${cards}</ul></section>`;
+}
+
+export function storefront(catalog: Catalog, store: Store, sets: Collection[] = []): string {
   const topics = Object.entries(catalog.topics);
   const count = catalog.publication_count;
   const chips = topics.length > 1
@@ -193,7 +230,7 @@ export function storefront(catalog: Catalog, store: Store): string {
       item: { "@type": "Product", name: piece.teaser, category: label(piece.topic), url: `${store.origin}/p/${piece.id}`, offers: offer(store, piece) }
     }))
   };
-  const buying = store.selling === false ? "" : `${notice(store)}${chips}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
+  const buying = store.selling === false ? "" : `${notice(store)}${chips}${shelf(sets, store)}${sections || '<p class="empty">Nothing for sale yet. Check back soon.</p>'}${agentsNote(store)}`;
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${buying}`;
   return page(`${name} · Lore`, `${count} firsthand ${count === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
@@ -205,7 +242,10 @@ const clip = (text: string, length: number) => {
 const paragraphs = (text: string) =>
   text
     .split(/\n\s*\n/)
-    .map((paragraph) => `<p>${escape(paragraph.trim()).replace(/\n/g, "<br>")}</p>`)
+    .map((paragraph) => {
+      const heading = paragraph.trim().match(/^## (.+)$/);
+      return heading ? `<h2>${escape(heading[1])}</h2>` : `<p>${escape(paragraph.trim()).replace(/\n/g, "<br>")}</p>`;
+    })
     .join("");
 
 function fit(piece: Piece): string {
@@ -222,7 +262,7 @@ const sample = (piece: Piece) =>
     : "";
 
 /** How a person buys: by card when the store takes cards, and always through their own agent. */
-function card(piece: Piece, store: Store): string {
+function card(piece: Pick<Piece, "id">, store: Store): string {
   if (!store.checkout) return "";
   const note = store.test
     ? "This is a test store: pay with Stripe's test card 4242 4242 4242 4242. No real money moves."
@@ -234,24 +274,26 @@ function card(piece: Piece, store: Store): string {
 const share = (url: string) => `<div class="actions"><button data-share>Share</button><button data-copy="${escape(url)}">Copy link</button></div>`;
 
 /** While copies are left, reading free is the one thing to do. */
-function free(piece: Piece, store: Store, left: number): string {
+function free(piece: Pick<Piece, "id">, store: Store, left: number): string {
   return `<section class="buy"><p class="amount">Free</p><form method="post" action="/p/${escape(piece.id)}/free"><button class="primary card" type="submit">Read free</button></form>
 <p class="small">${left} of ${store.freeCopies} free copies left. The seller gives the first ${store.freeCopies} away; after that it's ${money(store.priceUsd)}.</p>
 ${share(`${store.origin}/p/${piece.id}`)}</section>`;
 }
 
-function buy(piece: Piece, store: Store, left: number): string {
+function buy(piece: Pick<Piece, "id">, store: Store, left: number, what = "this piece"): string {
   if (left > 0) return free(piece, store, left);
   const url = `${store.origin}/p/${piece.id}`;
-  const prompt = `Buy this piece from Lore for me: ${url}`;
+  const prompt = `Buy ${what} from Lore for me: ${url}`;
   const settle = store.test
     ? "This store takes play money, so buying here is only a rehearsal."
     : "Every payment goes straight to the seller; Lore never holds it.";
   const agent = store.checkout ? `<h2 class="or">Or buy it with your AI agent</h2>` : `<h2>Buy it with your AI agent</h2>`;
+  // A store that sells by card alone takes no agent payments, so an agent buys here, on this page, as a person would.
+  const who = agentsPay(store) ? "Paste this into Claude, ChatGPT or any agent that can pay on Lore:" : "Paste this into an agent that can use a browser. It buys on this page by card:";
   return `<section class="buy"><p class="amount">${money(store.priceUsd)}</p>${card(piece, store)}${agent}
-<p>Paste this into Claude, ChatGPT or any agent that can pay on Lore:</p>
+<p>${who}</p>
 <div class="prompt"><code>${escape(prompt)}</code><button class="${store.checkout ? "" : "primary"}" data-copy="${escape(prompt)}">Copy</button></div>
-<p class="small">${settle} No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.</p>
+<p class="small">${settle}${agentsPay(store) ? ` No agent set up yet? <a href="${BUYER_SKILL}">Get the buyer skill</a>.` : ""}</p>
 ${share(url)}</section>`;
 }
 
@@ -274,6 +316,30 @@ ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || (piece.useful_if && `Useful if ${piece.useful_if}`) || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
+}
+
+/** A collection's page: its pieces' teasers, its one price, and what they'd cost one by one.
+ * `store` carries the collection's price and, when it clears the card minimum, the checkout. */
+export function collectionPage(set: Collection, entries: Piece[], store: Store, single: number, problem = ""): string {
+  const name = seller(store);
+  const url = `${store.origin}/p/${set.id}`;
+  const cards = entries
+    .map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`)
+    .join("");
+  const data = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: set.title,
+    url,
+    brand: person(store),
+    offers: store.test ? undefined : { "@type": "Offer", price: String(set.price_usd), priceCurrency: "USD", availability: "https://schema.org/InStock", url, seller: person(store) }
+  };
+  const body = `<a class="back" href="/">← ${escape(name)}</a>
+${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">${escape(set.title)}</h1>
+<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(entries.length * single)} separately</span><span>By ${escape(name)}</span></div>
+<ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
+${agentsNote(store, set.id, set)}`;
+  return page(`${set.title} · ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);
 }
 
 /** The paid piece, for the buyer holding its receipt. Never cached: the address alone unlocks it. */

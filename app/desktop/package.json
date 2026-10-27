@@ -1,7 +1,7 @@
 {
   "name": "lore-desktop",
   "private": true,
-  "version": "0.1.16",
+  "version": "0.1.19",
   "main": "src/main.cjs",
   "scripts": {
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
@@ -16,17 +16,17 @@
     "make": "electron-forge make"
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.79",
+    "@anthropic-ai/sandbox-runtime": "0.0.80",
     "@earendil-works/pi-ai": "^0.87.1",
     "@earendil-works/pi-coding-agent": "^0.87.1",
-    "marked": "18.1.0",
+    "marked": "18.1.1",
     "update-electron-app": "3.3.0"
   },
   "devDependencies": {
     "@electron-forge/cli": "7.11.2",
     "@electron-forge/maker-zip": "7.11.2",
-    "@types/node": "26.6.4",
-    "electron": "44.7.0",
+    "@types/node": "26.6.5",
+    "electron": "44.9.0",
     "typescript": "7.0.2"
   }
 }

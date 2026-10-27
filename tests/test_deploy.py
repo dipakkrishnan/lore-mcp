@@ -1224,8 +1224,8 @@ class DeployTest(_NodeCase):
             self.assertRaisesRegex(ValueError, "no publication price is set"),
         ):
             deploy_module.deploy(WALLET)
-        # Without --wallet, a store with no payout address is still refused in seconds.
-        with self.assertRaisesRegex(ValueError, "no payout address"):
+        # Without --wallet or card payments, a store with no payout address is still refused in seconds.
+        with self.assertRaisesRegex(ValueError, "no way to be paid"):
             self._deploy(None, has_wallet_secret=False)
         self.assertIs(self._selling(), False)
         with self.assertRaisesRegex(OSError, "payout address"):
@@ -1252,6 +1252,42 @@ class DeployTest(_NodeCase):
         payout = json.loads((self.store / "payout.json").read_text())
         self.assertEqual(payout, {"address": WALLET, "network": "real"})
         self.assertFalse(self.store.is_relative_to(self.lore_home))
+
+    def test_a_deploy_that_went_out_records_the_store_this_lore_ships(self) -> None:
+        # APP-231: the app offers an update once this Lore ships a newer store.
+        url = "https://lore.example.workers.dev/mcp"
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+        self._deploy()
+        kept = json.loads((self.store / "deployed.json").read_text())
+        self.assertEqual(kept, {"store": deploy_module.shipped_store()})
+        self.assertEqual(deploy_module.store_state(url), "current")
+        # A store with no address online is nothing to update.
+        self.assertEqual(deploy_module.store_state(None), "unknown")
+        (self.store / "deployed.json").write_text(json.dumps({"store": "an older one"}))
+        self.assertEqual(deploy_module.store_state(url), "outdated")
+        # Put online from this Mac before the record was kept: its payout record says so.
+        (self.store / "deployed.json").unlink()
+        self.assertEqual(deploy_module.store_state(url), "outdated")
+        # With neither record, another Mac may have set it up: never outdated.
+        (self.store / "payout.json").unlink()
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+        (self.store / "deployed.json").write_text("not json")
+        self.assertEqual(deploy_module.store_state(url), "unknown")
+
+    def test_an_inbox_only_deploy_records_its_store_too(self) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True, has_wallet_secret=False)
+        self.assertEqual(
+            deploy_module.store_state("https://lore.example.workers.dev/mcp"), "current"
+        )
+
+    def test_a_deploy_cloudflare_refused_records_no_store(self) -> None:
+        with self.assertRaises(OSError):
+            self._deploy(email_unverified=True)
+        self.assertFalse((self.store / "deployed.json").exists())
+
+    def test_the_shipped_store_is_one_digest_for_one_release(self) -> None:
+        self.assertRegex(deploy_module.shipped_store(), "^[0-9a-f]{64}$")
+        self.assertEqual(deploy_module.shipped_store(), deploy_module.shipped_store())
 
     def test_a_full_deploy_drives_wrangler_and_records_the_url(self) -> None:
         code, wrangler = self._deploy()
@@ -1318,8 +1354,31 @@ class DeployTest(_NodeCase):
     def test_a_node_with_no_payout_address_fails_in_seconds_not_after_a_deploy(
         self,
     ) -> None:
-        with self.assertRaisesRegex(ValueError, "no payout address"):
+        with self.assertRaisesRegex(ValueError, "no way to be paid") as refused:
             self._deploy(None, has_wallet_secret=False)
+        self.assertIn("lore cards connect", str(refused.exception))
+
+    def test_card_payments_open_a_store_with_no_payout_address(self) -> None:
+        # XC-039 cards are enough to sell: the store opens selling by card alone,
+        # with no wallet put and no wallet secret asked for.
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+        code, wrangler = self._deploy(None, has_wallet_secret=False)
+        self.assertEqual(code, 0)
+        self.assertEqual(wrangler.named("secret", "list"), [])
+        self.assertEqual(wrangler.named("secret", "put", "LORE_WALLET"), [])
+        self.assertIs(self._selling(), True)
+        self.assertFalse((self.store / "payout.json").exists())
+
+    def test_a_card_only_store_records_its_network_and_no_address(self) -> None:
+        self.store.mkdir(parents=True, exist_ok=True)
+        deploy_module._record_payout(self.store, None, "real")
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": None, "network": "real"})
+        # An address set later is kept with it.
+        deploy_module._record_payout(self.store, WALLET, None)
+        payout = json.loads((self.store / "payout.json").read_text())
+        self.assertEqual(payout, {"address": WALLET, "network": "real"})
 
     def test_a_custom_route_deploy_keeps_the_url_already_recorded(self) -> None:
         # A *successful* deploy that prints no workers.dev address means a custom
