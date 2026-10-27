@@ -280,4 +280,12 @@ wait "$walk" 2>/dev/null || code=$?
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || code=1
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
+# A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
+# thread's stack is there; the whole sample runs to megabytes), so the log of a CI run whose files are gone by the
+# time anyone reads it still holds what went wrong (XC-077).
+if [[ "$code" != 0 ]]; then
+  echo "--- $root/walk.log"
+  cat "$root/walk.log"
+  if [[ -s "$root/hang.txt" ]]; then echo "--- $root/hang.txt (first 120 lines)"; head -n 120 "$root/hang.txt"; fi
+fi
 exit "$code"
