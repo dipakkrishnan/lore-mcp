@@ -5,6 +5,17 @@ on:
   push:
     branches: [main]
 
+# XC-081: a new push to a pull request cancels the run it supersedes, so a
+# stale run does not hold one of the five macOS runners the fresh one needs.
+# Pull request runs share a group per PR (github.ref is refs/pull/<n>/merge).
+# Pushes to main are keyed on the commit, one group each, so nothing on main
+# is ever cancelled: GitHub keeps at most one pending run per group, so a
+# shared main group would drop the middle of three quick pushes even with
+# cancel-in-progress off.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-lint:
     name: Python lint

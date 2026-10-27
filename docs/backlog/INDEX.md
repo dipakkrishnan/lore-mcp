@@ -164,7 +164,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [APP-247](./desktop-app/APP-247-fold-the-dark-appearance-connectors-walk-into-the-light-one.md) | Fold the dark-appearance connectors walk into the light one | P2 | S | desktop-app | ready | XC-077, APP-066, APP-225 | — | — | — |
 | [APP-248](./desktop-app/APP-248-split-test-app-test-cjs-so-node-test-can-run-the-desktop-unit-tests-in-parallel.md) | Split test/app.test.cjs so node --test can run the desktop unit tests in parallel | P2 | S | desktop-app | ready | XC-077, XC-072 | — | — | — |
-| [XC-081](./cross-cutting/XC-081-cancel-a-prs-superseded-ci-run-when-a-new-push-arrives.md) | Cancel a PR's superseded CI run when a new push arrives | P2 | XS | cross-cutting | ready | XC-077, XC-078 | — | — | — |
 | [XC-082](./cross-cutting/XC-082-cache-the-whisper-cpp-and-bundled-node-builds-in-the-desktop-packaging-step.md) | Cache the whisper.cpp and bundled-node builds in the desktop packaging step | P2 | XS | cross-cutting | ready | XC-077, APP-005 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
@@ -333,6 +332,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
+| [XC-081](./cross-cutting/XC-081-cancel-a-prs-superseded-ci-run-when-a-new-push-arrives.md) | Cancel a PR's superseded CI run when a new push arrives | P2 | XS | cross-cutting | completed | XC-077, XC-078, XC-083 | — | — | — |
 | [APP-064](./desktop-app/APP-064-assert-the-preload-to-main-ipc-contract.md) | Assert the preload-to-main IPC contract in a test | P2 | XS | desktop-app | completed | APP-039, APP-002, APP-066 | — | — | — |
 | [APP-060](./desktop-app/APP-060-test-the-untested-cli-boundary-helpers-in-state-cjs.md) | Test the CLI-boundary helpers in state.cjs that no test reaches | P2 | XS | desktop-app | completed | APP-066, APP-001 | — | — | — |
 | [APP-061](./desktop-app/APP-061-unit-test-the-credential-store-without-electron.md) | Unit-test the credential store without Electron | P2 | S | desktop-app | completed | APP-038, APP-066, APP-008 | — | — | — |
