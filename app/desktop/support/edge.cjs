@@ -142,7 +142,7 @@ if (scenario === "listing") {
   // the store this Lore ships on record, as a deploy that went out does. Nothing reaches a real account.
   const bin = join(S, "update-bin");
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, "lore"), `#!/bin/sh\nif [ "$1 $2" = "node deploy" ]; then echo "$*" >> ${JSON.stringify(join(S, "deploys"))}; cd ${JSON.stringify(join(__dirname, "../../.."))} && uv run python -c "from lore import deploy; deploy._record_store(deploy.store_folder())"; echo "Deployed"; exit 0; fi\nexec ${JSON.stringify(cli.bin)} "$@"\n`, { mode: 0o755 });
+  writeFileSync(join(bin, "lore"), `#!/bin/sh\nif [ "$1 $2" = "node deploy" ]; then cd ${JSON.stringify(join(__dirname, "../../.."))} && uv run python -c "from lore import deploy; deploy._record_store(deploy.store_folder())"; echo "$*" >> ${JSON.stringify(join(S, "deploys"))}; echo "Deployed"; exit 0; fi\nexec ${JSON.stringify(cli.bin)} "$@"\n`, { mode: 0o755 });
   process.env.LORE_DESKTOP_BIN_DIR = bin;
   require(join(src, "main.cjs"));
 } else if (scenario === "feedback") {
@@ -788,7 +788,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         rmSync(join(process.env.LORE_STORE ?? "", "deployed.json"), { force: true });
         rmSync(join(process.env.LORE_STORE ?? "", "payout.json"), { force: true });
         await settled();
-        check("a store this Mac has no record of putting online is never offered an update", await js(`window.lore.snapshot().then((s) => s.node.store === "unknown")`) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
+        check("a store this Mac has no record of putting online is never offered an update", await waitFor(`window.lore.snapshot().then((s) => s.node.store === "unknown")`, 80) && !(await js(`${address}?.textContent ?? ""`)).includes("A newer store"), await js(`${address}?.textContent ?? ""`));
       } else if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
@@ -1087,6 +1087,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.signIn()`);
         await waitFor(todayShown);
         // APP-127, APP-214: an owner with nothing connected is pointed at Connectors, and nothing to publish yet.
+        await waitFor(`/Connect the AI you talk to most/.test(document.querySelector("#content").textContent)`, 120);
         const firstToday = await js(`document.querySelector("#content").textContent`);
         check("Today points a new owner at connecting their AI, with nothing to publish yet", /Connect the AI you talk to most/.test(firstToday) && !/something to sell/.test(firstToday), firstToday);
         check("…and names no coding agents", !/Claude Code|Codex/.test(firstToday), firstToday);
@@ -1241,6 +1242,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
         await shot("settings-connected");
+        // APP-247: the connectors surfaces in dark, flipped from this light walk as the settings walk does, in place of a
+        // second connectors walk launched dark. Each shot runs the layout check at both widths.
+        await js(`window.lore.setAppearance("dark")`);
+        check("switched to dark, the connectors page turns at once", (await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`)) && nativeTheme.themeSource === "dark", await js(BG));
+        await shot("settings-connected-dark");
+        await js(clickOn("ChatGPT"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await shot("export-manage-dark");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(200);
+        await js(`window.lore.setAppearance("light")`);
+        check("…and back to light before Today", (await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`)) && nativeTheme.themeSource === "light", await js(BG));
         await js(`window.__lore.show("today")`);
         await sleep(300);
         const today = await js(`document.querySelector("#content").textContent`);
@@ -1466,7 +1479,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         const bar = await js(`document.querySelector("#content .store-bar").textContent`);
         check("the store card reads in whole dollars and cents, no extra zeros", await js(`document.querySelector("#content .store-bar .price-row").textContent`) === "$1 a piece · first 3 copies free · $0.10 an answer", bar);
-        check("…with Cloudflare and Payouts as quiet links", await js(`[...document.querySelectorAll("#content .store-bar a")].map((a) => a.className + " " + a.textContent).join("|")`) === "quiet-link Cloudflare ↗|quiet-link Payouts ↗", bar);
+        check("…with Markets, Dashboard and Payouts as quiet links", await js(`[...document.querySelectorAll("#content .store-bar a")].map((a) => a.className + " " + a.textContent + (a.textContent === "Markets ↗" ? " " + a.href : "")).join("|")`) === "quiet-link Markets ↗ https://yourlore.dev/marketplace|quiet-link Dashboard ↗|quiet-link Payouts ↗", bar);
         await shot("store-card");
         await js(`window.__lore.show("settings")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Listed")`);
@@ -2626,6 +2639,29 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("automations")`);
         await sleep(400);
         await shot("automations-after");
+        // APP-246: a suggested collection reads as its name and what's in it, and Review shows only those memories.
+        const kept = await js(`window.lore.snapshot().then((s) => s.library.items.filter((m) => m.status === "private").map((m) => ({ id: m.id, title: m.title })))`);
+        writeFileSync(join(process.env.LORE_DESKTOP_USER_DATA ?? "", "collection-suggestions.json"), JSON.stringify([{ at: new Date().toISOString(), title: "Pricing lessons", memories: [kept[0].id], from: "Suggest collections" }]));
+        await js(`window.__lore.show("today")`);
+        await js(`window.__lore.event({ type: "changed" })`);
+        const suggested = `[...document.querySelectorAll("#content .ready-head.suggestion")].find((r) => r.querySelector("b")?.textContent === "Pricing lessons")`;
+        check("a suggested collection says what's in it under Inventory's mark", await waitFor(`${suggested}?.querySelector(".t span")?.textContent === ${JSON.stringify(`1 memory · ${kept[0].title}`)}`) && await js(`${suggested}.querySelector(".routine-mark svg")?.innerHTML === document.querySelector("nav [data-view=inventory] svg").innerHTML && Boolean(${suggested}.querySelector(".dismiss[aria-label='Dismiss Pricing lessons']"))`), await js(`${suggested}?.textContent`));
+        await js(`${suggested}.closest(".section").scrollIntoView()`);
+        await sleep(300);
+        await shot("automations-suggested-collection");
+        await js(`${suggested}.querySelector("button.inline").click()`);
+        check("…Review shows only its memories, ticked, with no search", await waitFor(`document.querySelectorAll("#content .pick").length === 1`) && await js(`document.querySelector("#content .pick input").checked && !document.querySelector("#content .pick-find") && document.querySelector("#content .wizard-lead").textContent === "Lore picked this memory. Untick any that don't belong."`), await js(`document.querySelector("#content").textContent`));
+        await shot("automations-suggestion-review");
+        await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Choose from all memories").click()`);
+        check("…and every memory is one tap away, the suggestion's still ticked", await waitFor(`Boolean(document.querySelector("#content .pick-find"))`) && await js(`document.querySelectorAll("#content .pick").length === ${kept.length} && document.querySelectorAll("#content .pick input:checked").length === 1`), await js(`document.querySelectorAll("#content .pick").length`));
+        // Stepping away keeps the suggestion; only putting its memories in clears it from Today.
+        await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Cancel").click()`);
+        await js(`window.__lore.show("today")`);
+        check("…Cancel leaves the suggestion on Today to come back to", await waitFor(`Boolean(${suggested})`) && await js(`window.lore.suggestions().then((all) => all.length === 1)`));
+        await js(`${suggested}.querySelector("button.inline").click()`);
+        await waitFor(`document.querySelectorAll("#content .pick").length === 1`);
+        await js(`[...document.querySelectorAll("#content .pick-foot .btn")].find((b) => b.textContent === "Continue").click()`);
+        check("…and Continue puts its memories in, then clears it", await waitFor(`Boolean(document.querySelector("#content .collection-name"))`) && await (async () => { for (let i = 0; i < 20; i++) { if (await js(`window.lore.suggestions().then((all) => all.length === 0)`)) return true; await sleep(250); } return false; })());
       } else if (scenario === "checkin" || scenario === "quiet") {
         // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
         const repo = join(__dirname, "../../..");
@@ -2733,7 +2769,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("sales-today");
         await js(`window.__lore.show("store")`);
         check("Inventory shows what the store has earned, and the sale", await waitFor(`document.querySelector("#content").textContent.includes("1 sale · $3.00") && document.querySelector("#content").textContent.includes("by card")`), await js(`document.querySelector("#content").textContent`));
-        check("…each sale's receipt is a word, not a glyph", await js(`[...document.querySelectorAll("#content a.receipt")].map((a) => a.textContent + " " + a.href).join(",")`) === "Receipt https://dashboard.stripe.com/payments/pi_old" && !(await js(`document.querySelector("#content").textContent.includes("↗")`)));
+        check("…each sale's receipt is a word, not a glyph", await js(`[...document.querySelectorAll("#content a.receipt")].map((a) => a.textContent + " " + a.href).join(",")`) === "Receipt https://dashboard.stripe.com/payments/pi_old" && !(await js(`[...document.querySelectorAll("#content a.receipt")].some((a) => a.closest(".row").textContent.includes("↗"))`)));
         await arrive(sale("pi_new", "2026-10-04T18:00:00Z"));
         check("a new sale is a Mac notification", notes.length === 1 && notes[0].words.title === "You sold a piece" && notes[0].words.body === "Live demos beat cold decks · $3.00 by card", JSON.stringify(notes.map((n) => n.words)));
         check("…and Inventory counts it", await waitFor(`document.querySelector("#content").textContent.includes("2 sales · $6.00")`));
