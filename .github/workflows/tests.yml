@@ -46,9 +46,42 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  # XC-078: which of the pull request's changed files can reach the desktop
+  # job. About a third of merged PRs touch none of them (a backlog item, the
+  # site, the Worker, a Python test) and used to hold a macOS runner for about
+  # 19 minutes each. The rules live in .github/scripts/desktop_inputs.py. This
+  # is a job-level gate, never a workflow-level `paths` filter: nine required
+  # checks come from this workflow under a strict up-to-date rule, and a
+  # filtered-out workflow would leave every such PR stuck at "Expected".
+  changes:
+    name: Which inputs changed
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pull_request checkout is the merge of base and head; its first
+          # parent is base, so one extra commit of history is the whole PR diff.
+          fetch-depth: 2
+      - id: filter
+        # bash, not the default shell, for pipefail: a failed diff is red, not
+        # an empty list. --no-renames lists a move as its deletion and its
+        # addition, so a file moved out of app/desktop still counts.
+        shell: bash
+        run: git diff --no-renames --name-only HEAD^1 HEAD | python3 .github/scripts/desktop_inputs.py
+
   desktop-check:
     name: Desktop macOS checks
     runs-on: macos-14
+    needs: changes
+    # Runs on every push to main (XC-079 is the item that would change that),
+    # and on a pull request unless `changes` said its files cannot reach this
+    # job. Fail open: if `changes` failed or was skipped, its output is empty,
+    # not 'false', and the job still runs; `!cancelled()` is what lets a job
+    # whose `needs` did not succeed run at all.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.desktop != 'false') }}
     defaults:
       run:
         working-directory: app/desktop
