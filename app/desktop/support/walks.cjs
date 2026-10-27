@@ -5,7 +5,8 @@
 //               alone; a third slows each walk two to two and a half times and fails a third of them)
 //   name ...    run only these walks
 // XC-077: this list is the one CI runs and `npm run test:edge` runs. `seconds` is the walk's time alone on a CI runner
-// (Oct 2026); it only orders the queue, longest first, so a rough figure is fine.
+// (Oct 2026); it only orders the queue, longest first, so a rough figure is fine. `appearance` sets
+// LORE_EDGE_APPEARANCE for that walk: the app boots with that choice kept, and edge.cjs checks it is drawn so.
 // XC-080: a walk that fails is run once more, after everything still waiting, and never a third time. A walk that
 // passes on retry leaves the step green but is reported three ways: both attempts' log groups, a ::warning annotation
 // naming the walk, and a `pass (retry)` row with a `K of N walks passed on retry` line in the step summary. The summary
@@ -22,7 +23,6 @@ const WALKS = [
   { name: "agents", seconds: 215 },
   { name: "automations", seconds: 96 },
   { name: "connectors", seconds: 55 },
-  { name: "connectors", appearance: "dark", seconds: 55 },
   { name: "store", seconds: 52 },
   { name: "checkin", seconds: 46 },
   { name: "fresh", seconds: 45 },
@@ -39,7 +39,10 @@ const WALKS = [
   { name: "obsidian", seconds: 20 },
   { name: "sell", seconds: 14 },
   { name: "jobs", seconds: 13 },
-  { name: "faq", seconds: 10 },
+  // APP-247: the one check only a dark launch makes (a kept dark choice is applied at boot, before any branch runs)
+  // rides on the cheapest walk that never reads DARK. The connectors walk re-shoots its own surfaces in dark inside
+  // its light run, in place of a second connectors walk launched dark. `settings` stays light: its checks branch on DARK.
+  { name: "faq", appearance: "dark", seconds: 10 },
   { name: "provision", seconds: 8 },
 ];
 // Past edge.sh's own watchdog (six minutes for agents), so a walk that hangs somewhere it does not watch still ends.
