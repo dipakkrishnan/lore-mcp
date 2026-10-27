@@ -54,9 +54,11 @@ item for the regression rather than silently reverting.
       21.1%; expected about 0.3%), and the retried-walk count over the same runs
       is recorded alongside it, read from each run's `K of N walks passed on
       retry.` summary line, so the flake rate XC-072 tracks stays visible.
-- [ ] Any later CI item from the same investigation that moves a trailing-window
-      criterion here (XC-081) has its line added above when its PR merges, and
-      that line is measured the same way.
+- [ ] XC-081 (cancel a PR's superseded run): over the 200 `tests.yml` runs after
+      it lands (200, not 50, for this one, as the item filed it), no PR run's
+      `Desktop macOS checks` job finishes after a newer run on the same PR has
+      already started (baseline 15 runs, 187.4 macOS-min, in the Oct 20-26
+      window).
 
 ## Notes
 
