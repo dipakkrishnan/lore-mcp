@@ -58,14 +58,14 @@ h1{font:500 clamp(36px,6vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:
 .tabs li a:hover{color:var(--ink)}.tabs li a.on{color:var(--ink);border-color:var(--accent)}
 .tabs form{display:flex;gap:6px;flex:none}.tabs button{height:30px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font:13px var(--sans)}
 .tabs select{height:30px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--muted);font:13px var(--sans);padding:0 8px;flex:none}
-.tape{display:flex;align-items:center;gap:10px;margin:0 0 28px;font-size:13px;color:var(--muted);overflow:hidden}
+.tape{display:flex;align-items:center;gap:10px;margin:0 0 28px;font-size:13px;color:var(--muted)}
 .tape>span{flex:none;display:inline-flex;align-items:center;gap:6px;color:var(--ink);font-weight:600}
-.tape>span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-out infinite}
+.tape>span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);transform:translateY(-1px);animation:pulse 2s ease-out infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}70%,100%{box-shadow:0 0 0 7px transparent}}
 .tape li.fresh{animation:fresh 2.4s ease-out}
 @keyframes fresh{0%{opacity:0;transform:translateX(-8px);color:var(--accent)}25%{opacity:1;transform:none;color:var(--accent)}100%{color:inherit}}
 @media (prefers-reduced-motion:reduce){.tape>span:before,.tape li.fresh{animation:none}}
-.tape ul{display:flex;gap:22px;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+.tape ul{display:flex;gap:22px;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
 .tape ul::-webkit-scrollbar{display:none}
 .tape time{font-family:var(--mono);font-size:12px;color:var(--faint);margin-right:6px}
 .tape a:hover{color:var(--ink)}
