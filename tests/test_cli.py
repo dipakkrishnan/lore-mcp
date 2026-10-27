@@ -2674,7 +2674,11 @@ class PushTest(LoreTestCase):
 
     def _push(self, returncode: int = 0, **kwargs: object):
         result = subprocess.CompletedProcess(("wrangler",), returncode)
-        with patch("subprocess.run", return_value=result) as run, captured() as out:
+        with (
+            patch("subprocess.run", return_value=result) as run,
+            patch("time.sleep"),
+            captured() as out,
+        ):
             code = cli.push(str(self.worker), **kwargs)  # type: ignore[arg-type]
         return code, run, out
 

@@ -44,6 +44,8 @@ def _serving(token: str | None = None) -> Iterator[str]:
 
     def factory(address, handler):  # type: ignore[no-untyped-def]
         server = real_server(address, handler)
+        serve = server.serve_forever
+        server.serve_forever = lambda: serve(poll_interval=0.01)  # type: ignore[method-assign]
         servers.append(server)
         started.set()
         return server
