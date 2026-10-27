@@ -1242,6 +1242,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
         await shot("settings-connected");
+        // APP-247: the connectors surfaces in dark, flipped from this light walk as the settings walk does, in place of a
+        // second connectors walk launched dark. Each shot runs the layout check at both widths.
+        await js(`window.lore.setAppearance("dark")`);
+        check("switched to dark, the connectors page turns at once", (await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`)) && nativeTheme.themeSource === "dark", await js(BG));
+        await shot("settings-connected-dark");
+        await js(clickOn("ChatGPT"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await shot("export-manage-dark");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(200);
+        await js(`window.lore.setAppearance("light")`);
+        check("…and back to light before Today", (await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`)) && nativeTheme.themeSource === "light", await js(BG));
         await js(`window.__lore.show("today")`);
         await sleep(300);
         const today = await js(`document.querySelector("#content").textContent`);
