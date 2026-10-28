@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Iterator
 from unittest.mock import patch
 
+from fixtures import wrangler as refusals
+from fixtures.cloudflare import ADA, LAB, FakeCloudflare
 from helpers import LoreTestCase, captured
 
 from lore import deploy as deploy_module
@@ -85,6 +87,10 @@ class _Wrangler:
         d1_exists: bool = False,
         d1_exists_quietly: bool = False,
         email_unverified: bool = False,
+        d1_email_unverified: bool = False,
+        no_subdomain: bool = False,
+        many_accounts: bool = False,
+        token: str | None = None,
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
         d1_execute_refusals: int = 0,
@@ -101,6 +107,10 @@ class _Wrangler:
         self.d1_exists = d1_exists
         self.d1_exists_quietly = d1_exists_quietly
         self.email_unverified = email_unverified
+        self.d1_email_unverified = d1_email_unverified
+        self.no_subdomain = no_subdomain
+        self.many_accounts = many_accounts
+        self.token = token
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
         self.d1_execute_refusals = d1_execute_refusals
@@ -133,8 +143,12 @@ class _Wrangler:
             err = "vault down" if failing else ""
             self.secret_values[tail[2]] = kwargs.get("input")
             self.puts.append((tail[2], kwargs.get("input")))
+        elif tail == ("auth", "token", "--json") and self.token:
+            out = json.dumps({"type": "oauth", "token": self.token}, indent=2)
         elif tail == ("d1", "create", "lore-publications"):
-            if self.d1_exists:
+            if self.d1_email_unverified:
+                code, err = 1, refusals.VERIFY_EMAIL
+            elif self.d1_exists:
                 code, err = 1, "a database with that name already exists"
             elif self.d1_exists_quietly:
                 # Some wrangler versions say so and still exit 0.
@@ -146,8 +160,11 @@ class _Wrangler:
         elif tail == ("d1", "list", "--json"):
             out = json.dumps([{"uuid": DATABASE_ID, "name": "lore-publications"}])
         elif tail == ("deploy",) and self.email_unverified:
-            code = 1
-            err = "You need to verify your email address to use Workers. [code: 10034]"
+            code, err = 1, refusals.VERIFY_EMAIL
+        elif tail == ("deploy",) and self.no_subdomain:
+            code, out = 1, refusals.NO_SUBDOMAIN
+        elif tail == ("deploy",) and self.many_accounts:
+            code, err = 1, refusals.MANY_ACCOUNTS
         elif tail == ("deploy",):
             out = self.deploy_output
         elif tail[:2] == ("d1", "execute"):
@@ -1162,7 +1179,7 @@ class DeployTest(_NodeCase):
     def test_a_failed_check_after_a_pushed_deploy_keeps_the_store_selling(self) -> None:
         # The push told the node to sell; only the probe afterwards failed.
         self._deploy(None, price_usd=None, inbox_only=True)
-        with self.assertRaisesRegex(OSError, "did not answer discover"):
+        with self.assertRaisesRegex(OSError, "isn't answering yet"):
             self._deploy(WALLET, probe_fails=True)
         self.assertIs(self._selling(), True)
 
@@ -1432,8 +1449,10 @@ class DeployTest(_NodeCase):
     def test_a_node_that_does_not_answer_after_deploy_says_where_to_look(
         self,
     ) -> None:
-        with self.assertRaisesRegex(OSError, "wrangler tail"):
+        # The owner hears it plainly; the store log keeps where to look.
+        with self.assertRaisesRegex(OSError, "isn't answering yet"):
             self._deploy(probe_fails=True)
+        self.assertIn("wrangler tail", deploy_module.store_log().read_text())
 
     def test_a_failed_install_reports_the_tool_output(self) -> None:
         with self.assertRaisesRegex(OSError, "npm install failed"):
@@ -1555,7 +1574,9 @@ class DeployTest(_NodeCase):
         self.assertIn(DATABASE_ID, (self.store / "wrangler.jsonc").read_text())
 
     def test_a_real_d1_failure_stops_the_deploy(self) -> None:
-        with self.assertRaisesRegex(OSError, "creating the D1 database failed"):
+        with self.assertRaisesRegex(
+            OSError, "couldn't make your store's database: authentication error"
+        ):
             self._deploy(d1_create_fails=True)
 
     def test_an_unresolvable_database_id_says_what_to_paste_where(self) -> None:
@@ -1638,6 +1659,278 @@ class DeployTest(_NodeCase):
                     self.assertRaisesRegex(ValueError, message),
                 ):
                     deploy_module.deploy(WALLET)
+
+
+class WhyTheStoreFailedTest(_NodeCase):
+    """XC-085/086: the owner hears the real cause in one plain line, the store log
+    keeps all of it, and usage hears only which known cause it was."""
+
+    _deploy = DeployTest._deploy
+
+    def setUp(self) -> None:
+        super().setUp()
+        with Store() as store:
+            store.set_setting("telemetry_noticed", True)
+
+    def _failed(self, **script: object) -> deploy_module.StoreFailed:
+        with self.assertRaises(deploy_module.StoreFailed) as failed:
+            self._deploy(None, price_usd=None, inbox_only=True, **script)
+        return failed.exception
+
+    def _sent(self) -> list[dict[str, object]]:
+        log = self.lore_home / "usage.log"
+        lines = log.read_text().splitlines() if log.exists() else []
+        return [json.loads(line) for line in lines]
+
+    def test_each_cause_is_told_from_wranglers_real_words(self) -> None:
+        # The database refusals first: once a deploy has made it, it isn't made again.
+        cases = (
+            (
+                {"d1_email_unverified": True},
+                "email_unverified",
+                "verify your email first",
+            ),
+            (
+                {"d1_exists": True},
+                "exists_elsewhere",
+                "already exists on this Cloudflare",
+            ),
+            ({"email_unverified": True}, "email_unverified", "verify your email first"),
+            ({"no_subdomain": True}, "no_subdomain", "needs a web address"),
+            ({"many_accounts": True}, "many_accounts", "more than one account"),
+            ({"probe_fails": True}, "not_answering", "isn't answering yet"),
+        )
+        for script, reason, said in cases:
+            with self.subTest(reason=reason, script=script):
+                failed = self._failed(**script)
+                self.assertEqual(failed.reason, reason)
+                self.assertIn(said, str(failed))
+                self.assertNotIn("\n", str(failed))
+
+    def test_a_signed_out_agent_shell_is_not_signed_in(self) -> None:
+        with patch.dict(os.environ, {"LORE_UNATTENDED": "1"}):
+            failed = self._failed(logged_in=False)
+        self.assertEqual(
+            (failed.reason, str(failed)), ("not_signed_in", deploy_module.NOT_SIGNED_IN)
+        )
+
+    def test_no_address_names_the_page_to_make_one_on(self) -> None:
+        failed = self._failed(no_subdomain=True)
+        self.assertIn(
+            "https://dash.cloudflare.com/0123456789abcdef0123456789abcdef/workers/onboarding",
+            str(failed),
+        )
+
+    def test_a_timeout_and_an_unknown_cause_are_said_plainly(self) -> None:
+        timed = deploy_module.StoreFailed.of(
+            OSError("deploy timed out after 300s:\n...")
+        )
+        self.assertEqual(
+            (timed.reason, str(timed)), ("timeout", deploy_module.TIMED_OUT)
+        )
+        unknown = deploy_module.StoreFailed.of(
+            OSError("deploy failed:\nSomething Cloudflare never said before")
+        )
+        self.assertEqual(unknown.reason, "other")
+        self.assertEqual(
+            str(unknown), "deploy failed: Something Cloudflare never said before"
+        )
+
+    def test_no_message_says_a_minute_will_fix_what_it_wont(self) -> None:
+        for name in (
+            "VERIFY_EMAIL",
+            "NOT_SIGNED_IN",
+            "MANY_ACCOUNTS",
+            "NO_SUBDOMAIN",
+            "TIMED_OUT",
+        ):
+            with self.subTest(name=name):
+                self.assertNotIn("in a minute", getattr(deploy_module, name))
+
+    def test_the_store_log_keeps_everything_the_tools_said(self) -> None:
+        self._failed(no_subdomain=True)
+        log = deploy_module.store_log().read_text()
+        self.assertIn("no_subdomain: ", log)
+        self.assertIn("Would you like to register a workers.dev subdomain now?", log)
+
+    def test_usage_hears_the_cause_and_nothing_else(self) -> None:
+        self._failed(many_accounts=True)
+        sent = self._sent()
+        self.assertIn(
+            {"reason": "many_accounts"},
+            [e["props"] for e in sent if e["name"] == "store.failed"],
+        )
+        self.assertIn("store.attempted", [e["name"] for e in sent])
+        words = json.dumps(sent)
+        for private in ("Ada", "0123456789abcdef", "@", "dash.cloudflare.com"):
+            with self.subTest(private=private):
+                self.assertNotIn(private, words)
+
+    def test_a_payout_refusal_is_counted_and_stays_a_plain_refusal(self) -> None:
+        with self.assertRaisesRegex(ValueError, "no way to be paid"):
+            self._deploy(None, has_wallet_secret=False)
+        self.assertIn(
+            {"reason": "no_payout"},
+            [e["props"] for e in self._sent() if e["name"] == "store.failed"],
+        )
+
+    def test_a_second_try_after_a_failure_does_not_reinstall(self) -> None:
+        self._failed(email_unverified=True)
+        code, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in wrangler.commands if c[0] == "npm"], [])
+
+    def test_a_new_lockfile_is_installed_again(self) -> None:
+        self._deploy(None, price_usd=None, inbox_only=True)
+        (self.store / ".installed").write_text("an older lockfile")
+        _, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertTrue([c for c in wrangler.commands if c[:2] == ("npm", "install")])
+
+
+class ReadyTheAccountTest(_NodeCase):
+    """XC-087: what wrangler would ask with no one at its prompt is settled
+    through Cloudflare's API first, with wrangler's own sign-in."""
+
+    _deploy = DeployTest._deploy
+
+    def setUp(self) -> None:
+        super().setUp()
+        # The suite pins wrangler to a made-up account; these tests are about choosing one.
+        environment = patch.dict(os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        os.environ.pop("CLOUDFLARE_ACCOUNT_ID")
+
+    def _api(self, fake: FakeCloudflare) -> FakeCloudflare:
+        patcher = patch("lore.cloudflare.request.urlopen", fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return fake
+
+    def test_an_account_with_no_address_gets_one_and_goes_online(self) -> None:
+        api = self._api(FakeCloudflare(subdomain=None))
+        with patch(
+            "lore.deploy.blueprint.load_blueprint",
+            return_value={"name": "Ada Lovelace"},
+        ):
+            code, wrangler = self._deploy(
+                None, price_usd=None, inbox_only=True, token="t0k"
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(api.made(), ["ada-lovelace-lore"])
+        self.assertEqual(api.tokens, {"Bearer t0k"})
+        # Made before anything else touches the account.
+        made, created = wrangler.order(
+            ("auth", "token", "--json"), ("d1", "create", "lore-publications")
+        )
+        self.assertLess(made, created)
+
+    def test_a_brand_new_address_is_waited_on_until_it_answers(self) -> None:
+        self._api(FakeCloudflare(subdomain=None))
+        answers = iter([OSError("no such host"), OSError("no such host"), LIVE])
+
+        def probed(url: str) -> Manifest:
+            answer = next(answers)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+        with patch("lore.deploy.time.sleep") as slept:
+            self.probe.side_effect = probed
+            wrangler = _Wrangler(token="t0k")
+            with (
+                patch("lore.deploy.subprocess.run", side_effect=wrangler),
+                patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                patch("lore.cli.push_job"),
+                captured(),
+            ):
+                self.assertEqual(deploy_module.deploy(None, inbox_only=True), 0)
+        self.assertEqual(self.probe.call_count, 3)
+        self.assertTrue(slept.called)
+
+    def test_an_account_that_has_an_address_is_left_alone(self) -> None:
+        api = self._api(FakeCloudflare(subdomain="ada"))
+        code, _ = self._deploy(None, price_usd=None, inbox_only=True, token="t0k")
+        self.assertEqual(code, 0)
+        self.assertEqual(api.made(), [])
+
+    def test_two_accounts_are_asked_about_once_and_remembered(self) -> None:
+        self._api(FakeCloudflare([ADA, LAB]))
+        with self.assertRaisesRegex(
+            deploy_module.StoreFailed, "more than one account"
+        ) as asked:
+            self._deploy(None, price_usd=None, inbox_only=True, token="t0k")
+        self.assertEqual(asked.exception.reason, "many_accounts")
+        deploy_module.choose_account(LAB["id"])
+        for _ in range(2):
+            code, wrangler = self._deploy(
+                None, price_usd=None, inbox_only=True, token="t0k"
+            )
+            self.assertEqual(code, 0)
+            self.assertIn(
+                f'"account_id": "{LAB["id"]}"',
+                (self.store / "wrangler.jsonc").read_text(),
+            )
+
+    def test_a_chosen_account_the_sign_in_no_longer_has_is_let_go(self) -> None:
+        deploy_module.choose_account(LAB["id"])
+        self._api(FakeCloudflare([ADA]))
+        code, _ = self._deploy(None, price_usd=None, inbox_only=True, token="t0k")
+        self.assertEqual(code, 0)
+        with Store() as store:
+            self.assertIsNone(store.setting(deploy_module.ACCOUNT_SETTING, None))
+        self.assertNotIn("account_id", (self.store / "wrangler.jsonc").read_text())
+
+    def test_an_unverified_email_is_said_before_anything_is_made(self) -> None:
+        self._api(FakeCloudflare(unverified=True))
+        # Had the database been tried, its refusal would be a different one.
+        with self.assertRaisesRegex(
+            deploy_module.StoreFailed, "verify your email first"
+        ):
+            self._deploy(
+                None, price_usd=None, inbox_only=True, token="t0k", d1_create_fails=True
+            )
+
+    def test_a_check_that_cannot_run_leaves_the_deploy_to_wrangler(self) -> None:
+        def unreachable(call: object, timeout: float | None = None) -> object:
+            raise OSError("network is unreachable")
+
+        self._api(unreachable)  # type: ignore[arg-type]
+        code, wrangler = self._deploy(
+            None, price_usd=None, inbox_only=True, token="t0k"
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(wrangler.named("deploy"))
+        self.assertIn("network is unreachable", deploy_module.store_log().read_text())
+
+    def test_an_account_id_must_look_like_one(self) -> None:
+        with self.assertRaisesRegex(ValueError, "32 lowercase hex"):
+            deploy_module.choose_account("not-an-account")
+
+
+class WranglerWordsTest(unittest.TestCase):
+    """XC-086: the refusals above quote the wrangler Lore ships; an upgrade that
+    rewords one fails here, not on an owner's Mac."""
+
+    node = Path(deploy_module.__file__).parent / "node"
+
+    def test_the_fixtures_are_from_the_wrangler_lore_ships(self) -> None:
+        lock = json.loads((self.node / "package-lock.json").read_text())
+        self.assertEqual(
+            lock["packages"]["node_modules/wrangler"]["version"], refusals.VERSION
+        )
+        for name, sentence in refusals.SOURCES.items():
+            with self.subTest(name=name):
+                self.assertIn(sentence, getattr(refusals, name))
+
+    def test_each_refusal_is_still_in_wranglers_own_source(self) -> None:
+        source = self.node / "node_modules/wrangler/wrangler-dist/cli.js"
+        if not source.is_file():
+            self.skipTest("the store's packages aren't installed here")
+        text = source.read_text()
+        for name, sentence in refusals.SOURCES.items():
+            with self.subTest(name=name):
+                self.assertIn(sentence, text)
 
 
 class HermeticTest(LoreTestCase):
