@@ -5,7 +5,7 @@ priority: P2
 effort: XS
 component: cross-cutting
 status: ready
-related: [XC-077, XC-078, XC-080, XC-081, XC-072]
+related: [XC-077, XC-078, XC-080, XC-081, XC-072, APP-247, XC-084]
 blockers: [XC-077]
 dependencies: []
 github_issue: null
@@ -27,26 +27,56 @@ item and move its trailing-window check here.
 
 ## Proposed approach
 
-After each listed item merges, wait until 50 `tests.yml` runs have completed on
-`main` and on pull requests, then measure with:
+The whole stack merged on 2026-10-27 between 13:50Z and 13:58Z, so every window
+starts there. `docs/backlog/agents/measure_ci_window.py` computes all six rows
+from the Actions API (runs, each run's `Desktop macOS checks` job, and that
+job's log for the `agents` first attempt, the `K of N walks passed on retry.`
+line and the cache lines) and prints a Markdown table with the value, the
+baseline and a verdict, or "window too short" until 50 runs (200 for XC-081)
+are in:
 
 ```sh
-gh run list --workflow=tests.yml --limit 200 --json databaseId,createdAt,conclusion,event
-gh run view <id> --json jobs --jq '.jobs[] | select(.name == "Desktop macOS checks") | {conclusion, startedAt, completedAt}'
+uv run python docs/backlog/agents/measure_ci_window.py --since 2026-10-27T13:50:00Z --json runs.json
 ```
 
-Record the figure in the originating item's `## Notes` with the window's dates and
-tick the matching box below. If a figure is worse than its baseline, open a new
-item for the regression rather than silently reverting.
+Two scheduled Claude routines run it, on 2026-10-29 (the 50-run rows) and
+2026-11-02 (the 200-run XC-081 row), and open a `XC-083:` pull request that
+pastes the table into this item's Notes, records each figure in the originating
+item's `## Notes` with the window's dates, ticks the matching boxes below, and
+flips this item to `completed` when all are ticked. If a figure is worse than its
+baseline, the PR says so and a new item is filed for the regression rather than
+silently reverting.
 
 ## Acceptance criteria
 
 - [ ] XC-077 (walks two at a time): over the 50 `tests.yml` runs after it lands,
       the `Desktop macOS checks` job's failure rate is no worse than the baseline
       of 48 of 228 macOS jobs (21.1%) over Oct 20-26, 2026.
-- [ ] Any later CI item from the same investigation that moves a trailing-window
-      criterion here (XC-078, XC-080, XC-081) has its line added above when its PR
-      merges, and that line is measured the same way.
+- [ ] XC-078 (skip the desktop job for PRs that touch nothing it walks): over
+      the 50 pull-request runs after it lands, the share of PR runs that start a
+      macOS job is about 68% or less (130 of 191 merged PRs in the 30 days to
+      2026-10-26 touched a walk input). Count runs where `Desktop macOS checks`
+      has a conclusion other than `skipped`.
+- [ ] XC-080 (retry a failed walk once): over the 50 `tests.yml` runs after it
+      lands, `Desktop macOS checks` fails on fewer than 3% of runs (baseline
+      21.1%; expected about 0.3%), and the retried-walk count over the same runs
+      is recorded alongside it, read from each run's `K of N walks passed on
+      retry.` summary line, so the flake rate XC-072 tracks stays visible.
+- [ ] XC-081 (cancel a PR's superseded run): over the 200 `tests.yml` runs after
+      it lands (200, not 50, for this one, as the item filed it), no PR run's
+      `Desktop macOS checks` job finishes after a newer run on the same PR has
+      already started (baseline 15 runs, 187.4 macOS-min, in the Oct 20-26
+      window).
+- [ ] APP-247 (one connectors walk): over the next 8 green `Desktop macOS
+      checks` runs after it lands, the job's median duration is at least 40 s
+      lower than without it (the dark connectors walk took a median 52 s, 54 s
+      over the last 3 green `main` runs before 2026-10-26), and no check is
+      missing from the walk log that the dark run used to make.
+- [ ] XC-084 (agents walk alone): over the 50 CI runs after it lands, `agents`
+      fails its first attempt on no more than 5% of runs (the one-at-a-time
+      baseline: 11 of 228 jobs; beside another walk it failed 3 first attempts
+      in 4 runs on 2026-10-27), read from each run's `FAIL agents (alone)` log
+      groups and `passed on retry` lines.
 
 ## Notes
 

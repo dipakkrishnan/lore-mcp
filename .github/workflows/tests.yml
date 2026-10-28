@@ -5,6 +5,17 @@ on:
   push:
     branches: [main]
 
+# XC-081: a new push to a pull request cancels the run it supersedes, so a
+# stale run does not hold one of the five macOS runners the fresh one needs.
+# Pull request runs share a group per PR (github.ref is refs/pull/<n>/merge).
+# Pushes to main are keyed on the commit, one group each, so nothing on main
+# is ever cancelled: GitHub keeps at most one pending run per group, so a
+# shared main group would drop the middle of three quick pushes even with
+# cancel-in-progress off.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   python-lint:
     name: Python lint
@@ -46,9 +57,42 @@ jobs:
       - run: npm run check
       - run: npm test
 
+  # XC-078: which of the pull request's changed files can reach the desktop
+  # job. About a third of merged PRs touch none of them (a backlog item, the
+  # site, the Worker, a Python test) and used to hold a macOS runner for about
+  # 19 minutes each. The rules live in .github/scripts/desktop_inputs.py. This
+  # is a job-level gate, never a workflow-level `paths` filter: nine required
+  # checks come from this workflow under a strict up-to-date rule, and a
+  # filtered-out workflow would leave every such PR stuck at "Expected".
+  changes:
+    name: Which inputs changed
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The pull_request checkout is the merge of base and head; its first
+          # parent is base, so one extra commit of history is the whole PR diff.
+          fetch-depth: 2
+      - id: filter
+        # bash, not the default shell, for pipefail: a failed diff is red, not
+        # an empty list. --no-renames lists a move as its deletion and its
+        # addition, so a file moved out of app/desktop still counts.
+        shell: bash
+        run: git diff --no-renames --name-only HEAD^1 HEAD | python3 .github/scripts/desktop_inputs.py
+
   desktop-check:
     name: Desktop macOS checks
     runs-on: macos-14
+    needs: changes
+    # Runs on every push to main (XC-079 is the item that would change that),
+    # and on a pull request unless `changes` said its files cannot reach this
+    # job. Fail open: if `changes` failed or was skipped, its output is empty,
+    # not 'false', and the job still runs; `!cancelled()` is what lets a job
+    # whose `needs` did not succeed run at all.
+    if: ${{ !cancelled() && (github.event_name == 'push' || needs.changes.outputs.desktop != 'false') }}
     defaults:
       run:
         working-directory: app/desktop
@@ -78,9 +122,35 @@ jobs:
       # before any of them.
       - run: uv sync --locked
         working-directory: .
+      # XC-084: twenty minutes, not fifteen: a slow runner plus a retried
+      # `agents` ran past 15 once, and a step that times out prints no summary
+      # and saves no cache. Still inside the 19-minute job XC-077 replaced.
       - run: node support/walks.cjs --jobs 2
-        timeout-minutes: 15
+        timeout-minutes: 20
+      # XC-082: whisper.sh clones and builds whisper.cpp at a pinned tag (about a
+      # minute) and node.sh downloads a pinned npm, the same bytes every run.
+      # Both scripts already skip their work when their outputs are in place,
+      # so a cache hit makes `npm run package` about 25 s instead of 83. Keyed
+      # on the two scripts only: a change to a tag or a flag misses and
+      # rebuilds; a change to src/ hits. No restore-keys, so a miss is visible
+      # rather than papered over by a binary from another tag. The cache is
+      # saved only when the job succeeds, so the first save after a key change
+      # waits for a green job.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            app/desktop/packaging/out/whisper
+            app/desktop/packaging/out/node
+          key: packaging-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/desktop/packaging/whisper.sh', 'app/desktop/packaging/node.sh') }}
       - run: npm run package
+      # The packaged app carries whisper-cli at the tag whisper.sh pins, on a
+      # cache hit as on a miss.
+      - name: Packaged whisper is the pinned tag
+        run: |
+          shipped="$(cat out/Lore-darwin-arm64/Lore.app/Contents/Resources/whisper/version)"
+          pinned="$(sed -n 's/^WHISPER_TAG=//p' packaging/whisper.sh)"
+          echo "shipped $shipped, pinned $pinned"
+          [ "$shipped" = "$pinned" ] || { echo "::error title=stale whisper-cli::The packaged app carries whisper.cpp $shipped but whisper.sh pins $pinned."; exit 1; }
 
   node-lint:
     name: Node lint
