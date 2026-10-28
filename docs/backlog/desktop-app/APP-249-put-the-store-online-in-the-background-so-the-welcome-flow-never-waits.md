@@ -1,7 +1,7 @@
 ---
 id: APP-249
 title: Put the store online in the background so the welcome flow never waits
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
 status: ideation
@@ -39,3 +39,5 @@ sign-up never breaks and never feels like friction.
 ## Notes
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+Demoted to P2 on Oct 28: cloud agents save to the store, so a background setup only moves the wait to connecting an agent. XC-088 takes Cloudflare off sign-up; this stays useful for owners on their own Cloudflare (XC-089).

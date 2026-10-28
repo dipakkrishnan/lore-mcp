@@ -35,13 +35,21 @@ Cloudflare has no API to create accounts or skip email verification, so no amoun
 of hardening removes the account step itself. The plan keeps user-owned
 infrastructure as the goal without putting it on the sign-up path:
 
-1. **Now (XC-085, XC-086, XC-087):** keep and show the real reason with a coded
-   telemetry reason; match the real verify-email text; check the account through
-   the Cloudflare API first, create the subdomain, pick the account, poll readiness.
-2. **Next (APP-249):** setup runs in the background; the welcome flow never waits.
-3. **Then (XC-088):** new owners get a hosted inbox at yourlore.dev in seconds.
+Agents like Claude, ChatGPT and Grok run in the cloud and save to the owner's
+store, so moving the Cloudflare step to the background only moves the wall to
+"connect your agent". The plan follows Bluesky's model: Lore hosts by default,
+the owner holds the keys, and leaving is one click.
+
+1. **Now (XC-085, XC-086, XC-087):** the stopgap. Keep and show the real reason
+   with a coded telemetry reason; match the real verify-email text; check the
+   account through the Cloudflare API first, create the subdomain, pick the
+   account, poll readiness.
+2. **Next (XC-088):** new owners get a hosted inbox at yourlore.dev in seconds.
    Keys and library stay on the Mac; the inbox only relays sealed saves it can't
-   read, and Lore never holds money.
+   read. No Cloudflare step at sign-up.
+3. **Then (XC-071):** the storefront is hosted the same way, set up in one tap
+   the first time the owner sells. Payouts sit inside pushes the owner signs,
+   and Lore never holds money.
 4. **Then (XC-089):** one click moves the store to the owner's own Cloudflare and
    back, with agent links unchanged.
 
@@ -58,7 +66,7 @@ infrastructure as the goal without putting it on the sign-up path:
   60-second sales poll. Content is never sent and the install id is random, but
   "Discard client IP data" is still off.
 
-Fixes: APP-250 (measure first runs), XC-085 (store outcome + reason), CLI-013
+Fixes: APP-250 (measure first runs), XC-085 (store outcome + reason), CLI-016
 (stop the poll noise), XC-090 (fill funnel steps), XC-091 (count download clicks),
 XC-092 (IP discard, test-install filter, launch dashboard).
 
@@ -79,13 +87,12 @@ XC-092 (IP discard, test-install filter, launch dashboard).
 
 | ID | Item | Effort |
 |---|---|---|
-| APP-249 | Put the store online in the background so the welcome flow never waits | M |
 | XC-092 | Turn on IP discard, filter test installs, build the launch dashboard | XS |
-| CLI-013 | Stop background store polls from flooding `cli.failed` | XS |
+| CLI-016 | Stop background store polls from flooding `cli.failed` | XS |
 | XC-090 | Fill the activation funnel's missing steps | S |
 | XC-091 | Count download clicks on yourlore.dev without cookies or ids | S |
 | XC-095 | Ask Windows visitors to get notified instead of downloading the Mac zip | S |
-| MON-049 | Don't sell a piece without a sample, and clean its public topic name | S |
+| MON-052 | Don't sell a piece without a sample, and clean its public topic name | S |
 | APP-255 | Show automations as cards with a visible on/off switch | S |
 | APP-258 | Copy pass on Today, the memory sheet, the palette and Automations | S |
 | APP-257 | Give every memory sheet one clear next action | S |
@@ -95,11 +102,12 @@ XC-092 (IP discard, test-install filter, launch dashboard).
 
 | ID | Item | Effort |
 |---|---|---|
+| APP-249 | Put the store online in the background so the welcome flow never waits | M |
 | APP-259 | Cut perceived latency at startup, in Cmd-K and when opening a memory | M |
 | APP-260 | Make the sidebar resizable by dragging its edge | S |
 | APP-262 | Use a faster model for attended capture and check-in replies (owner's call) | XS |
-| CLI-014 | Make the lore CLI import and run on Windows | M |
-| MON-048 | Let buyers ask for a piece and offer a price (run by hand first) | M |
+| CLI-017 | Make the lore CLI import and run on Windows | M |
+| MON-051 | Let buyers ask for a piece and offer a price (run by hand first) | M |
 | XC-094 | One name and a one-line intro for the marketplace | XS |
 | XC-089 | Move my store to my own Cloudflare in one click, and back | M |
 

@@ -5,7 +5,7 @@ priority: P3
 effort: L
 component: desktop-app
 status: ideation
-related: [CLI-014, APP-251, APP-253]
+related: [CLI-017, APP-251, APP-253]
 blockers: []
 dependencies: []
 github_issue: null

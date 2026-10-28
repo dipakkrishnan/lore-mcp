@@ -1,5 +1,5 @@
 ---
-id: MON-048
+id: MON-051
 title: Let buyers ask for a piece and offer a price
 priority: P2
 effort: M

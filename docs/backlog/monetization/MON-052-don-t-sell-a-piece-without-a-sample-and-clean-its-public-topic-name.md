@@ -1,5 +1,5 @@
 ---
-id: MON-049
+id: MON-052
 title: Don't sell a piece without a sample, and clean its public topic name
 priority: P1
 effort: S

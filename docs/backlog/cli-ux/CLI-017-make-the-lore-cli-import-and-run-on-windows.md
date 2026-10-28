@@ -1,5 +1,5 @@
 ---
-id: CLI-014
+id: CLI-017
 title: Make the lore CLI import and run on Windows
 priority: P2
 effort: M

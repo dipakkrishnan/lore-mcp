@@ -5,7 +5,7 @@ priority: P1
 effort: S
 component: cross-cutting
 status: ideation
-related: [XC-091, CLI-014, APP-253]
+related: [XC-091, CLI-017, APP-253]
 blockers: []
 dependencies: []
 github_issue: null
