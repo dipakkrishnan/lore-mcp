@@ -52,8 +52,6 @@ let snapshot = null;
 let apps = [];
 /** What the owner's personal agents have saved, as their store counts it; null until Connectors asks. @type {AgentEntry[] | null} */
 let agents = null;
-/** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
-let agentAfterStore = false;
 /** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
 let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
@@ -206,7 +204,6 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
@@ -1240,12 +1237,12 @@ class FirstRunChat {
     if (choice === "coding") return this.leave("done", () => void startSetup());
     this.picked = [choice, label];
     this.problem = "";
-    if (snapshot?.node.url) return this.connect();
+    if (snapshot?.node.agents) return this.connect();
     this.stage = "store";
-    this.redraw();
+    return this.putOnline();
   }
 
-  /** The store online for the owner's agents, on the owner's tap: the deploy and, if it must, the Cloudflare sign-in. */
+  /** XC-088: a place online for the owner's agents, hosted by Lore in seconds, then on to connecting the one picked. */
   async putOnline() {
     const run = this.#run;
     this.working = true;
@@ -1254,7 +1251,7 @@ class FirstRunChat {
     try {
       await window.lore.storeOnline();
       // Asked of the store itself: a refresh already under way (an app's reading) can leave the window's copy stale.
-      const online = Boolean((await window.lore.snapshot()).node.url);
+      const online = Boolean((await window.lore.snapshot()).node.agents);
       void load();
       // Skipped while it went online: the store stays online, and nothing goes on to connect.
       if (!this.current(run)) return;
@@ -1265,7 +1262,7 @@ class FirstRunChat {
       if (!this.current(run)) return;
       this.working = false;
       // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
-      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      const said = reason(error, "Lore couldn't set up a place for your agents. Try again.");
       this.problem = said === "Cancelled" ? "" : said;
       this.redraw();
     }
@@ -1480,17 +1477,13 @@ class FirstRunChat {
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
-      lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
+      lore(`${who} works online, so Lore keeps a private place online for it to save to. What ${who} saves is sealed so only this Mac can read it, and nothing goes on sale.`);
       const box = el("div", "card request");
-      const waiting = this.working && signingIn;
-      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
+      box.append(el("p", "hint", this.working ? "Setting it up…" : "It takes a few seconds."));
       if (this.problem) box.append(el("p", "problem", this.problem));
-      if (waiting) box.append(signInActions());
-      else {
+      if (!this.working) {
         const actions = el("div", "actions");
-        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
-        go.disabled = this.working;
-        actions.append(go);
+        actions.append(button("Try again", "primary", () => void this.putOnline()));
         box.append(actions);
       }
       lore(box);
@@ -3307,7 +3300,6 @@ function tiles(rows) {
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
 const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -3539,20 +3531,7 @@ class AgentSetup {
   }
 
   open() {
-    if (snapshot?.node.url) this.pick();
-    else this.store();
-  }
-
-  /** The store goes online the way it always does, in its own thread; the sheet comes back once it is. */
-  store() {
-    this.form.text(STORE_FIRST);
-    this.form.open({
-      primary: "Put your store online",
-      submit: () => {
-        agentAfterStore = true;
-        void startDeploy(AGENT_STORE_INTENT);
-      }
-    });
+    this.pick();
   }
 
   pick() {
@@ -3584,6 +3563,11 @@ class AgentSetup {
       submit: async () => {
         if (!chosen) return false;
         const [app, name] = chosen;
+        // XC-088: with nowhere online for agents to save yet, Lore hosts one first, in seconds.
+        if (!snapshot?.node.agents) {
+          await window.lore.storeOnline();
+          await load();
+        }
         if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
         else await this.keyed(app, name);
         return false;
@@ -4367,13 +4351,6 @@ async function load() {
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
-    if (agentAfterStore && snapshot.node.url && !taskItems.some((item) => item.kind === "deploy" && item.state === "working")) {
-      agentAfterStore = false;
-      // Back where the owner started, with the sheet at its next step.
-      if (detailTask === "deploy") closeTask();
-      show("connectors");
-      new AgentSetup().open();
-    }
   } catch {
     if (ticket !== loads) return;
     const error = el("section", "card error");

@@ -150,6 +150,30 @@ Workers + D1 only) and `QA_PAYOUT_ADDRESS` (a dedicated Base Sepolia payout
 address) as Environment secrets — never repository secrets, which every
 workflow in the repo can read.
 
+## Lore's hosted stores (XC-088)
+
+An owner with no store of their own gets one Lore hosts at
+`<store>.yourlore.dev`, so their agents can save in seconds with no
+Cloudflare account. It is a second Worker built from this package,
+`lore-hosted` (`wrangler.hosted.jsonc`, `src/hosted/`): one Durable Object per
+store, each running the same `/agent` code as an owner's node on its own
+SQLite database. The owner's Mac claims a store and changes it only with
+requests it signs; see [`contracts/hosted-inbox.md`](../../contracts/hosted-inbox.md).
+
+`npm test` runs its suite too (`vitest.hosted.config.ts`). To try it locally:
+
+    npx wrangler dev -c wrangler.hosted.jsonc --local-protocol https \
+      --var STORE_DOMAIN:yourlore.test --local-upstream abcdefghijkm.yourlore.test
+
+It deploys only from `.github/workflows/deploy-hosted.yml` on merges to
+`main`. Before the first deploy an admin sets up, once:
+
+- a protected GitHub **Environment** named `hosted` with a required reviewer,
+  holding `CLOUDFLARE_API_TOKEN` scoped to Workers Scripts, Workers Routes and
+  Durable Objects on the `yourlore.dev` zone;
+- a proxied wildcard DNS record `*` on `yourlore.dev` (custom domains such as
+  `checkout.` and `relay.` keep precedence over the Worker's route).
+
 ## Developing the node itself (repo checkout only)
 
 Contributors working in the lore-mcp repository can run the node locally from

@@ -70,10 +70,10 @@ test("free copies save through the CLI, refused before it unless a whole number,
 /** A stand-in CLI: answers the snapshot with a price, free copies, the store's payout address, whether it sells and its
  * pieces, and whether it is the store this Lore ships, and records every other call with its stdin.
  * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[], cards?: string, store?: "current" | "outdated" | "unknown"}} [store] */
-async function recordingCli(directory, payout, { selling = false, items = [], cards = "", store = "unknown" } = {}) {
+async function recordingCli(directory, payout, { selling = false, items = [], cards = "", store = "unknown", url = "https://lore.example.workers.dev/mcp" } = {}) {
   const fake = join(directory, "lore");
   const ran = join(directory, "ran");
-  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, store, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
+  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url, selling, store, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
   // `cards` is the Stripe account card payments go to, "" when they're off.
   const taking = JSON.stringify({ account: cards, pending: "", ready: cards ? true : null, checking: false, minimum_usd: 0.5 });
   await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\nif [ "$1" = cards ]; then echo '${taking}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
@@ -147,6 +147,29 @@ test("putting the store online for the owner's agents asks one yes, and never a 
     assert.match(await openStore(directory, { inboxOnly: true }, answer("Put it online"), confirming(directory, true, seen)), /deployed/);
     assert.equal(await readFile(ran, "utf8"), "node deploy --inbox-only unattended=1 stdin=\n");
     assert.equal(asked.length, 2, "one card each time, and nothing else asked");
+    assert.equal(seen.length, 0, "nothing goes on sale, so there is no change to confirm");
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("with no store of their own, the owner's agents get one Lore hosts, on one yes and in seconds (XC-088)", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null, { url: null });
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    assert.match(await openStore(directory, { inboxOnly: true }, answer("Not now"), confirming(directory, true, seen)), /chose not to/);
+    assert.ok(!existsSync(ran), "nothing ran without a yes");
+    assert.equal(await openStore(directory, { inboxOnly: true }, answer("Put it online"), confirming(directory, true, seen)), "The store is online for the owner's agents, hosted by Lore: nothing for sale.");
+    assert.equal(await readFile(ran, "utf8"), "node host unattended= stdin=\n");
+    assert.match(JSON.stringify(asked[1]), /Takes a few seconds/);
     assert.equal(seen.length, 0, "nothing goes on sale, so there is no change to confirm");
   } finally {
     useRuntime(CLI);

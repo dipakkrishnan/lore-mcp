@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // XC-088: Lore's hosted stores, one Durable Object each at <store>.yourlore.dev
+  // (contracts/hosted-inbox.md). Maintainer-owned, deployed only from CI on main by
+  // .github/workflows/deploy-hosted.yml — never an owner's node, and never from a laptop.
+  "name": "lore-hosted",
+  "main": "src/hosted/index.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Every store is a subdomain. Custom domains on the zone (checkout., relay.) take
+  // precedence over this route, and the zone needs a proxied wildcard DNS record.
+  "routes": [{ "pattern": "*.yourlore.dev/*", "zone_name": "yourlore.dev" }],
+  "workers_dev": false,
+  "vars": { "STORE_DOMAIN": "yourlore.dev" },
+  // Logs only: request bodies and saves are never logged.
+  "observability": { "logs": { "enabled": true }, "traces": { "enabled": false } },
+  "ratelimits": [{ "name": "CLAIMS", "namespace_id": "1088", "simple": { "limit": 5, "period": 60 } }],
+  "durable_objects": { "bindings": [{ "name": "STORES", "class_name": "HostedStore" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostedStore"] }]
+}

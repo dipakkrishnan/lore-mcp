@@ -21,6 +21,8 @@ export default defineProject({
   test: {
     fileParallelism: false,
     include: ["test/**/*.test.ts"],
+    // Lore's hosted stores are another Worker, with their own pool (vitest.hosted.config.ts).
+    exclude: ["test/hosted/**"],
     setupFiles: ["./test/setup.ts"],
     testTimeout: 15_000
   }

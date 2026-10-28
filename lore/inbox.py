@@ -1,6 +1,7 @@
 """The owner's side of the agent inbox (XC-067, `contracts/inbox.md`): the owner's
-personal agents save into the owner's own node, sealed to a key only this Mac holds,
-and the Mac collects through wrangler the way it reads sales."""
+personal agents save into the owner's store, sealed to a key only this Mac holds. The
+Mac collects through wrangler from a store on the owner's own Cloudflare, the way it
+reads sales, and with signed requests from one Lore hosts (XC-088)."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from keyring.errors import KeyringError
 from pydantic import BaseModel, StringConstraints, TypeAdapter, ValidationError
 
-from . import deploy
+from . import hosted
 from .signin import Keychain
 
 AgentApp = Literal["grok", "muse", "chatgpt", "claude", "other"]
@@ -333,7 +334,7 @@ class Inbox:
     @staticmethod
     def _results(sql: str, fail: str) -> list[list[dict[str, object]]]:
         try:
-            return deploy._read_all(sql, fail)
+            return hosted.run(sql, fail)
         except (OSError, ValueError) as error:
             raise InboxError(str(error)) from None
 

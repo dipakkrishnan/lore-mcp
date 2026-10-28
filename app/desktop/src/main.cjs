@@ -61,8 +61,6 @@ const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emi
 /** The Cloudflare sign-in waiting on the owner's browser, if any: its page, to open again, and how to stop it.
  * @type {{url: string, stop: AbortController} | null} */
 let signingIn = null;
-const VERIFY_EMAIL = "Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.";
-const STORE_ELSEWHERE = "This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.";
 
 /** Sign in to Cloudflare in the browser, wherever the store goes online, with the page reopenable and the wait
  * cancellable from the app until it ends; it always ends, signed in, cancelled, failed or timed out.
@@ -103,6 +101,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
     const state = await readState(loreHome);
     storeAddress = state.node.url;
+    inboxAddress = state.node.agents ?? null;
     return state;
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
@@ -356,22 +355,10 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("appearance:read", () => appearance.read());
   ipcMain.handle("appearance:set", (_event, choice) => appearance.set(choice));
   ipcMain.handle("store:online", async () => {
-    // A store that already sells puts out what is waiting when it goes online, so the owner says yes to that first.
-    if (!(await outgoing.confirmed())) throw new Error("Your store stays as it was.");
     try {
-      let said = await storeOnline(loreHome);
-      if (said.includes("not signed in to Cloudflare")) {
-        await signInToCloudflare(loreHome);
-        said = await storeOnline(loreHome);
-      }
-      // A store this Mac didn't set up is never taken over or written to from here.
-      if (said.includes("already exists on this Cloudflare account")) throw new Error(STORE_ELSEWHERE);
-      if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
-      if (!said.startsWith("The store is deployed")) {
-        console.error("The store did not go online:", said);
-        throw new Error("Your store didn't go online. Try again in a minute.");
-      }
+      await storeOnline(loreHome);
     } finally {
+      inboxAddress = undefined;
       emit({ type: "changed" });
     }
   });
@@ -524,7 +511,7 @@ app.whenReady().then(async () => {
   const told = new Set();
   const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   const watch = new Watch({
-    ready: () => hasStore(loreHome),
+    ready: () => hasInbox(loreHome),
     waiting: () => agentsWaiting(loreHome),
     read: (name) => readSource(loreHome, name),
     landed: async (reads) => {
@@ -572,6 +559,16 @@ async function hasStore(loreHome) {
   if (![join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path))) return false;
   if (storeAddress === undefined) storeAddress = (await readState(loreHome).catch(() => null))?.node.url;
   return Boolean(storeAddress);
+}
+
+/** Where the owner's agents save as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
+let inboxAddress;
+
+/** Only a store online for the owner's agents has an inbox, on their own Cloudflare or hosted by Lore (XC-088).
+ * @param {string} loreHome */
+async function hasInbox(loreHome) {
+  if (inboxAddress === undefined) inboxAddress = (await readState(loreHome).catch(() => null))?.node.agents ?? null;
+  return Boolean(inboxAddress);
 }
 
 /** What the owner's agents saved comes in while Lore is open: now, on coming back to the app, and at the watch's own

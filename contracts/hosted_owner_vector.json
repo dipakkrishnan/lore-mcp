@@ -1,0 +1,12 @@
+{
+  "private_key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "public_key": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+  "method": "POST",
+  "host": "abcdefghijkm.yourlore.dev",
+  "path": "/owner/sql",
+  "time": "1767225600000",
+  "nonce": "bG9yZS1vd25lci1ub25jZQ",
+  "body": "{\"sql\": \"SELECT 1;\"}",
+  "message": "lore-owner-v1\nPOST\nabcdefghijkm.yourlore.dev\n/owner/sql\n1767225600000\nbG9yZS1vd25lci1ub25jZQ\na216d0adb8729436fc6b5c57c626b5078f3dc84b8b0c3ae474dd794fe802c6e1",
+  "signature": "lG1t55olBTMvIFntHWLDm8RXSi62GRc4XKxmoN7oLJEByfSGsR3YX50WlsA63mpxi3q_9807dPeKJzz3qX1vBw"
+}
