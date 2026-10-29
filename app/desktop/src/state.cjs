@@ -359,6 +359,15 @@ function redeploy() {
  */
 async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, outgoing) {
   if (inboxOnly) {
+    // XC-088: with no store of their own on Cloudflare, Lore hosts one for the owner's agents in seconds.
+    if (!(await readState(loreHome)).node.url) {
+      const yes = await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few seconds");
+      if (!yes) return "The owner chose not to put the store online right now.";
+      return storeOnline(loreHome).then(
+        () => "The store is online for the owner's agents, hosted by Lore: nothing for sale.",
+        (/** @type {Error} */ error) => `The store did not go online: ${error.message}.`
+      );
+    }
     const changes = await outgoing.changes();
     const yes = asks(changes)
       ? await outgoing.confirm("Update your store", changes)
@@ -434,11 +443,11 @@ async function deployStore(loreHome, args) {
   }
 }
 
-/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
- * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
- * @param {string} loreHome */
-function storeOnline(loreHome) {
-  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+/** XC-088: a place online for the owner's agents to save to, hosted by Lore in seconds with no account to make; an
+ * owner whose store runs on their own Cloudflare keeps that one. Nothing goes on sale, so there is nothing to confirm.
+ * Rejects in the CLI's own words. @param {string} loreHome */
+async function storeOnline(loreHome) {
+  await lore(loreHome, ["node", "host"]);
 }
 
 /** How long a Cloudflare sign-in waits on the browser before it gives up. */

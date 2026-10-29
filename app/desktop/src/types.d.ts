@@ -82,6 +82,8 @@ type Snapshot = {
   };
   node: {
     url: string | null;
+    /** Where the owner's agents save: their own store's, or the one Lore hosts (XC-088); absent from an older CLI. */
+    agents?: string | null;
     /** False while the store is online only for the owner's agents, with nothing for sale (XC-069). */
     selling: boolean;
     /** Whether the store online is the one this Lore ships (APP-231); absent from a CLI older than that. */

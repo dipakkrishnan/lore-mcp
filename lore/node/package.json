@@ -9,7 +9,7 @@
     "lint": "eslint '**/*.ts'",
     "pay": "tsx scripts/pay.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "test": "vitest run",
+    "test": "vitest run && vitest run -c vitest.hosted.config.ts",
     "types": "wrangler types env.d.ts --include-runtime false",
     "preview": "tsx scripts/preview.ts"
   },

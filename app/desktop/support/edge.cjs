@@ -75,9 +75,8 @@ let signedInToCloudflare = false;
 let signInHangs = false;
 /** @type {number | undefined} */
 let signInWait;
-let storeElsewhere = false;
-/** APP-223: whether the account signed in to hasn't verified its email, so Workers refuse the deploy. */
-let emailUnverified = false;
+/** XC-088: whether the hosted store can't be reached, so putting it online fails; each try records it. */
+let storeUnreachable = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
@@ -288,16 +287,13 @@ if (scenario === "listing") {
     // stand-in node answers only /agent, so its probe is kept for the whole walk instead of expiring a minute in.
     execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
   };
-  // APP-215: the first-run chat's store goes online through the app, signing in to Cloudflare first when it must; both
-  // stood in for, so nothing reaches a real account.
+  // XC-088: the place online for the owner's agents, which Lore hosts, stood in for by the stand-in node, so nothing
+  // reaches yourlore.dev. It fails, in the CLI's own words, while the walk says it can't be reached.
   const state = require(join(src, "state.cjs"));
   state.storeOnline = async () => {
-    storeOnlineCalls.push(signedInToCloudflare);
-    if (!signedInToCloudflare) return "The deploy did not finish: not signed in to Cloudflare; sign in first, then rerun.";
-    if (storeElsewhere) return "The deploy did not finish: a lore-publications database already exists on this Cloudflare account, but this installation has never deployed a node before.";
-    if (emailUnverified) return "The deploy did not finish: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again..";
+    storeOnlineCalls.push(storeUnreachable);
+    if (storeUnreachable) throw new Error("Lore couldn't put your store online: yourlore.dev didn't answer (offline)");
     standInDeploy();
-    return "The store is deployed.\nYour store is online for your agents. Nothing for sale yet.";
   };
   // APP-223: the real sign-in, its wait and its stop, with the CLI's `node login` stood in for by a process that prints
   // the page to open, then signs in at once or waits on the browser until it is stopped. Pages open nowhere.
@@ -1658,40 +1654,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…offering the AI the owner talks to, the one on this Mac first", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Claude Code or Codex", "None of these"]), JSON.stringify(picks));
         check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
         await shot("firstrun-pick");
+        storeUnreachable = true;
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
         answers++;
-        check("with no store online, Grok Bot is asked to save here too, and nothing goes on sale", await waitFor(`${chat}.includes("Want Grok Bot to save here too? Grok Bot works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.")`), await js(chat));
+        check("with no store online, Grok Bot gets a private place online, sealed for this Mac, with nothing on sale, and the owner free to leave", await waitFor(`${chat}.includes("Grok Bot works online, so Lore keeps a private place online for it to save to. What Grok Bot saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.")`), await js(chat));
         check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
-        await shot("firstrun-store");
-        // APP-223: a sign-in left open in the browser can be opened again, or cancelled, and never strands the card.
-        const pages = () => opened.filter((url) => url.startsWith("https://dash.cloudflare.com/")).length;
         const buttons = `[...document.querySelectorAll("#content .first-run button")].map((b) => b.textContent)`;
-        signInHangs = true;
-        await tap("Set it up");
-        check("while Cloudflare's sign-in waits on the browser, the card offers it again, or Cancel", await waitFor(`${chat}.includes("Finish signing in to Cloudflare in your browser") && ${buttons}.includes("Open sign-in again") && ${buttons}.includes("Cancel")`, 80) && pages() === 1, `${pages()} pages; ${await js(chat)}`);
-        await shot("firstrun-sign-in-waiting");
-        await tap("Open sign-in again");
-        check("…Open sign-in again opens the same page", await waitFor(`true`) && pages() === 2 && opened.at(-1) === opened.at(-2), JSON.stringify(opened.slice(-2)));
-        await tap("Cancel");
-        check("…and Cancel stops it, back at Set it up with nothing to say", await waitFor(`${buttons}.includes("Set it up") && !${buttons}.includes("Cancel")`, 40) && !(await js(`Boolean(document.querySelector("#content .first-run .problem"))`)), await js(chat));
-        signInWait = 2000;
-        await tap("Set it up");
-        check("a sign-in that never finishes gives up after a while, plainly, with Set it up again", await waitFor(`${chat}.includes("Cloudflare sign-in didn't finish. Try again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
-        signInHangs = false;
-        signInWait = undefined;
-        storeElsewhere = true;
-        await tap("Set it up");
-        check("an account that already has a Lore store is told so, and nothing is set up there", await waitFor(`${chat}.includes("This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.") && ${buttons}.includes("Set it up")`, 60) && await js(`window.lore.snapshot().then((s) => !s.node.url)`), await js(chat));
-        await shot("firstrun-store-elsewhere");
-        storeElsewhere = false;
-        emailUnverified = true;
-        await tap("Set it up");
-        check("an account whose email isn't verified yet is told what to do, plainly", await waitFor(`${chat}.includes("Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
-        await shot("firstrun-verify-email");
-        emailUnverified = false;
-        await tap("Set it up");
+        check("…a place that can't be reached says why, with Try again, and no sign-in anywhere", await waitFor(`${chat}.includes("Lore couldn't put your store online: yourlore.dev didn't answer (offline)") && ${buttons}.includes("Try again")`, 60) && !/sign in|free on Cloudflare/i.test(await js(chat)) && opened.length === 0, await js(chat));
+        await shot("firstrun-store");
+        storeUnreachable = false;
+        await tap("Try again");
         answers++;
-        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, false, false, true, true, true]), JSON.stringify(storeOnlineCalls));
+        check("trying again puts it online and goes straight on to the link", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([true, false]), JSON.stringify(storeOnlineCalls));
         const message = await copyMessage();
         const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
         check("Grok Bot's message to paste is in the chat two answers after it is asked about", answers === 2 && linked.test(message), `${answers} answers; ${message}`);
@@ -1814,11 +1788,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.lore.setFirstRun({ state: "started" })`);
         await relaunch();
         await picker();
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
-        await waitFor(`${chat}.includes("Set it up")`);
         const letOnline = hold("store:online");
         const connectsBefore = connects();
-        await tap("Set it up");
+        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
+        await waitFor(`${chat}.includes("Setting it up…")`);
         await js(`document.querySelector("#first-run-skip").click()`);
         letOnline();
         check("a Skip while the store goes online stays a Skip, and connects nothing after it", await stayedSkipped() && connects() === connectsBefore, `${JSON.stringify(await kept())}; ${connects() - connectsBefore} connects after`);
@@ -1843,18 +1816,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and the catalog offers no generic Personal agent", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Personal agent")`)));
         await shot("agents-offer");
 
-        // No store online: the sheet puts it online first, the way the store always goes online, then picks up.
+        // XC-088: no store online, and no step for it: the sheet goes straight to picking, and Connect puts it online.
         installedApps = ["grok", "claude"];
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
-        await waitFor(`${primary}?.textContent === "Put your store online"`);
-        await sleep(400);
-        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.")`), await js(sheet));
-        await shot("agents-store-first");
-        await js(`${primary}.click()`);
-        const deploying = await waitFor(`document.querySelector("#title").textContent === "Open your store"`);
-        for (let i = 0; i < 40 && !prompts.length; i++) await sleep(100);
-        check("…and puts it online through the store's own deploy", deploying && prompts.some((p) => p.task === "deploy" && /personal agents/.test(p.text)), JSON.stringify(prompts));
-        check("once the store is online, the sheet continues to the setup", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80), await js(sheet));
+        check("with no store online, the sheet goes straight to which agent, with no Cloudflare step and the owner free to leave", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80) && (await js(sheet)).includes("you can move to your own Cloudflare whenever you like") && !/sign in to Cloudflare|free on Cloudflare|Put your store online/i.test(await js(sheet)), await js(sheet));
         const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
         check("…offering each of the five, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
         check("Connect waits for a choice", await js(`${primary}.disabled`));
@@ -2268,7 +2233,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // XC-069: the store went online only for the agents. Nothing in the app says anything is for sale, and
         // opening it for sale is still the first approved piece's own step, with a price and where payments go.
-        check("the deploy thread asked only to put the store online for the agents", prompts.some((p) => p.task === "deploy") && prompts.filter((p) => p.task === "deploy").every((p) => /personal agents/.test(p.text) && !/price|payout|wallet/i.test(p.text)), JSON.stringify(prompts));
+        check("putting the store online for the agents (XC-088) ran no deploy thread, so asked nothing of a price or payout", !prompts.some((p) => p.task === "deploy") && storeOnlineCalls.length === 1, `${JSON.stringify(prompts)}; ${JSON.stringify(storeOnlineCalls)}`);
         check("the store is online for agents, not open for sale", await js(`window.lore.snapshot().then((s) => Boolean(s.node.url) && s.node.selling === false)`));
         await js(`window.__lore.show("store")`);
         const bar = `(document.querySelector("#content .store-bar")?.textContent ?? "")`;

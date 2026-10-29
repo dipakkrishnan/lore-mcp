@@ -19,6 +19,8 @@ import { escape, plainPage } from "./storefront.js";
  */
 
 export const SCOPE = "save";
+/** All the agent side reads: an owner's own node gives it its bindings, a hosted store its own tables (XC-088). */
+export type AgentEnv = { LORE_DB: D1Database; OAUTH_KV: KVNamespace };
 type Props = { agent: string; hash: string };
 type Asked = { state: "pending" | "allowed" | "denied"; agent: string | null };
 
@@ -60,8 +62,8 @@ function answer(body: object, headers: HeadersInit = {}): Response {
 }
 
 export class SignIn {
-  readonly server: OAuthAuthorizationServer<Env>;
-  readonly resource: OAuthResourceServer<Env, Props>;
+  readonly server: OAuthAuthorizationServer<AgentEnv>;
+  readonly resource: OAuthResourceServer<AgentEnv, Props>;
 
   /** @param serve answers an agent's MCP request once its inbox is known */
   constructor(
@@ -69,7 +71,7 @@ export class SignIn {
     serve: (request: Request, inbox: Inbox) => Promise<Response>
   ) {
     const resource = `${origin}/agent`;
-    this.server = new OAuthAuthorizationServer<Env>({
+    this.server = new OAuthAuthorizationServer<AgentEnv>({
       issuer: origin,
       resources: [resource],
       authorizeEndpoint: "/authorize",
@@ -87,7 +89,7 @@ export class SignIn {
         throw new OAuthError("invalid_grant", { description: "this agent was disconnected in Lore; add Lore again to sign in" });
       }
     });
-    this.resource = new OAuthResourceServer<Env, Props>({
+    this.resource = new OAuthResourceServer<AgentEnv, Props>({
       resourceMetadata: { resource, authorization_servers: [origin], resource_name: "Lore" },
       requiredScopes: [SCOPE],
       validateToken: (env) => (resource, token) => this.server.validateToken<Props>(resource, token, env),
@@ -116,7 +118,7 @@ export class SignIn {
   }
 
   /** An agent the owner disconnected keeps no grant: its refresh tokens go with its access. */
-  private async disconnect(env: Env, agent: string): Promise<void> {
+  private async disconnect(env: AgentEnv, agent: string): Promise<void> {
     const api = this.server.getOAuthApi(env);
     const { items } = await api.listUserGrants(agent);
     await Promise.all(items.map((grant) => api.revokeGrant(grant.id, agent)));
@@ -134,7 +136,7 @@ export class SignIn {
   }
 
   /** The page an agent's sign-in opens: who is asking, the code the Mac shows too, and a wait for the owner. */
-  async authorize(request: Request, env: Env): Promise<Response> {
+  async authorize(request: Request, env: AgentEnv): Promise<Response> {
     const api = this.server.getOAuthApi(env);
     try {
       const asked = await api.parseAuthRequest(request);
@@ -170,7 +172,7 @@ export class SignIn {
   }
 
   /** What the waiting page hears: still waiting, gone, or where to go now that the owner allowed or refused it. */
-  async wait(request: Request, env: Env): Promise<Response> {
+  async wait(request: Request, env: AgentEnv): Promise<Response> {
     const db = env.LORE_DB;
     const handle = (await request.formData().catch(() => null))?.get("handle");
     if (typeof handle !== "string") return answer({ state: "expired" });

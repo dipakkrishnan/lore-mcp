@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 
+from .hosted import agent_address
 from .inbox import Inbox, Minted, SetupPrompt, SignIn
 from .sources import Registry, SourceError
 from .store import Store
@@ -29,12 +30,12 @@ class Agents:
 
     @property
     def mcp_url(self) -> str:
-        node = str(self.store.setting("node_url", "") or "")
-        if not node:
+        address = agent_address(self.store)
+        if address is None:
             raise SourceError(
                 "Your agents save to your store, so put your store online first."
             )
-        return node.rstrip("/").removesuffix("/mcp") + "/agent"
+        return address
 
     def connect(self, name: str, app: str) -> dict[str, object]:
         """A key for a new agent, and the block that tells it how to use it."""

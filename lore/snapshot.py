@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, deploy, feedback, sources
+from . import automation, blueprint, deploy, feedback, hosted, sources
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -224,6 +224,7 @@ def build() -> dict[str, object]:
         automations_noticed = store.setting(automation.NOTICED, False) is True
         node_url = store.setting("node_url", None)
         node_selling = deploy.selling(store)
+        agents_url = hosted.agent_address(store)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
         jobs = store.recent_jobs(limit=20)
@@ -305,6 +306,8 @@ def build() -> dict[str, object]:
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
+            # Where the owner's agents save: their own store's, or the one Lore hosts (XC-088).
+            "agents": agents_url,
             # False while the store is online only for the owner's agents (XC-069).
             "selling": node_selling,
             # Whether the store online is the one this Lore ships (APP-231).

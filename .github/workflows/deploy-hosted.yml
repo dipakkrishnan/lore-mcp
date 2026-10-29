@@ -1,0 +1,64 @@
+name: Deploy hosted stores
+
+# XC-088: Lore's hosted stores (lore/node/wrangler.hosted.jsonc) at
+# <store>.yourlore.dev. Like deploy-feedback-relay.yml, its own workflow that
+# only listens for pushes to main, so no pull request can reach the token.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lore/node/src/**"
+      - "lore/node/wrangler.hosted.jsonc"
+      - "lore/node/package-lock.json"
+      - ".github/workflows/deploy-hosted.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-hosted
+  cancel-in-progress: false
+
+jobs:
+  deploy-hosted:
+    name: Deploy the hosted stores
+    runs-on: ubuntu-latest
+    if: github.repository == 'dipakkrishnan/lore-mcp'
+    # A GitHub Environment that only main can deploy from, so only this job
+    # can read the token.
+    environment: hosted
+    defaults:
+      run:
+        working-directory: lore/node
+    steps:
+      - name: Check whether the hosted deploy is configured yet
+        id: configured
+        working-directory: .
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning::Hosted stores deploy skipped — the 'hosted' GitHub" \
+              "Environment needs a CLOUDFLARE_API_TOKEN secret. See lore/node/README.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.configured.outputs.ready == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.configured.outputs.ready == 'true'
+        with:
+          node-version: lts/*
+
+      # No package's install script runs where the token is about to be.
+      - run: npm ci --ignore-scripts
+        if: steps.configured.outputs.ready == 'true'
+
+      - name: Deploy the Worker
+        if: steps.configured.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npm exec --no -- wrangler deploy -c wrangler.hosted.jsonc

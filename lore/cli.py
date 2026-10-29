@@ -33,6 +33,7 @@ from . import sources as sources_module
 from . import usage
 from .agents import Agents
 from .collection import Collections, Drop
+from .hosted import Hosted
 from .inbox import AgentApp, Inbox, InboxError
 from .paths import home, store_folder
 from .sources import Registry, available_sources
@@ -502,6 +503,11 @@ def parser() -> argparse.ArgumentParser:
         help="put your store online for your own agents with nothing for sale: "
         "no price or payout address needed",
     )
+    node_commands.add_parser(
+        "host",
+        help="put your store online at yourlore.dev for your own agents: "
+        "no Cloudflare account, and nothing for sale",
+    )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
     node_sales.add_argument(
@@ -826,6 +832,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
+            if args.node_command == "host":
+                return host_store()
             if args.node_command == "login":
                 return deploy_module.login()
             if args.node_command == "sales":
@@ -1547,6 +1555,19 @@ def delete_memory(memory_id: int, as_json: bool) -> int:
         print(json.dumps({"deleted": memory.id}))
     else:
         muted(f"Deleted {memory.title}.")
+    return 0
+
+
+def host_store() -> int:
+    """XC-088: the owner's store, hosted by Lore, ready for their agents in seconds.
+    An owner whose store runs on their own Cloudflare keeps that one."""
+    with Store() as store:
+        node_url = store.setting("node_url", None)
+        if node_url:
+            success(f"Online: {node_url} · on your own Cloudflare")
+            return 0
+        hosted = Hosted.claim(store)
+    success(f"Online: {hosted.origin} · ready for your agents, nothing for sale")
     return 0
 
 
