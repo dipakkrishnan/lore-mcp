@@ -32,6 +32,12 @@ Or you are given one of the owner's own routines instead, a sentence like
 what is already in their Lore (`lore search <terms> --json`), under the same
 rules.
 
+Or you are given what one of the owner's agents saved, by memory id. Those
+are memories already, written by the agent: write nothing and change nothing.
+Read each one (`lore memory show <id> --json`), judge whether it looks worth
+selling and why in a few words, and hand each back by its `id`. Never suggest
+work as worth selling.
+
 For each item, decide first whether it is work or personal, as the rules say.
 When unsure, it is work. Then decide whether anything in it earns a place.
 Most meetings are routine; a run that finds nothing new writes nothing.
@@ -51,7 +57,8 @@ Suggest at most three topics as worth selling. Never suggest anything under
 
 - **In the desktop app:** call `memories_ready` once with how many items you
   read and each topic file you created or changed, by its path inside the
-  memories folder, whether it looks worth selling, and why in a few words.
+  memories folder (or, for an agent's saves, each memory by its `id`), whether
+  it looks worth selling, and why in a few words.
   Lore saves them and tells the owner. An empty list means nothing new.
 - **Anywhere else:** run `lore sync --source automation`, then tell the owner in
   two or three sentences what you wrote and which topics look worth selling.
