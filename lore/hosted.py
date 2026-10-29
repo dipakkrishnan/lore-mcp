@@ -33,6 +33,11 @@ TIMEOUT_SECONDS = 20
 Rows = list[list[dict[str, object]]]
 
 
+# APP-181: what the owner reads when the hosted store can't be reached, never a status code.
+UNREACHABLE = "Lore couldn't reach the internet. Check your connection, then try again."
+BUSY = "Lore's servers aren't answering right now. Try again in a minute."
+
+
 class HostedError(OSError):
     def __init__(self, message: str, status: int | None = None) -> None:
         super().__init__(message)
@@ -146,10 +151,12 @@ class Hosted:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
                 return cast(dict[str, object], json.loads(response.read()))
         except urllib.error.HTTPError as error:
-            raise HostedError(f"{fail}: {_said(error)}", error.code) from None
-        except (urllib.error.URLError, TimeoutError) as error:
-            reason = getattr(error, "reason", error)
-            raise HostedError(f"{fail}: {DOMAIN} didn't answer ({reason})") from None
+            said = _said(error)
+            raise HostedError(
+                f"{fail}: {said}" if said else f"{fail}. {BUSY}", error.code
+            ) from None
+        except (urllib.error.URLError, TimeoutError):
+            raise HostedError(f"{fail}. {UNREACHABLE}") from None
 
 
 def agent_address(store: Store) -> str | None:
@@ -181,11 +188,12 @@ def signed(host: str, path: str, moment: str, nonce: str, data: bytes) -> bytes:
     ).encode()
 
 
-def _said(error: urllib.error.HTTPError) -> str:
+def _said(error: urllib.error.HTTPError) -> str | None:
+    """The store's own words for a refusal; None when it's Lore's servers that failed."""
     try:
         return str(json.loads(error.read())["error"])
     except (ValueError, KeyError, TypeError):
-        return f"the store answered {error.code}"
+        return None
 
 
 def _new_id() -> str:
