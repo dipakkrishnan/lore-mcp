@@ -2,6 +2,9 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /lore/node
+    # A release must be a week old first, so a compromised one is usually pulled before it reaches us.
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -30,6 +33,8 @@ updates:
 
   - package-ecosystem: npm
     directory: /bridge
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -49,6 +54,8 @@ updates:
 
   - package-ecosystem: npm
     directory: /app/desktop
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
@@ -68,6 +75,8 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    cooldown:
+      default-days: 7
     schedule:
       interval: weekly
       day: monday
