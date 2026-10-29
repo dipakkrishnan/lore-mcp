@@ -306,21 +306,7 @@ function row(label, detail, trailing, serif = true) {
   return node;
 }
 
-marked.use({ renderer: { html: () => "" } });
 const FRONTMATTER = /^---\n([\s\S]*?)\n---\n*/;
-
-/** @param {string} text */
-function markdown(text) {
-  const node = el("div", "md");
-  node.innerHTML = marked.parse(text, { async: false });
-  for (const link of node.querySelectorAll("a")) {
-    const href = link.getAttribute("href") ?? "";
-    if (!/^https?:\/\//i.test(href)) link.removeAttribute("href");
-    else { link.target = "_blank"; link.rel = "noreferrer"; }
-  }
-  for (const image of node.querySelectorAll("img")) image.remove();
-  return node;
-}
 
 /** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
  * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */

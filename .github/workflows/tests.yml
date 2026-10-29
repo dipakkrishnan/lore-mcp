@@ -136,7 +136,7 @@ jobs:
       # rather than papered over by a binary from another tag. The cache is
       # saved only when the job succeeds, so the first save after a key change
       # waits for a green job.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             app/desktop/packaging/out/whisper
