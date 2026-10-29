@@ -1541,7 +1541,10 @@ class FirstRunChat {
     const list = el("div", "choices first-choices");
     const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
     const only = this.installed.length === 1 ? this.installed[0] : null;
+    // Claude Code's or Codex's memory, once Lore reads it, is not offered again.
+    const reading = (snapshot?.library.sources ?? []).some((source) => source.name in HISTORIES && source.enabled);
     for (const [choice, label] of ordered) {
+      if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
       const soon = choice === "muse";
