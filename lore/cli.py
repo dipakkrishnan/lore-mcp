@@ -484,6 +484,11 @@ def parser() -> argparse.ArgumentParser:
         "deploy", help="deploy the node Worker to your own Cloudflare account"
     )
     node_deploy.add_argument(
+        "--account",
+        help="which of your Cloudflare accounts the store goes on, by id "
+        "(`lore node accounts`); remembered after",
+    )
+    node_deploy.add_argument(
         "--wallet",
         help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
@@ -517,6 +522,10 @@ def parser() -> argparse.ArgumentParser:
         help="vault a Coinbase credential on the node; the value is read from stdin",
     )
     node_secret.add_argument("name", choices=deploy_module.SECRETS)
+    node_accounts = node_commands.add_parser(
+        "accounts", help="the Cloudflare accounts your sign-in can put the store on"
+    )
+    node_accounts.add_argument("--json", action="store_true")
 
     publication = commands.add_parser(
         "publication", help="approve, list, and revoke external publications"
@@ -812,11 +821,13 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
+                if args.account:
+                    deploy_module.choose_account(args.account)
                 deployed = deploy_module.deploy(
                     args.wallet, args.network, inbox_only=args.inbox_only
                 )
-                if deployed == 0 and not args.inbox_only:
-                    usage.record("store.opened")
+                if deployed == 0:
+                    usage.record("store.online" if args.inbox_only else "store.opened")
                 return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
@@ -829,6 +840,8 @@ def main(argv: list[str] | None = None) -> int:
                 return sales(args.json)
             if args.node_command == "views":
                 return views(args.json)
+            if args.node_command == "accounts":
+                return cloudflare_accounts(args.json)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
@@ -1597,6 +1610,16 @@ def views(as_json: bool) -> int:
         print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
     if not rows:
         muted("No page views yet.")
+    return 0
+
+
+def cloudflare_accounts(as_json: bool) -> int:
+    found = deploy_module.accounts()
+    if as_json:
+        print(json.dumps([account.model_dump() for account in found]))
+        return 0
+    for account in found:
+        print(f"  {account.id}  {account.name}")
     return 0
 
 

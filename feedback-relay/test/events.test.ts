@@ -35,6 +35,20 @@ describe("usage events", () => {
     expect(parseBatch(batch(Array(MAX_EVENTS + 1).fill({ name: "store.opened", props: {}, at: AT })))).toBeNull();
   });
 
+  it("takes why a store didn't go online as a code, never in words", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "store.failed", props: { reason: "no_subdomain" }, at: AT },
+        { name: "store.failed", props: { reason: "Please verify ada@example.com" }, at: AT },
+        { name: "store.online", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([
+      { name: "store.failed", props: { reason: "no_subdomain" }, at: AT },
+      { name: "store.online", props: {}, at: AT }
+    ]);
+  });
+
   it("knows every event in the shared contract", () => {
     for (const [name, prop] of Object.entries(contract.events)) {
       const props = prop ? { [prop.prop]: prop.values[0] } : {};

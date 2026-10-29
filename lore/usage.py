@@ -3,7 +3,7 @@
 Each event is a closed name with at most one coded property, sent with the
 install's random id and the app version. A milestone is sent once per install
 (so nothing reveals how much someone has written), `app.opened` once a day,
-and `cli.failed` each time. Nothing is sent until the owner has seen the
+and `cli.failed` and `store.failed` each time. Nothing is sent until the owner has seen the
 notice, and nothing at all with telemetry off. Every event sent is also
 appended to a local log the owner can read. Sending is best-effort and never
 blocks or fails a command. The relay re-checks every event against the same
@@ -64,14 +64,29 @@ COMMANDS = (
     "report-feedback",
     "other",
 )
-# name -> (how often it is sent, the one property it may carry and its values)
+# Why a store didn't go online (XC-085): a cause, never what the tools said.
+STORE_FAILURES = (
+    "email_unverified",
+    "no_subdomain",
+    "many_accounts",
+    "exists_elsewhere",
+    "not_signed_in",
+    "no_payout",
+    "timeout",
+    "not_answering",
+    "other",
+)
+# name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
     "app.opened": ("daily", None),
     "signin.completed": ("once", None),
     "source.connected": ("once", ("connector", CONNECTORS)),
     "memory.saved": ("once", None),
     "piece.approved": ("once", None),
+    "store.attempted": ("once", None),
+    "store.online": ("once", None),
     "store.opened": ("once", None),
+    "store.failed": ("always", ("reason", STORE_FAILURES)),
     "store.listed": ("once", None),
     "sale.seen": ("once", ("via", ("card", "agent"))),
     "cli.failed": ("always", ("command", COMMANDS)),

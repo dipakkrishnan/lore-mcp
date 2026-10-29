@@ -259,6 +259,8 @@ type SearchHit = {
 };
 
 declare const marked: { parse(source: string, options?: { async?: false }): string; use(options: { renderer?: Record<string, () => string> }): void };
+/** src/markdown.js, loaded before renderer.js: untrusted markdown as a scrubbed `div.md`. */
+declare function markdown(text: string): HTMLDivElement;
 
 type Memory = {
   id: number;
