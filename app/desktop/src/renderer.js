@@ -1477,7 +1477,7 @@ class FirstRunChat {
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
-      lore(`${who} works online, so Lore keeps a private place online for it to save to. What ${who} saves is sealed so only this Mac can read it, and nothing goes on sale.`);
+      lore(`${who} works online, so Lore keeps a private place online for it to save to. What ${who} saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.`);
       const box = el("div", "card request");
       box.append(el("p", "hint", this.working ? "Setting it up…" : "It takes a few seconds."));
       if (this.problem) box.append(el("p", "problem", this.problem));
@@ -3554,7 +3554,7 @@ class AgentSetup {
       option.prepend(agentMark(app, label));
       rows.append(option);
     }
-    form.note("What it saves stays private on this Mac.");
+    form.note(snapshot?.node.agents ? "What it saves stays private on this Mac." : "Lore keeps a private place online for it to save to. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.");
     form.open({
       primary: "Connect",
       working: "Connecting…",

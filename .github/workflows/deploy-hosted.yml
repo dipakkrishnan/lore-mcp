@@ -24,8 +24,8 @@ jobs:
     name: Deploy the hosted stores
     runs-on: ubuntu-latest
     if: github.repository == 'dipakkrishnan/lore-mcp'
-    # A protected GitHub Environment: only this job can read the token, and
-    # only after a required reviewer approves the run.
+    # A GitHub Environment that only main can deploy from, so only this job
+    # can read the token.
     environment: hosted
     defaults:
       run:

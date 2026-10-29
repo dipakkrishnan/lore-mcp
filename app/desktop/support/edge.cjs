@@ -1657,10 +1657,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         storeUnreachable = true;
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
         answers++;
-        check("with no store online, Grok Bot gets a private place online, sealed for this Mac, with nothing on sale", await waitFor(`${chat}.includes("Grok Bot works online, so Lore keeps a private place online for it to save to. What Grok Bot saves is sealed so only this Mac can read it, and nothing goes on sale.")`), await js(chat));
+        check("with no store online, Grok Bot gets a private place online, sealed for this Mac, with nothing on sale, and the owner free to leave", await waitFor(`${chat}.includes("Grok Bot works online, so Lore keeps a private place online for it to save to. What Grok Bot saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.")`), await js(chat));
         check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
         const buttons = `[...document.querySelectorAll("#content .first-run button")].map((b) => b.textContent)`;
-        check("…a place that can't be reached says why, with Try again, and no sign-in anywhere", await waitFor(`${chat}.includes("Lore couldn't put your store online: yourlore.dev didn't answer (offline)") && ${buttons}.includes("Try again")`, 60) && !/Cloudflare|sign in/i.test(await js(chat)) && opened.length === 0, await js(chat));
+        check("…a place that can't be reached says why, with Try again, and no sign-in anywhere", await waitFor(`${chat}.includes("Lore couldn't put your store online: yourlore.dev didn't answer (offline)") && ${buttons}.includes("Try again")`, 60) && !/sign in|free on Cloudflare/i.test(await js(chat)) && opened.length === 0, await js(chat));
         await shot("firstrun-store");
         storeUnreachable = false;
         await tap("Try again");
@@ -1819,7 +1819,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // XC-088: no store online, and no step for it: the sheet goes straight to picking, and Connect puts it online.
         installedApps = ["grok", "claude"];
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
-        check("with no store online, the sheet goes straight to which agent, with no Cloudflare step", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80) && !/Cloudflare|Put your store online/.test(await js(sheet)), await js(sheet));
+        check("with no store online, the sheet goes straight to which agent, with no Cloudflare step and the owner free to leave", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80) && (await js(sheet)).includes("you can move to your own Cloudflare whenever you like") && !/sign in to Cloudflare|free on Cloudflare|Put your store online/i.test(await js(sheet)), await js(sheet));
         const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
         check("…offering each of the five, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
         check("Connect waits for a choice", await js(`${primary}.disabled`));
