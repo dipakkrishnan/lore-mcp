@@ -53,11 +53,12 @@ jobs:
         with:
           node-version: lts/*
 
-      - run: npm ci
+      # No package's install script runs where the token is about to be.
+      - run: npm ci --ignore-scripts
         if: steps.configured.outputs.ready == 'true'
 
       - name: Deploy the Worker
         if: steps.configured.outputs.ready == 'true'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: npx wrangler deploy -c wrangler.hosted.jsonc
+        run: npm exec --no -- wrangler deploy -c wrangler.hosted.jsonc

@@ -168,9 +168,9 @@ requests it signs; see [`contracts/hosted-inbox.md`](../../contracts/hosted-inbo
 It deploys only from `.github/workflows/deploy-hosted.yml` on merges to
 `main`. Before the first deploy an admin sets up, once:
 
-- a protected GitHub **Environment** named `hosted` with a required reviewer,
-  holding `CLOUDFLARE_API_TOKEN` scoped to Workers Scripts, Workers Routes and
-  Durable Objects on the `yourlore.dev` zone;
+- a GitHub **Environment** named `hosted` that deploys only from `main`,
+  holding `CLOUDFLARE_API_TOKEN` from Cloudflare's "Edit Cloudflare Workers"
+  template, limited to Lore's account and the `yourlore.dev` zone;
 - a proxied wildcard DNS record `*` on `yourlore.dev` (custom domains such as
   `checkout.` and `relay.` keep precedence over the Worker's route).
 
