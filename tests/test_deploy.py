@@ -1883,6 +1883,17 @@ class ReadyTheAccountTest(_NodeCase):
                 (self.store / "wrangler.jsonc").read_text(),
             )
 
+    def test_the_account_wrangler_is_told_to_use_is_the_one_deployed_to(self) -> None:
+        deploy_module.choose_account(LAB["id"])
+        self._api(FakeCloudflare([ADA, LAB]))
+        os.environ["CLOUDFLARE_ACCOUNT_ID"] = ADA["id"]
+        code, _ = self._deploy(None, price_usd=None, inbox_only=True, token="t0k")
+        self.assertEqual(code, 0)
+        self.assertIn(
+            f'"account_id": "{ADA["id"]}"',
+            (self.store / "wrangler.jsonc").read_text(),
+        )
+
     def test_a_chosen_account_the_sign_in_no_longer_has_is_let_go(self) -> None:
         deploy_module.choose_account(LAB["id"])
         self._api(FakeCloudflare([ADA]))

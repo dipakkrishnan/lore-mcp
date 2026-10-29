@@ -353,9 +353,7 @@ def _build(folder: Path, database_id: str | None, price_usd: float | None) -> No
         )
     if database_id:
         config = config.replace(D1_PLACEHOLDER, database_id)
-    with Store() as store:
-        account = store.setting(ACCOUNT_SETTING, None)
-    _replace(folder / "wrangler.jsonc", _pinned(config, account))
+    _replace(folder / "wrangler.jsonc", _pinned(config, _chosen()))
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
     folder.chmod(0o700)
@@ -833,14 +831,23 @@ def choose_account(account: str) -> None:
         store.set_setting(ACCOUNT_SETTING, account)
 
 
+def _chosen() -> str | None:
+    """The account wrangler is pinned to: the one it is told to use, else the
+    one the owner chose. One answer for the check and the deploy alike."""
+    if os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+        return os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    with Store() as store:
+        chosen = store.setting(ACCOUNT_SETTING, None)
+    return chosen if isinstance(chosen, str) else None
+
+
 def _account(cloudflare: Cloudflare, config: Path) -> str | None:
     """The account the store goes on: the one wrangler is told to use, the one
     the owner chose, or the only one there is. Several, none chosen, and the
     owner is asked, once."""
     if os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
         return os.environ["CLOUDFLARE_ACCOUNT_ID"]
-    with Store() as store:
-        chosen = store.setting(ACCOUNT_SETTING, None)
+    chosen = _chosen()
     found = cloudflare.accounts()
     if any(account.id == chosen for account in found):
         return str(chosen)
