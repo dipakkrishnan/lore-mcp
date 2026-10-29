@@ -73,11 +73,11 @@ class Hosted:
 
     @classmethod
     def of(cls, store: Store) -> Hosted | None:
-        """The store Lore hosts for this owner, unless they run their own on Cloudflare."""
+        """The store Lore hosts for this owner's agents. Once claimed it stays their
+        inbox, even after they open a store of their own on Cloudflare: the agents
+        already save there, until a move (XC-089) carries them over."""
         claimed = store.setting(SETTING, None)
-        if store.setting("node_url", None) or not isinstance(claimed, str):
-            return None
-        return cls(claimed)
+        return cls(claimed) if isinstance(claimed, str) else None
 
     @classmethod
     def claim(cls, store: Store, credentials: Credentials | None = None) -> Hosted:
@@ -153,18 +153,20 @@ class Hosted:
 
 
 def agent_address(store: Store) -> str | None:
-    """Where the owner's agents save: their own store's `/agent`, else the one Lore
-    hosts, else nowhere yet."""
+    """Where the owner's agents save: the store Lore hosts once claimed, else their
+    own store's `/agent`, else nowhere yet."""
+    claimed = Hosted.of(store)
+    if claimed:
+        return claimed.agent_url
     node = store.setting("node_url", None)
     if isinstance(node, str) and node:
         return node.rstrip("/").removesuffix("/mcp") + "/agent"
-    claimed = Hosted.of(store)
-    return claimed.agent_url if claimed else None
+    return None
 
 
 def run(query: str, fail: str) -> Rows:
-    """Every statement's rows from the owner's store: their own on Cloudflare when they
-    deployed one, else the one Lore hosts."""
+    """Every statement's rows from the owner's inbox: the store Lore hosts once
+    claimed, else their own on Cloudflare."""
     with Store() as store:
         hosted = Hosted.of(store)
     return hosted.sql(query, fail) if hosted else deploy._read_all(query, fail)

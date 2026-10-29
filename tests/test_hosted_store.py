@@ -159,10 +159,9 @@ class InboxTest(HostedCase):
         claimed = self.claim()
         with Store() as store:
             self.assertEqual(Agents(store).mcp_url, f"{claimed.origin}/agent")
+            # Opening a store on their own Cloudflare leaves the agents where they save.
             store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
-            self.assertEqual(
-                Agents(store).mcp_url, "https://lore.example.workers.dev/agent"
-            )
+            self.assertEqual(Agents(store).mcp_url, f"{claimed.origin}/agent")
 
     def test_a_refused_statement_is_the_inboxs_error(self) -> None:
         self.claim()

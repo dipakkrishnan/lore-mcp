@@ -12,8 +12,9 @@
   "routes": [{ "pattern": "*.yourlore.dev/*", "zone_name": "yourlore.dev" }],
   "workers_dev": false,
   "vars": { "STORE_DOMAIN": "yourlore.dev" },
-  // Logs only: request bodies and saves are never logged.
-  "observability": { "logs": { "enabled": true }, "traces": { "enabled": false } },
+  // Logs only, and no invocation logs: those record each request's URL, and a URL-only
+  // connector's carries its agent key (/agent/lore_agent_…). Bodies and saves are never logged.
+  "observability": { "logs": { "enabled": true, "invocation_logs": false }, "traces": { "enabled": false } },
   "ratelimits": [{ "name": "CLAIMS", "namespace_id": "1088", "simple": { "limit": 5, "period": 60 } }],
   "durable_objects": { "bindings": [{ "name": "STORES", "class_name": "HostedStore" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HostedStore"] }]
