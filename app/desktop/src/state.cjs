@@ -365,7 +365,7 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
       if (!yes) return "The owner chose not to put the store online right now.";
       return storeOnline(loreHome).then(
         () => "The store is online for the owner's agents, hosted by Lore: nothing for sale.",
-        (/** @type {Error} */ error) => `The store did not go online: ${error.message}.`
+        (/** @type {Error} */ error) => `The store did not go online: ${error.message.replace(/\.$/, "")}.`
       );
     }
     const changes = await outgoing.changes();
