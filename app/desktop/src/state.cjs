@@ -852,7 +852,7 @@ async function removeSource(loreHome, name, keep) {
 }
 
 /** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
-const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "instinct", "other"]);
 
 /** @param {unknown} name */
 function agentSource(name) {

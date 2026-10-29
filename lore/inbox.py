@@ -30,7 +30,7 @@ from pydantic import BaseModel, StringConstraints, TypeAdapter, ValidationError
 from . import hosted
 from .signin import Keychain
 
-AgentApp = Literal["grok", "muse", "chatgpt", "claude", "other"]
+AgentApp = Literal["grok", "muse", "chatgpt", "claude", "instinct", "other"]
 Name = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)
 ]
@@ -178,7 +178,7 @@ class Inbox:
         except ValidationError:
             raise InboxError(
                 "An agent's name is 1-40 characters, and its app one of "
-                "grok, chatgpt, claude or other."
+                "grok, chatgpt, claude, instinct or other."
             ) from None
         # APP-217: Muse has no way to take a link yet. Agents already connected as Muse
         # keep listing, re-keying and disconnecting; only a new one is refused.

@@ -18,6 +18,7 @@ APPS = (
     ("chatgpt", "chatgpt", "ChatGPT"),
     ("openai", "chatgpt", "ChatGPT"),
     ("grok", "grok", "Grok Bot"),
+    ("instinct", "instinct", "Instinct"),
 )
 EXPIRED = "That sign-in has expired. Start again from the app you're connecting."
 

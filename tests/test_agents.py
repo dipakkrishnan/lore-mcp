@@ -14,6 +14,7 @@ import httpx2
 from helpers import NodeCase, captured
 
 from lore import automation, cli
+from lore.agents import Agents
 from lore.inbox import Inbox, InboxError
 from lore.snapshot import build
 from lore.sources import Connector, Registry
@@ -86,6 +87,17 @@ class ConnectTest(AgentCase):
         saved = self.save(handed["key"], {"title": "t", "content": "c"})
         self.assertEqual(len(saved["saved"]), 1)
 
+    def test_instinct_connects_with_its_own_app_and_saves_with_its_key(self) -> None:
+        handed = self.connect("Instinct", "instinct")
+        self.assertEqual(handed["agent"]["app"], "instinct")
+        self.assertEqual(handed["mcp_url"], f"{self.node.url}/agent")
+        self.assertNotIn(handed["key"], handed["mcp_url"])
+        saved = self.save(handed["key"], {"title": "t", "content": "c"})
+        self.assertEqual(len(saved["saved"]), 1)
+        self.assertEqual(
+            Agents.guess("Instinct Assistant"), {"app": "instinct", "name": "Instinct"}
+        )
+
     def test_the_owners_keys_are_made_once_and_never_land_on_disk(self) -> None:
         first, second = self.connect(), self.connect("Claude", "claude")
         self.assertEqual(list(self.keyring.saved), [("Lore", "inbox keys")])
@@ -117,7 +129,7 @@ class ConnectTest(AgentCase):
         self.assertEqual(self.d1.commands, [], "no key minted, the node never asked")
         with captured() as out, self.assertRaises(SystemExit):
             cli.main(["agents", "connect", "--help"])
-        self.assertIn("{grok,chatgpt,claude,other}", out.getvalue())
+        self.assertIn("{grok,chatgpt,claude,instinct,other}", out.getvalue())
         self.assertNotIn("muse", out.getvalue())
         self.assertEqual(self.json("agents", "list")["agents"], [])
         # One connected as Muse before APP-217 lists, re-keys and disconnects as before.
