@@ -94,6 +94,7 @@ class _Wrangler:
         d1_create_fails: bool = False,
         d1_id_in_output: bool = True,
         d1_execute_refusals: int = 0,
+        install_rewrites_lockfile: bool = False,
     ) -> None:
         self.deploy_output = deploy_output
         self.logged_in = logged_in
@@ -114,6 +115,7 @@ class _Wrangler:
         self.d1_create_fails = d1_create_fails
         self.d1_id_in_output = d1_id_in_output
         self.d1_execute_refusals = d1_execute_refusals
+        self.install_rewrites_lockfile = install_rewrites_lockfile
         self.commands: list[tuple[str, ...]] = []
         self.secret_values: dict[str, str | None] = {}
 
@@ -127,6 +129,9 @@ class _Wrangler:
                 binary = Path(kwargs["cwd"]) / "node_modules/.bin/wrangler"
                 binary.parent.mkdir(parents=True, exist_ok=True)
                 binary.write_text("#!/bin/sh\n")
+                if self.install_rewrites_lockfile:
+                    lockfile = Path(kwargs["cwd"]) / "package-lock.json"
+                    lockfile.write_text(lockfile.read_text() + "\n")
             err = "npm ERR! network" if self.install_fails else ""
         elif tail == ("whoami",):
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
@@ -1776,6 +1781,12 @@ class WhyTheStoreFailedTest(_NodeCase):
 
     def test_a_second_try_after_a_failure_does_not_reinstall(self) -> None:
         self._failed(email_unverified=True)
+        code, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
+        self.assertEqual(code, 0)
+        self.assertEqual([c for c in wrangler.commands if c[0] == "npm"], [])
+
+    def test_a_lockfile_npm_rewrites_is_not_installed_again(self) -> None:
+        self._failed(email_unverified=True, install_rewrites_lockfile=True)
         code, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
         self.assertEqual(code, 0)
         self.assertEqual([c for c in wrangler.commands if c[0] == "npm"], [])

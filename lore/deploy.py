@@ -519,6 +519,8 @@ def install(target: Path) -> None:
     scripts (wrangler's platform binaries come as plain optional packages).
     Marked done only once wrangler is there."""
     (target / INSTALLED).unlink(missing_ok=True)
+    # Taken before npm runs, since npm may rewrite the lockfile it was handed.
+    asked = _packages(target)
     # npm refuses one file as both, so each gets its own empty one.
     user, shared = target / ".npmrc-user", target / ".npmrc-global"
     for empty in (user, shared):
@@ -543,7 +545,7 @@ def install(target: Path) -> None:
     )
     if not (target / WRANGLER).exists():
         raise OSError("npm install finished without wrangler; run it again")
-    (target / INSTALLED).write_text(_packages(target))
+    (target / INSTALLED).write_text(asked)
 
 
 def tools() -> Path:
@@ -860,11 +862,11 @@ def _ready_account(wrangler: str, target: Path) -> bool:
 
     Best-effort beyond those: if the check itself can't run, the deploy goes on
     and wrangler says what is wrong in its own words."""
-    token = _token(wrangler, target)
-    if token is None:
-        return False
-    cloudflare = Cloudflare(token)
     try:
+        token = _token(wrangler, target)
+        if token is None:
+            return False
+        cloudflare = Cloudflare(token)
         account = _account(cloudflare, target / "wrangler.jsonc")
         if account is None or cloudflare.subdomain(account) is not None:
             return False
