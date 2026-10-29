@@ -1651,7 +1651,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("firstrun-apps-connected");
 
         const picks = await js(`[...document.querySelectorAll("#content .first-choices .choice")].map((c) => c.textContent)`);
-        check("…offering the AI the owner talks to, the one on this Mac first", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Claude Code or Codex", "None of these"]), JSON.stringify(picks));
+        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "None of these"]), JSON.stringify(picks));
         check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
         await shot("firstrun-pick");
         storeUnreachable = true;
