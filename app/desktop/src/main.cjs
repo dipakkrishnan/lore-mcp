@@ -353,7 +353,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
       if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
       if (!said.startsWith("The store is deployed")) {
         console.error("The store did not go online:", said);
-        throw new Error("Your store didn't go online. Try again in a minute.");
+        throw new Error(`Your store didn't go online: ${said.split("\n")[0].replace(/^The deploy did not finish: /, "")}`);
       }
     } finally {
       emit({ type: "changed" });

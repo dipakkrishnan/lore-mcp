@@ -13,9 +13,11 @@ from __future__ import annotations
 import os
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Any
 
+import lore.cloudflare
 import lore.deploy
 
 _SANDBOX = Path(tempfile.mkdtemp(prefix="lore-tests-"))
@@ -56,5 +58,18 @@ class _Commands:
         return subprocess.run(*args, **kwargs)
 
 
+class _Requests:
+    """`urllib.request` as `lore.cloudflare` sees it: Cloudflare's API refuses
+    unless a test patched `lore.cloudflare.request.urlopen` (XC-087)."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(urllib.request, name)
+
+    def urlopen(self, call: Any, *args: Any, **kwargs: Any) -> Any:
+        raise AssertionError(f"tests must not call Cloudflare's API: {call.full_url}")
+
+
 if type(lore.deploy.subprocess).__name__ != "_Commands":
     lore.deploy.subprocess = _Commands()  # type: ignore[assignment]
+if type(lore.cloudflare.request).__name__ != "_Requests":
+    lore.cloudflare.request = _Requests()  # type: ignore[assignment]
