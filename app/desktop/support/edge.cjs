@@ -1651,7 +1651,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("firstrun-apps-connected");
 
         const picks = await js(`[...document.querySelectorAll("#content .first-choices .choice")].map((c) => c.textContent)`);
-        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "None of these"]), JSON.stringify(picks));
+        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "None of these"]), JSON.stringify(picks));
         check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
         await shot("firstrun-pick");
         storeUnreachable = true;
@@ -1821,7 +1821,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
         check("with no store online, the sheet goes straight to which agent, with no Cloudflare step and the owner free to leave", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80) && (await js(sheet)).includes("you can move to your own Cloudflare whenever you like") && !/sign in to Cloudflare|free on Cloudflare|Put your store online/i.test(await js(sheet)), await js(sheet));
         const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
-        check("…offering each of the five, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
+        check("…offering each of the six, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
         check("Connect waits for a choice", await js(`${primary}.disabled`));
         // APP-217: Muse can't be chosen, and nothing mints a key for it, not even a call past the sheet.
         const keys = async () => (await js(`window.lore.agents()`)).length;
@@ -2208,6 +2208,40 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its instructions name it", (await copyOf("Instructions")).includes("You are My agent"));
         await sleep(300);
         await shot("agents-other-setup");
+        await press("Done");
+
+        // #597: Instinct is texted a setup message holding only the plain address; its key goes, apart, to Instinct's secure form.
+        check("Instinct gets its own text-first sheet, waiting for its first save", await connectNew("Instinct", "Instinct"), await js(sheet));
+        const textFirst = await js(sheet);
+        check("…three steps: text it the setup message, its key into Instinct's secure form, approve one memory", JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the setup message and text it to Instinct, in the conversation you already have", "When Instinct asks for your Lore key, copy it below into the secure form Instinct gives you. Never text the key", "Instinct shows you one memory it would save. Approve it, and Lore shows here when it arrives"]), JSON.stringify(await stepsOf()));
+        check("…no address, key or instructions rows, no Copy all, and nothing asking it to save everything or every evening", await js(`!document.querySelector("dialog.sheet[open] .copy-row, dialog.sheet[open] .agent-next") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^Copy all/.test(b.textContent))`) && textFirst.includes("Key shown once") && textFirst.includes("Connecting Instinct is new. If Instinct can't finish it, connect it as Other instead.") && await js(`[...document.querySelectorAll("dialog.sheet[open] button.inline")].some((b) => b.textContent === "connect it as Other instead")`), textFirst);
+        const copyFrom = async (/** @type {string} */ selector) => {
+          const before = copied.length;
+          await js(`document.querySelector("dialog.sheet[open] ${selector}").click()`);
+          for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+          return copied.at(-1) ?? "";
+        };
+        const setupMessage = await copyFrom(".agent-message");
+        check("…Copy message gives the setup message, with the plain address and no key", setupMessage === `Help me connect my Lore. Show me one memory you'd save, and ask me before saving anything. My Lore's address: ${agentUrl}` && !/lore_agent_/.test(setupMessage), setupMessage);
+        const instinctKey = await copyFrom(".agent-secure-key .agent-link");
+        check("…and Copy key gives the key alone, for the secure form, masked on screen", /^lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(instinctKey) && !textFirst.includes(instinctKey) && /••••/.test(textFirst), instinctKey);
+        await sleep(300);
+        await shot("agents-instinct-setup");
+        // The owner approves one memory in Instinct, and Instinct saves it with the key from the secure form.
+        const one = await (await call(instinctKey, "tools/call", { name: "store", arguments: { items: [{ title: "I take calls before noon", content: "I keep afternoons for deep work, so I book calls before noon.", key: "calls-before-noon", kind: "preference" }] } })).json();
+        check("Instinct's one approved save reaches the store", one.result?.isError === false, JSON.stringify(one));
+        check("…and the sheet says it's on this Mac, one click from it", await waitFor(`${sheet}.includes("1 memory from Instinct on this Mac · See it →")`, 120), await js(sheet));
+        await shot("agents-instinct-saved");
+        await press("Done");
+        check("…and it joins the agents with Instinct's mark", await waitFor(`/Saved 1/.test(${agentRow("Instinct")}?.textContent ?? "") && ${agentRow("Instinct")}.querySelector("img.logo").src.endsWith("assets/instinct.svg")`, 80), await js(`${agentRow("Instinct")}?.textContent ?? ""`));
+        await js(`[...${agentRow("Instinct")}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
+        check("Manage for Instinct offers, once it has saved, the ask to keep saving, asking before each save", await waitFor(`${sheet}.includes("When you want Instinct to keep saving, text it this. It asks you before each save:") && ${sheet}.includes("From now on, when you learn something about me worth keeping, show it to me and save it to Lore once I say yes.")`), await js(sheet));
+        await press("Get a new key");
+        check("…a new key is copied into Instinct's secure form, never texted", await waitFor(`${sheet}.includes("You copy the new one into Instinct's secure form, never into a text.")`), await js(sheet));
+        await js(`${primary}.click()`);
+        check("…and the new key's sheet has no setup message, only the key and its steps", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "A new link for Instinct"`, 80) && JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the new key below into the secure form Instinct gives you for Lore, in place of the old one. Never text the key", "Lore shows here when Instinct's next save arrives"]) && await js(`!document.querySelector("dialog.sheet[open] .agent-message") && Boolean(document.querySelector("dialog.sheet[open] .agent-secure-key"))`), await js(sheet));
+        const newKey = await copyFrom(".agent-secure-key .agent-link");
+        check("…a different key, and the old one stops working", newKey !== instinctKey && /^lore_agent_/.test(newKey) && (await call(instinctKey, "tools/call", { name: "store", arguments: { items: [{ title: "x", content: "y", key: "x", kind: "preference" }] } })).status === 401, newKey);
         await press("Done");
 
         // Claude Code's own memory on this Mac connects from its tile, and turns off from it again.

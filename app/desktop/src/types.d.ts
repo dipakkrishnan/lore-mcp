@@ -225,7 +225,7 @@ type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
 /** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
 type AppearanceChoice = "system" | "light" | "dark";
 
-type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "other";
+type AgentApp = "grok" | "muse" | "chatgpt" | "claude" | "instinct" | "other";
 
 /** What `lore agents connect` and `lore agents key` hand back: the agent, with how many saves its store has counted so far, and what to paste into it, shown once. */
 type AgentKey = { source: string; agent: { id: string; name: string; app: AgentApp; saved: number }; mcp_url: string; connector_url: string; key: string; header: string; prompt: string };
