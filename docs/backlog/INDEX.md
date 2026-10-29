@@ -193,7 +193,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
-| [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | ready | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [MON-032](./monetization/MON-032-prepare-for-stripe-holds-on-seller-accounts.md) | Prepare sellers and support for Stripe payout holds and account reviews | P2 | S | monetization | ready | MON-030, MON-031 | — | — | — |
 | [MON-033](./monetization/MON-033-state-what-a-buyer-is-licensed-to-do.md) | State what a buyer's agent may do with a piece it bought | P2 | S | monetization | ready | XC-040, MON-028 | — | — | — |
 | [XC-058](./cross-cutting/XC-058-give-each-seller-a-yourlore-dev-support-address.md) | Give each seller a yourlore.dev support address | P2 | M | cross-cutting | ready | MON-030, XC-041, XC-039 | — | — | — |
@@ -359,6 +358,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
+| [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | completed | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-248](./desktop-app/APP-248-split-test-app-test-cjs-so-node-test-can-run-the-desktop-unit-tests-in-parallel.md) | Split test/app.test.cjs so node --test can run the desktop unit tests in parallel | P2 | S | desktop-app | completed | XC-077, XC-072 | — | — | — |
 | [APP-247](./desktop-app/APP-247-fold-the-dark-appearance-connectors-walk-into-the-light-one.md) | Fold the dark-appearance connectors walk into the light one | P2 | S | desktop-app | completed | XC-077, APP-066, APP-225, XC-083 | — | — | — |
 | [XC-081](./cross-cutting/XC-081-cancel-a-prs-superseded-ci-run-when-a-new-push-arrives.md) | Cancel a PR's superseded CI run when a new push arrives | P2 | XS | cross-cutting | completed | XC-077, XC-078, XC-083 | — | — | — |
