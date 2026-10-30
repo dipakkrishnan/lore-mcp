@@ -90,7 +90,17 @@ jobs:
 
   desktop-check:
     name: Desktop macOS checks
-    runs-on: macos-14
+    # XC-111: macos-15, pinned rather than macos-latest, so the walk timings
+    # XC-083 measures stay on one machine class; macos-14 is retired on
+    # 2026-11-02 (actions/runner-images#13518).
+    runs-on: macos-15
+    env:
+      # XC-111: the macos-15 image ships Homebrew Python 3.15, which uv would
+      # pick, and pydantic-core has no 3.15 wheel: the first `uv run` then
+      # compiles it for minutes. macos-14 had no usable Python and uv fetched
+      # a managed 3.12. Pin the version the app is developed on so the job
+      # tests one known interpreter and every dependency arrives as a wheel.
+      UV_PYTHON: "3.14"
     needs: changes
     # Runs on every push to main (XC-079 is the item that would change that),
     # and on a pull request unless `changes` said its files cannot reach this
@@ -109,11 +119,17 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
+      # The unit tests spawn `uv run lore`, so the project's environment is
+      # built here, once, and not inside whichever test happens to run first
+      # (XC-111: on a fresh interpreter that build ran a test past its 120 s
+      # limit). The walks below reuse it.
+      - run: uv sync --locked
+        working-directory: .
       - run: npm test
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
-      # on this one runner (macos-14, three cores: two side by side take as
+      # on this one runner (macos-15, three cores: two side by side take as
       # long as one alone; a third slows every walk two to two and a half times
       # and fails a third of them, so --jobs stays at 2). One macOS job per
       # run, on purpose: the account is capped at five macOS jobs at once and
@@ -123,10 +139,6 @@ jobs:
       # **FAIL** row in the step summary; one failure does not stop the others.
       # A new walk is one line in support/walks.cjs. `test:capture` is
       # attended and stays local (see app/desktop/README.md).
-      # Walks start side by side, so the project's environment is built once,
-      # before any of them.
-      - run: uv sync --locked
-        working-directory: .
       # XC-084: twenty minutes, not fifteen: a slow runner plus a retried
       # `agents` ran past 15 once, and a step that times out prints no summary
       # and saves no cache. Still inside the 19-minute job XC-077 replaced.
