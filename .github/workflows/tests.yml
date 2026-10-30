@@ -132,36 +132,15 @@ jobs:
         shell: bash
         working-directory: .
         run: |
-          set -x
-          sw_vers; uv run python -VV
-          export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
-          uv run python -c "import keyring; print('keyring:', keyring.get_keyring())"
+          sw_vers | head -2
+          # The suspected 30 s: HTTPServer.server_bind's reverse lookup of the loopback address.
+          uv run python -c "import socket, time; t = time.time(); print('getfqdn(127.0.0.1) =', socket.getfqdn('127.0.0.1'), 'in', round(time.time() - t, 2), 's')"
+          # The sign-in against the stand-in, timed, with the Loopback fix in place.
           port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
           (uv run python tests/fixtures/granola.py "$port" > /tmp/granola.log 2>&1 &)
           for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
           export LORE_HOME="$(mktemp -d)" LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring NO_COLOR=1
-          uv run python -X faulthandler -c "import faulthandler, sys; faulthandler.dump_traceback_later(45, exit=True); from lore.cli import main; sys.exit(main(['sources', 'connect', 'granola', '--json']))" || echo "exit=$?"
-          # The same connect, spawned the way state.cjs spawns it: from node, stdin an open pipe, SIGTERM on timeout.
-          mkdir -p /tmp/pyhooks; cat > /tmp/pyhooks/sitecustomize.py <<'PY'
-          import faulthandler, os, signal, sys
-          def _dump(signum, frame):
-              with open(os.environ.get("LORE_CLI_STACK", "/tmp/cli-stack.log"), "a") as f:
-                  f.write(f"\n=== pid {os.getpid()} argv {sys.argv} got signal {signum}\n"); faulthandler.dump_traceback(f, all_threads=True)
-              os._exit(143)
-          signal.signal(signal.SIGTERM, _dump)
-          PY
-          export PYTHONPATH=/tmp/pyhooks LORE_CLI_STACK=/tmp/cli-stack.log LORE_HOME="$(mktemp -d)"
-          node -e '
-            const { spawn } = require("node:child_process");
-            const t0 = Date.now();
-            const child = spawn("uv", ["run", "lore", "sources", "connect", "granola", "--json"], { stdio: ["pipe", "pipe", "pipe"], env: process.env });
-            child.stdout.on("data", (d) => process.stdout.write("[out] " + d));
-            child.stderr.on("data", (d) => process.stdout.write("[err] " + d));
-            const timer = setTimeout(() => { console.log("node-spawn: still running after 60 s, sending SIGTERM"); child.kill("SIGTERM"); }, 60_000);
-            child.on("close", (code, sig) => { clearTimeout(timer); console.log(`node-spawn: closed code=${code} signal=${sig} after ${Date.now() - t0} ms`); });
-          '
-          echo "--- cli-stack.log"; cat /tmp/cli-stack.log 2>/dev/null || echo "(no stack dumped)"
-          echo "--- granola.log"; cat /tmp/granola.log
+          time uv run lore sources connect granola --json | cut -c1-120
       - run: npm test
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one

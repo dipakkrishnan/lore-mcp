@@ -335,6 +335,20 @@ class SignInTest(LoreTestCase):
         answer = self.answer("code=abc&state=xyz")
         self.assertEqual((answer.code, answer.state), ("abc", "xyz"))  # type: ignore[attr-defined]
 
+    def test_loopback_binds_without_asking_dns_what_the_address_is_called(self) -> None:
+        # XC-111: HTTPServer names itself through a reverse lookup of the bound address; a resolver
+        # that answers nothing for 127.0.0.1 took 30 s to say so and every sign-in waited behind it.
+        with (
+            patch("socket.getfqdn", side_effect=AssertionError("reverse lookup")),
+            Loopback() as landing,
+        ):
+            self.assertEqual(landing.server_name, "127.0.0.1")
+            self.assertEqual(
+                landing.redirect, f"http://127.0.0.1:{landing.server_port}/callback"
+            )
+        answer = self.answer("code=abc&state=xyz")
+        self.assertEqual(answer.code, "abc")  # type: ignore[attr-defined]
+
     def test_a_declined_approval_is_a_failed_sign_in(self) -> None:
         answer = self.answer("error=access_denied&state=xyz")
         self.assertIsInstance(answer, OAuthFlowError)

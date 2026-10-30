@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import TCPServer
 from typing import TYPE_CHECKING, TypeVar
 from urllib.parse import parse_qs, urlsplit
 
@@ -78,6 +79,15 @@ class Loopback(HTTPServer):
         super().__init__(("127.0.0.1", 0), _Landing)
         self.timeout = self.wait
         self.answer: dict[str, str] | None = None
+
+    def server_bind(self) -> None:
+        # HTTPServer names itself by looking the bound address up in reverse DNS. A resolver
+        # that answers nothing for 127.0.0.1 (GitHub's macOS 15 runners, XC-111) takes 30 s to
+        # say so, and every sign-in waited behind it. The address is the name.
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
 
     @property
     def redirect(self) -> str:
