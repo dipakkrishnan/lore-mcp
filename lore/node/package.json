@@ -20,7 +20,7 @@
     "@earendil-works/pi-ai": "0.84.2",
     "@modelcontextprotocol/sdk": "1.30.0",
     "@x402/evm": "2.28.0",
-    "agents": "0.23.0",
+    "agents": "0.31.0",
     "viem": "2.57.7",
     "zod": "4.6.7"
   },
