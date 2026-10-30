@@ -125,22 +125,6 @@ jobs:
       # limit). The walks below reuse it.
       - run: uv sync --locked
         working-directory: .
-      # TEMPORARY (XC-111 diagnosis, removed before merge): the Granola sign-in
-      # hangs on macos-15 before its first request; dump the Python stack.
-      - name: Diagnose the hosted sign-in on this runner
-        continue-on-error: true
-        shell: bash
-        working-directory: .
-        run: |
-          sw_vers | head -2
-          # The suspected 30 s: HTTPServer.server_bind's reverse lookup of the loopback address.
-          uv run python -c "import socket, time; t = time.time(); print('getfqdn(127.0.0.1) =', socket.getfqdn('127.0.0.1'), 'in', round(time.time() - t, 2), 's')"
-          # The sign-in against the stand-in, timed, with the Loopback fix in place.
-          port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
-          (uv run python tests/fixtures/granola.py "$port" > /tmp/granola.log 2>&1 &)
-          for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
-          export LORE_HOME="$(mktemp -d)" LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring NO_COLOR=1
-          time uv run lore sources connect granola --json | cut -c1-120
       - run: npm test
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
