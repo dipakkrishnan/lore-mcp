@@ -68,8 +68,6 @@ const readTimes = [];
 /** APP-207: what the owner copied, and every turn the owner started. */
 const copied = [];
 const prompts = [];
-/** APP-215: whether the first-run walk's owner has signed in to Cloudflare, and that sign-in as each store-online call found it. */
-let signedInToCloudflare = false;
 /** APP-223: whether the walk's sign-in waits on the browser until stopped, how long the app waits on it, and whether
  * the account signed in to already has a Lore store. */
 let signInHangs = false;
@@ -90,36 +88,12 @@ let failNextTurn = false;
 const ipc = [];
 const usage = [];
 const routinesNoticed = [];
-/** APP-215: calls the firstrun walk holds until it lets them go, and calls it makes fail once, by channel.
- * @type {Map<string, Promise<unknown>>} */
-const held = new Map();
-/** @type {Set<string>} */
-const failOnce = new Set();
-/** Calls on `channel` answered as of now but handed back only once the returned function is called. @type {Map<string, Promise<unknown>>} */
-const late = new Map();
-/** @param {string} channel */
-const holdAnswer = (channel) => {
-  let release = () => {};
-  late.set(channel, new Promise((done) => { release = () => { late.delete(channel); done(undefined); }; }));
-  return release;
-};
-/** Hold every call on `channel` until the returned function is called. @param {string} channel */
-const hold = (channel) => {
-  let release = () => {};
-  held.set(channel, new Promise((done) => { release = () => { held.delete(channel); done(undefined); }; }));
-  return release;
-};
 {
   const { ipcMain } = require("electron");
   const handle = ipcMain.handle.bind(ipcMain);
   const locked = () => new Error("database is locked");
   ipcMain.handle = (channel, listener) => handle(channel, (event, ...args) => {
     ipc.push(channel);
-    if (failOnce.delete(channel)) return Promise.reject(new Error("the walk made this fail"));
-    const waiting = held.get(channel);
-    if (waiting) return waiting.then(() => listener(event, ...args));
-    const answered = late.get(channel);
-    if (answered) return Promise.resolve(listener(event, ...args)).then((answer) => answered.then(() => answer));
     if (scenario !== "fresh") return listener(event, ...args);
     if (channel === "usage:record") {
       usage.push(args[0]);
@@ -133,10 +107,7 @@ const hold = (channel) => {
     return listener(event, ...args);
   });
 }
-if (scenario === "listing") {
-  require("electron").shell.openExternal = async (url) => { opened.push(url); };
-  require(join(src, "main.cjs"));
-} else if (scenario === "update") {
+if (scenario === "update") {
   // APP-231: the walk's own CLI for everything but putting the store online, which records what it was asked and keeps
   // the store this Lore ships on record, as a deploy that went out does. Nothing reaches a real account.
   const bin = join(S, "update-bin");
@@ -273,7 +244,7 @@ if (scenario === "listing") {
     };
     require(join(src, "main.cjs"));
   });
-} else if (scenario === "agents" || scenario === "firstrun") {
+} else if (scenario === "agents") {
   // APP-207: everything around an agent's save is real (the CLI, the stand-in node's D1 and /agent) except the
   // model and the deploy. The deploy stand-in leaves what a real one does: the node's wrangler, and the store's address.
   const repo = process.env.LORE_EDGE_REPO ?? "";
@@ -301,7 +272,7 @@ if (scenario === "listing") {
   state.cloudflareSignIn = (home, onUrl, options) => realSignIn(home, onUrl, {
     ...options,
     ...(signInWait ? { wait: signInWait } : {}),
-    login: (onLine, signal) => state.stream("/bin/sh", ["-c", `echo "Open https://dash.cloudflare.com/oauth2/auth?walk=1 to sign in"; ${signInHangs ? "exec sleep 600" : "exit 0"}`], {}, onLine, S, signal).then(() => { signedInToCloudflare = true; })
+    login: (onLine, signal) => state.stream("/bin/sh", ["-c", `echo "Open https://dash.cloudflare.com/oauth2/auth?walk=1 to sign in"; ${signInHangs ? "exec sleep 600" : "exit 0"}`], {}, onLine, S, signal)
   });
   require("electron").shell.openExternal = async (url) => { opened.push(url); };
   require(join(src, "sales.cjs")).notify = (words, onClick) => { notes.push({ words, handlers: { click: onClick } }); };
@@ -611,7 +582,7 @@ const SETTLE = String.raw`(async () => {
   }
 })()`;
 /** APP-218: the walks that show the main tabs are checked again at a narrower window. */
-const NARROW = new Set(["today", "store", "connectors", "automations", "settings", "firstrun", "agents"]);
+const NARROW = new Set(["today", "store", "connectors", "automations", "settings", "agents"]);
 const NARROW_WIDTH = 900;
 /** The page's background token, light or dark. */
 const BG = `getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()`;
@@ -1312,31 +1283,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("faq")`);
         await sleep(200);
         await shot("faq");
-      } else if (scenario === "listing") {
-        // XC-036: one click switches the store on and opens the prefilled request; nothing is sent from here.
-        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
-        await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content").textContent.length > 0`);
-        await js(`window.__lore.show("settings")`);
-        const offered = await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`);
-        check("Settings offers to list the store", offered);
-        const before = await js(`document.querySelector("#content").textContent`);
-        check("the row says what is shared before anything is sent", before.includes("only what your store already shows"));
-        check("no PR, GitHub, or merge before the owner asks", !/\bPR\b|GitHub|merge/.test(before));
-        await js(`document.querySelector("#main").scrollTop = 1e6`);
-        await sleep(200);
-        await shot("settings-list-offer");
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "List on the marketplace").click()`);
-        const form = "https://github.com/dipakkrishnan/lore-marketplace/issues/new?template=listing.yml&node=https%3A%2F%2Fstore.example%2Fmcp";
-        check("the row flips to Pending", await waitFor(`document.querySelector("#content").textContent.includes("Send the request")`));
-        check("…and the prefilled request opened in the browser", opened.length === 1 && opened[0] === form, opened.join());
-        check("…and stays one link away", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.href === ${JSON.stringify(form)})`));
-        check("…and says a GitHub account is needed", await js(`document.querySelector("#content").textContent.includes("free GitHub account")`));
-        await js(`document.querySelector("#main").scrollTop = 1e6`);
-        await sleep(200);
-        await shot("settings-list-pending");
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Cancel").click()`);
-        check("Cancel switches the store back off", await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`));
       } else if (scenario === "feedback") {
         // APP-105: one Send is one public GitHub issue, and a report still in
         // flight never closes a sheet the owner opened after it.
@@ -1423,28 +1369,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
         check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
         await shot("sell-drafting");
-      } else if (scenario === "extras") {
-        // New free parts for a piece already on sale wait beside new drafts, preview as its page, and approve in place.
-        await js(`window.__lore.signIn()`);
-        check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`));
-        const card = `document.querySelector("#content .extras-batch .memory")`;
-        check("…showing only the free parts", await js(`${card}.querySelectorAll("textarea, input").length === 3`));
-        await js(`${card}.scrollIntoView({ block: "center" })`);
-        await shot("extras-card");
-        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Preview page").click()`);
-        let preview;
-        for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
-        await sleep(800);
-        const page = decodeURIComponent(preview?.webContents.getURL() ?? "");
-        check("Preview shows the new sample on the piece's page", page.includes("We had two weeks and a deck we were proud of."));
-        check("the preview carries no paid text", !page.includes("Three demos, seven trials"));
-        preview?.close();
-        await js(`{ const t = ${card}.querySelectorAll("textarea")[1]; t.value = "you sell to developers"; t.dispatchEvent(new Event("input")); }`);
-        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Approve").click()`);
-        check("approving consumes the card", await waitFor(`window.lore.extras().then((left) => !left.length)`));
-        check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
-        check("the same piece stays on sale", await js(`window.lore.snapshot().then((s) => s.publications.counts.active)`) === 1);
-        await shot("extras-approved");
       } else if (scenario === "settings") {
         // Settings → Your store with every row filled, then the batch of free-part updates on Today.
         const text = () => js(`document.querySelector("#content").textContent`);
@@ -1587,221 +1511,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`[...${usage}.querySelectorAll("button")].find((b) => b.textContent === "Turn off").click()`);
         check("…and turns it off", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_enabled === false)`));
         await shot("settings-usage-off");
-      } else if (scenario === "firstrun") {
-        // APP-215: a new owner signs in and Lore starts the chat itself: Grok Bot connected in two answers, apps found
-        // on this Mac connected in one tap, the first save shown with See them, a relaunch picking up where it was.
-        const agentUrl = `${process.env.LORE_EDGE_AGENT_URL}/agent`;
-        /** One JSON-RPC call to the stand-in node's /agent, as Grok makes it. @param {string} key @param {string} method @param {object} [params] */
-        const call = (key, method, params = {}) => fetch(agentUrl, { method: "POST", headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-        // What the chat shows; each line's speaker, said only to a screen reader, is checked on its own.
-        const chat = `(() => { const shown = document.querySelector("#content .first-run")?.cloneNode(true); for (const said of shown?.querySelectorAll(".sr-only") ?? []) said.remove(); return shown?.textContent ?? ""; })()`;
-        const tap = (label) => js(`[...document.querySelectorAll("#content .first-run button")].find((b) => b.textContent === ${JSON.stringify(label)}).click()`);
-        const ask = "Add this MCP server to my account: ";
-        const copyMessage = async () => {
-          const before = copied.length;
-          await js(`document.querySelector("#content .first-run .agent-link").click()`);
-          for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
-          return copied.at(-1) ?? "";
-        };
-        const signIn = async () => {
-          await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
-          await js(`window.__lore.signIn()`);
-        };
-        const relaunch = async () => {
-          await new Promise((loaded) => { window.webContents.once("did-finish-load", () => loaded(undefined)); window.webContents.reload(); });
-          await signIn();
-        };
-        const kept = () => js(`window.lore.firstRun()`);
-        let answers = 0;
-        installedApps = ["grok"];
-        // Before Lore has read where the first run stands, a refresh starts nothing: the read, answered from before any
-        // write, comes back only after one.
-        const letRead = holdAnswer("firstrun:read");
-        await signIn();
-        await sleep(800);
-        await js(`window.__lore.event({ type: "changed" })`);
-        await sleep(1500);
-        const early = await js(`document.querySelector("#title").textContent === "Welcome to Lore"`);
-        if (early) await js(`document.querySelector("#first-run-skip").click()`);
-        await sleep(500);
-        letRead();
-        check("nothing starts before Lore has read where the first run stands", !early, `started early; then ${JSON.stringify(await kept())}`);
-
-        const offer = "First, I found these on this Mac. Connect them, and Lore reads them in a few seconds.";
-        check("right after sign-in, Lore opens the chat itself, speaks first, and offers what it found on this Mac", await waitFor(`document.querySelector("#title").textContent === "Welcome to Lore" && ${chat}.startsWith(${JSON.stringify(`Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.${offer}`)})`, 80), await js(chat));
-        check("…each ticked, Obsidian's vault and Claude Code's notes, before any agent is asked about", await js(`[...document.querySelectorAll("#content .first-run input[type=checkbox]")].every((t) => t.checked)`) && /Obsidian · Edge Vault/.test(await js(chat)) && /Claude Code/.test(await js(chat)) && !(await js(chat)).includes("Which AI do you talk to most?"), await js(chat));
-        check("…with Skip for now there, and no capture box or Today notices over it", await js(`!document.querySelector("#first-run-skip").hidden && document.querySelector("#capture").hidden && !document.querySelector("#status .notice")`));
-        check("…and where it stands is kept", await waitFor(`window.lore.firstRun().then((k) => k?.state === "started")`), JSON.stringify(await kept()));
-        check("…each of Lore's lines names its speaker to a screen reader", await js(`[...document.querySelectorAll("#content .first-run > .line")].every((line) => line.querySelector(":scope > .sr-only")?.textContent === "Lore: ")`));
-        await shot("firstrun-greeting");
-        // The first try can read neither: this Mac hasn't let Lore into the vault or Claude Code's notes yet. Each answers
-        // that it needs access, rather than failing outright.
-        const denied = [join(S, "Edge Vault"), join(S, "claude", "projects")];
-        for (const folder of denied) chmodSync(folder, 0o000);
-        await tap("Connect these");
-        check("a connect macOS keeps out keeps its apps, ticked, says why, and offers System Settings and another try", await waitFor(`${chat}.includes("macOS hasn't let Lore read Obsidian and Claude Code. Allow Lore in System Settings, then try again.")`, 80) && await js(`[...document.querySelectorAll("#content .first-run input[type=checkbox]")].filter((t) => t.checked).length === 2 && ["Open System Settings", "Try again"].every((label) => [...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === label))`), await js(chat));
-        check("…and never says anything came in that could not", !/came in|reading them now/.test(await js(chat)), await js(chat));
-        // A vault Lore knows, even unread, is connected: what Lore then does on its own is said once, quietly, in the chat.
-        check("…and what Lore then does on its own is one quiet line in the chat, not a notice over it", await waitFor(`${chat}.includes("Change this in Automations.")`) && await js(`!document.querySelector("#status .notice")`) && await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`), await js(chat));
-        await shot("firstrun-apps-failed");
-        await tap("Try again");
-        check("…and trying again before access is granted says so again", await waitFor(`!document.querySelector("#content .first-run .btn.primary[disabled]") && ${chat}.includes("macOS hasn't let Lore read Obsidian and Claude Code.")`, 80), await js(`document.querySelector("#title").textContent + " | " + document.querySelector("#content").textContent`));
-        // Lore quits before access is granted: after a relaunch both are still on offer, Lore knowing them already.
-        await relaunch();
-        check("after a relaunch, what didn't connect is still on offer, first", await waitFor(`${chat}.includes(${JSON.stringify(offer)}) && /Obsidian · Edge Vault/.test(${chat}) && /Claude Code/.test(${chat})`, 80), await js(chat));
-        // Access granted: Connect reads each again, the vault Lore already knows included.
-        for (const folder of denied) chmodSync(folder, 0o755);
-        await tap("Connect these");
-        check("trying again connects them all, and says what came in once it's in", await waitFor(`/Connected Obsidian and Claude Code\\. \\d+ memor(y|ies) came in\\./.test(${chat})`, 120) && await js(`window.lore.snapshot().then((s) => s.library.sources.filter((x) => x.enabled && !x.connector || x.connector === "obsidian").length === 2)`), await js(chat));
-        check("…then asks which AI the owner talks to most", await waitFor(`${chat}.includes("Which AI do you talk to most?") && document.querySelector("#content .first-choices")`), await js(chat));
-        check("…and nothing is said over the chat as a notice", await js(`!document.querySelector("#status .notice")`), await js(`document.querySelector("#status").textContent`));
-        await shot("firstrun-apps-connected");
-
-        const picks = await js(`[...document.querySelectorAll("#content .first-choices .choice")].map((c) => c.textContent)`);
-        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "None of these"]), JSON.stringify(picks));
-        check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
-        await shot("firstrun-pick");
-        storeUnreachable = true;
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
-        answers++;
-        check("with no store online, Grok Bot gets a private place online, sealed for this Mac, with nothing on sale, and the owner free to leave", await waitFor(`${chat}.includes("Grok Bot works online, so Lore keeps a private place online for it to save to. What Grok Bot saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.")`), await js(chat));
-        check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
-        const buttons = `[...document.querySelectorAll("#content .first-run button")].map((b) => b.textContent)`;
-        check("…a place that can't be reached says why, with Try again, and no sign-in anywhere", await waitFor(`${chat}.includes("Lore couldn't put your store online: yourlore.dev didn't answer (offline)") && ${buttons}.includes("Try again")`, 60) && !/sign in|free on Cloudflare/i.test(await js(chat)) && opened.length === 0, await js(chat));
-        await shot("firstrun-store");
-        storeUnreachable = false;
-        await tap("Try again");
-        answers++;
-        check("trying again puts it online and goes straight on to the link", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([true, false]), JSON.stringify(storeOnlineCalls));
-        const message = await copyMessage();
-        const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
-        check("Grok Bot's message to paste is in the chat two answers after it is asked about", answers === 2 && linked.test(message), `${answers} answers; ${message}`);
-        check("…with Grok Bot's steps as one line, Open Grok Bot, and the live wait", await js(`document.querySelector("#content .first-run .first-steps")?.textContent`) === "Copy this message and paste it into a Grok Bot chat." && (await js(chat)).includes("Waiting for Grok Bot's first save…") && await js(`[...document.querySelectorAll("#content .first-run button")].some((b) => b.textContent === "Open Grok Bot")`), await js(chat));
-        await tap("Open Grok Bot");
-        check("Open Grok Bot opens it", await waitFor(`true`) && launched.includes("grok"), JSON.stringify(launched));
-        check("…and the store is online for agents, nothing for sale", await js(`window.lore.snapshot().then((s) => Boolean(s.node.url) && !s.node.selling)`));
-        check("…and the wait shimmers while it waits", await js(`[...document.querySelectorAll("#content .first-run .agent-wait .shimmer")].some((n) => n.textContent === "Waiting for Grok Bot's first save…" && ${animating("n", "shimmer")})`));
-        await shot("firstrun-connect");
-
-        // Lore quits before Grok Bot saves: the chat comes back where it was, with a new link a tap away.
-        await relaunch();
-        check("a relaunch resumes the chat, still waiting on Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Welcome to Lore" && ${chat}.includes("Waiting for Grok Bot's first save…")`, 80) && (await js(chat)).includes("Grok Bot's link was shown once. Get a new one here if you need it."), await js(chat));
-        await shot("firstrun-resumed");
-        // One new link at a time: a second tap while the first is on its way does nothing.
-        const keyCalls = () => ipc.filter((channel) => channel === "agents:key").length;
-        const letKey = hold("agents:key");
-        const keysBefore = keyCalls();
-        await tap("Get a new link");
-        await sleep(300);
-        await tap("Get a new link");
-        await sleep(300);
-        check("Get a new link waits for the link it asked for, and asks once", keyCalls() === keysBefore + 1 && await js(`[...document.querySelectorAll("#content .first-run button")].find((b) => b.textContent === "Get a new link")?.disabled === true`), String(keyCalls() - keysBefore));
-        letKey();
-        check("…and Get a new link shows a new message to paste", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80));
-        const again = await copyMessage();
-        check("…with a different key", linked.test(again) && again !== message, again);
-        const key = again.slice(ask.length + agentUrl.length + 1);
-
-        const stored = await (await call(key, "tools/call", { name: "store", arguments: { items: [
-          { title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" },
-          { title: "Quote sync fees in the buyer's currency", content: "Buyers sign faster when the fee is already in their currency.", key: "sync-currency", kind: "preference" },
-          { title: "Send the cue sheet with the invoice", content: "Payment comes faster when the cue sheet goes with the invoice.", key: "cue-sheet", kind: "preference" }
-        ] } })).json();
-        check("Grok Bot's first save reaches the store", stored.result?.isError === false, JSON.stringify(stored));
-        const savedCard = `document.querySelector("#content .first-saved")`;
-        check("the chat shows it: Grok Bot saved 3 memories, with See them", await waitFor(`(${savedCard}?.textContent ?? "").startsWith("Grok Bot saved 3 memoriesSee them →")`, 120), await js(chat));
-        check("…each of its titles first, with Grok Bot's mark", await waitFor(`[...${savedCard}.querySelectorAll(".row")].slice(1, 4).every((r) => r.querySelector("img.logo")?.src.endsWith("assets/grok.svg"))`, 40) && /How I price sync placements/.test(await js(`${savedCard}.textContent`)), await js(`${savedCard}?.textContent ?? ""`));
-        check("…counting what the apps on this Mac brought in too, after the relaunch as well", /brought in \d+ memor(y|ies) too\./.test(await js(`${savedCard}.querySelector(".first-saved-apps")?.textContent ?? ""`)) && /Claude Code/.test(await js(`${savedCard}.querySelector(".first-saved-apps").textContent`)), await js(`${savedCard}?.textContent ?? ""`));
-        check("…and the first run is done", await waitFor(`window.lore.firstRun().then((k) => k?.state === "done")`), JSON.stringify(await kept()));
-        check("…and nothing shimmers once it has saved", await js(`!document.querySelector("#content .first-run .shimmer")`));
-        // APP-230: the message it was sent already set up its routine, so the first run ends on the next AI or Today.
-        check("…without asking a second time for the routine", !(await js(chat)).includes("routine"), await js(chat));
-        check("…and ends on Connect another AI beside Go to Today", await js(`[...document.querySelectorAll("#content .first-run-actions button")].map((b) => b.textContent).join("|")`) === "Connect another AI|Go to Today", await js(`document.querySelector("#content .first-run-actions")?.textContent ?? ""`));
-        await shot("firstrun-saved");
-        await js(`[...${savedCard}.querySelectorAll("button.inline")].find((b) => b.textContent === "See them →").click()`);
-        const chip = `document.querySelector("#content .source-filter")?.textContent ?? ""`;
-        check("See them lands on Inventory, with everything that came in", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !(${chip})`), await js(chip));
-        check("…what Grok Bot saved and what the apps brought in", await waitFor(`[...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent.startsWith("Send the cue sheet with the invoice")) && [...document.querySelectorAll("#content .row .t b")].some((b) => b.textContent.startsWith("Ship the smallest change"))`), await js(`[...document.querySelectorAll("#content .row .t b")].map((b) => b.textContent).join("|")`));
-        await shot("firstrun-see-them");
-        await relaunch();
-        check("once done, a relaunch opens on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden && !document.querySelector("#capture").hidden`), await js(`document.querySelector("#title").textContent`));
-
-        // Skip for now: the chat steps aside for Today's one next step, and stays aside.
-        await js(`window.lore.setFirstRun({ state: "started" })`);
-        await relaunch();
-        check("a chat not finished opens again", await waitFor(`document.querySelector("#title").textContent === "Welcome to Lore"`, 80));
-        await js(`document.querySelector("#first-run-skip").click()`);
-        check("Skip for now lands on Today with its one next step", await waitFor(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelectorAll("#content .next-step").length === 1`), await js(`document.querySelector("#content").textContent`));
-        check("…and is kept as skipped", await waitFor(`window.lore.firstRun().then((k) => k?.state === "skipped")`), JSON.stringify(await kept()));
-        await shot("firstrun-skipped-today");
-        await relaunch();
-        check("…so a relaunch stays on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
-        // Where the first run stands never answers: Lore goes on without it after a moment.
-        const letStuck = hold("firstrun:read");
-        await relaunch();
-        check("a first-run read that never answers holds Today back only a moment", await waitFor(todayShown, 40) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`), await js(`document.querySelector("#title").textContent`));
-        letStuck();
-
-        // Skip while a step is still under way: what finishes after it never brings the chat back, or goes on to connect.
-        const stayedSkipped = async () => {
-          await sleep(2000);
-          return (await kept())?.state === "skipped" && await js(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelector("#first-run-skip").hidden`);
-        };
-        const connects = () => ipc.filter((channel) => channel === "agents:connect").length;
-        // With everything on this Mac already read, the chat goes straight to the agent.
-        const picker = () => waitFor(`document.querySelector("#content .first-choices")`, 80);
-        await js(`window.lore.setFirstRun({ state: "started" })`);
-        await relaunch();
-        check("with nothing new on this Mac, the chat asks about the agent first", await picker() && !(await js(chat)).includes("I found these on this Mac"), await js(chat));
-        const letConnect = hold("agents:connect");
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("ChatGPT")).click()`);
-        await waitFor(`${chat}.includes("Getting ChatGPT's link…")`);
-        await js(`document.querySelector("#first-run-skip").click()`);
-        letConnect();
-        check("a Skip while the link is on its way stays a Skip once it arrives", await stayedSkipped(), `${JSON.stringify(await kept())} | ${await js(`document.querySelector("#title").textContent`)}`);
-
-        // Skip while Codex, new on this Mac, is being switched on: it is not read after the owner left.
-        mkdirSync(join(S, "codex", "memories"), { recursive: true });
-        writeFileSync(join(S, "codex", "memories", "MEMORY.md"), "# Ship small\n\nOne working path beats three half-built ones, every time I have tried both.\n");
-        await js(`window.lore.setFirstRun({ state: "started" })`);
-        await relaunch();
-        check("Codex, now on this Mac, is offered first", await waitFor(`${chat}.includes(${JSON.stringify(offer)}) && ${chat}.includes("Codex")`, 80), await js(chat));
-        const reads = () => ipc.filter((channel) => channel === "sources:read").length;
-        const letSwitch = hold("sources:switch");
-        await tap("Connect");
-        const readsBefore = reads();
-        await js(`document.querySelector("#first-run-skip").click()`);
-        letSwitch();
-        check("a Skip while an app is being switched on reads nothing after it", await stayedSkipped() && reads() === readsBefore, `${reads() - readsBefore} reads after`);
-
-        // A link that didn't come: Try again asks once, however often it's tapped, and nothing else can be picked meanwhile.
-        await js(`window.lore.setFirstRun({ state: "started" })`);
-        await relaunch();
-        await picker();
-        failOnce.add("agents:connect");
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("ChatGPT")).click()`);
-        check("a link that didn't come says so, with Try again and Choose another", await waitFor(`${chat}.includes("Try again") && ${chat}.includes("Choose another")`), await js(chat));
-        const askedBefore = connects();
-        const letRetry = hold("agents:connect");
-        await tap("Try again");
-        await sleep(200);
-        const offered = await js(`[...document.querySelectorAll("#content .first-run button")].filter((b) => !b.disabled).map((b) => b.textContent)`);
-        await js(`[...document.querySelectorAll("#content .first-run button")].find((b) => b.textContent === "Try again")?.click()`);
-        await sleep(300);
-        check("…Try again asks once, its error gone while it does, and nothing else can be chosen meanwhile", connects() === askedBefore + 1 && !offered.includes("Choose another") && !offered.includes("Try again") && (await js(chat)).includes("Getting ChatGPT's link…"), `${connects() - askedBefore} asks; ${JSON.stringify(offered)}`);
-        letRetry();
-        check("…and the link it asked for is the one shown", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80));
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', None)"], { cwd: join(__dirname, "../../.."), env: process.env });
-        await js(`window.lore.setFirstRun({ state: "started" })`);
-        await relaunch();
-        await picker();
-        const letOnline = hold("store:online");
-        const connectsBefore = connects();
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
-        await waitFor(`${chat}.includes("Setting it up…")`);
-        await js(`document.querySelector("#first-run-skip").click()`);
-        letOnline();
-        check("a Skip while the store goes online stays a Skip, and connects nothing after it", await stayedSkipped() && connects() === connectsBefore, `${JSON.stringify(await kept())}; ${connects() - connectsBefore} connects after`);
       } else if (scenario === "agents") {
         // APP-207: connect Grok with no store online yet, hear its first save, and manage it from Connectors.
         const agentUrl = `${process.env.LORE_EDGE_AGENT_URL}/agent`;

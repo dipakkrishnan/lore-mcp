@@ -9,7 +9,7 @@
     "A view with no scans is one the walks drive but never shot(): it has no layout check today."
   ],
   "window": { "width": 1040, "from": "src/main.cjs createWindow" },
-  "narrow": { "width": 900, "walks": ["today", "store", "connectors", "automations", "settings", "agents"], "from": "support/edge.cjs NARROW, less the scenarios under dead" },
+  "narrow": { "width": 900, "walks": ["today", "store", "connectors", "automations", "settings", "agents"], "from": "support/edge.cjs NARROW, less any scenario under dead" },
   "dark": {
     "about": "Shots drawn dark: every shot of a walk walks.cjs launches with appearance dark, and these shots of light walks that flip the appearance mid-walk.",
     "walks": ["faq"],
@@ -27,7 +27,7 @@
     {
       "id": "first-run",
       "name": "First-run chat (Welcome to Lore)",
-      "about": "#content .first-run: greeting, apps found on this Mac (failed and connected), the agent picker, store online, the link to paste, resumed after relaunch, first save with See them. Only the firstrun scenario shoots it, and firstrun is not in walks.cjs: no live walk scans this view.",
+      "about": "#content .first-run: greeting, apps found on this Mac (failed and connected), the agent picker, store online, the link to paste, resumed after relaunch, first save with See them. Only the firstrun scenario shot it, and walks.cjs never ran that scenario before APP-265 deleted it: no walk scans this view.",
       "scans": []
     },
     {
@@ -292,11 +292,7 @@
     }
   ],
   "dead": {
-    "about": "Scenarios edge.cjs still carries that walks.cjs does not run, so their shot() labels scan nothing in CI. APP-265 deletes them; empty this list as it does. Each label is filed under the view it would scan.",
-    "scenarios": [
-      { "scenario": "listing", "views": { "settings": ["settings-list-offer", "settings-list-pending"] } },
-      { "scenario": "extras", "views": { "today": ["extras-card", "extras-approved"] } },
-      { "scenario": "firstrun", "views": { "first-run": ["firstrun-greeting", "firstrun-apps-failed", "firstrun-apps-connected", "firstrun-pick", "firstrun-store", "firstrun-connect", "firstrun-resumed", "firstrun-saved"], "inventory-private": ["firstrun-see-them"], "today": ["firstrun-skipped-today"] } }
-    ]
+    "about": "Scenarios edge.cjs carries that walks.cjs does not run, so their shot() labels scan nothing in CI; each label is filed under the view it would scan. Empty since APP-265 deleted listing, extras and firstrun (14 labels, none of which any CI run scanned).",
+    "scenarios": []
   }
 }
