@@ -75,10 +75,12 @@ before any change is made.
   file in `lore/` is at or above 90/90 except one, `lore/cloudflare.py` at
   90.5% statements and **57.1% branches** (14 branches, 6 partial; lines
   75-76, 93, 102, 123, 127-129 missed). Filed as **XC-110** rather than
-  lowering the floor or excluding the file. Until XC-110 lands, the `Python
-  unit tests` job is **red on every pull request**, by design: red is the
-  floor enforcing itself, and a grace list keyed by item id would be the
-  exclusion this item forbids.
+  lowering the floor or excluding the file. The first CI run of the job on
+  PR #611 (run 41094876180) was red on exactly that row, which is the floor
+  enforcing itself: a grace list keyed by item id would be the exclusion this
+  item forbids. XC-110 then landed as the PR's second commit (seven test
+  cases, no production change; `lore/cloudflare.py` 100.0% / 100.0%), so the
+  floor arrives green: 1027 passed, every file at or above 90/90.
 - The looping-vault failure (`tests/test_sources.py:530`) was a production
   bug, not a test bug. Python 3.13 changed `Path.resolve()` to stop raising
   `RuntimeError` on a symlink loop and return the path resolved as far as it
