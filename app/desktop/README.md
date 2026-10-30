@@ -33,6 +33,21 @@ channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
 reverse, or a `window.lore` member the renderer uses but preload does not expose,
 fails `test/ipc-contract.test.cjs`.
 
+Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
+check (the screenshots are written, never compared): once the page settles it
+scans the whole DOM in real Chromium for layout faults — a box wider than its
+room, text or a control cut off or clipped by the box around it, a one-line
+label wrapping, neighbours drawn over each other, text or the focused control
+hidden under something painted over it, a dialog running off the window — at
+the window's width (1040 px) and, for the walks in edge.cjs's `NARROW` set, at
+900 px too. With a modal sheet open only the sheet (and any popover or preview)
+is scanned, not the page under it. `support/views.json` is the table of which
+walks scan which view at which widths, one row per view, derived from those
+labels; `test/views.test.cjs` fails when a `shot()` label has no row, a row
+names a label or walk that is gone, or the widths disagree with edge.cjs and
+main.cjs. Only a `shot()` under Electron counts as a layout check: a jsdom or
+`node:vm` assertion never does, because neither lays anything out (APP-266).
+
 To look at a view without clicking through, render it to a PNG:
 
 ```sh

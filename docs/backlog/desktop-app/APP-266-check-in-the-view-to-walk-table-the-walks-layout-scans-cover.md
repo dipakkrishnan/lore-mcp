@@ -4,7 +4,7 @@ title: Check in the view-to-walk table the walks' layout scans cover
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-265, APP-269, APP-270, APP-271, XC-108]
 blockers: []
 dependencies: []
@@ -40,14 +40,14 @@ APP-270 rewrites it for the seven-walk set and XC-108 guards it.
 
 ## Acceptance criteria
 
-- [ ] A checked-in table lists every view with the walks and widths that
+- [x] A checked-in table lists every view with the walks and widths that
       scan it, derived from edge.cjs's `shot()` calls.
-- [ ] A test fails when edge.cjs has a `shot()` label the table does not
+- [x] A test fails when edge.cjs has a `shot()` label the table does not
       account for, or the table names a walk not in `support/walks.cjs`.
-- [ ] The table's `README.md` paragraph says what the scan checks (overlap,
+- [x] The table's `README.md` paragraph says what the scan checks (overlap,
       clipping) and that a jsdom or vm assertion never counts as a layout
       check.
-- [ ] Layout scan: this item is the measurement itself; it changes no walk
+- [x] Layout scan: this item is the measurement itself; it changes no walk
       and no view's coverage.
 
 ## Notes
@@ -55,3 +55,60 @@ APP-270 rewrites it for the seven-walk set and XC-108 guards it.
 - Workstream A5 of the test-pyramid plan. Every walk retirement (APP-269,
   APP-270) cites this table for the views it moves; APP-271 (cheaper walks)
   uses it to keep one scan per view per walk.
+- Done 2026-10-30. `app/desktop/support/views.json`: 30 views, 163 distinct
+  labels from 162 `shot()` calls (the `settings` walk's
+  `settings-appearance-${DARK ? "light" : "dark"}` expands to two), all 21
+  walks named. `app/desktop/test/views.test.cjs` (6 node:test cases, read by
+  `npm test`) parses `shot(...)` out of edge.cjs, expanding `${X ? "a" : "b"}`
+  templates both ways, and fails when a label has no row, a row's label is
+  gone from edge.cjs, a live row names a walk not in walks.cjs, a `dead`
+  scenario is in walks.cjs or gone from edge.cjs, the widths disagree with
+  edge.cjs's `NARROW`/`NARROW_WIDTH` or main.cjs's window, or the dark walks
+  disagree with walks.cjs's `appearance`. Checked by mutating the table: a
+  renamed label fails cases 1 and 2 naming it, a row naming `firstrun` fails
+  case 3 and the widths case; restored, 6/6 pass. `npm test` in app/desktop:
+  178 tests, 176 pass, one known-gap todo, one flake in `test/app.test.cjs`
+  (updates; passes 28/28 alone) untouched by this item.
+  The README paragraph sits after the CI/walks paragraph in
+  `app/desktop/README.md`. edge.cjs, walks.cjs and every view's coverage are
+  untouched.
+- The widths in this item were wrong: nothing opens the window at 1280 px.
+  `createWindow` in `src/main.cjs` opens it at 1040 × 760 and edge.cjs/edge.sh
+  never resize it, so every walk scans at 1040 px; the narrow set re-scans
+  each shot at 900 px (`NARROW_WIDTH`). The table says 1040 and the test
+  checks it against main.cjs. The "186 `shot()` calls" was a loose count
+  (`grep shot(` also matches `snapshot()`); there are 162.
+- The narrow set in edge.cjs is `today, store, connectors, automations,
+  settings, firstrun, agents` (seven). `firstrun` is not in walks.cjs, so six
+  live walks scan at 900 px; the table's `narrow.walks` lists those six.
+- Dead scenarios: `listing`, `extras` and `firstrun` are in edge.cjs but not
+  in walks.cjs (APP-265 deletes them). Their 14 labels are filed under
+  `dead.scenarios` in views.json, each against the view it would scan, and the
+  test accepts them there only while the scenario exists in edge.cjs and is
+  absent from walks.cjs, so APP-265 must empty that list as it deletes them.
+  Consequence worth knowing: the first-run chat (`Welcome to Lore`) is
+  scanned only by `firstrun`, so no view of it has a layout check in CI today
+  (`first-run` row, `scans: []`). `listing`'s marketplace rows in Settings
+  likewise; `extras`' card is covered by the `settings` walk's
+  `today-extras-*` shots.
+- What the scan actually sees, read from LAYOUT's roots (edge.cjs ~405-407):
+  with a `dialog:modal` open, only the sheet plus any popover or `.peek` is
+  scanned, never the page under it. So every shot with a sheet open is a row
+  for that sheet, not for the page it was opened from; the account menu (a
+  popover) and the memory preview (`.peek`) are not modal, so their shots also
+  scan the page beneath. This is why the table has one row per sheet.
+- Things in edge.cjs that did not fit the view model: `shimmer-1.png`/
+  `shimmer-2.png` (seller) and `sell-preview.png` (sell) are written with
+  `capturePage()` alone, no scan, so they are not labels and have no row;
+  the preview page window has no layout check at all (`preview-window`,
+  `scans: []`). Views the walks drive but never `shot()` while open, so they
+  have no layout check: the feedback sheet (it closes itself before
+  `feedback-filed`), the Change time sheet, and the "Disconnect Edge Vault?"
+  confirm. Settings has no tabs: it is one scrolling page, and the scan
+  covers every section in the DOM, so Settings is one row with the sections
+  listed in `about`. Labels named `settings-*` in the `obsidian`, `jobs` and
+  `connectors` walks scan Connectors, not Settings (they date from when
+  Connectors lived in Settings); the table files them by what they scan.
+- Dark: the `faq` walk is launched dark (every shot), and `connectors` and
+  `settings` flip the appearance mid-walk for four shots; `dark` in
+  views.json lists both, checked against walks.cjs's `appearance`.
