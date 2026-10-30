@@ -263,7 +263,9 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
 [[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
-"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
+# Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
+# beside the walk log and printed when the walk fails (XC-111).
+"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
 timed_out=""
@@ -287,5 +289,9 @@ if [[ "$code" != 0 ]]; then
   echo "--- $root/walk.log"
   cat "$root/walk.log"
   if [[ -s "$root/hang.txt" ]]; then echo "--- $root/hang.txt (first 120 lines)"; head -n 120 "$root/hang.txt"; fi
+  # What the app and the walk's stand-in servers said, so a connect that failed can be read from CI alone.
+  for said in app granola agent; do
+    if [[ -s "$root/$said.log" ]]; then echo "--- $root/$said.log (last 80 lines)"; tail -n 80 "$root/$said.log"; fi
+  done
 fi
 exit "$code"
