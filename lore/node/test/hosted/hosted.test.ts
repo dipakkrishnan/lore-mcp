@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { runInDurableObject } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { type HostedEnv, HostedStore } from "../../src/hosted/index";
 import { SqlKv } from "../../src/hosted/kv";
 import { signed } from "../../src/hosted/owner";
@@ -148,11 +148,15 @@ describe("claiming a store", () => {
     expect(tables).toEqual([]);
   });
 
-  it("answers only addresses that are stores", async () => {
-    for (const host of ["yourlore.test", "short.yourlore.test", "abcdefghijk1.yourlore.test", "abcdefghijklm.yourlore.test", `${newStore()}.example.com`]) {
-      const response = await hostedFetch(`https://${host}/claim`, { method: "POST", body: "{}" });
-      expect(response.status).toBe(404);
-      await response.text();
+  it("hands every address that isn't a store on to the Worker behind it", async () => {
+    const origin = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => Response.json({ origin: new Request(input).url }));
+    try {
+      for (const host of ["yourlore.test", "relay.yourlore.test", "abcdefghijk1.yourlore.test", "abcdefghijklm.yourlore.test", `${newStore()}.example.com`]) {
+        const response = await hostedFetch(`https://${host}/events`, { method: "POST", body: "{}" });
+        expect(await response.json()).toEqual({ origin: `https://${host}/events` });
+      }
+    } finally {
+      origin.mockRestore();
     }
   });
 

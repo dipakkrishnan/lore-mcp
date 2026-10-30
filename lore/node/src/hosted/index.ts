@@ -77,7 +77,8 @@ export default {
   async fetch(request: Request, env: HostedEnv): Promise<Response> {
     const url = new URL(request.url);
     const store = storeOf(url.hostname, env.STORE_DOMAIN);
-    if (!store) return refuse({ status: 404, error: "no store here" });
+    // The zone's other Workers (relay., checkout., www.) are custom domains, which sit behind this route as its origin.
+    if (!store) return fetch(request);
     // Signed requests and agents' sign-ins name the store by its https address.
     if (url.protocol !== "https:") {
       url.protocol = "https:";

@@ -7,8 +7,9 @@
   "main": "src/hosted/index.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  // Every store is a subdomain. Custom domains on the zone (checkout., relay.) take
-  // precedence over this route, and the zone needs a proxied wildcard DNS record.
+  // Every store is a subdomain, and the zone needs a proxied wildcard DNS record. This route
+  // runs in front of the zone's custom domains (checkout., relay., www.), so the Worker hands
+  // any address that isn't a store on to them.
   "routes": [{ "pattern": "*.yourlore.dev/*", "zone_name": "yourlore.dev" }],
   "workers_dev": false,
   "vars": { "STORE_DOMAIN": "yourlore.dev" },
