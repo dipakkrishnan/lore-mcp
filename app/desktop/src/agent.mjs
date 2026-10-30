@@ -79,6 +79,9 @@ export function stepKind(tool, args, loreHome) {
 const DRAFTING = new Set(["publish", "capture", "evening"]);
 /** Tasks that run between the owner's turns, never as a thread: each starts cold, asks nothing, and gives way to the owner. @type {ReadonlySet<AgentTask>} */
 const QUIET = new Set(["synthesize", "checkin"]);
+/** APP-196: the one task that reads the agents' own history, which setup lists and imports. Synthesize reads what came in
+ * from Lore's store, and the app imports history outside the sandbox, so no other task sees it. @type {ReadonlySet<AgentTask>} */
+const MINES_HISTORY = new Set(["setup"]);
 const OWNER_TOOLS = ["read", "write", "edit", "bash", "ask_user", "propose_memories", "propose_blueprint", "save_profile", "propose_price", "cloudflare_login", "open_store", "open_url", "finish_task"];
 /** @type {Partial<Record<AgentTask, string[]>>} */
 const QUIET_TOOLS = { synthesize: ["read", "write", "edit", "bash", "memories_ready"], checkin: ["read", "bash", "check_in"] };
@@ -192,9 +195,9 @@ export async function nameRun(models, text) {
 
 /**
  * The one OS sandbox every tool of the agent runs in, bash, read, write and edit alike, anchored to the
- * account's home rather than HOME. No network. Reads Lore's home, its runtime and skills, and the agents'
- * memories; writes Lore's home but never its app-only folders. A quiet task cannot read what the owner
- * attached to a turn.
+ * account's home rather than HOME. No network. Reads Lore's home, its runtime and skills, and for setup alone
+ * the agents' memories; writes Lore's home but never its app-only folders. A quiet task cannot read what the
+ * owner attached to a turn.
  * @param {Place} place @param {AgentTask} [task]
  */
 export function sandboxPolicy({ loreHome, binDir, skillsDir, hidden = [] }, task) {
@@ -209,7 +212,7 @@ export function sandboxPolicy({ loreHome, binDir, skillsDir, hidden = [] }, task
     network: { allowedDomains: [], deniedDomains: [] },
     filesystem: {
       denyRead: [home, ...hidden, ...(task ? kept(lore, task) : [])],
-      allowRead: [lore, ...runtime, ...(skillsDir ? [skillsDir] : []), resolve(home, ".claude/projects"), resolve(home, ".codex/memories")],
+      allowRead: [lore, ...runtime, ...(skillsDir ? [skillsDir] : []), ...(task && MINES_HISTORY.has(task) ? [resolve(home, ".claude/projects"), resolve(home, ".codex/memories")] : [])],
       allowWrite: [lore],
       denyWrite: APP_ONLY.map((dir) => resolve(lore, dir))
     }
