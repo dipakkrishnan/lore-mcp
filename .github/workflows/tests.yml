@@ -109,7 +109,15 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
-      - run: npm test
+      # XC-098: `npm test` under node's own coverage (--experimental-test-coverage,
+      # Node 20+; lts/* resolves well past that). Report-only: the next step
+      # turns coverage/lcov.info into one line of the step summary and never
+      # fails on a number. node:test counts lines, not statements, and knows
+      # only the files the tests loaded.
+      - run: npm run test:coverage
+      - name: Coverage line in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/lcov.info
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
@@ -202,8 +210,15 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
+      # XC-098: the same two vitest runs with istanbul instrumentation (the only
+      # provider the Workers pool supports). Report-only: the next step sums the
+      # two Workers' coverage-summary.json files into one lore/node line of the
+      # step summary and never fails on a number.
       - name: Run the mocked-facilitator test suite (MON-010)
-        run: npm test
+        run: npm run test:coverage
+      - name: Coverage line in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/coverage_summary.py --name lore/node --istanbul coverage/coverage-summary.json coverage/hosted/coverage-summary.json
 
   feedback-relay-lint:
     name: Feedback relay lint
@@ -250,8 +265,12 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: printf 'LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token\nPOSTHOG_KEY=not-a-real-key\n' > .dev.vars
+      # XC-098: with istanbul instrumentation; report-only, see node-component.
       - name: Run the stubbed-GitHub test suite (XC-028)
-        run: npm test
+        run: npm run test:coverage
+      - name: Coverage line in the step summary (report-only)
+        if: always()
+        run: python3 ../.github/scripts/coverage_summary.py --name feedback-relay --istanbul coverage/coverage-summary.json
 
   checkout-lint:
     name: Card checkout lint
@@ -298,8 +317,12 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\nACCOUNT_TOKEN_SECRET=not_a_real_token_secret\n" > .dev.vars
+      # XC-098: with istanbul instrumentation; report-only, see node-component.
       - name: Run the stubbed-Stripe test suite (XC-039)
-        run: npm test
+        run: npm run test:coverage
+      - name: Coverage line in the step summary (report-only)
+        if: always()
+        run: python3 ../.github/scripts/coverage_summary.py --name checkout --istanbul coverage/coverage-summary.json
 
   worker-smoke:
     name: Worker smoke test

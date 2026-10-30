@@ -1,7 +1,7 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineProject({
+export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
@@ -24,6 +24,17 @@ export default defineProject({
     // Lore's hosted stores are another Worker, with their own pool (vitest.hosted.config.ts).
     exclude: ["test/hosted/**"],
     setupFiles: ["./test/setup.ts"],
-    testTimeout: 15_000
+    testTimeout: 15_000,
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). The Workers pool
+    // supports the istanbul provider only. src/hosted belongs to the hosted Worker's report
+    // (vitest.hosted.config.ts), so the two reports partition src/ and CI sums them into one
+    // lore/node line in the step summary (.github/scripts/coverage_summary.py). No thresholds:
+    // XC-108 sets floors once a few weeks of numbers exist.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"],
+      exclude: ["src/hosted/**"]
+    }
   }
 });
