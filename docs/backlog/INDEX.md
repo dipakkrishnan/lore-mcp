@@ -219,7 +219,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
-| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
 | [XC-083](./cross-cutting/XC-083-measure-the-ci-changes-over-the-50-runs-after-each-lands.md) | Measure the CI changes over the 50 runs after each lands | P2 | XS | cross-cutting | ready | XC-077, XC-078, XC-080, XC-081, XC-072, APP-247, XC-084 | XC-077 | — | — |
 | [APP-265](./desktop-app/APP-265-delete-the-dead-desktop-walk-scenarios.md) | Delete the dead desktop walk scenarios | P2 | XS | desktop-app | ready | APP-266, XC-077, APP-247 | — | — | — |
@@ -381,6 +380,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
+| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | completed | APP-005 | — | — | — |
 | [XC-110](./cross-cutting/XC-110-bring-lore-cloudflare-py-to-the-90-90-coverage-floor.md) | Bring lore/cloudflare.py to the 90/90 coverage floor | P2 | S | cross-cutting | completed | XC-087, XC-096, XC-108 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | completed | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-248](./desktop-app/APP-248-split-test-app-test-cjs-so-node-test-can-run-the-desktop-unit-tests-in-parallel.md) | Split test/app.test.cjs so node --test can run the desktop unit tests in parallel | P2 | S | desktop-app | completed | XC-077, XC-072 | — | — | — |
