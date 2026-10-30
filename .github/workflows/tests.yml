@@ -90,7 +90,10 @@ jobs:
 
   desktop-check:
     name: Desktop macOS checks
-    runs-on: macos-14
+    # XC-111: macos-15, pinned rather than macos-latest, so the walk timings
+    # XC-083 measures stay on one machine class; macos-14 is retired on
+    # 2026-11-02 (actions/runner-images#13518).
+    runs-on: macos-15
     needs: changes
     # Runs on every push to main (XC-079 is the item that would change that),
     # and on a pull request unless `changes` said its files cannot reach this
@@ -113,7 +116,7 @@ jobs:
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
-      # on this one runner (macos-14, three cores: two side by side take as
+      # on this one runner (macos-15, three cores: two side by side take as
       # long as one alone; a third slows every walk two to two and a half times
       # and fails a third of them, so --jobs stays at 2). One macOS job per
       # run, on purpose: the account is capped at five macOS jobs at once and
