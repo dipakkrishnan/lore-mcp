@@ -37,6 +37,19 @@ on both, so the whisper.cpp and node builds are reused. The first run on
 macos-15 is the measurement: if the walks or `npm test` move materially, the
 XC-083 readings note the date the machine changed.
 
+The first macos-15 run (41102891760) found a second difference: the image
+ships Homebrew Python 3.15.2, uv picked it ("Using CPython 3.15.2 interpreter
+at /opt/homebrew/opt/python@3.15"), and pydantic-core has no 3.15 wheel, so
+the first `uv run lore` in `npm test` compiled it from source and the test
+that happened to spawn it ("a memory card saves exactly what the owner kept")
+timed out at 120 s. macos-14 had no usable interpreter and uv downloaded a
+managed CPython 3.12.14 every run, so CI was quietly testing 3.12 while the
+app is developed on 3.14 (the Python 3.13 `Path.resolve` change XC-096 fixed
+in `lore/sources.py` was invisible to CI for that reason). So the job also
+sets `UV_PYTHON: "3.14"`, and `uv sync --locked` moves ahead of `npm test` so
+the environment is built once in its own step rather than inside whichever
+test runs first.
+
 ## Acceptance criteria
 
 - [ ] `Desktop macOS checks` runs on `macos-15` and no file in the repo
