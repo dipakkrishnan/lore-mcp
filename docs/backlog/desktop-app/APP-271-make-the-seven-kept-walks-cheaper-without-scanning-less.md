@@ -31,7 +31,7 @@ load: `agents` makes 258 app CLI calls in one walk (walks.cjs:25).
 
 Replace fixed `sleep()`s with `waitFor` on the state each one waits for;
 keep a sleep only where the thing waited on is wall-clock by design and say
-so in a comment. Scan layout once per view per walk at 1280 px, and once per
+so in a comment. Scan layout once per view per walk at 1040 px, and once per
 view at 900 px for the narrow set, instead of once per screenshot; keep the
 screenshot calls that document a state but let them skip the scan. Cut
 `agents`' CLI calls by batching the `load()` fan-out into one `snapshot`
@@ -48,7 +48,7 @@ only needs ordering, not duration.
 - [ ] The walks step is 150 s or less over three consecutive green main
       runs, with seven walks and no retries counted as passes.
 - [ ] Layout scan: every view in APP-266's seven-walk table is scanned at
-      least once per walk at 1280 px, and every view in the narrow set once
+      least once per walk at 1040 px, and every view in the narrow set once
       at 900 px; Notes list, per walk, which `shot()` calls became
       scan-only, which were removed, and why no view lost its scan.
       Screenshots may be dropped; scans may not.
@@ -60,3 +60,9 @@ only needs ordering, not duration.
   scan itself. The rule above is the whole point of APP-266's table.
 - XC-072's condition waits are the same idea applied to flakes; where a
   `waitFor` replaces a sleep that XC-072 also names, do it once.
+- 2026-10-30 (APP-265): the full width is 1040 px, not the 1280 px this item
+  first said. `createWindow` in `app/desktop/src/main.cjs` opens the window at
+  1040 × 760 and edge.cjs/edge.sh never resize it, so every walk scans at
+  1040 px (APP-266 found this; `views.json`'s `window.width` and
+  `test/views.test.cjs` hold it against main.cjs). The narrow set re-scans
+  each shot at 900 px (`NARROW_WIDTH`).

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | fresh | feedback | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | settings | agents | today
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,14 +10,14 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
-# APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
-[[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
+# APP-215: every walk starts past the first-run chat, as an owner who skipped it (APP-265 deleted the firstrun walk).
+echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
 echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/appearance.json"
 # A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
 # does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
 # owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" || "$scenario" == "firstrun" ]] || (
+[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -84,23 +84,6 @@ for (const name of readdirSync(dir)) writeFileSync(resolve(dir, name), readFileS
   chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
   : > "$LORE_STORE/.installed"
 fi
-if [[ "$scenario" == "listing" ]]; then
-  # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
-  mkdir -p "$LORE_STORE" "$root/bin"
-  echo '{}' > "$LORE_STORE/wrangler.jsonc"
-  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
-  echo '{"sellers":[]}' > "$root/marketplace.json"
-  export PATH="$root/bin:$PATH" LORE_MARKETPLACE_URL="file://$root/marketplace.json"
-  (cd "$repo_root" && uv run python -c "import json, time
-from lore import blueprint
-from lore.store import Store
-with Store() as store:
- store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_selling', True)
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
-blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
-blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
-fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time
 from lore.store import Store
@@ -123,14 +106,6 @@ with Store() as store:
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
   mkdir -p "$LORE_STORE"
   echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
-fi
-if [[ "$scenario" == "extras" ]]; then
-  # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
-  (cd "$repo_root" && uv run python -c "
-from lore.store import Store
-with Store() as store:
- store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])"
-  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool"}]' | uv run lore publication extras draft - >/dev/null)
 fi
 if [[ "$scenario" == "settings" ]]; then
   # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
@@ -234,13 +209,7 @@ if [[ "$scenario" == "reading" ]]; then
   printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
   (cd "$repo_root" && uv run lore sync --source automation >/dev/null)
 fi
-if [[ "$scenario" == "firstrun" ]]; then
-  # APP-215: a new owner with one Obsidian vault on this Mac; the rest is the agents walk's stand-in node and Claude Code.
-  mkdir -p "$root/obsidian" "$root/Edge Vault"
-  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
-  printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
-fi
-if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
+if [[ "$scenario" == "agents" ]]; then
   # APP-207: the owner's node stood in for by tests/fixtures/inbox.py: its D1 a SQLite file, its /agent a local server,
   # and a keyring kept in a file, so the owner's Keychain is never touched. No store is online yet: the walk puts it
   # online through a stand-in deploy, which leaves the node's wrangler (the fixture's) and its address behind.
@@ -259,8 +228,6 @@ fi
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
-# The first-run walk relaunches the app five times.
-[[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
 [[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
