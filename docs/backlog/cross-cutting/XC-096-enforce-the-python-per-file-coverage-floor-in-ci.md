@@ -4,7 +4,7 @@ title: Enforce the Python per-file coverage floor in CI
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-083, XC-097, XC-105]
 blockers: []
 dependencies: []
@@ -41,15 +41,15 @@ before any change is made.
 
 ## Acceptance criteria
 
-- [ ] The `python-unit` job runs the suite under `coverage` and fails when any
+- [x] The `python-unit` job runs the suite under `coverage` and fails when any
       `lore/` file is under 90% statements or 90% branches, checked per file.
-- [ ] The job's step summary shows the per-file table so a reader sees which
+- [x] The job's step summary shows the per-file table so a reader sees which
       file moved without opening the log.
-- [ ] Every file the first run reports under the floor has a backlog item
+- [x] Every file the first run reports under the floor has a backlog item
       naming it; the floor is not lowered and no file is excluded.
-- [ ] `uv run python -m pytest tests` is green locally on macOS, including the
+- [x] `uv run python -m pytest tests` is green locally on macOS, including the
       looping-vault case in `tests/test_sources.py`.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
@@ -58,3 +58,37 @@ before any change is made.
   Python extractions (XC-105) are measured against: an extraction that lowers
   a file's coverage is visible on the PR that makes it.
 - `python-floor.yml` runs `test_cli.py` on Python 3.10 and is unchanged.
+
+**Completed 2026-10-30.**
+
+- `tests/gate.py --python-only` runs `coverage run -m pytest -q`, then the
+  existing per-file check, prints the table as Markdown, and appends it to
+  `$GITHUB_STEP_SUMMARY` whenever that variable is set (a suite failure writes
+  one line there instead). The Worker steps are skipped under the flag, since
+  `tests.yml` runs them as their own jobs. Without the flag nothing changed
+  for local callers except a flushed heading. `--python-only --require-node`
+  is rejected as meaningless. ruff, ruff format and mypy are clean on it.
+- The `Python unit tests` job (its name is a required check, so unchanged)
+  now runs `uv run python tests/gate.py --python-only` in place of the bare
+  `unittest discover`.
+- First local run (macOS, Python 3.14.6, 1020 passed, 1 skipped): every
+  file in `lore/` is at or above 90/90 except one, `lore/cloudflare.py` at
+  90.5% statements and **57.1% branches** (14 branches, 6 partial; lines
+  75-76, 93, 102, 123, 127-129 missed). Filed as **XC-110** rather than
+  lowering the floor or excluding the file. Until XC-110 lands, the `Python
+  unit tests` job is **red on every pull request**, by design: red is the
+  floor enforcing itself, and a grace list keyed by item id would be the
+  exclusion this item forbids.
+- The looping-vault failure (`tests/test_sources.py:530`) was a production
+  bug, not a test bug. Python 3.13 changed `Path.resolve()` to stop raising
+  `RuntimeError` on a symlink loop and return the path resolved as far as it
+  got; `Obsidian._located`'s `except RuntimeError` was dead on 3.13+, so a
+  looping vault came back half-resolved (`/private/var/...` on macOS, where
+  `/var` is itself a link) instead of as Obsidian names it, which is the
+  behaviour APP-215 pinned. Linux CI never saw it because `/tmp` is not a
+  link. Fixed in `lore/sources.py`: a located path that is still a link is
+  one that loops, so it is offered as named; the `RuntimeError` branch stays
+  for Python 3.10-3.12. The test is unchanged.
+- Layout scan: no walk, view or desktop file is touched (`tests/gate.py`,
+  `.github/workflows/tests.yml`, `lore/sources.py`, two backlog items and
+  the index).
