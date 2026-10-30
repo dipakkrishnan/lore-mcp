@@ -127,9 +127,20 @@ class ClaimTest(HostedCase):
         refused = urllib.error.URLError("nodename nor servname provided")
         with patch("lore.hosted.urllib.request.urlopen", side_effect=refused):
             with self.assertRaisesRegex(
-                HostedError, "put your store online: yourlore.test didn't answer"
+                HostedError, r"put your store online\. Lore couldn't reach the internet"
             ):
                 self.claim()
+
+    def test_a_server_failure_is_said_plainly_never_as_a_status(self) -> None:
+        down = urllib.error.HTTPError("https://x", 522, "", {}, None)  # type: ignore[arg-type]
+        with patch("lore.hosted.urllib.request.urlopen", side_effect=down):
+            with self.assertRaises(HostedError) as said:
+                self.claim()
+        self.assertEqual(
+            str(said.exception),
+            "Lore couldn't put your store online. Lore's servers aren't answering"
+            " right now. Try again in a minute.",
+        )
 
 
 class InboxTest(HostedCase):

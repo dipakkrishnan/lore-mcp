@@ -148,8 +148,12 @@ describe("claiming a store", () => {
     expect(tables).toEqual([]);
   });
 
-  it("answers only addresses that are stores", async () => {
-    for (const host of ["yourlore.test", "short.yourlore.test", "abcdefghijk1.yourlore.test", "abcdefghijklm.yourlore.test", `${newStore()}.example.com`]) {
+  it("hands the zone's other Workers their own requests, and answers no other address", async () => {
+    for (const [name, host] of [["RELAY", "relay"], ["CHECKOUT", "checkout"], ["SITE", "www"]]) {
+      const response = await hostedFetch(`https://${host}.yourlore.test/events`, { method: "POST", body: "{}" });
+      expect(await response.json()).toEqual({ name, url: `https://${host}.yourlore.test/events` });
+    }
+    for (const host of ["yourlore.test", "short.yourlore.test", "abcdefghijk1.yourlore.test", "abcdefghijklm.yourlore.test", "relay.example.com", `${newStore()}.example.com`]) {
       const response = await hostedFetch(`https://${host}/claim`, { method: "POST", body: "{}" });
       expect(response.status).toBe(404);
       await response.text();

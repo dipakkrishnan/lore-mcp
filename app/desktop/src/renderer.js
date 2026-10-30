@@ -1104,7 +1104,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -1541,7 +1541,10 @@ class FirstRunChat {
     const list = el("div", "choices first-choices");
     const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
     const only = this.installed.length === 1 ? this.installed[0] : null;
+    // Claude Code's or Codex's memory, once Lore reads it, is not offered again.
+    const reading = (snapshot?.library.sources ?? []).some((source) => source.name in HISTORIES && source.enabled);
     for (const [choice, label] of ordered) {
+      if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
       const soon = choice === "muse";
@@ -1561,7 +1564,8 @@ class FirstRunChat {
   connectCard(app, who) {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
-    if (this.handed) {
+    if (this.handed && app === "instinct") box.append(...textFirst(this.handed, true));
+    else if (this.handed) {
       if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
       else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
       box.append(...afterConnect(app, who));
@@ -1577,7 +1581,7 @@ class FirstRunChat {
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once" : "Private link, shown once"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -2832,8 +2836,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
-  const node = el("img", asset === "grok" ? "logo full" : "logo");
+  // Grok Bot's and Instinct's marks are already whole tiles; framing them in another reads as a box in a box.
+  const node = el("img", asset === "grok" || asset === "instinct" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
@@ -3283,9 +3287,9 @@ function tiles(rows) {
 }
 
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
-const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
-const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
+const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", instinct: "instinct", other: "agent" };
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -3325,6 +3329,17 @@ const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I
 const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
+/** #597: Instinct is texted, not configured. The owner texts it a setup message holding only the plain address, and
+ * copies the key into the secure form Instinct gives, never into the conversation. Setup asks for one memory the owner
+ * approves; saving from then on is its own ask, offered once a save has come. New, so its note says what to do if
+ * Instinct can't finish. */
+const INSTINCT = {
+  ask: "Help me connect my Lore. Show me one memory you'd save, and ask me before saving anything. My Lore's address: ",
+  first: ["Copy the setup message and text it to Instinct, in the conversation you already have", "When Instinct asks for your Lore key, copy it below into the secure form Instinct gives you. Never text the key", "Instinct shows you one memory it would save. Approve it, and Lore shows here when it arrives"],
+  again: ["Copy the new key below into the secure form Instinct gives you for Lore, in place of the old one. Never text the key", "Lore shows here when Instinct's next save arrives"],
+  ongoing: "From now on, when you learn something about me worth keeping, show it to me and save it to Lore once I say yes.",
+  note: "Connecting Instinct is new. If Instinct can't finish it, "
+};
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
@@ -3660,7 +3675,11 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    const guide = agentGuide(handed, first);
+    const instead = () => void act(async () => {
+      await window.lore.disconnectAgent(handed.source, false);
+      await this.keyed("other", where);
+    });
+    const guide = app === "instinct" ? textFirst(handed, first, first ? instead : undefined) : agentGuide(handed, first);
     if (guide) form.body.append(...guide);
     else {
       const list = el("ol", "agent-steps");
@@ -3669,14 +3688,14 @@ class AgentSetup {
     }
     const hint = el("span", "form-hint quiet-hint");
     hint.innerHTML = LOCK_ICON;
-    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    hint.append(el("span", "", first ? (app === "instinct" ? "Key shown once" : "Private link, shown once") : app === "instinct" ? "The old key stopped working" : "The old link stopped working"));
     form.aside.append(hint);
     if (!guide) {
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
-    if (first) form.body.append(...afterConnect(app, where));
+    if (first && app !== "instinct") form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
@@ -3693,7 +3712,18 @@ class AgentSetup {
     this.form.body.append(line);
     const { dialog } = this.form;
     // Asked only while this sheet is on screen.
+    /** @type {() => void} */
+    let arriving = () => {};
     const stop = firstSave(handed, () => dialog.open, (saved) => {
+      // Instinct (#597): reaching the store is said apart from reaching this Mac.
+      if (handed.agent.app === "instinct") {
+        line.replaceChildren(el("span", "shimmer", `${who}'s save reached your store. Bringing it to this Mac…`));
+        arriving = onThisMac(source, () => dialog.open, (memories) => void loadAgents().then(() => line.replaceChildren(el("span", "dot ok"), el("span", "", `${plural(memories, "memory")} from ${who} on this Mac · `), inline("See it →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }))));
+        return;
+      }
       if (first) {
         line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
           closeSheet();
@@ -3701,7 +3731,10 @@ class AgentSetup {
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
     });
-    dialog.addEventListener("close", stop);
+    dialog.addEventListener("close", () => {
+      stop();
+      arriving();
+    });
   }
 }
 
@@ -3728,6 +3761,50 @@ function howTo(handed, how) {
   const byHand = el("details", "agent-by-hand");
   byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
   return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
+}
+
+/** Instinct's steps (#597): the setup message to text it, which holds only the plain address, and apart from it the key,
+ * for Instinct's secure form; a new key is only the key. `instead` connects it as Other, where the sheet can.
+ * @param {AgentKey} handed @param {boolean} first @param {() => void} [instead] */
+function textFirst(handed, first, instead) {
+  const list = el("ol", "agent-steps");
+  for (const step of first ? INSTINCT.first : INSTINCT.again) list.append(el("li", "", step));
+  const masked = el("span", "agent-link-url");
+  masked.append(el("span", "agent-link-key", "••••••••••••"));
+  const key = el("div", "agent-secure-key");
+  key.append(el("p", "hint", "Your Lore key, for Instinct's secure form only"), copyLink(masked, handed.key, handed.agent.name, "", "Copy key"));
+  const note = el("p", "hint", INSTINCT.note);
+  if (instead) note.append(inline("connect it as Other instead", instead), ".");
+  else note.append("connect it as Other instead.");
+  return [list, ...(first ? [plainLink(handed.mcp_url, handed.agent.name, INSTINCT.ask, "Copy message")] : []), key, note];
+}
+
+/** Waits, while `active`, until what the agent saved is on this Mac, not only in the store. Returns what stops it.
+ * @param {string} source @param {() => boolean} active @param {(memories: number) => void} arrived */
+function onThisMac(source, active, arrived) {
+  let done = false;
+  const check = async () => {
+    if (done || !active()) return;
+    const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source);
+    if (done || !entry || entry.waiting || !entry.memories) return;
+    stop();
+    arrived(entry.memories);
+  };
+  const poll = setInterval(() => {
+    if (active()) void window.lore.checkAgents().finally(check);
+  }, FIRST_SAVE_EVERY_MS);
+  /** @param {SourceRead[]} reads */
+  const landed = (reads) => {
+    if (reads.some((read) => read.name === source)) void check();
+  };
+  const stop = () => {
+    done = true;
+    clearInterval(poll);
+    agentWaiting.delete(landed);
+  };
+  agentWaiting.add(landed);
+  void check();
+  return stop;
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
@@ -3786,7 +3863,9 @@ function openAgent(source) {
   const form = new FormSheet(name, agentMark(source.app, name));
   form.text(agentLine(source));
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
-  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  // Instinct saves from then on only when asked, and asks the owner before each save (#597).
+  const offer = !saved ? null : source.app === "instinct" ? promptOffer(`When you want ${name} to keep saving, text it this. It asks you before each save:`, INSTINCT.ongoing) : eveningOffer(source.app, name);
   if (offer) form.body.append(offer);
   const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
   if (signedIn) {
@@ -3799,7 +3878,7 @@ function openAgent(source) {
   form.open();
   function rekey() {
     const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
-    confirm.text(`The key ${name} has now stops working at once. You give it the new one the same way.`);
+    confirm.text(`The key ${name} has now stops working at once. ${source.app === "instinct" ? `You copy the new one into ${name}'s secure form, never into a text.` : "You give it the new one the same way."}`);
     confirm.button("Cancel", "secondary", () => openAgent(source));
     confirm.open({
       primary: "Get a new key",

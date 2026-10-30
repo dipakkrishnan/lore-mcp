@@ -374,8 +374,8 @@ function readThrough(loreHome, read) {
   return read;
 }
 
-/** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
- * tidies it. Resolves to whether Today has a new card, for the caller to tell the window, once.
+/** Put each app's new items in line to be read. What an agent saved is on Today at once, as the memories it wrote; a
+ * reading after only judges them, and writes none of its own beside them. Resolves to whether Today has a new card, for the caller to tell the window, once.
  * @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
   if (!reads.some((read) => read.added)) return false;
@@ -384,9 +384,12 @@ async function queueReadings(loreHome, reads) {
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
     if (!next) continue;
-    if (next.by.kind === "agent" && read.memories?.length) {
+    if (next.by.kind === "agent") {
+      if (!read.memories?.length) continue;
       await showSaved(reading.saved(next, read.memories));
       shown = true;
+      agent?.synthesize({ ...next, judge: read.memories });
+      continue;
     }
     agent?.synthesize(next);
   }
@@ -723,6 +726,20 @@ async function start(loreHome, outgoing) {
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },
     memoriesReady: async (read, report, wrote) => {
+      // An agent's saves, judged: what looks worth selling joins the card they are already on.
+      if (read.judge) {
+        const run = reading.judged(read, report);
+        if (!run.memories.length) return;
+        try {
+          await judgeMemories(loreHome, run.memories);
+        } catch (error) {
+          console.error("Lore could not record which memories look worth selling:", error);
+        }
+        await newMemories.extend(run);
+        emit({ type: "changed" });
+        emit({ type: "ready" });
+        return;
+      }
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);

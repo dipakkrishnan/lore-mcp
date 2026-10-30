@@ -13,6 +13,7 @@ from email.message import Message
 from io import BytesIO
 from typing import Any
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlsplit
 
 ADA = {"id": "0123456789abcdef0123456789abcdef", "name": "Ada's Account"}
 LAB = {"id": "fedcba9876543210fedcba9876543210", "name": "Lab"}
@@ -38,11 +39,25 @@ class FakeCloudflare:
         subdomain: str | None = "ada",
         taken: tuple[str, ...] = (),
         unverified: bool = False,
+        per_page: int = 50,
+        refused: tuple[int, str] | None = None,
+        garbled: bool = False,
+        late: int = 0,
     ) -> None:
         self.accounts = [ADA] if accounts is None else accounts
         self.subdomain = subdomain
         self.taken = set(taken)
         self.unverified = unverified
+        # How many accounts one page holds, so a long list takes two.
+        self.per_page = per_page
+        # A (code, message) every call is refused with, when set.
+        self.refused = refused
+        # Refuse every call with a body that is not JSON, as a gateway does.
+        self.garbled = garbled
+        # How many looks a newly registered name takes to show up: Cloudflare
+        # reports a PUT subdomain only after a moment.
+        self.late = late
+        self.pending: str | None = None
         self.calls: list[tuple[str, str, object]] = []
         self.tokens: set[str] = set()
 
@@ -51,13 +66,34 @@ class FakeCloudflare:
         body = json.loads(call.data) if call.data else None
         self.calls.append((call.get_method(), path, body))
         self.tokens.add(call.get_header("Authorization"))
+        if self.garbled:
+            raise HTTPError(
+                call.full_url,
+                502,
+                "Bad Gateway",
+                Message(),
+                BytesIO(b"<html>502 Bad Gateway</html>"),
+            )
         if self.unverified:
             return self._refuse(
                 call, 403, 10034, "workers.api.error.email_verification_required"
             )
+        if self.refused:
+            return self._refuse(call, 403, *self.refused)
         if path.startswith("/accounts?"):
-            return self._answer(self.accounts, {"page": 1, "total_pages": 1})
+            page = int(parse_qs(urlsplit(path).query)["page"][0])
+            pages = max(1, -(-len(self.accounts) // self.per_page))
+            start = (page - 1) * self.per_page
+            return self._answer(
+                self.accounts[start : start + self.per_page],
+                {"page": page, "total_pages": pages},
+            )
         if path.endswith("/workers/subdomain") and call.get_method() == "GET":
+            if self.pending is not None:
+                if self.late:
+                    self.late -= 1
+                else:
+                    self.subdomain, self.pending = self.pending, None
             if self.subdomain is None:
                 return self._refuse(
                     call,
@@ -69,8 +105,8 @@ class FakeCloudflare:
         if path.endswith("/workers/subdomain") and call.get_method() == "PUT":
             if body["subdomain"] in self.taken:
                 return self._refuse(call, 409, 10031, "Subdomain is unavailable.")
-            self.subdomain = body["subdomain"]
-            return self._answer({"subdomain": self.subdomain})
+            self.pending = body["subdomain"]
+            return self._answer({"subdomain": self.pending})
         raise AssertionError(f"no stand-in for {call.get_method()} {path}")
 
     def made(self) -> list[str]:

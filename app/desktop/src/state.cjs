@@ -365,7 +365,7 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
       if (!yes) return "The owner chose not to put the store online right now.";
       return storeOnline(loreHome).then(
         () => "The store is online for the owner's agents, hosted by Lore: nothing for sale.",
-        (/** @type {Error} */ error) => `The store did not go online: ${error.message}.`
+        (/** @type {Error} */ error) => `The store did not go online: ${error.message.replace(/\.$/, "")}.`
       );
     }
     const changes = await outgoing.changes();
@@ -852,7 +852,7 @@ async function removeSource(loreHome, name, keep) {
 }
 
 /** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
-const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "instinct", "other"]);
 
 /** @param {unknown} name */
 function agentSource(name) {
