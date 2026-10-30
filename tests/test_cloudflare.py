@@ -10,7 +10,7 @@ from email.message import Message
 from io import BytesIO
 from typing import Any
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import call, patch
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
@@ -55,6 +55,71 @@ class CloudflareTest(_Case):
         self.assertEqual(self._with(fake).register(ADA["id"], "ada-lore"), "ada-lore-2")
         self.assertEqual(fake.made(), ["ada-lore", "ada-lore-2"])
 
+    # XC-110: the refusal and retry paths, so lore/cloudflare.py meets the floor.
+
+    def test_a_refusal_that_is_not_json_is_still_a_refusal(self) -> None:
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(FakeCloudflare(garbled=True)).accounts()
+        self.assertEqual(refused.exception.codes, set())
+        self.assertIn("(502)", str(refused.exception))
+
+    def test_a_second_page_of_accounts_is_read_too(self) -> None:
+        fake = FakeCloudflare([ADA, LAB], per_page=1)
+        found = self._with(fake).accounts()
+        self.assertEqual([account.id for account in found], [ADA["id"], LAB["id"]])
+        self.assertEqual(
+            [path for _, path, _ in fake.calls],
+            ["/accounts?per_page=50&page=1", "/accounts?per_page=50&page=2"],
+        )
+
+    def test_a_subdomain_refusal_other_than_none_yet_is_raised(self) -> None:
+        fake = FakeCloudflare(refused=(10000, "Authentication error"))
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(fake).subdomain(ADA["id"])
+        self.assertEqual(refused.exception.codes, {10000})
+
+    def test_a_register_refusal_other_than_taken_is_raised_not_retried(self) -> None:
+        fake = FakeCloudflare(refused=(10000, "Authentication error"))
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(refused.exception.codes, {10000})
+        self.assertEqual(fake.made(), ["ada-lore"])
+
+    def test_a_name_cloudflare_reports_late_is_waited_for(self) -> None:
+        fake = FakeCloudflare(subdomain=None, late=1)
+        with patch("lore.cloudflare.time.sleep") as sleep:
+            made = self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(made, "ada-lore")
+        self.assertEqual(sleep.call_args_list, [call(2)])
+        self.assertEqual([method for method, _, _ in fake.calls], ["PUT", "GET", "GET"])
+
+    def test_a_name_never_reported_is_still_the_one_made(self) -> None:
+        fake = FakeCloudflare(subdomain=None, late=99)
+        with patch("lore.cloudflare.time.sleep") as sleep:
+            made = self._with(fake).register(ADA["id"], "ada-lore", waits=2)
+        self.assertEqual(made, "ada-lore")
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_every_name_taken_is_a_refusal_naming_it(self) -> None:
+        fake = FakeCloudflare(
+            subdomain=None,
+            taken=(
+                "ada-lore",
+                "ada-lore-2",
+                "ada-lore-3",
+                "ada-lore-4",
+                "ada-lore-abc123",
+            ),
+        )
+        with (
+            patch("lore.cloudflare.secrets.token_hex", return_value="abc123"),
+            self.assertRaises(CloudflareError) as refused,
+        ):
+            self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(refused.exception.codes, {10031})
+        self.assertIn("every name tried was taken", str(refused.exception))
+        self.assertEqual(len(fake.made()), 5)
+
     def test_an_unverified_email_is_told_apart(self) -> None:
         with self.assertRaises(CloudflareError) as refused:
             self._with(FakeCloudflare(unverified=True)).accounts()
@@ -88,25 +153,9 @@ class _Paged:
         return _Answer(json.dumps(envelope).encode())
 
 
-class _Slow(FakeCloudflare):
-    """Cloudflare that answers `lag` checks with "no address" after making one."""
-
-    def __init__(self, lag: int) -> None:
-        super().__init__(subdomain=None)
-        self.lag = lag
-
-    def __call__(self, request: Any, timeout: float | None = None) -> _Answer:
-        if request.get_method() == "GET" and self.made() and self.lag > 0:
-            self.lag -= 1
-            made, self.subdomain = self.subdomain, None
-            try:
-                return super().__call__(request, timeout)
-            finally:
-                self.subdomain = made
-        return super().__call__(request, timeout)
-
-    def checks(self) -> int:
-        return sum(1 for method, _, _ in self.calls if method == "GET")
+def _checks(fake: FakeCloudflare) -> int:
+    """How many times the address was looked up."""
+    return sum(1 for method, _, _ in fake.calls if method == "GET")
 
 
 def _answering(status: int, body: bytes) -> Callable[..., _Answer]:
@@ -190,23 +239,23 @@ class RegisterTest(_Case):
         self.assertNotIn("GET", [method for method, _, _ in fake.calls])
 
     def test_it_waits_until_cloudflare_reports_the_address(self) -> None:
-        fake = _Slow(lag=2)
+        fake = FakeCloudflare(subdomain=None, late=2)
         self.assertEqual(self._with(fake).register(ADA["id"], "ada-lore"), "ada-lore")
-        self.assertEqual(fake.checks(), 3)
+        self.assertEqual(_checks(fake), 3)
         self.assertEqual(self.slept.call_args_list, [mock.call(2)] * 2)
 
     def test_it_stops_waiting_and_keeps_the_name_it_made(self) -> None:
-        fake = _Slow(lag=99)
+        fake = FakeCloudflare(subdomain=None, late=99)
         made = self._with(fake).register(ADA["id"], "ada-lore", waits=3)
         self.assertEqual(made, "ada-lore")
-        self.assertEqual(fake.checks(), 3)
+        self.assertEqual(_checks(fake), 3)
         self.assertEqual(self.slept.call_args_list, [mock.call(2)] * 3)
 
     def test_no_waits_means_no_check(self) -> None:
-        fake = _Slow(lag=99)
+        fake = FakeCloudflare(subdomain=None, late=99)
         made = self._with(fake).register(ADA["id"], "ada-lore", waits=0)
         self.assertEqual(made, "ada-lore")
-        self.assertEqual(fake.checks(), 0)
+        self.assertEqual(_checks(fake), 0)
         self.slept.assert_not_called()
 
 

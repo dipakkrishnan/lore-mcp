@@ -7,9 +7,16 @@
   "main": "src/hosted/index.ts",
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  // Every store is a subdomain. Custom domains on the zone (checkout., relay.) take
-  // precedence over this route, and the zone needs a proxied wildcard DNS record.
+  // Every store is a subdomain, and the zone needs a proxied wildcard DNS record. This route
+  // runs in front of the zone's custom domains (relay., checkout., www.), and fetch() can't
+  // reach them from here (global_fetch_strictly_public loops back into this route), so the
+  // Worker hands their requests to those Workers by name.
   "routes": [{ "pattern": "*.yourlore.dev/*", "zone_name": "yourlore.dev" }],
+  "services": [
+    { "binding": "RELAY", "service": "lore-feedback-relay" },
+    { "binding": "CHECKOUT", "service": "lore-checkout" },
+    { "binding": "SITE", "service": "yourlore-site" }
+  ],
   "workers_dev": false,
   "vars": { "STORE_DOMAIN": "yourlore.dev" },
   // Logs only, and no invocation logs: those record each request's URL, and a URL-only
