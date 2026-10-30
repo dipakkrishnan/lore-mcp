@@ -4,7 +4,7 @@ title: Measure coverage for the Node packages, report-only
 priority: P2
 effort: S
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-096, XC-099, XC-108]
 blockers: []
 dependencies: []
@@ -36,12 +36,12 @@ floors yet; XC-108 sets them once a few weeks of numbers exist.
 
 ## Acceptance criteria
 
-- [ ] Each of `lore/node`, `feedback-relay`, `checkout` and `app/desktop`
+- [x] Each of `lore/node`, `feedback-relay`, `checkout` and `app/desktop`
       prints statement and branch coverage in its CI job's step summary.
-- [ ] No job fails on a coverage number; this item is report-only.
-- [ ] The Worker component tests' wall time grows by no more than 10% with
+- [x] No job fails on a coverage number; this item is report-only.
+- [x] The Worker component tests' wall time grows by no more than 10% with
       instrumentation on (measured on one CI run against the run before).
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
@@ -88,4 +88,26 @@ floors yet; XC-108 sets them once a few weeks of numbers exist.
   (178/181); `app/desktop` lines 92.60% (3368/3637), branches 89.04%
   (1268/1424). Locally the instrumented `lore/node` run was not slower than
   the plain one (63 s against 78 s, both noisy); the CI measurement is what
-  criterion 3 asks for and is recorded below once the run finishes.
+  criterion 3 asks for and is recorded below.
+- CI numbers, PR #614 run 41099570458 (2026-10-30) against the latest green
+  main run before it, 40995303688 (XC-088, #608). The three Worker lines
+  read from the job logs are identical to the local numbers above:
+  `lore/node` statements 96.33% / branches 89.57%; `feedback-relay`
+  100.00% / 99.27%; `checkout` 99.51% / 98.34%. The desktop's
+  `test:coverage` step (58 s) and its summary step both succeeded with no
+  `coverage app/desktop` warning annotation on the job, which is the
+  script's only other outcome, so the line carries numbers; the same
+  commit on the same OS gave lines 92.60% / branches 89.04% locally, and
+  the job's log was still being written (the walks) when this was
+  recorded. Criterion 3:
+  `Node component tests` took 97 s (job) and 72 s (test step) instrumented
+  against 90 s and 66 s before, +7.8% and +9.1%; `Card checkout component
+  tests` 19 s against 25 s and `Feedback relay component tests` 25 s against
+  22 s, where the job is mostly `npm ci` and a 3 s test step, so those two
+  are runner noise either way. The desktop's `npm test` step, outside the
+  criterion, went from 42 s to 58 s under `--experimental-test-coverage`.
+  Criterion 4: the diff touches nothing under `app/desktop/support/` or
+  `app/desktop/src/`; the walks ran unchanged in the same job.
+- Every job in the run is green; no coverage threshold exists anywhere to
+  fail one (criterion 2). The `Python unit tests` job now also runs
+  `tests/test_coverage_summary.py`.
