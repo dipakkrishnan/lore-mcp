@@ -15,7 +15,13 @@ export type HostedEnv = {
   STORES: DurableObjectNamespace<HostedStore>;
   STORE_DOMAIN: string;
   CLAIMS: RateLimit;
+  RELAY: Fetcher;
+  CHECKOUT: Fetcher;
+  SITE: Fetcher;
 };
+
+/** The zone's other Workers, which this route sits in front of, by the name before the domain. */
+const OTHERS = { relay: "RELAY", checkout: "CHECKOUT", www: "SITE" } as const;
 
 /** A store's address is random, so agents' links never change when the owner later picks a name. */
 export const STORE = /^[a-z2-7]{12}$/;
@@ -77,8 +83,10 @@ export default {
   async fetch(request: Request, env: HostedEnv): Promise<Response> {
     const url = new URL(request.url);
     const store = storeOf(url.hostname, env.STORE_DOMAIN);
-    // The zone's other Workers (relay., checkout., www.) are custom domains, which sit behind this route as its origin.
-    if (!store) return fetch(request);
+    if (!store) {
+      const other = url.hostname.endsWith(`.${env.STORE_DOMAIN}`) ? url.hostname.slice(0, -env.STORE_DOMAIN.length - 1) : "";
+      return Object.hasOwn(OTHERS, other) ? env[OTHERS[other as keyof typeof OTHERS]].fetch(request) : refuse({ status: 404, error: "no store here" });
+    }
     // Signed requests and agents' sign-ins name the store by its https address.
     if (url.protocol !== "https:") {
       url.protocol = "https:";
