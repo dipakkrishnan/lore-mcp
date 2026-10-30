@@ -88,3 +88,17 @@ get a permission error. Lore then records `NEEDS_PERMISSION` for them, and the
 app tells the owner macOS hasn't let Lore read them. Nothing is lost, but the
 message is false. A possible follow-up is to refuse those commands outside
 setup, the same way `STORE_COMMAND` is refused.
+
+Limits found when main was merged in on 2026-10-30:
+
+- The second criterion's "real setup and synthesis run" rests on the policy and
+  kernel tests. No live-model run has been done, so it is not proven end to end.
+- Judging an agent's saves, new on main, runs as `synthesize` and reads Lore's
+  store, so it needs no history access.
+- Possible indirect route, read from the code and not executed: a non-setup task
+  can run `lore sources add --folder ~/.claude/projects`, which has no owner gate
+  (`lore/cli.py`). The sandbox's refusal makes the probe `NEEDS_PERMISSION`, which
+  `Registry.add` accepts, so the folder is registered. A later `lore sync` from
+  automation, outside the sandbox, would then import it, and `lore search` would
+  hand it to any task. This predates this item and needs its own item; gating
+  `sources add` means checking the app's own calls still work.
