@@ -10,6 +10,7 @@
     "pay": "tsx scripts/pay.ts",
     "smoke": "tsx scripts/smoke.ts",
     "test": "vitest run && vitest run -c vitest.hosted.config.ts",
+    "test:coverage": "vitest run --coverage && vitest run -c vitest.hosted.config.ts --coverage",
     "types": "wrangler types env.d.ts --include-runtime false",
     "preview": "tsx scripts/preview.ts"
   },
@@ -32,6 +33,7 @@
     "@cloudflare/workers-types": "5.20261016.1",
     "@eslint/js": "^10.0.1",
     "@types/node": "26.6.5",
+    "@vitest/coverage-istanbul": "^4.1.12",
     "@x402/core": "^2.20.0",
     "esbuild": "0.28.2",
     "eslint": "^10.13.0",

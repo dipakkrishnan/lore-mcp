@@ -1,7 +1,7 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineProject({
+export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.jsonc" },
@@ -19,6 +19,14 @@ export default defineProject({
   ],
   test: {
     fileParallelism: false,
-    include: ["test/**/*.test.ts"]
+    include: ["test/**/*.test.ts"],
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). The Workers pool
+    // supports the istanbul provider only; CI reads coverage/coverage-summary.json into one line
+    // of the step summary. No thresholds until XC-108.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"]
+    }
   }
 });

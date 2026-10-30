@@ -4,7 +4,7 @@ title: Measure coverage for the Node packages, report-only
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-096, XC-099, XC-108]
 blockers: []
 dependencies: []
@@ -51,3 +51,41 @@ floors yet; XC-108 sets them once a few weeks of numbers exist.
   deprecated in favour of `@cloudflare/vitest-plugin`; `feedback-relay` and
   `checkout` pin ^0.22.0 while `lore/node` pins ^0.23.0. Aligning the three
   is in scope here if the coverage provider needs it, not otherwise.
+- 2026-10-30, implementation. The provider did not need the pools aligned:
+  istanbul instruments inside workerd on both 0.22.0 and 0.23.0, so the pins
+  stay. `@vitest/coverage-istanbul` peer-depends on the exact vitest version
+  (4.1.12 in `lore/node`, 4.1.11 in the other two); the latest 5.x trips an
+  npm peer-resolution crash, so each package pins the version matching its
+  vitest.
+- Coverage is on with `npm run test:coverage` (vitest `--coverage`), which is
+  what the four CI jobs now run; plain `npm test` is unchanged, so a local
+  run is not slowed. The config is `test.coverage` in each vitest config;
+  the configs switched from `defineProject` to `defineConfig` because
+  `coverage` is a root-level option and `tsc` rejects it on a project.
+- `lore/node` is two Workers with two configs. Their reports partition
+  `src/`: the main config covers `src/**` minus `src/hosted/**`, the hosted
+  config covers `src/hosted/**` into `coverage/hosted/` (the hosted Worker
+  imports `seal.ts` and `agent.ts` from the main tree, which count once, in
+  the main report). `.github/scripts/coverage_summary.py` sums the two
+  `total` blocks into the one `lore/node` line.
+- The step-summary line comes from `.github/scripts/coverage_summary.py`
+  (tested in `tests/test_coverage_summary.py`): istanbul `json-summary`
+  files for the Workers, node's lcov reporter for the desktop. A missing or
+  unreadable report is a `::warning` and a "not measured" line, exit 0: the
+  job's colour still means only that the tests passed.
+- The desktop runs `node --test --experimental-test-coverage
+  --test-coverage-include='src/**'` with the `spec` reporter to stdout and
+  the `lcov` reporter to `coverage/lcov.info`. Two caveats on that line:
+  node:test counts lines, not statements, so the line says `lines`; and V8
+  coverage knows only the files the tests loaded, so `main.cjs`,
+  `preload.cjs`, `renderer.js`, `markdown.js` and `runtime.cjs` are absent
+  from the number rather than counted at 0% (15 of 20 `src/` files appear).
+  The istanbul reports do the opposite: every `src/**` file counts, loaded
+  or not.
+- Local numbers at implementation: `lore/node` statements 96.33%
+  (1075/1116), branches 89.57% (704/786); `feedback-relay` 100.00%
+  (184/184) / 99.27% (136/137); `checkout` 99.51% (202/203) / 98.34%
+  (178/181); `app/desktop` lines 92.60% (3368/3637), branches 89.04%
+  (1268/1424). Locally the instrumented `lore/node` run was not slower than
+  the plain one (63 s against 78 s, both noisy); the CI measurement is what
+  criterion 3 asks for and is recorded below once the run finishes.
