@@ -4,7 +4,7 @@ title: Delete the dead desktop walk scenarios
 priority: P2
 effort: XS
 component: desktop-app
-status: in-progress
+status: completed
 related: [APP-266, XC-077, APP-247]
 blockers: []
 dependencies: []
@@ -34,7 +34,7 @@ why in Notes; the default is deletion.
 
 - [x] `grep -nE 'listing|extras|firstrun' app/desktop/support/edge.cjs
       app/desktop/support/edge.sh` matches no scenario code.
-- [ ] All 21 walks pass on the PR's `Desktop macOS checks` run.
+- [x] All 21 walks pass on the PR's `Desktop macOS checks` run.
 - [x] Layout scan: the Notes list each deleted scenario's screenshot labels
       and show none appears in the latest green main walks log, so no view
       scanned in CI before this change is unscanned after it.
@@ -59,6 +59,9 @@ why in Notes; the default is deletion.
   block stays because `test/views.test.cjs`'s schema reads it, and it remains
   the escape hatch for any future scenario edge.cjs has that walks.cjs does
   not run. `test/views.test.cjs` 6/6.
+- The PR (#613, based on #612's branch) ran `tests.yml` as run 41099405546
+  (commit 5ccd8aa6); its `Desktop macOS checks` job 124213621031 logged
+  `21/21 walks passed in 344s, 2 at a time`, `0 of 21 walks passed on retry`.
 - Shot labels of the deleted scenarios, from views.json's `dead.scenarios`
   (14): `listing`: settings-list-offer, settings-list-pending. `extras`:
   extras-card, extras-approved. `firstrun`: firstrun-greeting,
