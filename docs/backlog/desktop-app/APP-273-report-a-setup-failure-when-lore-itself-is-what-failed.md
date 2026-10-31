@@ -1,5 +1,5 @@
 ---
-id: APP-265
+id: APP-273
 title: Report a setup failure when Lore's own command line is what failed
 priority: P1
 effort: S
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 ## Problem

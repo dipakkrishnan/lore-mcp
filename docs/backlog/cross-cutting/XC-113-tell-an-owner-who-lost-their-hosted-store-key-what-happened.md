@@ -1,5 +1,5 @@
 ---
-id: XC-097
+id: XC-113
 title: Tell an owner whose Mac lost the hosted store's key what happened and what to do
 priority: P2
 effort: M
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 ## Problem

@@ -1,5 +1,5 @@
 ---
-id: XC-096
+id: XC-112
 title: Say a broken answer from the hosted store plainly, not as a Python error
 priority: P2
 effort: XS
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 ## Problem
