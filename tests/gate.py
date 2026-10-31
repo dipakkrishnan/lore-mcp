@@ -3,6 +3,7 @@
 
     uv run python tests/gate.py                # everything available
     uv run python tests/gate.py --require-node # fail instead of skipping the Worker
+    uv run python tests/gate.py --python-only  # the Python half, as CI runs it
 
 Two languages live here. The Python package in `lore/` is gated on coverage:
 every file must reach 90% statement coverage *and* 90% branch coverage. Why not
@@ -22,21 +23,42 @@ The Worker checks need `npm install` to have been run in each directory.
 Without that, that Worker is reported as SKIPPED and the gate still passes,
 so a Python-only contributor is not blocked by a Node toolchain. Pass
 `--require-node` (what CI should do) to turn a skip into a failure.
+
+`--python-only` (XC-096) is what the `Python unit tests` CI job runs: the
+Worker checks are that workflow's own jobs, so only the Python suite runs,
+quietly, and the per-file table is printed as Markdown. Whenever
+`GITHUB_STEP_SUMMARY` is set, the table is appended to it too, so a reader
+sees which file moved without opening the log.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 FLOOR = 90.0
 ROOT = Path(__file__).resolve().parent.parent
 WORKERS = (ROOT / "lore/node", ROOT / "feedback-relay")
+
+
+@dataclass(frozen=True)
+class FileCoverage:
+    """One file's two coverage numbers, as the gate judges them."""
+
+    name: str
+    statements: float
+    branches: float
+
+    @property
+    def short(self) -> bool:
+        return min(self.statements, self.branches) < FLOOR
 
 
 def _percent(covered: int, total: int) -> float:
@@ -45,53 +67,112 @@ def _percent(covered: int, total: int) -> float:
 
 
 def _heading(text: str) -> None:
-    print(f"\n\033[1m{text}\033[0m" if sys.stdout.isatty() else f"\n{text}")
+    # Flushed, so the heading lands before the output of the child it introduces.
+    print(f"\n\033[1m{text}\033[0m" if sys.stdout.isatty() else f"\n{text}", flush=True)
 
 
-def python_gate(pytest_args: list[str]) -> int:
-    """Run the Python suite under coverage and check every file against FLOOR."""
-    _heading("Python — tests")
-    tests = subprocess.run(
-        [sys.executable, "-m", "coverage", "run", "-m", "pytest", *pytest_args],
+def _summarise(markdown: str) -> None:
+    """Append to the GitHub step summary when there is one; a no-op elsewhere."""
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as out:
+            out.write(markdown.rstrip("\n") + "\n\n")
+
+
+def run_python_suite(pytest_args: list[str], *, quiet: bool) -> int:
+    """Run the Python suite under coverage; the exit code is pytest's."""
+    quietly = ["-q"] if quiet else []
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "coverage",
+            "run",
+            "-m",
+            "pytest",
+            *quietly,
+            *pytest_args,
+        ],
         cwd=ROOT,
     )
-    if tests.returncode:
-        print("\ngate: the Python suite failed; coverage not evaluated.")
-        return tests.returncode
+    return result.returncode
 
+
+def per_file_coverage() -> list[FileCoverage]:
+    """Read the per-file numbers from the coverage data the suite just wrote."""
     with tempfile.NamedTemporaryFile(suffix=".json") as report:
-        written = subprocess.run(
+        subprocess.run(
             [sys.executable, "-m", "coverage", "json", "-o", report.name, "--quiet"],
             cwd=ROOT,
+            check=True,
         )
-        if written.returncode:
-            return written.returncode
         files = json.loads(Path(report.name).read_text(encoding="utf-8"))["files"]
-
-    _heading("Python — per-file coverage")
-    print(f"{'File':<24}{'Stmt %':>9}{'Branch %':>10}")
-    failures: list[str] = []
+    rows: list[FileCoverage] = []
     for name in sorted(files):
         summary = files[name]["summary"]
-        statements = _percent(summary["covered_lines"], summary["num_statements"])
-        branches = _percent(summary["covered_branches"], summary["num_branches"])
-        short = min(statements, branches) < FLOOR
-        print(
-            f"{name:<24}{statements:>8.1f}%{branches:>9.1f}%"
-            f"{'  <- below floor' if short else ''}"
-        )
-        if short:
-            failures.append(
-                f"{name}: {statements:.1f}% statements, {branches:.1f}% branches"
+        rows.append(
+            FileCoverage(
+                name,
+                _percent(summary["covered_lines"], summary["num_statements"]),
+                _percent(summary["covered_branches"], summary["num_branches"]),
             )
+        )
+    return rows
 
+
+def text_table(rows: list[FileCoverage]) -> str:
+    width = max([24, *(len(row.name) for row in rows)])
+    lines = [f"{'File':<{width}}{'Stmt %':>9}{'Branch %':>10}"]
+    for row in rows:
+        lines.append(
+            f"{row.name:<{width}}{row.statements:>8.1f}%{row.branches:>9.1f}%"
+            f"{'  <- below floor' if row.short else ''}"
+        )
+    return "\n".join(lines)
+
+
+def markdown_table(rows: list[FileCoverage]) -> str:
+    lines = ["| File | Statements | Branches | Floor |", "|---|---:|---:|---|"]
+    for row in rows:
+        verdict = "**below**" if row.short else "ok"
+        lines.append(
+            f"| `{row.name}` | {row.statements:.1f}% | {row.branches:.1f}% | {verdict} |"
+        )
+    return "\n".join(lines)
+
+
+def python_gate(pytest_args: list[str], *, python_only: bool = False) -> int:
+    """Run the Python suite under coverage and check every file against FLOOR."""
+    _heading("Python — tests")
+    code = run_python_suite(pytest_args, quiet=python_only)
+    if code:
+        print("\ngate: the Python suite failed; coverage not evaluated.")
+        _summarise(
+            "## Python per-file coverage\n\n"
+            "The Python suite failed, so coverage was not evaluated."
+        )
+        return code
+    rows = per_file_coverage()
+
+    _heading("Python — per-file coverage")
+    print(markdown_table(rows) if python_only else text_table(rows))
+
+    failures = [row for row in rows if row.short]
     if failures:
+        verdict = (
+            f"{len(failures)} file(s) below {FLOOR:.0f}% on statements or branches."
+        )
         print(f"\ngate: {len(failures)} file(s) below {FLOOR:.0f}% —")
-        for failure in failures:
-            print(f"  {failure}")
-        return 1
-    print(f"\nEvery file in lore/ is at or above {FLOOR:.0f}% on both metrics.")
-    return 0
+        for row in failures:
+            print(
+                f"  {row.name}: {row.statements:.1f}% statements,"
+                f" {row.branches:.1f}% branches"
+            )
+    else:
+        verdict = f"Every file in lore/ is at or above {FLOOR:.0f}% on both metrics."
+        print(f"\n{verdict}")
+    _summarise(f"## Python per-file coverage\n\n{markdown_table(rows)}\n\n{verdict}")
+    return 1 if failures else 0
 
 
 def one_worker_gate(worker: Path, *, required: bool) -> int:
@@ -152,11 +233,22 @@ def main(argv: list[str]) -> int:
         action="store_true",
         help="fail instead of skipping when a Worker's dependencies are absent",
     )
+    parser.add_argument(
+        "--python-only",
+        action="store_true",
+        help="run only the Python suite, quietly, and print the table as Markdown",
+    )
     # Anything this parser does not claim goes straight to pytest, so
     # `tests/gate.py -q tests/test_cli.py` works the way it reads.
     args, pytest_args = parser.parse_known_args(argv)
+    if args.python_only and args.require_node:
+        parser.error(
+            "--python-only runs no Worker check, so --require-node has no meaning"
+        )
 
-    python = python_gate(pytest_args)
+    python = python_gate(pytest_args, python_only=args.python_only)
+    if args.python_only:
+        return python
     node = node_gate(required=args.require_node)
 
     _heading("Result")
