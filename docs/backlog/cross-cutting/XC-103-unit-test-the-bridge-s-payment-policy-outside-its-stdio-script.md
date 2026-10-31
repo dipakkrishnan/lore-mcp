@@ -4,13 +4,13 @@ title: Unit-test the bridge's payment policy outside its stdio script
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-099]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-10-31
 ---
 
 ## Problem
@@ -38,14 +38,27 @@ both receipt encodings, cap validation and the malformed-key path. Keep
 
 ## Acceptance criteria
 
-- [ ] `bridge/src/policy.ts` exports the policy functions and has no
+- [x] `bridge/src/policy.ts` exports the policy functions and has no
       top-level side effects.
-- [ ] `bridge/test/policy.test.ts` covers the five uncovered paths named in
+- [x] `bridge/test/policy.test.ts` covers the five uncovered paths named in
       Problem and runs in under 1 s.
-- [ ] `scripts/test.ts` passes unchanged.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] `scripts/test.ts` passes unchanged.
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
 
 - Workstream C5 of the test-pyramid plan.
+- `npm test` runs `node --import tsx test/policy.test.ts`, then `scripts/test.ts`.
+  The unit file takes 0.8-1.05 s wall on a laptop, nearly all of it tsx starting
+  (node:test reports about 0.1 s). To get there `bridgeKey` takes its key generator
+  as an argument, so `policy.ts` does not load viem, and the file is run directly
+  rather than through `--test`, which would start tsx twice.
+- Only the two existing messages became `UsageError`. Unknown flags and
+  `--max-usd 1e303` still end in a stack trace and exit 1, as before.
+- Pinned, not fixed: `approve` treats a negative or empty `amount` as costing
+  nothing (`BigInt("-5")` loses to the 0n start of the reduce, `BigInt("")` is 0n),
+  so a challenge of only those entries is approved at 0. Whether that should
+  decline is a separate decision.
+- Not pinned: a mode-400 key file holding no valid key makes `writeFileSync`
+  throw EACCES instead of provisioning. `--max-usd ""` means a cap of 0.
