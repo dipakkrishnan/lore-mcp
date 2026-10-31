@@ -2,10 +2,6 @@
 // through unchanged; when the remote answers "payment required", the wrapped
 // client signs and retries. The key never enters the model's context — the
 // client only ever sees tool results.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { parseArgs } from "node:util";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -18,9 +14,14 @@ import {
 import { toClientEvmSigner } from "@x402/evm";
 import { withX402Client } from "agents/x402";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
-
-const KEY_DIR = join(homedir(), ".x402-bridge");
-const KEY_FILE = join(KEY_DIR, "key.env");
+import {
+  approve,
+  bridgeKey,
+  decodeReceipt,
+  parseBridgeArgs,
+  UsageError,
+  type BridgeArgs
+} from "./policy.js";
 
 // Every log line goes to stderr as JSON — stdout belongs to the MCP transport.
 // This stream is also the demo's live payment feed: `tail -f` the bridge's
@@ -29,122 +30,50 @@ function emit(event: string, data: Record<string, unknown> = {}): void {
   process.stderr.write(`${JSON.stringify({ event, ...data })}\n`);
 }
 
-// X402_PRIVATE_KEY wins; otherwise self-provision a throwaway key, same
-// pattern as lore's canary buyer: no wallet-app export, no hand-edited file.
-function bridgeKey(): `0x${string}` {
-  const fromEnv = process.env.X402_PRIVATE_KEY;
-  if (fromEnv) {
-    if (!/^0x[0-9a-fA-F]{64}$/.test(fromEnv)) {
-      throw new Error("X402_PRIVATE_KEY is not a 0x-prefixed 32-byte hex key");
-    }
-    return fromEnv as `0x${string}`;
-  }
-  try {
-    const match = readFileSync(KEY_FILE, "utf8").match(
-      /^X402_PRIVATE_KEY=(0x[0-9a-fA-F]{64})$/m
-    );
-    if (match) return match[1] as `0x${string}`;
-  } catch {
-    // No file yet: first run.
-  }
-  const key = generatePrivateKey();
-  mkdirSync(KEY_DIR, { recursive: true, mode: 0o700 });
-  writeFileSync(
-    KEY_FILE,
-    "# Self-provisioned x402-mcp-bridge signer. Fund it only with what you\n" +
-      "# are willing to spend through this bridge.\n" +
-      `X402_PRIVATE_KEY=${key}\n`,
-    { mode: 0o400 }
-  );
-  return key;
-}
-
-// The settlement receipt arrives as _meta["x402/payment-response"] — either a
-// base64 JSON string (the HTTP header form) or an already-decoded object.
-function decodeReceipt(raw: unknown): Record<string, unknown> | undefined {
-  if (typeof raw === "string") {
-    try {
-      return JSON.parse(atob(raw)) as Record<string, unknown>;
-    } catch {
-      return { raw };
-    }
-  }
-  if (typeof raw === "object" && raw !== null) return raw as Record<string, unknown>;
-  return undefined;
-}
-
-const { values } = parseArgs({
-  options: {
-    node: { type: "string" },
-    network: { type: "string", default: "eip155:84532" },
-    "max-usd": { type: "string", default: "1" }
-  }
-});
-if (!values.node) {
-  console.error(
-    "usage: x402-mcp-bridge --node https://<host>/mcp [--network eip155:84532] [--max-usd 1]"
-  );
+let args: BridgeArgs;
+try {
+  args = parseBridgeArgs(process.argv.slice(2));
+} catch (err) {
+  if (!(err instanceof UsageError)) throw err;
+  console.error(err.message);
   process.exit(1);
 }
-const maxUsd = Number(values["max-usd"]);
-if (!Number.isFinite(maxUsd) || maxUsd < 0) {
-  console.error("--max-usd must be a non-negative number");
-  process.exit(1);
-}
-const maxPaymentValue = BigInt(Math.round(maxUsd * 1e6));
+const { maxUsd, maxPaymentValue } = args;
 let authorizedPaymentValue = 0n;
 
-const account = privateKeyToAccount(bridgeKey());
+const account = privateKeyToAccount(bridgeKey(generatePrivateKey));
 emit("startup", {
-  node: values.node,
-  network: values.network,
+  node: args.node,
+  network: args.network,
   maxUsd,
   buyer: account.address
 });
 
 const remote = new Client({ name: "x402-mcp-bridge", version: "0.1.0" });
-await remote.connect(new StreamableHTTPClientTransport(new URL(values.node)));
+await remote.connect(new StreamableHTTPClientTransport(new URL(args.node)));
 
 const paid = withX402Client(remote, {
   account: toClientEvmSigner(account),
-  network: values.network,
+  network: args.network,
   // USDC has 6 decimals. The SDK enforces this per call; the callback below
   // reserves against the same cap across the lifetime of this process.
   maxPaymentValue,
   confirmationCallback: async (accepts) => {
-    // The SDK signs whichever entry survives its network filtering — not
-    // necessarily accepts[0] — so approving here approves *any* entry. A
-    // hostile node can pair a cheap decoy on a filtered-out network with an
-    // expensive entry on ours. Every entry must therefore be one this
-    // process would pay: exact scheme, the configured network, and within
-    // the remaining budget. Anything else declines the whole challenge.
-    let amount: bigint;
-    try {
-      if (accepts.length === 0) throw new Error("empty accepts");
-      amount = accepts.reduce((max, entry) => {
-        if (entry.scheme !== "exact" || entry.network !== values.network) {
-          throw new Error(`${entry.scheme} on ${entry.network}`);
-        }
-        const value = BigInt(entry.amount);
-        return value > max ? value : max;
-      }, 0n);
-    } catch (err) {
-      emit("declined", {
-        reason: `unacceptable payment option: ${err instanceof Error ? err.message : String(err)}`,
-        accepts
-      });
+    const decision = approve(accepts, args.network, authorizedPaymentValue, maxPaymentValue);
+    if (!decision.approved) {
+      if (decision.reason === "option") {
+        emit("declined", { reason: `unacceptable payment option: ${decision.detail}`, accepts });
+      } else {
+        emit("declined", {
+          reason: "cumulative spend cap",
+          amount: decision.amount.toString(),
+          authorized: authorizedPaymentValue.toString(),
+          cap: maxPaymentValue.toString()
+        });
+      }
       return false;
     }
-    if (authorizedPaymentValue + amount > maxPaymentValue) {
-      emit("declined", {
-        reason: "cumulative spend cap",
-        amount: amount.toString(),
-        authorized: authorizedPaymentValue.toString(),
-        cap: maxPaymentValue.toString()
-      });
-      return false;
-    }
-    authorizedPaymentValue += amount;
+    authorizedPaymentValue += decision.amount;
     emit("challenge", { accepts });
     return true;
   }

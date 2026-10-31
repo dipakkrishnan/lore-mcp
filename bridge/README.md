@@ -47,6 +47,7 @@ spend through the bridge. Never give the bridge a key that holds real savings.
 
 ## Checks
 
-`npm run check` type-checks. `npm run smoke -- <url>` spawns the bridge
+`npm run check` type-checks. `npm test` runs the payment-policy unit tests in
+`test/policy.test.ts`, then one end-to-end run over stdio. `npm run smoke -- <url>` spawns the bridge
 against a live node and drives the free path through it (tools proxied, price
 annotation present, `discover` returns a catalog); it never spends.
