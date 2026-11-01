@@ -332,6 +332,20 @@ class SkillContractTest(unittest.TestCase):
         for promise in ("never holds", "test network", "explicit"):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
+        # The one secret worse than an API key must be named and refused, not
+        # merely absent from invitations (RECOVERY_INVITATION only scans for those).
+        mentions = [
+            sentence
+            for sentence in re.split(r"(?<=[.!?])\s+", skill)
+            if "recovery phrase" in sentence
+        ]
+        self.assertGreaterEqual(
+            len(mentions), 2, "the recovery phrase is mentioned but not guarded"
+        )
+        self.assertTrue(
+            any("never" in sentence for sentence in mentions),
+            "no sentence refuses to handle the recovery phrase",
+        )
 
     def test_owner_handoffs_offer_and_decline_paid_proxy_answers(self) -> None:
         onboard = " ".join(
@@ -408,6 +422,28 @@ class SkillContractTest(unittest.TestCase):
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
+
+    def test_the_store_skill_is_a_paste_block_that_never_sells(self) -> None:
+        """CAP-037: it is pasted into a remote agent, so it carries its own connection."""
+        text = (OWNER_SKILLS / "lore-store/SKILL.md").read_text(encoding="utf-8")
+        body = " ".join(text.split("---", 2)[2].lower().split())
+        for field in ("{name}", "{mcp_url}", "{header}"):
+            self.assertIn(field, body)
+        for promise in (
+            "nothing is ever sold or published without my approval in the lore app",
+            "never save",
+            "passwords",
+            "one short, stable `key`",
+            "save again under the same key",
+            "want me to save that to lore?",
+            "in one line",
+            "once a week",
+            "`store`",
+            "`stored`",
+            "`forget`",
+        ):
+            with self.subTest(promise=promise):
+                self.assertIn(promise, body)
 
 
 if __name__ == "__main__":
