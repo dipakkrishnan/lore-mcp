@@ -1,7 +1,7 @@
 ---
 id: APP-274
 title: Tell a seller right away when a bid matches what they know
-priority: P1
+priority: P2
 effort: L
 component: desktop-app
 status: in-review

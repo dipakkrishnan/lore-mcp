@@ -1,10 +1,10 @@
 ---
 id: XC-114
 title: Show live bids on a trading-screen board at /bids
-priority: P1
+priority: P0
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [MON-051, XC-115, XC-119, XC-093, XC-074]
 blockers: []
 dependencies: [MON-051]

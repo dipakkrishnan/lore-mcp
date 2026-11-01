@@ -4,7 +4,7 @@ title: Say what a piece is, and isn't, on the home page
 priority: P0
 effort: S
 component: cross-cutting
-status: ideation
+status: ready
 related: [MON-051, XC-114, MON-052, XC-094, XC-091, XC-070, APP-118]
 blockers: []
 dependencies: []

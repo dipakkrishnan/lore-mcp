@@ -4,7 +4,7 @@ title: Run five real bids by hand before building more
 priority: P0
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-051, XC-114, APP-274]
 blockers: []
 dependencies: []

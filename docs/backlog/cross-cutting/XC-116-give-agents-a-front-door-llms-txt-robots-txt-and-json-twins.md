@@ -4,7 +4,7 @@ title: Give agents a front door: llms.txt, robots.txt and JSON twins
 priority: P0
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-117, XC-120, MON-051, XC-074]
 blockers: []
 dependencies: []
