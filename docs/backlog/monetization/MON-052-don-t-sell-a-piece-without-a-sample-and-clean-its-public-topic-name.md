@@ -50,11 +50,13 @@ What shipped (PR for MON-052):
 - Free-parts updates (`set_extras`) can't leave a piece for sale without a sample.
 - Collection pieces get their opening two sentences as a sample when that leaves
   most of the text to buy; dropping text in is already the owner's approval.
-- The node lists only pieces with a sample (discover, store page, piece pages,
-  checkout). A collection still sells every piece it holds; one without a sample
-  shows on the collection page without a page of its own. Store headings show a
-  topic's name before any `:` or `;`, in sentence case, so older raw topics stop
-  leaking detail. Catalog entries carry `words`, and piece pages show it.
+- The node sells only pieces with a sample (discover, `get`, store page, piece
+  pages, checkout). A collection still sells every piece it holds; one without a
+  sample shows on the collection page without a page of its own, and doesn't
+  count toward what the pieces are worth separately. The catalog (discover and
+  the store) groups pieces under a topic's name before any `:` or `;`, in
+  sentence case, so older raw topics stop leaking detail. Catalog entries carry
+  `words`, and piece pages show it.
 - The publish skill now asks for a sample on every draft and a short public topic.
 
 Backfill is left open: it is the owner's data. Pieces already for sale without a

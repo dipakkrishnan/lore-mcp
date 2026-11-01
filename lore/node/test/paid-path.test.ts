@@ -194,11 +194,14 @@ describe("get (paid)", () => {
     }
   });
 
-  it("never settles a get for a piece that isn't for sale, such as one revoked after discover", async () => {
+  it("never settles a get for a piece that isn't for sale, such as one revoked after discover or one with no free sample", async () => {
+    for (const revokedId of [newTicketId(), "1111111111111111807ae5f3"]) await neverSold(revokedId);
+  });
+
+  async function neverSold(revokedId: string) {
     const fetchSpy = mockFacilitator();
     const client = await connect();
     try {
-      const revokedId = newTicketId();
       const token = await challengeAndBuildToken(client, revokedId);
       const result = await client.callTool({ name: "get", arguments: { id: revokedId }, _meta: { "x402/payment": token } });
       expect(result.isError).toBe(true);
@@ -211,8 +214,9 @@ describe("get (paid)", () => {
       expect(sold?.n).toBe(0);
     } finally {
       await client.close();
+      vi.restoreAllMocks();
     }
-  });
+  }
 
   it("fails closed on an invalid credential: no content, settlement never attempted", async () => {
     const fetchSpy = mockFacilitator({ verify: { kind: "rejected", reason: "INVALID_SIGNATURE" } });

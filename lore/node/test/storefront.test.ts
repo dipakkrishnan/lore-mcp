@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { publicTopic } from "../src/answer-state.js";
 import { publicationPage, storefront, unlockedPage } from "../src/storefront.js";
 
 const A = "a".repeat(24);
@@ -70,16 +71,10 @@ describe("storefront", () => {
     expect(ld(html).itemListElement[0].item).not.toHaveProperty("offers");
   });
 
-  it("heads each topic with its short public name in sentence case, never the detail after it (MON-052)", () => {
-    const entry = catalog.topics.pricing[0];
-    const html = storefront(
-      { ...catalog, topics: { "Travel: window seat on United; beach trips for diving": [entry], "review interfaces thesis": [entry] } },
-      store
-    );
-    expect(html).toContain("<h2>Travel <small>1</small></h2>");
-    expect(html).toContain("<h2>Review interfaces thesis <small>1</small></h2>");
-    expect(html).not.toContain("window seat");
-    expect(html).not.toContain("diving");
+  it("names a topic by its short public name in sentence case, never the detail after it (MON-052)", () => {
+    expect(publicTopic("Travel: window seat on United; beach trips for diving")).toBe("Travel");
+    expect(publicTopic("review interfaces thesis")).toBe("Review interfaces thesis");
+    expect(publicTopic("  ")).toBe("");
   });
 });
 
@@ -91,7 +86,7 @@ describe("publicationPage", () => {
     expect(html).toContain(`get {&quot;id&quot;: &quot;${A}&quot;}`);
     expect(html).toContain("<p class=\"amount\">$0.01</p>");
     const data = ld(html);
-    expect(data).toMatchObject({ "@type": "Product", name: "Why hire managers <before> ten engineers?", category: "Team scaling" });
+    expect(data).toMatchObject({ "@type": "Product", name: "Why hire managers <before> ten engineers?", category: "team scaling" });
     expect(data.offers.seller.name).toBe("Dipak’s Working Lore");
   });
 

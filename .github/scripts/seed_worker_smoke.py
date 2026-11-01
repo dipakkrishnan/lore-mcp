@@ -10,7 +10,7 @@ teaser here must match SMOKE_EXPECT_TOPIC/SMOKE_EXPECT_TEASER in
 
 from lore.store import Store
 
-TOPIC = "ci-smoke"
+TOPIC = "CI smoke"
 TEASER = "worker-smoke: seeded via a real lore push --local"
 
 

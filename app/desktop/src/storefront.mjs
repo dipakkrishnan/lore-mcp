@@ -2,6 +2,7 @@
 // Generated from lore/node/src/storefront.ts by `npm run preview` in lore/node. Do not edit.
 
 // src/collections.ts
+var soldAlone = (collection) => collection.shelf.filter((piece) => piece.alone).length;
 var toolName = ({ id }) => `collection_${id}`;
 
 // src/storefront.ts
@@ -18,10 +19,7 @@ var date = (iso) => {
   return Number.isNaN(parsed.getTime()) ? iso : day.format(parsed);
 };
 var anchor = (section) => `topic-${section + 1}`;
-var label = (topic) => {
-  const name = topic.split(/[:;]/)[0].trim();
-  return name ? name[0].toUpperCase() + name.slice(1) : "Other";
-};
+var label = (topic) => topic || "Other";
 var length = (words) => words ? `${words < 50 ? words : `About ${Math.round(words / 10) * 10}`} words` : "";
 var seller = (store) => store.name || "A Lore store";
 var person = (store) => store.name ? { "@type": "Person", name: store.name } : void 0;
@@ -133,7 +131,7 @@ function agentsNote(store, id, collection) {
   const pays = collection ? `one call pays the seller ${money(collection.price_usd)} in USDC for every piece in it` : `${free2}each <code>get</code> pays the seller ${money(store.priceUsd)} in USDC`;
   return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p></section>${listed(store)}`;
 }
-var worth = (collection, store) => money(collection.pieces.length * store.priceUsd);
+var worth = (collection, store) => money(soldAlone(collection) * store.priceUsd);
 var count = (n) => `${n} ${n === 1 ? "piece" : "pieces"}`;
 function shelf(sets, store) {
   if (!sets.length) return "";
@@ -230,13 +228,13 @@ ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || piece.useful_if && `Useful if ${piece.useful_if}` || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
-function collectionPage(set, alone, store, single, problem = "") {
+function collectionPage(set, store, single, problem = "") {
   const name = seller(store);
   const url = `${store.origin}/p/${set.id}`;
   const entries = set.shelf;
   const cards = entries.map((entry) => {
     const inner = `<h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div>`;
-    return `<li>${alone.has(entry.id) ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
+    return `<li>${entry.alone ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
   }).join("");
   const data = {
     "@context": "https://schema.org",
@@ -248,7 +246,7 @@ function collectionPage(set, alone, store, single, problem = "") {
   };
   const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
 ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">${escape(set.title)}</h1>
-<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(entries.length * single)} separately</span><span>By ${escape(name)}</span></div>
+<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(soldAlone(set) * single)} separately</span><span>By ${escape(name)}</span></div>
 <ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
 ${agentsNote(store, set.id, set)}`;
   return page(`${set.title} \xB7 ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);

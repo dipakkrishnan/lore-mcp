@@ -4,7 +4,7 @@
 // headline, the sample and fit lines are free extras the owner approved, and
 // neither the title nor the text ever reaches a free page.
 import type { Catalog, CatalogEntry } from "./answer-state.js";
-import { type Collection, toolName } from "./collections.js";
+import { type Collection, soldAlone, toolName } from "./collections.js";
 
 export type Store = {
   /** The name the owner chose when listing; empty when unlisted. */
@@ -49,11 +49,7 @@ const date = (iso: string) => {
   return Number.isNaN(parsed.getTime()) ? iso : day.format(parsed);
 };
 const anchor = (section: number) => `topic-${section + 1}`;
-// A heading shows the topic's short name only: an older piece's topic can run on into a private detail.
-const label = (topic: string) => {
-  const name = topic.split(/[:;]/)[0].trim();
-  return name ? name[0].toUpperCase() + name.slice(1) : "Other";
-};
+const label = (topic: string) => topic || "Other";
 const length = (words?: number) => (words ? `${words < 50 ? words : `About ${Math.round(words / 10) * 10}`} words` : "");
 const seller = (store: Store) => store.name || "A Lore store";
 const person = (store: Store) => (store.name ? { "@type": "Person", name: store.name } : undefined);
@@ -188,7 +184,7 @@ function agentsNote(store: Store, id?: string, collection?: Collection): string 
   return `<section class="agents"><h2>For agents</h2><p>Connect over MCP:</p><code class="endpoint">${escape(store.origin)}/mcp</code>${call}<p>Reading the catalog with <code>discover</code> is free; ${pays}.</p></section>${listed(store)}`;
 }
 
-const worth = (collection: Collection, store: Store) => money(collection.pieces.length * store.priceUsd);
+const worth = (collection: Collection, store: Store) => money(soldAlone(collection) * store.priceUsd);
 const count = (n: number) => `${n} ${n === 1 ? "piece" : "pieces"}`;
 
 function shelf(sets: Collection[], store: Store): string {
@@ -326,14 +322,14 @@ ${agentsNote(store, piece.id)}`;
 /** A collection's page: its pieces' teasers, its one price, and what they'd cost one by one. A piece sold
  * on its own links to its page; one that isn't (no free sample yet) shows only in the collection.
  * `store` carries the collection's price and, when it clears the card minimum, the checkout. */
-export function collectionPage(set: Collection, alone: Set<string>, store: Store, single: number, problem = ""): string {
+export function collectionPage(set: Collection, store: Store, single: number, problem = ""): string {
   const name = seller(store);
   const url = `${store.origin}/p/${set.id}`;
   const entries = set.shelf;
   const cards = entries
     .map((entry) => {
       const inner = `<h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div>`;
-      return `<li>${alone.has(entry.id) ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
+      return `<li>${entry.alone ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
     })
     .join("");
   const data = {
@@ -346,7 +342,7 @@ export function collectionPage(set: Collection, alone: Set<string>, store: Store
   };
   const body = `<a class="back" href="/">← ${escape(name)}</a>
 ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 class="teaser">${escape(set.title)}</h1>
-<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(entries.length * single)} separately</span><span>By ${escape(name)}</span></div>
+<div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(soldAlone(set) * single)} separately</span><span>By ${escape(name)}</span></div>
 <ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
 ${agentsNote(store, set.id, set)}`;
   return page(`${set.title} · ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);

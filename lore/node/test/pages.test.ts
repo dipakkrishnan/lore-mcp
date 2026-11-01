@@ -1,4 +1,5 @@
-import { exports } from "cloudflare:workers";
+import { env, exports } from "cloudflare:workers";
+import { manifest, newTicketId } from "../src/answer-state";
 import { describe, expect, it } from "vitest";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
@@ -30,6 +31,24 @@ describe("store pages", () => {
     expect(store).not.toContain("a second teaser");
     expect(store).not.toContain(`/p/${unsampled}`);
     for (const path of [`/p/${unsampled}`, `/p/${unsampled}.json`]) expect((await visit(path)).status).toBe(404);
+  });
+
+  it("heads a piece with its topic's public name, on the store and in discover's catalog (MON-052)", async () => {
+    const id = newTicketId();
+    await env.LORE_DB.prepare(
+      `INSERT INTO publications (public_id, title, content, kind, topic, teaser, sample, updated_at)
+       VALUES (?1, 'Seats', 'Pick the left side.', 'claim', 'travel: window seat on United', 'Which seat?', 'I fly a lot. Seats matter.', '2026-01-04')`
+    )
+      .bind(id)
+      .run();
+    try {
+      const store = await (await visit("/")).text();
+      expect(store).toContain("<h2>Travel <small>1</small></h2>");
+      expect(store).not.toContain("window seat");
+      expect(Object.keys((await manifest(env)).topics)).toContain("Travel");
+    } finally {
+      await env.LORE_DB.prepare("DELETE FROM publications WHERE public_id = ?1").bind(id).run();
+    }
   });
 
   it("answers HEAD with headers only", async () => {

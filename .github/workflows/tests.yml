@@ -335,7 +335,7 @@ jobs:
         env:
           # Must match the topic/teaser seeded above; smoke.ts checks discover()
           # returns this exact publication, not just that some row exists.
-          SMOKE_EXPECT_TOPIC: ci-smoke
+          SMOKE_EXPECT_TOPIC: CI smoke
           SMOKE_EXPECT_TEASER: "worker-smoke: seeded via a real lore push --local"
         run: |
           nohup npm run dev > wrangler-dev.log 2>&1 &

@@ -121,7 +121,7 @@ describe("before any payment", () => {
       expect(payload.price_usd).toBe(PRICE_USD);
       expect(payload).not.toHaveProperty("free_copies");
       const topics = payload.topics as Record<string, Record<string, unknown>[]>;
-      expect(topics[PIECE.topic]).toEqual([
+      expect(topics["Xc013-paid-topic"]).toEqual([
         { id: PIECE.id, teaser: PIECE.teaser, kind: "note", updated_at: "2026-01-03", sample: PIECE.sample, words: 1 }
       ]);
       for (const entry of Object.values(topics).flat()) {

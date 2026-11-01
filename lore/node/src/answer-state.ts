@@ -70,6 +70,13 @@ interface ManifestRow {
 const EXTRAS = ["sample", "useful_if", "not_useful_if"] as const;
 
 export type CatalogEntry = Omit<ManifestRow, "topic">;
+
+/** The topic as buyers see it: its short name before any ":" or ";", in sentence case, since an older
+ * piece's topic can run on into a private detail (MON-052). */
+export const publicTopic = (topic: string) => {
+  const name = topic.split(/[:;]/)[0].trim();
+  return name && name[0].toUpperCase() + name.slice(1);
+};
 export type Catalog = { manifest_version: 1; publication_count: number; topics: Record<string, CatalogEntry[]> };
 
 export interface AnswerJob {
@@ -104,7 +111,7 @@ export async function manifest(env: Env): Promise<Catalog> {
   for (const row of results) {
     const { id, teaser, topic, kind, updated_at, words } = row;
     const extras = Object.fromEntries(EXTRAS.filter((key) => row[key]).map((key) => [key, row[key]]));
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at, ...extras, words });
+    (topics[publicTopic(topic)] ??= []).push({ id, teaser, kind, updated_at, ...extras, words });
   }
   return { manifest_version: 1, publication_count: results.length, topics };
 }
