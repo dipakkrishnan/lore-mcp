@@ -1,4 +1,3 @@
-const { randomUUID } = require("node:crypto");
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
 const { dirname, join } = require("node:path");
@@ -15,6 +14,7 @@ const { Appearance } = require("./appearance.cjs");
 const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
 const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { OwnerRequests, ownerGates } = require("./owner.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
 // Two copies sharing one credentials file each refresh the sign-in, and the provider refuses the second.
@@ -36,8 +36,8 @@ function ready() {
 }
 /** @type {import("electron").BrowserWindow | undefined} */
 let window;
-/** @type {Map<string, {resolve(value: unknown): void, reject(error: Error): void}>} */
-const pending = new Map();
+/** The cards waiting on the owner's answer (APP-062). */
+const requests = new OwnerRequests({ open: () => Boolean(window && !window.isDestroyed()), emit: (event) => emit(event) });
 /** The connect or sign-in in flight, if any; closing its sheet stops it. @type {AbortController | undefined} */
 let connecting;
 /** What Lore read from connected apps, kept until the owner clears it, with the dock's red number. */
@@ -61,8 +61,6 @@ const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emi
 /** The Cloudflare sign-in waiting on the owner's browser, if any: its page, to open again, and how to stop it.
  * @type {{url: string, stop: AbortController} | null} */
 let signingIn = null;
-const VERIFY_EMAIL = "Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.";
-const STORE_ELSEWHERE = "This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.";
 
 /** Sign in to Cloudflare in the browser, wherever the store goes online, with the page reopenable and the wait
  * cancellable from the app until it ends; it always ends, signed in, cancelled, failed or timed out.
@@ -85,17 +83,7 @@ async function signInToCloudflare(loreHome, opened) {
 
 /** @param {AgentRequest["type"]} type @param {Record<string, unknown>} payload @param {AbortSignal} [signal] */
 function request(type, payload, signal) {
-  if (!window || window.isDestroyed()) return Promise.reject(new Error("Lore window is closed"));
-  const id = randomUUID();
-  emit(/** @type {AgentRequest} */ ({ type, id, task: agent?.activeTask, ...payload }));
-  return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    signal?.addEventListener("abort", () => {
-      if (!pending.delete(id)) return;
-      emit({ type: "dismiss", id });
-      reject(new Error("Cancelled"));
-    }, { once: true });
-  });
+  return requests.ask(type, payload, agent?.activeTask, signal);
 }
 
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch @param {InstanceType<typeof Outgoing>} outgoing */
@@ -103,6 +91,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
     const state = await readState(loreHome);
     storeAddress = state.node.url;
+    inboxAddress = state.node.agents ?? null;
     return state;
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
@@ -131,13 +120,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     if (!TASKS.has(task)) throw new Error("Invalid task");
     ready().restart(task);
   });
-  ipcMain.handle("agent:respond", (_event, response) => {
-    if (!response || typeof response.id !== "string" || !pending.has(response.id)) {
-      throw new Error("Unknown agent request");
-    }
-    pending.get(response.id)?.resolve(response.value);
-    pending.delete(response.id);
-  });
+  ipcMain.handle("agent:respond", (_event, response) => requests.answer(response));
   ipcMain.handle("auth:login", (_event, input) => {
     if (!input || !LOGINS.has(`${input.providerId}:${input.type}`)) throw new Error("Unsupported sign-in");
     if (input.secret !== undefined && typeof input.secret !== "string") throw new Error("Invalid key");
@@ -356,22 +339,10 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("appearance:read", () => appearance.read());
   ipcMain.handle("appearance:set", (_event, choice) => appearance.set(choice));
   ipcMain.handle("store:online", async () => {
-    // A store that already sells puts out what is waiting when it goes online, so the owner says yes to that first.
-    if (!(await outgoing.confirmed())) throw new Error("Your store stays as it was.");
     try {
-      let said = await storeOnline(loreHome);
-      if (said.includes("not signed in to Cloudflare")) {
-        await signInToCloudflare(loreHome);
-        said = await storeOnline(loreHome);
-      }
-      // A store this Mac didn't set up is never taken over or written to from here.
-      if (said.includes("already exists on this Cloudflare account")) throw new Error(STORE_ELSEWHERE);
-      if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
-      if (!said.startsWith("The store is deployed")) {
-        console.error("The store did not go online:", said);
-        throw new Error("Your store didn't go online. Try again in a minute.");
-      }
+      await storeOnline(loreHome);
     } finally {
+      inboxAddress = undefined;
       emit({ type: "changed" });
     }
   });
@@ -403,8 +374,8 @@ function readThrough(loreHome, read) {
   return read;
 }
 
-/** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
- * tidies it. Resolves to whether Today has a new card, for the caller to tell the window, once.
+/** Put each app's new items in line to be read. What an agent saved is on Today at once, as the memories it wrote; a
+ * reading after only judges them, and writes none of its own beside them. Resolves to whether Today has a new card, for the caller to tell the window, once.
  * @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
   if (!reads.some((read) => read.added)) return false;
@@ -413,9 +384,12 @@ async function queueReadings(loreHome, reads) {
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
     if (!next) continue;
-    if (next.by.kind === "agent" && read.memories?.length) {
+    if (next.by.kind === "agent") {
+      if (!read.memories?.length) continue;
       await showSaved(reading.saved(next, read.memories));
       shown = true;
+      agent?.synthesize({ ...next, judge: read.memories });
+      continue;
     }
     agent?.synthesize(next);
   }
@@ -510,8 +484,7 @@ function createWindow() {
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.on("closed", () => {
     window = undefined;
-    for (const waiter of pending.values()) waiter.reject(new Error("Lore window closed"));
-    pending.clear();
+    requests.rejectAll("Lore window closed");
   });
   void window.loadFile(join(__dirname, "index.html"));
   return window;
@@ -524,7 +497,7 @@ app.whenReady().then(async () => {
   const told = new Set();
   const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   const watch = new Watch({
-    ready: () => hasStore(loreHome),
+    ready: () => hasInbox(loreHome),
     waiting: () => agentsWaiting(loreHome),
     read: (name) => readSource(loreHome, name),
     landed: async (reads) => {
@@ -572,6 +545,16 @@ async function hasStore(loreHome) {
   if (![join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path))) return false;
   if (storeAddress === undefined) storeAddress = (await readState(loreHome).catch(() => null))?.node.url;
   return Boolean(storeAddress);
+}
+
+/** Where the owner's agents save as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
+let inboxAddress;
+
+/** Only a store online for the owner's agents has an inbox, on their own Cloudflare or hosted by Lore (XC-088).
+ * @param {string} loreHome */
+async function hasInbox(loreHome) {
+  if (inboxAddress === undefined) inboxAddress = (await readState(loreHome).catch(() => null))?.node.agents ?? null;
+  return Boolean(inboxAddress);
 }
 
 /** What the owner's agents saved comes in while Lore is open: now, on coming back to the app, and at the watch's own
@@ -709,10 +692,13 @@ async function start(loreHome, outgoing) {
       emit({ type: "changed" });
       return confirmed;
     },
-    cloudflareLogin: async () => {
-      if (!(await request("cloudflare", {}))) return "The owner chose not to sign in to Cloudflare right now.";
-      return signInToCloudflare(loreHome, () => emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." }));
-    },
+    // Read at call time: the agent does not exist yet while these options are built.
+    ...ownerGates({
+      ask: (type, payload) => request(type, payload),
+      signIn: (opened) => signInToCloudflare(loreHome, opened),
+      notice: () => emit({ type: "live", task: agent?.activeTask ?? null, text: "Finish signing in to Cloudflare in your browser, then come back here." }),
+      openable
+    }),
     openStore: async (store) => {
       const said = await openStore(loreHome, store, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })), outgoing);
       // A store left half-changed is told to the owner directly, not only to the agent.
@@ -725,12 +711,6 @@ async function start(loreHome, outgoing) {
       const said = await saveProfile(loreHome, profile, async (questions) => /** @type {Record<string, string>} */ (await request("question", { questions, source: "app" })));
       emit({ type: "changed" });
       return said;
-    },
-    openUrl: async (page) => {
-      if (!openable(page.url)) return "Lore does not open that address; only Coinbase, Cloudflare and Basescan pages.";
-      const answer = await request("open", page);
-      if (answer === "done") return "The owner says they finished there; verify from state before going on.";
-      return answer === "stuck" ? "The owner got stuck on that page; ask what happened." : "The owner chose not to open it right now.";
     },
     drafts: async () => (await candidates(loreHome)).length + (await extrasCandidates(loreHome)).length,
     checkedIn: async (job, verdict) => {
@@ -746,6 +726,20 @@ async function start(loreHome, outgoing) {
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },
     memoriesReady: async (read, report, wrote) => {
+      // An agent's saves, judged: what looks worth selling joins the card they are already on.
+      if (read.judge) {
+        const run = reading.judged(read, report);
+        if (!run.memories.length) return;
+        try {
+          await judgeMemories(loreHome, run.memories);
+        } catch (error) {
+          console.error("Lore could not record which memories look worth selling:", error);
+        }
+        await newMemories.extend(run);
+        emit({ type: "changed" });
+        emit({ type: "ready" });
+        return;
+      }
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
@@ -819,8 +813,7 @@ app.on("will-quit", () => forgetKey());
 
 app.on("before-quit", () => {
   agent?.dispose();
-  for (const waiter of pending.values()) waiter.reject(new Error("Lore closed"));
-  pending.clear();
+  requests.rejectAll("Lore closed");
 });
 
 app.on("second-instance", () => {

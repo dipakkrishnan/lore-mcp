@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { McpAgent } from "agents/mcp";
 import { withX402 } from "agents/x402";
 import { z } from "zod";
-import { isAgentPath, serveAgent, signIn } from "./agent.js";
+import { agentRoute } from "./agent.js";
 import {
   type AnswerSettings,
   type Catalog,
@@ -22,7 +22,6 @@ import { TESTNET, facilitator, network, networkLabel } from "./network.js";
 import { PRICE_USD } from "./price.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
 import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
-import { SignIn } from "./signin.js";
 import { type Piece, type Store, collectionPage, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
@@ -489,14 +488,8 @@ async function paidNotice(request: Request, env: Env, account: string, origin: s
 }
 
 /** The owner's agents' endpoint and its sign-in (XC-068), or else the buyers' `/mcp`. */
-function agentOrBuyer(request: Request, url: URL, env: Env, ctx: ExecutionContext): Promise<Response> {
-  const { pathname } = url;
-  if (isAgentPath(pathname)) return serveAgent(request, env, ctx);
-  if (pathname === "/authorize" && request.method === "GET") return signIn(url.origin).authorize(request, env);
-  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(url.origin).wait(request, env);
-  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(url.origin).resource.fetch(request, env, ctx);
-  if (SignIn.owns(pathname)) return signIn(url.origin).server.fetch(request, env, ctx);
-  return mcp.fetch(request, env, ctx);
+function agentOrBuyer(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  return agentRoute(request, env, ctx) ?? mcp.fetch(request, env, ctx);
 }
 
 export default {
@@ -540,7 +533,7 @@ export default {
         ? readFree(request, env, storeFor(env, url, settings), posted, item?.piece)
         : paidNotice(request, env, settings.stripeAccount, url.origin, posted, item);
     }
-    const response = await agentOrBuyer(request, url, env, ctx);
+    const response = await agentOrBuyer(request, env, ctx);
     if (response.webSocket || response.headers.has("cache-control")) return response;
     const uncached = new Response(response.body, response);
     uncached.headers.set("cache-control", "no-store");
