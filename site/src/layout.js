@@ -2,6 +2,7 @@
 // Dark first; light is the same tokens redefined. One sans family; the serif is the home hero's display line only.
 
 export const LIST_URL = "https://yourlore.dev/marketplace.json";
+export const CATALOG_URL = "https://yourlore.dev/marketplace.jsonl";
 export const DOWNLOAD = "https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip";
 export const REPO = "https://github.com/dipakkrishnan/lore-mcp";
 const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
@@ -150,7 +151,7 @@ export function page({ title, description, canonical, body, data, section = "", 
   const tab = (href, name, label) => `<a${section === name ? ' class="on" aria-current="page"' : ""} href="${href}">${label}</a>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escape(title)}</title><meta name="description" content="${escape(description)}"><link rel="icon" href="/favicon.svg">
-<link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/json" href="${escape(alternate)}"><style>${STYLE}${head}</style>
+<link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/json" href="${escape(alternate)}"><link rel="alternate" type="application/jsonl" href="${CATALOG_URL}"><style>${STYLE}${head}</style>
 ${data ? `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>` : ""}</head>
 <body><main><header class="bar"><a class="brand" href="/">${MARK}Lore</a><nav>${tab("/bids", "bids", "Bids")}${tab("/marketplace", "markets", "Markets")}<a href="${REPO}">Open source</a>${tab("/download", "download", "Download")}</nav></header>
 ${body}

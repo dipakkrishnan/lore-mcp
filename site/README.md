@@ -5,7 +5,11 @@ custom domains bound. `/` is the home page (`src/home.js`), drawn around the liv
 `/download` sends the latest Mac release. `/marketplace` is rendered by `src/worker.js` from the
 [lore-marketplace](https://github.com/dipakkrishnan/lore-marketplace) list,
 refreshed within about ten minutes of a change to the list, and
-`/marketplace.json` serves the list itself at a short, stable address. `public/` holds only
+`/marketplace.json` serves the list itself at a short, stable address.
+`src/agents.js` is the front door for agents (XC-116): `/llms.txt`,
+`/robots.txt`, `/sitemap.xml`, `/marketplace.jsonl` (one line per listed piece
+and open bid) and each market's JSON at `/marketplace/<market>.json`, all drawn
+from the same exchange the pages render. `public/` holds only
 static files (the icon); any other path gets the site's not-found page.
 
 The home page shows only real bids. With none open it falls back to `FEATURED` in

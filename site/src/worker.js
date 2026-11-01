@@ -3,6 +3,7 @@
 // The registry stays in the lore-marketplace repo and each piece's words come from its
 // own store; this only draws them. /bids and /b/:id are the bid book (src/bid-routes.js).
 // / is the home page, drawn around the live bids (src/home.js); /download hands out the app.
+import { frontDoor } from "./agents.js";
 import { BidDesk, isBidPath } from "./bid-routes.js";
 import { clip, date, DOWNLOAD, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
@@ -130,6 +131,7 @@ export function marketPage(exchange, id) {
     description: `${plural(m.rows.length, "firsthand piece")} on ${m.name.toLowerCase()}, from ${plural(people.length, "seller")}. Samples are free.`,
     canonical: `${HOME}/${m.id}`,
     section: "markets",
+    alternate: `${HOME}/${m.id}.json`,
     body: `<p class="crumb"><a href="/marketplace">Markets</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
 <ul class="stats"><li><b>${m.rows.length}</b>${m.rows.length === 1 ? "piece" : "pieces"}</li><li><b>${people.length}</b>${people.length === 1 ? "seller" : "sellers"}</li><li><b>${money(Math.min(...m.rows.map((r) => r.price)))}</b>lowest price</li></ul>
 <ul class="offers">${m.rows.map(item).join("")}</ul>${nearby.length ? `<h2 class="part">More in ${escape(m.tab)}</h2><ul class="related">${nearby.map((o) => `<li><a href="/marketplace/${o.id}">${escape(o.name)} · ${o.rows.length}</a></li>`).join("")}</ul>` : ""}`,
@@ -163,7 +165,7 @@ async function asset(request, env) {
   return found.status === 404 ? html(NOT_FOUND, 404) : found;
 }
 
-export default {
+const worker = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/") return new BidDesk(request, env, ctx, registry).home();
@@ -171,6 +173,8 @@ export default {
     if (isBidPath(url.pathname)) return new BidDesk(request, env, ctx, registry).respond();
     const json = url.pathname === "/marketplace.json";
     const stats = url.pathname === "/marketplace/stats.json";
+    const door = !stats && frontDoor(url.pathname);
+    if (door) return door({ env, exchange: () => Exchange.from(LIST), self: (path) => worker.fetch(new Request(new URL(path, url)), env, ctx) });
     const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
     if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return asset(request, env);
     let list;
@@ -198,3 +202,5 @@ export default {
     return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));
   }
 };
+
+export default worker;
