@@ -1,7 +1,8 @@
-import assert from "node:assert/strict";
-import { test } from "node:test";
+import { afterEach, expect, test, vi } from "vitest";
 import { Exchange, Store } from "../src/markets.js";
-import { marketPage, marketplacePage } from "../src/worker.js";
+import worker, { marketPage, marketplacePage } from "../src/worker.js";
+
+afterEach(() => vi.restoreAllMocks());
 
 const A = "aaaaaaaaaaaaaaaaaaaaaaaa";
 const B = "bbbbbbbbbbbbbbbbbbbbbbbb";
@@ -22,21 +23,21 @@ const load = (registry, read = async () => catalog) => Exchange.load(registry, r
 test("fills a market with the pieces listed in it, in the store's own words and price", async () => {
   const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }, { market: "learning-to-dive", piece: B }] }]));
   const html = marketplacePage(exchange);
-  assert.match(html, /Learning to scuba dive/);
-  assert.match(html, /When should a new diver skip a dive\?/);
-  assert.match(html, /href="https:\/\/lore\.example\.workers\.dev\/p\/aaaaaaaaaaaaaaaaaaaaaaaa"/);
-  assert.match(html, /<span class="pill">\$1<\/span>/);
-  assert.match(html, /2 pieces · 1 seller/);
-  assert.match(html, /<b data-stat="markets" aria-label="1">1<\/b>market<\/li><li><b data-stat="pieces" aria-label="2">2<\/b>pieces/);
-  assert.doesNotMatch(html, /class="lede"/);
+  expect(html).toMatch(/Learning to scuba dive/);
+  expect(html).toMatch(/When should a new diver skip a dive\?/);
+  expect(html).toMatch(/href="https:\/\/lore\.example\.workers\.dev\/p\/aaaaaaaaaaaaaaaaaaaaaaaa"/);
+  expect(html).toMatch(/<span class="pill">\$1<\/span>/);
+  expect(html).toMatch(/2 pieces · 1 seller/);
+  expect(html).toMatch(/<b data-stat="markets" aria-label="1">1<\/b>market<\/li><li><b data-stat="pieces" aria-label="2">2<\/b>pieces/);
+  expect(html).not.toMatch(/class="lede"/);
 });
 
 test("shows only real listings: unknown markets, unsold pieces and silent stores leave nothing behind", async () => {
   const listings = [{ market: "learning-to-dive", piece: C }, { market: "no-such-market", piece: A }];
-  assert.match(marketplacePage(await load(list([{ ...seller, listings }]))), /No market has a listing yet/);
+  expect(marketplacePage(await load(list([{ ...seller, listings }])))).toMatch(/No market has a listing yet/);
   const silent = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }]), async () => null);
-  assert.equal(silent.markets.length, 0);
-  assert.match(marketplacePage(silent), /Visit store/);
+  expect(silent.markets.length).toBe(0);
+  expect(marketplacePage(silent)).toMatch(/Visit store/);
 });
 
 test("escapes what sellers and the registry wrote", async () => {
@@ -45,8 +46,8 @@ test("escapes what sellers and the registry wrote", async () => {
     async () => ({ topics: { x: [{ id: A, teaser: "<script>alert(1)</script>", updated_at: "2026-10-22" }] } })
   );
   const html = marketplacePage(exchange) + marketPage(exchange, "learning-to-dive");
-  assert.doesNotMatch(html, /<script>alert|<i>Dive|<b>Dipak/);
-  assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  expect(html).not.toMatch(/<script>alert|<i>Dive|<b>Dipak/);
+  expect(html).toMatch(/&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
 
 test("drops sellers and markets that aren't well formed", async () => {
@@ -60,8 +61,8 @@ test("drops sellers and markets that aren't well formed", async () => {
       [{ id: "learning-to-dive", name: "Learning to scuba dive", tab: "Travel" }, { id: "Bad Slug", name: "x", tab: "y" }, { id: "no-tab", name: "x" }]
     )
   );
-  assert.deepEqual(exchange.sellers.map((s) => s.name), ["Dipak"]);
-  assert.deepEqual(exchange.markets.map((m) => m.id), ["learning-to-dive"]);
+  expect(exchange.sellers.map((s) => s.name)).toEqual(["Dipak"]);
+  expect(exchange.markets.map((m) => m.id)).toEqual(["learning-to-dive"]);
 });
 
 test("a tab, a search and a seller each narrow the markets, and work without a script", async () => {
@@ -74,39 +75,39 @@ test("a tab, a search and a seller each narrow the markets, and work without a s
     s.name === "Shane" ? { topics: { soccer: [{ id: C, teaser: "How should wingers play?", updated_at: "2026-08-10" }] } } : catalog
   );
   const cards = (html) => (html.match(/<li class="card"/g) ?? []).length;
-  assert.equal(cards(marketplacePage(exchange)), 2);
-  assert.equal(cards(marketplacePage(exchange, { tab: "sports" })), 1);
-  assert.equal(cards(marketplacePage(exchange, { q: "wingers" })), 1);
-  assert.equal(cards(marketplacePage(exchange, { seller: "shane" })), 1);
-  assert.match(marketplacePage(exchange, { q: "nothing like this" }), /<p class="empty none">Nothing here matches/);
-  assert.match(marketplacePage(exchange, { tab: "sports" }), /href="\/marketplace\?tab=sports" class="on"/);
+  expect(cards(marketplacePage(exchange))).toBe(2);
+  expect(cards(marketplacePage(exchange, { tab: "sports" }))).toBe(1);
+  expect(cards(marketplacePage(exchange, { q: "wingers" }))).toBe(1);
+  expect(cards(marketplacePage(exchange, { seller: "shane" }))).toBe(1);
+  expect(marketplacePage(exchange, { q: "nothing like this" })).toMatch(/<p class="empty none">Nothing here matches/);
+  expect(marketplacePage(exchange, { tab: "sports" })).toMatch(/href="\/marketplace\?tab=sports" class="on"/);
 });
 
 test("a market's page shows each piece's free sample and a way to buy it", async () => {
   const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }]));
   const html = marketPage(exchange, "learning-to-dive");
-  assert.match(html, /<blockquote>Bonaire gave me a foundation\.<\/blockquote>/);
-  assert.match(html, /Useful if you&#39;re planning a first trip\./);
-  assert.match(html, />View &amp; buy · \$1 →</);
-  assert.match(marketPage(exchange, "nowhere"), /No market by that name has a listing/);
+  expect(html).toMatch(/<blockquote>Bonaire gave me a foundation\.<\/blockquote>/);
+  expect(html).toMatch(/Useful if you&#39;re planning a first trip\./);
+  expect(html).toMatch(/>View &amp; buy · \$1 →</);
+  expect(marketPage(exchange, "nowhere")).toMatch(/No market by that name has a listing/);
 });
 
 test("the latest strip carries only real dates, labelled for what they are", async () => {
   const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }]));
   const html = marketplacePage(exchange);
-  assert.match(html, /<time>Oct 22<\/time>Updated in Learning to scuba dive/);
-  assert.match(html, /<time>Sep 15<\/time>Dipak opened a store/);
-  assert.match(html, /<ul data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
+  expect(html).toMatch(/<time>Oct 22<\/time>Updated in Learning to scuba dive/);
+  expect(html).toMatch(/<time>Sep 15<\/time>Dipak opened a store/);
+  expect(html).toMatch(/<ul data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
 });
 
 test("survives a registry that can't be loaded or isn't shaped like one", async () => {
-  assert.match(marketplacePage(null), /can't be loaded right now/);
-  assert.match(marketplacePage(await load({ sellers: {}, markets: "x" })), /No market has a listing yet/);
+  expect(marketplacePage(null)).toMatch(/can't be loaded right now/);
+  expect(marketplacePage(await load({ sellers: {}, markets: "x" }))).toMatch(/No market has a listing yet/);
 });
 
-test("reads a store's catalog over MCP the way an agent does", async (t) => {
+test("reads a store's catalog over MCP the way an agent does", async () => {
   const calls = [];
-  t.mock.method(globalThis, "fetch", async (url, init) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
     const body = JSON.parse(init.body);
     calls.push([body.method, init.headers["mcp-session-id"]]);
     if (body.method === "initialize") return new Response("event: message\ndata: {}\n\n", { headers: { "mcp-session-id": "s1", "content-type": "text/event-stream" } });
@@ -116,25 +117,23 @@ test("reads a store's catalog over MCP the way an agent does", async (t) => {
     }
     return new Response(null, { status: 202 });
   });
-  assert.deepEqual(await new Store(seller).catalog(), catalog);
-  assert.deepEqual(calls, [["initialize", undefined], ["notifications/initialized", "s1"], ["tools/call", "s1"]]);
+  expect(await new Store(seller).catalog()).toEqual(catalog);
+  expect(calls).toEqual([["initialize", undefined], ["notifications/initialized", "s1"], ["tools/call", "s1"]]);
 });
 
-test("serves the registry itself at /marketplace.json", async (t) => {
-  const { default: worker } = await import("../src/worker.js");
-  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ sellers: [seller] })));
+test("serves the registry itself at /marketplace.json", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ sellers: [seller] })));
   const response = await worker.fetch(new Request("https://yourlore.dev/marketplace.json"), {});
-  assert.equal(response.headers.get("content-type"), "application/json; charset=utf-8");
-  assert.equal((await response.json()).sellers[0].name, "Dipak");
+  expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+  expect((await response.json()).sellers[0].name).toBe("Dipak");
 });
 
-test("serves the live counts the page follows at /marketplace/stats.json", async (t) => {
-  const { default: worker } = await import("../src/worker.js");
-  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ ...list([{ ...seller, listings: [] }]) })));
+test("serves the live counts the page follows at /marketplace/stats.json", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ ...list([{ ...seller, listings: [] }]) })));
   const response = await worker.fetch(new Request("https://yourlore.dev/marketplace/stats.json"), {});
   const { latest, latest_key, ...counts } = await response.json();
-  assert.deepEqual(counts, { markets: 0, pieces: 0, sellers: 1 });
+  expect(counts).toEqual({ markets: 0, pieces: 0, sellers: 1 });
   // The strip follows the same reply, redrawn only when its key moves.
-  assert.equal(latest_key, "2026-09-15:Dipak");
-  assert.match(latest, /<time>Sep 15<\/time>Dipak opened a store/);
+  expect(latest_key).toBe("2026-09-15:Dipak");
+  expect(latest).toMatch(/<time>Sep 15<\/time>Dipak opened a store/);
 });

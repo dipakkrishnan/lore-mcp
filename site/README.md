@@ -7,11 +7,33 @@ assets with the `yourlore.dev` and `www.yourlore.dev` custom domains bound.
 refreshed within about ten minutes of a change to the list, and
 `/marketplace.json` serves the list itself at a short, stable address; every other path is the static site.
 
+`/bids`, `/bids.json` and `/b/:id` are the bid book ([contracts/bids.md](../contracts/bids.md)),
+kept in the `BidBook` SQLite Durable Object (binding `BIDS`).
+
 ## Deploy
 
 ```sh
-cd site && npx wrangler deploy
+cd site && npm ci && npx wrangler deploy
 ```
+
+The first deploy with bids applies the `v1` migration (`new_sqlite_classes: ["BidBook"]`)
+and creates the two rate-limit bindings; neither needs an account-side resource. Adding
+answers and taking bids down need the owner's token, set once as a secret:
+
+```sh
+npx wrangler secret put BIDS_ADMIN_TOKEN   # e.g. the output of: openssl rand -hex 32
+```
+
+Without it every owner route answers 401. Use it as `Authorization: Bearer <token>` on
+`POST /b/:id/answers` and `DELETE /b/:id`.
+
+## Test
+
+```sh
+cd site && npm ci && npm test
+```
+
+Runs in the local Workers runtime (miniflare); nothing reaches Cloudflare.
 
 ## Release asset
 

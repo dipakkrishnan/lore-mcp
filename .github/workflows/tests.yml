@@ -253,6 +253,21 @@ jobs:
       - name: Run the stubbed-GitHub test suite (XC-028)
         run: npm test
 
+  site-component:
+    name: Site component tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+      - run: npm ci
+      - name: Run the marketplace and bid book suite (MON-051)
+        run: npm test
+
   checkout-lint:
     name: Card checkout lint
     runs-on: ubuntu-latest

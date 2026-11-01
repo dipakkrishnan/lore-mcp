@@ -97,6 +97,9 @@ const seller = (entry) =>
 
 const market = (entry) => (SLUG.test(entry?.id) && text(entry.name) && text(entry.tab) ? { id: entry.id, name: text(entry.name), tab: text(entry.tab), rows: [] } : null);
 
+/** Every well-formed market the registry names, listed or not: a bid can ask for what nobody sells yet. */
+export const registryMarkets = (list) => (Array.isArray(list?.markets) ? list.markets : []).map(market).filter(Boolean);
+
 /** The whole exchange: markets with their rows, the sellers behind them, and what changed lately. */
 export class Exchange {
   constructor(markets, sellers) {
@@ -106,7 +109,7 @@ export class Exchange {
 
   static async load(list, read = (s) => new Store(s).catalog()) {
     const sellers = (Array.isArray(list?.sellers) ? list.sellers : []).map(seller).filter(Boolean);
-    const markets = new Map((Array.isArray(list?.markets) ? list.markets : []).map(market).filter(Boolean).map((m) => [m.id, m]));
+    const markets = new Map(registryMarkets(list).map((m) => [m.id, m]));
     const catalogs = await Promise.all(sellers.map((s) => (s.listings.length ? read(s) : null)));
     sellers.forEach((s, i) => {
       const sold = offers(catalogs[i], s);
