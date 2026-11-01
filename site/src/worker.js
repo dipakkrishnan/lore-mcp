@@ -2,6 +2,7 @@
 // listed in it, drawn as plain pages people and browsing agents can read without a script.
 // The registry stays in the lore-marketplace repo and each piece's words come from its
 // own store; this only draws them. Every other path is the static site.
+import { homePage } from "./home.js";
 import { Exchange, sellersOf } from "./markets.js";
 
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";
@@ -132,7 +133,7 @@ function page({ title, description, canonical, body, data }) {
 <title>${escape(title)}</title><meta name="description" content="${escape(description)}">
 <link rel="canonical" href="${escape(canonical)}"><link rel="alternate" type="application/json" href="${LIST_URL}"><style>${STYLE}</style>
 ${data ? `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>` : ""}</head>
-<body><main><div class="bar"><a class="brand" href="/">${MARK}Lore</a><nav><a class="on" href="/marketplace">Markets</a><a href="/">Get Lore</a></nav></div>
+<body><main><div class="bar"><a class="brand" href="/">${MARK}Lore</a><nav><a class="on" href="/marketplace">Marketplace</a><a href="/">Get Lore</a></nav></div>
 ${body}
 <div class="panels"><section class="panel"><h3>For agents</h3><p>Every market and listing, as JSON:</p><code class="endpoint">${LIST_URL}</code><p>Each store answers <code>discover</code> for free over MCP and <code>get</code> to buy. A browsing agent can also buy by card on any piece's page.</p><a href="${BUYER_SKILL}">Get the buyer skill →</a></section>
 <section class="panel"><h3>Sell what you know</h3><p>Lore turns what you've already written into pieces you approve, then opens a store that pays you directly.</p><a href="${DOWNLOAD}">Download for macOS →</a></section></div>
@@ -207,20 +208,20 @@ export function marketplacePage(exchange, { tab = "", q = "", seller = "" } = {}
       ? `<p class="empty">No market has a listing yet.</p>`
       : `${sections}<p class="empty none"${shown.length ? " hidden" : ""}>Nothing here matches that yet.</p>`;
   const count = (key, n, one) => `<li><b data-stat="${key}" aria-label="${n}">${n}</b>${n === 1 ? one : `${one}s`}</li>`;
-  const head = `<header class="head"><div><h1>Markets</h1>
+  const head = `<header class="head"><div><h1>Marketplace</h1>
 ${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "market")}${count("pieces", exchange.pieces, "piece")}${count("sellers", exchange.sellers.length, "seller")}</ul>` : ""}</div>
 <form class="search" method="get" action="/marketplace" role="search">${SEARCH_ICON}${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<input type="search" name="q" value="${escape(q)}" placeholder="Search questions, markets, sellers" aria-label="Search the markets"></form></header>
 <div class="tabs"><ul>${["", ...tabs].map((t) => `<li><a href="${link(t)}"${t === current ? ' class="on" aria-current="page"' : ""}>${escape(t || "All")}</a></li>`).join("")}</ul>${sellerPick}</div>`;
   const data = exchange && {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    name: "Lore markets",
+    name: "Lore Marketplace",
     url: HOME,
     numberOfItems: exchange.pieces,
     itemListElement: exchange.markets.flatMap((m) => m.rows.map((r) => ({ ...offer(r), category: m.name }))).map((item, i) => ({ "@type": "ListItem", position: i + 1, item }))
   };
   return page({
-    title: "Lore markets",
+    title: "Lore Marketplace",
     description: "Browse markets of firsthand experience. Read free samples; every payment goes straight to the person who lived it.",
     canonical: HOME,
     body: `${head}${exchange ? tape(exchange) : ""}${body}${exchange ? stores(exchange) : ""}`,
@@ -236,7 +237,7 @@ export function marketPage(exchange, id) {
       title: "Market not found · Lore",
       description: "This market isn't listed.",
       canonical: HOME,
-      body: `<p class="crumb"><a href="/marketplace">Markets</a></p><h1>Not listed</h1><p class="lede">${exchange ? "No market by that name has a listing." : "The markets can't be loaded right now. Try again in a minute."}</p><p><a class="go" href="/marketplace">All markets →</a></p>`
+      body: `<p class="crumb"><a href="/marketplace">Marketplace</a></p><h1>Not listed</h1><p class="lede">${exchange ? "No market by that name has a listing." : "The markets can't be loaded right now. Try again in a minute."}</p><p><a class="go" href="/marketplace">All markets →</a></p>`
     });
   }
   const people = sellersOf(m);
@@ -245,10 +246,10 @@ export function marketPage(exchange, id) {
 <div class="buy"><a class="go" href="${escape(r.url)}">View &amp; buy · ${money(r.price)} →</a></div></li>`;
   const nearby = exchange.markets.filter((other) => other.tab === m.tab && other !== m);
   return page({
-    title: `${m.name} · Lore markets`,
+    title: `${m.name} · Lore Marketplace`,
     description: `${plural(m.rows.length, "firsthand piece")} on ${m.name.toLowerCase()}, from ${plural(people.length, "seller")}. Samples are free.`,
     canonical: `${HOME}/${m.id}`,
-    body: `<p class="crumb"><a href="/marketplace">Markets</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
+    body: `<p class="crumb"><a href="/marketplace">Marketplace</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
 <ul class="stats"><li><b>${m.rows.length}</b>${m.rows.length === 1 ? "piece" : "pieces"}</li><li><b>${people.length}</b>${people.length === 1 ? "seller" : "sellers"}</li><li><b>${money(Math.min(...m.rows.map((r) => r.price)))}</b>lowest price</li></ul>
 <ul class="offers">${m.rows.map(item).join("")}</ul>${nearby.length ? `<h2 class="part">More in ${escape(m.tab)}</h2><ul class="related">${nearby.map((o) => `<li><a href="/marketplace/${o.id}">${escape(o.name)} · ${o.rows.length}</a></li>`).join("")}</ul>` : ""}`,
     data: { "@context": "https://schema.org", "@type": "ItemList", name: m.name, url: `${HOME}/${m.id}`, numberOfItems: m.rows.length, itemListElement: m.rows.map((r, i) => ({ "@type": "ListItem", position: i + 1, item: offer(r) })) }
@@ -258,9 +259,19 @@ export function marketPage(exchange, id) {
 const html = (body, status = 200, cache = "public, max-age=60") =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": cache } });
 
-export default {
+const registry = async () => {
+  const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
+  if (!response.ok) throw new Error(`marketplace list: ${response.status}`);
+  return response.json();
+};
+
+const site = {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (url.pathname === "/") {
+      const page = await (await env.ASSETS.fetch(new Request(url))).text();
+      return html(await homePage(page, { bids: () => site.fetch(new Request(new URL("/bids.json", url)), env), registry }));
+    }
     const json = url.pathname === "/marketplace.json";
     const stats = url.pathname === "/marketplace/stats.json";
     const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
@@ -290,3 +301,5 @@ export default {
     return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));
   }
 };
+
+export default site;

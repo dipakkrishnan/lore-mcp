@@ -1,6 +1,6 @@
 {
-  // yourlore.dev — static download page served as Worker assets, plus the
-  // marketplace page rendered by src/worker.js from the lore-marketplace list.
+  // yourlore.dev — the home page (a static asset whose bids-or-pieces block src/worker.js
+  // fills in) and the marketplace pages src/worker.js renders from the lore-marketplace list.
   // Deploy: npx wrangler deploy (from this directory)
   "name": "yourlore-site",
   "compatibility_date": "2026-09-01",
@@ -9,7 +9,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/marketplace", "/marketplace/*", "/marketplace.json"]
+    "run_worker_first": ["/", "/marketplace", "/marketplace/*", "/marketplace.json"]
   },
   "routes": [
     { "pattern": "yourlore.dev", "custom_domain": true },
