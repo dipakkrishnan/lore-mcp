@@ -1,0 +1,608 @@
+[
+  {
+    "title": "Deposit policy for no-shows",
+    "create_time": 1776686400.0,
+    "update_time": 1776687000.0,
+    "id": "conv-deposit",
+    "current_node": "d-a4",
+    "mapping": {
+      "conv-deposit-root": {
+        "id": "conv-deposit-root",
+        "parent": null,
+        "children": [
+          "conv-deposit-s0"
+        ],
+        "message": null
+      },
+      "conv-deposit-s0": {
+        "id": "conv-deposit-s0",
+        "parent": "conv-deposit-root",
+        "children": [
+          "d-u1"
+        ],
+        "message": {
+          "id": "conv-deposit-s0",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          }
+        }
+      },
+      "d-u1": {
+        "id": "d-u1",
+        "parent": "conv-deposit-s0",
+        "children": [
+          "d-a1",
+          "a1-regenerated"
+        ],
+        "message": {
+          "id": "d-u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686400.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "I run a booking app for mobile pet groomers and about 18 % of appointments are no-shows. Should I ask for a deposit at booking time? canary-chatgpt-01"
+            ]
+          }
+        }
+      },
+      "d-a1": {
+        "id": "d-a1",
+        "parent": "d-u1",
+        "children": [
+          "d-u2"
+        ],
+        "message": {
+          "id": "d-a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686430.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Yes, a small deposit is the usual fix. Start with a percentage of the service price, charge it when the booking is made, and credit it against the final bill so it never feels like an extra fee."
+            ]
+          }
+        }
+      },
+      "d-u2": {
+        "id": "d-u2",
+        "parent": "d-a1",
+        "children": [
+          "d-a2"
+        ],
+        "message": {
+          "id": "d-u2",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686520.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "We tried 25 % on new customers only. After six weeks no-shows fell from 18 % to 4 %, and repeat customers never noticed. Is that a normal result or did I get lucky?"
+            ]
+          }
+        }
+      },
+      "d-a2": {
+        "id": "d-a2",
+        "parent": "d-u2",
+        "children": [
+          "d-u3"
+        ],
+        "message": {
+          "id": "d-a2",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686550.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "That is a strong result but not an unusual one. A deposit changes the cost of forgetting, and new customers are the group with the least commitment, so they respond most."
+            ]
+          }
+        }
+      },
+      "d-u3": {
+        "id": "d-u3",
+        "parent": "d-a2",
+        "children": [
+          "d-a3"
+        ],
+        "message": {
+          "id": "d-u3",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686640.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Should the deposit be refundable if the groomer cancels or the customer gives more than a day of notice? I do not want to create support tickets."
+            ]
+          }
+        }
+      },
+      "d-a3": {
+        "id": "d-a3",
+        "parent": "d-u3",
+        "children": [
+          "d-u4"
+        ],
+        "message": {
+          "id": "d-a3",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686670.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Refund automatically in both cases. It costs you nothing in trust and it removes the single biggest source of disputes."
+            ]
+          }
+        }
+      },
+      "d-u4": {
+        "id": "d-u4",
+        "parent": "d-a3",
+        "children": [
+          "d-a4"
+        ],
+        "message": {
+          "id": "d-u4",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686700.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "thanks!"
+            ]
+          }
+        }
+      },
+      "d-a4": {
+        "id": "d-a4",
+        "parent": "d-u4",
+        "children": [],
+        "message": {
+          "id": "d-a4",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686730.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Any time."
+            ]
+          }
+        }
+      },
+      "a1-regenerated": {
+        "id": "a1-regenerated",
+        "parent": "d-u1",
+        "children": [],
+        "message": {
+          "id": "a1-regenerated",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1776686445.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "REGEN canary-chatgpt-91 must never be imported. This answer was regenerated and thrown away."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Stripe Connect payout timing",
+    "create_time": 1779894000.0,
+    "update_time": 1779894600.0,
+    "id": "conv-payout",
+    "current_node": "p-a2",
+    "mapping": {
+      "conv-payout-root": {
+        "id": "conv-payout-root",
+        "parent": null,
+        "children": [
+          "conv-payout-s0"
+        ],
+        "message": null
+      },
+      "conv-payout-s0": {
+        "id": "conv-payout-s0",
+        "parent": "conv-payout-root",
+        "children": [
+          "p-u1"
+        ],
+        "message": {
+          "id": "conv-payout-s0",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          }
+        }
+      },
+      "p-u1": {
+        "id": "p-u1",
+        "parent": "conv-payout-s0",
+        "children": [
+          "p-a1"
+        ],
+        "message": {
+          "id": "p-u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1779894000.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "A groomer signed up on Monday, took a payment on Tuesday, and emailed me on Thursday saying I had stolen her money. How long does Stripe Connect Express really hold the first payout? canary-chatgpt-02"
+            ]
+          }
+        }
+      },
+      "p-a1": {
+        "id": "p-a1",
+        "parent": "p-u1",
+        "children": [
+          "p-u2"
+        ],
+        "message": {
+          "id": "p-a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1779894030.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Stripe Connect Express holds the first payout for a new account while it verifies the business. Plan for about seven days before the first transfer arrives, and tell the groomer up front. During that window the balance is visible in the dashboard but cannot be withdrawn. The safest pattern is to show a banner in the onboarding flow that explains the delay in plain words, then send an email on the day the payout becomes available. The safest pattern is to show a banner in the onboarding flow that explains the delay in plain words, then send an email on the day the payout becomes available. The safest pattern is to show a banner in the onboarding flow that explains the delay in plain words, then send an email on the day the payout becomes available. PAST-THE-CUT the assistant reply continues beyond the six hundred character limit and this marker must never appear in the imported memory."
+            ]
+          }
+        }
+      },
+      "p-u2": {
+        "id": "p-u2",
+        "parent": "p-a1",
+        "children": [
+          "p-a2"
+        ],
+        "message": {
+          "id": "p-u2",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1779894200.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Then I should warn groomers before they sign up, not after. Where is the best place to put that warning so they read it and do not think they were robbed?"
+            ]
+          }
+        }
+      },
+      "p-a2": {
+        "id": "p-a2",
+        "parent": "p-u2",
+        "children": [],
+        "message": {
+          "id": "p-a2",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1779894230.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Put it on the pricing page and again on the Stripe step of onboarding, in one sentence, with the number of days."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "",
+    "create_time": 1780995600.0,
+    "update_time": 1780996200.0,
+    "id": "conv-untitled",
+    "current_node": "u-a1",
+    "mapping": {
+      "conv-untitled-root": {
+        "id": "conv-untitled-root",
+        "parent": null,
+        "children": [
+          "conv-untitled-s0"
+        ],
+        "message": null
+      },
+      "conv-untitled-s0": {
+        "id": "conv-untitled-s0",
+        "parent": "conv-untitled-root",
+        "children": [
+          "u-u1"
+        ],
+        "message": {
+          "id": "conv-untitled-s0",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          }
+        }
+      },
+      "u-u1": {
+        "id": "u-u1",
+        "parent": "conv-untitled-s0",
+        "children": [
+          "u-a1"
+        ],
+        "message": {
+          "id": "u-u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1780995600.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Draft a two-line explanation of route batching for a groomer who has never heard the word, and keep it friendly. canary-chatgpt-03"
+            ]
+          }
+        }
+      },
+      "u-a1": {
+        "id": "u-a1",
+        "parent": "u-u1",
+        "children": [],
+        "message": {
+          "id": "u-a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1780995630.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Route batching means Tidewell groups your day by neighbourhood so the van drives less between stops.",
+              {
+                "content_type": "image_asset_pointer"
+              },
+              "Fewer miles, more dogs per day."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Quick check",
+    "create_time": 1782892800.0,
+    "update_time": 1782893400.0,
+    "id": "conv-quick",
+    "current_node": "q-a1",
+    "mapping": {
+      "conv-quick-root": {
+        "id": "conv-quick-root",
+        "parent": null,
+        "children": [
+          "conv-quick-s0"
+        ],
+        "message": null
+      },
+      "conv-quick-s0": {
+        "id": "conv-quick-s0",
+        "parent": "conv-quick-root",
+        "children": [
+          "q-u1"
+        ],
+        "message": {
+          "id": "conv-quick-s0",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          }
+        }
+      },
+      "q-u1": {
+        "id": "q-u1",
+        "parent": "conv-quick-s0",
+        "children": [
+          "q-a1"
+        ],
+        "message": {
+          "id": "q-u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1782892800.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "canary-chatgpt-04 ok?"
+            ]
+          }
+        }
+      },
+      "q-a1": {
+        "id": "q-a1",
+        "parent": "q-u1",
+        "children": [],
+        "message": {
+          "id": "q-a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1782892830.0,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Yes, that looks fine."
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Old idea",
+    "create_time": null,
+    "update_time": null,
+    "id": "conv-old-idea",
+    "current_node": "o-a1",
+    "mapping": {
+      "conv-old-idea-root": {
+        "id": "conv-old-idea-root",
+        "parent": null,
+        "children": [
+          "conv-old-idea-s0"
+        ],
+        "message": null
+      },
+      "conv-old-idea-s0": {
+        "id": "conv-old-idea-s0",
+        "parent": "conv-old-idea-root",
+        "children": [
+          "o-u1"
+        ],
+        "message": {
+          "id": "conv-old-idea-s0",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              ""
+            ]
+          }
+        }
+      },
+      "o-u1": {
+        "id": "o-u1",
+        "parent": "conv-old-idea-s0",
+        "children": [
+          "o-a1"
+        ],
+        "message": {
+          "id": "o-u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Before Tidewell I wanted to build a marketplace for dog walkers, but the unit economics looked thin. canary-chatgpt-05"
+            ]
+          }
+        }
+      },
+      "o-a1": {
+        "id": "o-a1",
+        "parent": "o-u1",
+        "children": [],
+        "message": {
+          "id": "o-a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [
+              "Marketplaces need both sides at once; a tool for the supply side alone is an easier place to start."
+            ]
+          }
+        }
+      }
+    }
+  }
+]

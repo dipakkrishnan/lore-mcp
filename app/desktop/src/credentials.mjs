@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 export class CredentialStore {
   /** @type {Map<string, Promise<unknown>>} */
   #chains = new Map();
+  /** Every provider shares one file and one temp path, so writes to it go one at a time. @type {Promise<unknown>} */
+  #file = Promise.resolve();
 
   /** @param {string} path @param {import("electron").SafeStorage} safeStorage */
   constructor(path, safeStorage) {
@@ -42,6 +44,17 @@ export class CredentialStore {
     return next;
   }
 
+  /** @param {(credentials: Record<string, import("@earendil-works/pi-ai").Credential>) => void} change */
+  #write(change) {
+    const next = this.#file.then(async () => {
+      const credentials = await this.#load();
+      change(credentials);
+      await this.#save(credentials);
+    });
+    this.#file = next.catch(() => undefined);
+    return next;
+  }
+
   /** @param {string} providerId */
   async read(providerId) {
     return (await this.#load())[providerId];
@@ -60,22 +73,23 @@ export class CredentialStore {
    */
   modify(providerId, change) {
     return this.#enqueue(providerId, async () => {
-      const credentials = await this.#load();
-      const next = await change(credentials[providerId]);
+      const current = (await this.#load())[providerId];
+      const next = await change(current);
       if (next !== undefined) {
-        credentials[providerId] = next;
-        await this.#save(credentials);
+        await this.#write((credentials) => {
+          credentials[providerId] = next;
+        });
       }
-      return next ?? credentials[providerId];
+      return next ?? current;
     });
   }
 
   /** @param {string} providerId */
   delete(providerId) {
-    return this.#enqueue(providerId, async () => {
-      const credentials = await this.#load();
-      delete credentials[providerId];
-      await this.#save(credentials);
-    });
+    return this.#enqueue(providerId, () =>
+      this.#write((credentials) => {
+        delete credentials[providerId];
+      })
+    );
   }
 }

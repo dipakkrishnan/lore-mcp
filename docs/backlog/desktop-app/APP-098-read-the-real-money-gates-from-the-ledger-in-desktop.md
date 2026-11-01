@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -38,3 +38,7 @@ question to the owner.
       asks for one sentence on the gates in the owner's words.
 - [ ] A live "Switch to real payments" on a store with a settled test sale
       reaches the CDP key step without narrating plumbing.
+
+## Notes
+
+**Review 2026-10-19:** not completed. Skill side shipped (886d427, 5c0a96e). Unmet: a live Switch-to-real-payments run on a store with a settled test sale reaching the CDP key step.

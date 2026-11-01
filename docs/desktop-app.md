@@ -59,10 +59,11 @@ Load-bearing rules, in priority order:
    publication, payment, or deployment. The CLI treats the app as a second
    attended surface: `lore publication decide` reads one
    decision from stdin only on a non-TTY pipe whose `LORE_ATTENDED_KEY`
-   matches the key Electron main wrote this launch to
-   `~/Library/Application Support/Lore/attended`. The agent's sandbox cannot
-   read that file and the key never enters `process.env`, so the model's shell
-   cannot pose as the app.
+   matches a key Electron main wrote this launch, in a file of its own under
+   `~/Library/Application Support/Lore/attended.d/` (removed when the app
+   quits), so every running app and test run keeps its own key. The agent's
+   sandbox cannot read or write that folder and the key never enters
+   `process.env`, so the model's shell cannot pose as the app.
 4. **Skills stay the source of truth.** `SKILL.md` loads verbatim as Pi's
    instructions; the app renders questions and progress. No parallel
    onboarding state machine — the setup checklist derives from the snapshot.

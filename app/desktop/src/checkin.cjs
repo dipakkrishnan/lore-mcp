@@ -27,7 +27,7 @@ function opening(checkIn) {
   const about = checkIn.questions.map((each) => `${JSON.stringify(each.title)} (id ${each.memory})`).join(", ");
   return {
     asked: checkIn.questions.map((each) => each.question).join("\n\n"),
-    note: `Lore's evening check-in asked the owner the questions that follow, about ${about}. Turn what the owner says into memories through propose_memories; nothing is saved until they keep it.`
+    note: `Lore's evening check-in asked the owner the questions that follow, about ${about}. One sentence is rarely worth selling, so first ask two to four short follow-ups, one at a time, as lore-capture says for the check-in: the setup, the numbers, what changed, what failed or surprised them, and when it wouldn't apply. Stop once a stranger could act on it, or as soon as the owner says they're done. Then turn what they said into memories through propose_memories; nothing is saved until they keep it.`
   };
 }
 

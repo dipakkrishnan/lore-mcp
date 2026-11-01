@@ -4,13 +4,13 @@ title: Keep a dogfood sandbox off the owner's live node
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-038, MON-019, XC-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -33,12 +33,14 @@ use in the banner.
 
 ## Acceptance criteria
 
-- [ ] A fresh sandbox is not signed in to Cloudflare and cannot see the
+- [x] A fresh sandbox is not signed in to Cloudflare and cannot see the
       owner's Worker.
-- [ ] The script banner says which Cloudflare account a store deploy will use.
+- [x] The script banner says which Cloudflare account a store deploy will use.
 
 ## Notes
 
 Recovery for the incident: `lore push` from the real profile restores the
 active set.
 Reviewed 2026-09-04: the config directory must live inside LORE_HOME, or the sandboxed shell cannot write wrangler's login.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in c901529 (#217). Closed out in the review-queue pass.

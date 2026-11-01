@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/171
 created: 2026-09-01
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -56,3 +56,5 @@ metadata labelling/filtering. Left in `ideation` rather than splitting
 unilaterally, since (3) is the issue author's own open question and (4) is
 their own "future iterations" note — resolving scope here would be
 inventing an answer, not reading one off the issue.
+
+**Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.

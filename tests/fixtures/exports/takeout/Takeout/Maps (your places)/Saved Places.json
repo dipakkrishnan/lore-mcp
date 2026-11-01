@@ -1,0 +1,58 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          -122.4214,
+          37.7614
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "date": "2025-06-14T18:22:11Z",
+        "google_maps_url": "http://maps.google.com/?cid=1234567890123456789",
+        "location": {
+          "address": "600 Guerrero St, San Francisco, CA 94110, United States",
+          "country_code": "US",
+          "name": "Tartine Bakery"
+        }
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -122.5108,
+          37.7802
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "date": "2025-08-02T09:05:40Z",
+        "google_maps_url": "http://maps.google.com/?cid=2345678901234567890",
+        "location": {
+          "address": "Point Lobos Ave, San Francisco, CA 94121, United States",
+          "country_code": "US",
+          "name": "Sutro Baths"
+        }
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          0,
+          0
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "Comment": "No location information is available for this saved place",
+        "date": "2024-11-30T21:10:02Z",
+        "google_maps_url": "http://maps.google.com/?q=37.7700,-122.4500"
+      },
+      "type": "Feature"
+    }
+  ]
+}

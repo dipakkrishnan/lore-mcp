@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -50,3 +50,5 @@ Two directions, not mutually exclusive:
 Reported by the owner while dogfooding (2026-09-02), with a screenshot of
 the sidebar chip reading "Claude · Setting up" for the whole setup task with
 no further progress indication.
+
+**Review 2026-10-19:** not completed. Superseded, not built: the sidebar chip this targets is gone (`renderAccount()` now shows Signed in, provider, store) and no commit ships a progress indicator. Candidate for `obsolete`; owner to confirm.

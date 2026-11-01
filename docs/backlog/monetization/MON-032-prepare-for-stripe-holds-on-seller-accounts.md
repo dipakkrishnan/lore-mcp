@@ -4,13 +4,13 @@ title: Prepare sellers and support for Stripe payout holds and account reviews
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-030, MON-031]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,5 @@ never holds the money. Nothing in the app explains payout timing or holds.
 ## Notes
 
 Raised 2026-09-29. Depends on card checkout (XC-039, PR #345).
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

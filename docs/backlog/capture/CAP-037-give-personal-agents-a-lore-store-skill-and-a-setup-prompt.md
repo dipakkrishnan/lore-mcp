@@ -4,13 +4,13 @@ title: Give personal agents a lore-store skill and a setup prompt
 priority: P0
 effort: S
 component: capture
-status: in-review
+status: completed
 related: [XC-067, CAP-036, APP-207, CAP-001]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -41,9 +41,9 @@ block. It tells the agent to:
 
 ## Acceptance criteria
 
-- [ ] The skill passes `tests/test_skill_contract.py` (name, when-to-use description, host metadata).
-- [ ] `lore agents connect --json` returns the paste block built from the skill, with the agent's MCP URL and name filled in.
-- [ ] The block reads as plain language for a non-technical owner, and the instructions say nothing is sold without approval.
+- [x] The skill passes `tests/test_skill_contract.py` (name, when-to-use description, host metadata).
+- [x] `lore agents connect --json` returns the paste block built from the skill, with the agent's MCP URL and name filled in.
+- [x] The block reads as plain language for a non-technical owner, and the instructions say nothing is sold without approval.
 
 ## Notes
 
@@ -63,3 +63,4 @@ block. It tells the agent to:
   the whole skills folder, so its description applies only when the agent
   has Lore's `store` tool.
 
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in f8859fb (#472), 677f5df, 347769b. Closed out in the review-queue pass.

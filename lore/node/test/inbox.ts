@@ -61,6 +61,23 @@ export class Mac {
     return `lore_agent_${id}_${secret}`;
   }
 
+  /** What Allow on the Mac does (XC-068): a new agent, made only while the sign-in still waits, and the sign-in bound to it. */
+  async allow(code: string, name = "Claude", app = "claude"): Promise<string | null> {
+    const id = hex(crypto.getRandomValues(new Uint8Array(8)));
+    const hash = createHash("sha256").update(b64url(crypto.getRandomValues(new Uint8Array(32)))).digest("hex");
+    const now = new Date().toISOString();
+    const waiting = "EXISTS (SELECT 1 FROM sign_ins WHERE code = ?1 AND state = 'pending' AND expires_at > ?2)";
+    const [made] = await env.LORE_DB.batch([
+      env.LORE_DB.prepare(`INSERT INTO agents (id, name, app, token_hash, created_at) SELECT ?3, ?4, ?5, ?6, ?2 WHERE ${waiting}`).bind(code, now, id, name, app, hash),
+      env.LORE_DB.prepare("UPDATE sign_ins SET state = 'allowed', agent = ?3 WHERE code = ?1 AND state = 'pending' AND expires_at > ?2").bind(code, now, id)
+    ]);
+    return made.meta.changes ? id : null;
+  }
+
+  async deny(code: string): Promise<void> {
+    await env.LORE_DB.prepare("UPDATE sign_ins SET state = 'denied' WHERE code = ? AND state = 'pending'").bind(code).run();
+  }
+
   async revoke(id: string): Promise<void> {
     await env.LORE_DB.prepare("UPDATE agents SET revoked_at = ? WHERE id = ?").bind(new Date().toISOString(), id).run();
   }

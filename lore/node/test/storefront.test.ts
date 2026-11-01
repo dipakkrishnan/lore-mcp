@@ -34,6 +34,19 @@ describe("storefront", () => {
     expect(data.itemListElement[0].item.offers).toMatchObject({ price: "0.01", priceCurrency: "USD" });
   });
 
+  it("a store that sells by card alone says so, and sends agents to the page instead of to USDC", () => {
+    const cards = { ...store, priceUsd: 1, checkout: "https://checkout.example", agentsPay: false };
+    const home = storefront(catalog, cards);
+    expect(home).not.toContain("USDC");
+    expect(home).toContain("This store sells by card. An agent that can use a browser buys each piece on its page");
+    expect(ld(home).itemListElement[0].item.offers).toMatchObject({ description: `Paid by card at https://lore.example.workers.dev/p/${A}.` });
+    const page = publicationPage(piece, cards);
+    expect(page).toContain("Buy for $1.00");
+    expect(page).toContain("Paste this into an agent that can use a browser. It buys on this page by card:");
+    expect(page).not.toContain("USDC");
+    expect(page).not.toContain("buyer skill");
+  });
+
   it("escapes owner text, including inside the structured data", () => {
     const html = storefront(catalog, store);
     expect(html).toContain("&lt;before&gt;");

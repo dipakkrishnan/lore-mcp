@@ -1,0 +1,17 @@
+A: Thanks for jumping on, everyone. This is the vet partners and Tidewell sync, and I want to spend most of it on payouts.
+B: Sounds good. Two of the clinics asked why a groomer said she had been robbed.
+A: That was a groomer who took her first payment on a Tuesday and expected the money by Wednesday.
+B: How long does the money really take?
+A: Stripe Connect Express holds the first payout about seven days. We now warn groomers before they sign up, or they think they were robbed.
+B: Where do they see the warning?
+A: On the pricing page, again on the Stripe step of onboarding, and in the first email after signup, all with the number of days.
+B: Could the clinics pass that on in their cards too?
+A: It is worth adding one line about it, yes, because a groomer who was warned is a groomer who stays.
+B: Then I will ask the clinics to include it. What about later payouts?
+A: After the first one the payouts are daily, and the delay never comes back unless a bank detail changes.
+B: Good, I will say that too. Anything else for today?
+A: One more question is whether the clinics want a monthly note about which groomers have openings this week.
+B: They would, as long as it is one short email and they can ignore it, because the front desk is already buried in messages.
+A: Then I will build it as a Friday email with three lines per groomer, opening slots and neighbourhoods, and nothing else.
+B: That sounds workable. Some clinics will want to reply with a name, so make sure a reply reaches a person, not a mailbox nobody reads.
+A: It will reach me, and I will answer the same day. Only the internal tag, canary granola zero three. This is a fictional seed recording, tidewell seed, and nothing in it is real.

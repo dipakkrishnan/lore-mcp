@@ -10,7 +10,7 @@ blockers: []
 dependencies: [CAP-002]
 github_issue: null
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -67,3 +67,5 @@ title, project, source_path, and content only; `CAP-002` owns that half.
 of the same idea: links made by the owner rather than the agent. A synthesis
 produced from a selection is a natural place to write links from the result
 back to its sources.
+
+**Review 2026-10-19:** not completed. Not done. No links field or Related section exists, and `lore/store.py` has no link column (a CAP-002 prerequisite). All 4 criteria unmet.

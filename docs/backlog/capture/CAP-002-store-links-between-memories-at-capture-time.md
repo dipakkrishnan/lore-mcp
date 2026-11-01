@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -61,3 +61,5 @@ operated comparison of Obsidian 1.13's backlinks pane against the Lore
 memory sheet. The reason sentence is load-bearing: a list of bare titles is
 not readable, and the sentence is what the agent already has when it
 proposes the link.
+
+**Review 2026-10-19:** not completed. Not done. No `related` field, link table or snapshot links exist in lore/capture.py, store.py, snapshot.py or the lore-capture skill. All 5 criteria unmet.

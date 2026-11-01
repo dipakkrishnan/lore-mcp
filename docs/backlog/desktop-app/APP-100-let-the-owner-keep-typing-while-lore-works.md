@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -84,3 +84,5 @@ Out of scope: concurrent agent execution, running another task while a card
 waits, arbitrary new conversations, scheduling, queue reordering, a new task
 screen, automatic retries, and automatic execution after relaunch. Do not
 broaden sandbox permissions to make concurrency appear to work.
+
+**Review 2026-10-19:** not completed. Not done. Only f36d86b (scoping docs) names it; no task queue, cancel-while-pending or queued state exists. All 7 criteria unmet.

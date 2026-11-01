@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["STO-003 for the source kind and state; a folder can be dropped through lore-capture today"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -48,3 +48,11 @@ Needs `NSDocumentsFolderUsageDescription`, `NSDesktopFolderUsageDescription`,
 and `NSDownloadsFolderUsageDescription` in `forge.config.js` (`APP-121`);
 without them macOS still prompts but with boilerplate copy. Obsidian Bases
 is a view layer; the vault stays plain markdown.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; much of this
+exists on main. `lore/sources.py` has an `Obsidian` connector (line 405) and a folder
+walk that skips `.obsidian`, `.trash` and `templates` (line 248), `lore sources
+preview --folder` is in the CLI (`lore/cli.py:825`, `1118`), and `test:edge` includes
+an `obsidian` persona. Check each acceptance criterion against that code (preview
+with count and date range, re-read of changed notes only, short-note skip count, the
+macOS folder prompt strings) and rewrite the item to what is still unmet.

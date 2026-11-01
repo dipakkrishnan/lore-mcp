@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Tidewell Notes</title>
+    <link>https://tidewell-notes.pages.dev</link>
+    <description>Notes from building Tidewell, bookings and routes for mobile groomers. Seed site for the Lore connector test suite (tidewell-seed). Nothing here is real.</description>
+    <item>
+      <title>Short note</title>
+      <link>https://tidewell-notes.pages.dev/posts/short-note.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/short-note.html</guid>
+      <pubDate>Tue, 22 Sep 2026 09:00:00 +0000</pubDate>
+      <description>Back next week. tidewell-seed</description>
+    </item>
+    <item>
+      <title>Raising the price without losing anyone</title>
+      <link>https://tidewell-notes.pages.dev/posts/raising-the-price-without-losing-anyone.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/raising-the-price-without-losing-anyone.html</guid>
+      <pubDate>Thu, 06 Aug 2026 09:00:00 +0000</pubDate>
+      <content:encoded><![CDATA[<p>Raising $29 to $39 with grandfathering lost nobody; the new price only ever applied to people who never saw the old one.</p>
+<p>On 1 August the monthly price went from $29 to $39. Every groomer who was already paying kept $29 for as long as they stay. New signups see only $39, so nobody is ever told that they are paying more than someone else.</p>
+<p>The email I sent to the forty existing groomers was four sentences long, and two of them replied with a thank-you.</p>
+<p>tidewell-seed · canary-blog-02</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>The first forty never asked for calendar sync</title>
+      <link>https://tidewell-notes.pages.dev/posts/the-first-forty-never-asked-for-calendar-sync.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/the-first-forty-never-asked-for-calendar-sync.html</guid>
+      <pubDate>Thu, 09 Jul 2026 09:00:00 +0000</pubDate>
+      <description>&lt;p&gt;Do not build calendar sync before fifty customers; the first forty never asked for it.&lt;/p&gt;
+&lt;p&gt;This post is a feed item with only a description and no full-content field, so a reader has to fall back to the description to see any of the text at all.&lt;/p&gt;
+&lt;p&gt;tidewell-seed · canary-blog-04&lt;/p&gt;</description>
+    </item>
+    <item>
+      <title>Routes &amp; ramps: &lt;van&gt; life 🚐</title>
+      <link>https://tidewell-notes.pages.dev/posts/routes-ramps-van-life.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/routes-ramps-van-life.html</guid>
+      <pubDate>Thu, 18 Jun 2026 09:00:00 +0000</pubDate>
+      <content:encoded><![CDATA[<p>A day in a grooming van is mostly ramps, parking and low bridges, and the software only sees the addresses.<br>
+Ramp angles decide which dogs can be booked into which van.<br>
+Low bridges decide which streets the route optimiser may use.<br>
+Parking decides whether the next stop starts on time.</p>
+<p>tidewell-seed · canary-blog-03</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>Why the route is the product</title>
+      <link>https://tidewell-notes.pages.dev/posts/why-the-route-is-the-product.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/why-the-route-is-the-product.html</guid>
+      <pubDate>Wed, 06 May 2026 09:00:00 +0000</pubDate>
+      <content:encoded><![CDATA[<p>Batching a groomer's day by neighbourhood saves about an hour of driving; that hour is the whole pitch.</p>
+<p>When Delia first booked customers in the order they called, her van crossed Port Alder four times a day. Tidewell now sorts the day into clusters, and three small rules add up to the hour:</p>
+<ul>
+<li>Stops in the same neighbourhood are offered together.</li>
+<li>The first slot of the day is the one closest to the van's home.</li>
+<li>A cancellation pulls a nearby booking forward instead of leaving a gap.</li>
+</ul>
+<blockquote>The route is the product. The booking form is just how it gets fed.</blockquote>
+<p>tidewell-seed · canary-blog-01</p>]]></content:encoded>
+    </item>
+    <item>
+      <title>How Tidewell started</title>
+      <link>https://tidewell-notes.pages.dev/posts/how-tidewell-started.html</link>
+      <guid isPermaLink="true">https://tidewell-notes.pages.dev/posts/how-tidewell-started.html</guid>
+      <pubDate>Fri, 20 Feb 2026 09:00:00 +0000</pubDate>
+      <content:encoded><![CDATA[<style>.seed-style-rule { color: red; }</style>
+<script>console.log('seed-script-text')</script>
+<p>Tidewell started in January 2026 with a spreadsheet and a phone call to Delia, who ran a one-van grooming shop in Port Alder and kept her bookings on a paper calendar.</p>
+<p>By March she was the first paying customer, and the spreadsheet had become a booking form with a route on the back of it.</p>
+<p>tidewell-seed · canary-blog-05</p>]]></content:encoded>
+    </item>
+  </channel>
+</rss>

@@ -1,7 +1,7 @@
 # Connectors
 
-A connector is an app the owner recognises: Obsidian, ChatGPT, Claude,
-Substack, Medium, Bluesky, any blog or newsletter, Letterboxd, Goodreads,
+A connector is an app the owner recognises: Obsidian, ChatGPT, Claude, Google
+Maps, Substack, Medium, Bluesky, any blog or newsletter, Letterboxd, Goodreads,
 Granola, Notion, or Readwise.
 A reader is how Lore gets the content out of it. The owner only ever
 meets the connector; the reader is Lore's business.
@@ -90,7 +90,10 @@ always asks whether to keep what was imported.
 1. If the content is a folder, a feed, or a conversation export, write only the
    `Connector` subclass and bundle its mark. Otherwise write a `Reader` for the
    new kind first; a reader that only takes one product's files, as the export
-   readers do, is a two-line subclass.
+   readers do, is a two-line subclass. An export of another shape overrides
+   `probe` and `items` on `ExportReader` and keeps its once-only, named-by-app
+   identity: `TakeoutExport` reads only the Google Maps files out of a Takeout
+   archive or folder and ignores every other product in it.
 2. A new kind also needs a locator flag in `lore sources add`, and a setup
    control in `openConnect` in the desktop; a new way of authorising access
    (OAuth, macOS Automation) needs a real access adapter, not catalog metadata.

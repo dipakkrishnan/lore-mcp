@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ would undermine trust in buying from the marketplace.
 ## Notes
 
 Raised 2026-09-29.
+
+**Review 2026-10-19:** not completed. Not done. Nothing flags an injected instruction in a teaser at approval, and the lore-buy skill has no treat-purchased-text-as-data instruction. Both criteria unmet.

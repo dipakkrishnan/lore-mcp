@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -53,3 +53,5 @@ Unclear on exact treatment — needs a design decision. Candidate directions:
 
 Reported by the owner while dogfooding (2026-09-02), last in a series of
 five UI/UX reports from the same session (APP-049 through APP-053).
+
+**Review 2026-10-19:** not completed. Likely superseded. First run is now `firstrun.cjs` (APP-215/219) and Today has a Next step card. Needs a human look at the first-run screen to confirm a new owner can tell setup is required.

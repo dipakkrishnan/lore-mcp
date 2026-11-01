@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,11 @@ event instead and let it clear when provisioning finishes.
 ## Notes
 
 Every dogfood screenshot from the 2026-09-05 pass shows the chip.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; appears fixed on
+main. `renderAccount` (`app/desktop/src/renderer.js:3280`) now adds the store word
+only when `snapshot.node.url` exists (`0f367d3`, XC-069, #482), and the
+`"Not set up"` to `"Setting up"` mapping the Problem cites is gone: the only
+`Setting up` strings left are the deploy phase text and the Cloudflare form. With no
+store the chip reads `Claude`, which is the proposed approach. Confirm once in a
+fresh sandbox, then close as `completed`.

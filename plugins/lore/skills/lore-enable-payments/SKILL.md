@@ -25,7 +25,7 @@ having at least one.
 
 > **Lore desktop:** this skill runs as the app's "Open your store" task, and it
 > opens the store on **real money** in one pass: price, Cloudflare sign-in,
-> payout address, deploy. There is no test-network step, no test payment, and
+> how the owner gets paid, deploy. There is no test-network step, no test payment, and
 > no Coinbase developer keys in the app (the node settles through a keyless
 > facilitator). Ask every decision through `ask_user`. The app runs everything
 > that touches the store; your shell has no network and cannot write
@@ -53,20 +53,21 @@ having at least one.
 > 2. Price through `propose_price` (step 4).
 > 3. Cloudflare: call `cloudflare_login` if the owner has not signed in this
 >    session; `open_store` also says when the sign-in is missing.
-> 4. **The payout address, last.** One `ask_user` question, exactly:
->    question "Where should buyers' payments go?", header "Payouts", no
->    options, format `evm_address`. The app renders the whole guided step
->    itself: Coinbase first, a wallet app second, the Base network check, and
->    format validation. Do not add your own wallet instructions around it or
->    open Coinbase for them. A redeploy (`lore status` shows a last deploy)
->    never asks: call `open_store` without an address, and the app shows the
->    owner the address the store already pays to, or asks for it on its own
->    card when it has none on record.
-> 5. `open_store` with network `real` and the address. It takes a few
->    minutes; say plainly if it fails, and never leave the composer silent.
-> 6. Close in two sentences: the store is open, what buyers pay, and that each
->    payment lands at the address ending in its last four characters. Then
->    `finish_task`.
+> 4. **How the owner gets paid, last.** Ask nothing yourself: call
+>    `open_store` with network `real` and no address. A payout address is
+>    optional, because card payments are enough to sell. If the owner takes
+>    cards, the app opens the store selling by card alone. Otherwise it asks
+>    on its own card, "Where should buyers' payments go?", leading with By card
+>    (Stripe pays their bank) and offering a Coinbase account or a wallet
+>    app's address as the alternatives. Don't add your own wallet or Stripe
+>    instructions around it. A redeploy asks nothing either: the app shows the
+>    owner what the store already pays to.
+> 5. That `open_store` call takes a few minutes. Say plainly if it fails, and
+>    never leave the composer silent.
+> 6. Close in two sentences: the store is open, what buyers pay, and where
+>    the money goes. For card payments, Stripe pays their bank. For an
+>    address, payments land at the address ending in its last four
+>    characters. Then `finish_task`.
 >
 > Say "real money", never "mainnet", and never name Base, Sepolia, USDC
 > contracts, facilitators, or Coinbase developer keys in prose.
@@ -89,8 +90,8 @@ having at least one.
 > Then `finish_task`. Never ask about a price or where payments go here.
 > Later, when the owner opens the store to sell their first approved piece,
 > `lore status` says the store is online for their agents and nothing is for
-> sale; run the whole desktop order above, and the deploy with `--wallet`
-> opens it for sale.
+> sale; run the whole desktop order above, and the full deploy (by card, or
+> with `--wallet`) opens it for sale.
 
 ## How to drive — read this first
 
@@ -171,6 +172,12 @@ Ask this last, after the price and the Cloudflare sign-in: it is the step
 where new owners stall, so it comes when they already have something worth
 selling. In Lore desktop the app's payout card is the whole step (see the
 desktop order above); what follows is the terminal version.
+
+A payout address is optional when the owner takes cards: after
+`lore cards connect`, once Stripe clears them, `lore cards account <acct_…>`
+turns card payments on, and `lore node deploy --network real` with no
+`--wallet` opens the store selling by card alone. Offer that first to anyone
+without a wallet.
 
 **Recommend a Coinbase account first.** It reaches a bank without a wallet app.
 In the Coinbase app: **Receive** → **USDC** → network **Base** → **Copy**. The

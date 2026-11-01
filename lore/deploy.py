@@ -10,6 +10,7 @@ and the Worker share a D1 schema (MON-003).
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -20,12 +21,15 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
+from fnmatch import fnmatch
 from importlib import resources
 from pathlib import Path
 from typing import Iterator, Literal
 
 from pydantic import BaseModel, TypeAdapter
 
+from . import blueprint, usage
+from .cloudflare import Account, Cloudflare, CloudflareError, subdomain_name
 from .paths import home, store_folder
 from .store import JobKind, Store
 from .ui import muted, success, warn
@@ -39,6 +43,8 @@ WRANGLER = "node_modules/.bin/wrangler"
 INSTALLED = ".installed"
 # Where the store pays out, written only by a deploy that set it.
 PAYOUT = "payout.json"
+# Which store this Lore last put online from this Mac, written by every deploy that went out.
+DEPLOYED = "deployed.json"
 DATABASE_ID = "[0-9a-f-]{36}"
 WALLET = re.compile(r"0x[0-9a-fA-F]{40}")
 D1_NAME = "lore-publications"
@@ -47,6 +53,30 @@ VERIFY_EMAIL = (
     "Cloudflare needs you to verify your email first. Check your inbox for their "
     "email, click the link, then tap Set it up again."
 )
+NOT_SIGNED_IN = "not signed in to Cloudflare; sign in first, then rerun"
+MANY_ACCOUNTS = (
+    "Your Cloudflare sign-in has more than one account. Choose the one your store "
+    "goes on (`lore node accounts`), then set it up again."
+)
+NO_SUBDOMAIN = (
+    "Your Cloudflare account needs a web address before your store can go online, "
+    "and Lore couldn't make one. Open {link}, pick a name, then tap Set it up again."
+)
+TIMED_OUT = (
+    "Cloudflare took too long to answer, so your store didn't go online. Check "
+    "your connection, then try again."
+)
+NOT_ANSWERING = (
+    "Your store went up but isn't answering yet. Give it a few minutes, then open "
+    "it again."
+)
+# The one account the owner chose when their sign-in has several (XC-087).
+ACCOUNT_SETTING = "cloudflare_account"
+ACCOUNT_ID = re.compile(r"[0-9a-f]{32}")
+# A brand-new workers.dev address takes a few minutes to answer: ask every 10s for 3 minutes.
+FRESH_PROBES = 18
+# The store log keeps about the last 64 KB of failures.
+LOG_KEEP = 64_000
 NEEDS_NODE = "deploying needs Node.js; install it from nodejs.org and rerun"
 # Generous enough for a cold `npm install` plus a `wrangler deploy` on a slow
 # connection, but bounded: nothing in this chain may block a caller (the
@@ -110,6 +140,98 @@ MINIMUM_PRICE = 1e-6
 SELLING_SETTING = "node_selling"
 
 
+class StoreFailed(OSError):
+    """Why the store didn't go online (XC-085): one plain line for the owner, a
+    reason from usage.STORE_FAILURES for the usage event, and everything the
+    tools said for the store log."""
+
+    # The words each cause is known by, in what wrangler and Lore print.
+    KNOWN = (
+        (
+            "email_unverified",
+            re.compile(
+                r"verify your account's email|email_verification_required|"
+                r"verify your email|\b10034\b",
+                re.IGNORECASE,
+            ),
+        ),
+        ("no_subdomain", re.compile(r"register a workers\.dev subdomain")),
+        ("many_accounts", re.compile(r"More than one account available")),
+        ("exists_elsewhere", re.compile(r"already exists on this Cloudflare account")),
+        ("not_signed_in", re.compile(r"not signed in to Cloudflare|Not logged in")),
+        ("no_payout", re.compile(r"your store has no way to be paid")),
+        ("timeout", re.compile(r"timed out after \d+s")),
+        ("not_answering", re.compile(r"did not answer discover")),
+    )
+
+    def __init__(self, reason: str, said: str, detail: str = "") -> None:
+        super().__init__(said)
+        self.reason = reason
+        self.detail = detail or said
+
+    @classmethod
+    def of(cls, error: BaseException, output: str = "") -> StoreFailed:
+        """The failure `error` is, told by its words and the tools' full output."""
+        if isinstance(error, StoreFailed):
+            return error
+        text = str(error)
+        detail = f"{text}\n{output}".strip()
+        for reason, words in cls.KNOWN:
+            if words.search(detail):
+                return cls(reason, cls._said(reason, text, detail), detail)
+        return cls("other", _one_line(text), detail)
+
+    @staticmethod
+    def _said(reason: str, text: str, detail: str) -> str:
+        if reason == "email_unverified":
+            return VERIFY_EMAIL
+        if reason == "many_accounts":
+            return MANY_ACCOUNTS
+        if reason == "no_subdomain":
+            link = re.search(r"https://dash\.cloudflare\.com/\S+", detail)
+            return NO_SUBDOMAIN.format(
+                link=link.group(0) if link else "dash.cloudflare.com"
+            )
+        if reason == "not_signed_in":
+            return NOT_SIGNED_IN
+        if reason == "timeout":
+            return TIMED_OUT
+        if reason == "not_answering":
+            return NOT_ANSWERING
+        # A store elsewhere and a missing payout are already said in full.
+        return text
+
+    def log(self) -> Path:
+        """Keep everything the tools said, where the owner can send it with feedback."""
+        return _store_log(f"{self.reason}: {self.detail}")
+
+
+def _one_line(text: str) -> str:
+    """A tool's failure on one line: what Lore was doing, and the last thing it said."""
+    head, _, rest = text.partition("\n")
+    last = next(
+        (line.strip() for line in reversed(rest.splitlines()) if line.strip()), ""
+    )
+    head = head.strip().rstrip(":")
+    return (f"{head}: {last}" if last else head)[:400]
+
+
+def store_log() -> Path:
+    return home() / "logs" / "store.log"
+
+
+def _store_log(entry: str) -> Path:
+    path = store_log()
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    try:
+        kept = path.read_text(encoding="utf-8")[-LOG_KEEP:]
+    except OSError:
+        kept = ""
+    _replace(path, f"{kept}{stamp} {entry}\n")
+    return path
+
+
 def choice(store: Store) -> bool | None:
     """The owner's choice to sell: true, false, or unset (a store from before XC-069)."""
     chosen = store.setting(SELLING_SETTING, None)
@@ -120,6 +242,13 @@ def selling(store: Store) -> bool:
     """Whether the store is online and open for sale, not only for agents: an
     address, and no explicit no."""
     return bool(store.setting("node_url", None)) and choice(store) is not False
+
+
+def takes_cards() -> bool:
+    """Whether the owner takes card payments (XC-039), which is enough for the
+    store to sell with no payout address."""
+    with Store() as store:
+        return bool(store.setting("stripe_account", ""))
 
 
 def _refuse_dev_source_drift(packaged: Path) -> None:
@@ -170,6 +299,17 @@ def _kept_id(config: Path) -> str | None:
     return _moved_id() or own
 
 
+def _pinned(config: str, account: object) -> str:
+    """The store's config on the account the owner chose, so every later wrangler
+    command (a push, a sales read) goes there without asking; or on none."""
+    config = re.sub(r'\n\s*"account_id": "[^"]*",', "", config)
+    if not isinstance(account, str) or not ACCOUNT_ID.fullmatch(account):
+        return config
+    return config.replace(
+        '"name": "lore",', f'"name": "lore",\n  "account_id": "{account}",', 1
+    )
+
+
 def _replace(path: Path, text: str) -> None:
     """Write a file whole or not at all."""
     partial = path.with_name(f".{path.name}.partial")
@@ -213,7 +353,7 @@ def _build(folder: Path, database_id: str | None, price_usd: float | None) -> No
         )
     if database_id:
         config = config.replace(D1_PLACEHOLDER, database_id)
-    _replace(folder / "wrangler.jsonc", config)
+    _replace(folder / "wrangler.jsonc", _pinned(config, _chosen()))
     # Owner-only, like the rest of ~/.lore — after copytree, which copystats
     # the package directory's world-readable mode onto the target.
     folder.chmod(0o700)
@@ -248,9 +388,68 @@ def materialize(price_usd: float | None) -> Path:
     return target
 
 
+def shipped_store() -> str:
+    """A digest of the store this Lore ships: every packaged file a deploy lays
+    down, by path and content. Two Lore releases that ship the same store agree."""
+    digest = hashlib.sha256()
+    with resources.as_file(resources.files("lore") / "node") as source_dir:
+        for root, dirs, files in os.walk(source_dir):
+            dirs[:] = sorted(d for d in dirs if not _excluded(d))
+            for name in sorted(files):
+                if _excluded(name):
+                    continue
+                path = Path(root, name)
+                digest.update(path.relative_to(source_dir).as_posix().encode())
+                digest.update(b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+def _excluded(name: str) -> bool:
+    return any(fnmatch(name, pattern) for pattern in EXCLUDED)
+
+
+def _record_store(target: Path) -> None:
+    """Keep which store went online, beside its payout record: the app offers an
+    update once this Lore ships a newer one."""
+    _replace(target / DEPLOYED, json.dumps({"store": shipped_store()}))
+
+
+def store_state(node_url: object) -> Literal["current", "outdated", "unknown"]:
+    """Whether the store online is the one this Lore ships (APP-231). Only a store
+    this Mac put online can be behind: one with no record here is unknown, never
+    outdated, so the app never offers to update a store another Mac set up. A
+    store put online from this Mac before the record was kept has its payout
+    record instead, which only a deploy from here writes."""
+    if not node_url:
+        return "unknown"
+    target = store_folder()
+    try:
+        kept = json.loads((target / DEPLOYED).read_text()).get("store")
+    except (OSError, ValueError, AttributeError):
+        kept = None
+    if not isinstance(kept, str):
+        return "outdated" if (target / PAYOUT).is_file() else "unknown"
+    return "current" if kept == shipped_store() else "outdated"
+
+
 def installed(target: Path) -> bool:
     """Whether the store's packages finished installing, not just started."""
     return (target / INSTALLED).is_file() and (target / WRANGLER).exists()
+
+
+def _packages(target: Path) -> str:
+    """Which packages the store asks for, as its manifest and lockfile say."""
+    digest = hashlib.sha256()
+    for name in ("package.json", "package-lock.json"):
+        path = target / name
+        digest.update(path.read_bytes() if path.is_file() else b"")
+    return digest.hexdigest()
+
+
+def current(target: Path) -> bool:
+    """Whether the packages installed are the ones the store asks for now, so a
+    second try after a failure doesn't install them all again (XC-087)."""
+    return installed(target) and (target / INSTALLED).read_text() == _packages(target)
 
 
 def _recorded(target: Path) -> dict[str, object]:
@@ -297,16 +496,19 @@ def _record_payout(target: Path, wallet: str | None, network: str | None) -> Non
     """Keep where this store pays out, and on which network, beside its code: the
     desktop app shows the owner exactly this before a redeploy and deploys it
     again, and the agent can neither read nor write it there. Every deploy that
-    gets this far rewrites it, a wallet-less one keeping the recorded address."""
+    gets this far rewrites it, a wallet-less one keeping the recorded address.
+    A store that sells by card alone has no address, so only its network is kept."""
     path = target / PAYOUT
     kept = _recorded(target)
     address = wallet or kept.get("address")
-    if not isinstance(address, str) or not WALLET.fullmatch(address):
+    if address is not None and (
+        not isinstance(address, str) or not WALLET.fullmatch(address)
+    ):
         return
-    _replace(
-        path,
-        json.dumps({"address": address, "network": network or kept.get("network")}),
-    )
+    chosen = network or kept.get("network")
+    if address is None and chosen is None:
+        return
+    _replace(path, json.dumps({"address": address, "network": chosen}))
 
 
 def install(target: Path) -> None:
@@ -315,6 +517,8 @@ def install(target: Path) -> None:
     scripts (wrangler's platform binaries come as plain optional packages).
     Marked done only once wrangler is there."""
     (target / INSTALLED).unlink(missing_ok=True)
+    # Taken before npm runs, since npm may rewrite the lockfile it was handed.
+    asked = _packages(target)
     # npm refuses one file as both, so each gets its own empty one.
     user, shared = target / ".npmrc-user", target / ".npmrc-global"
     for empty in (user, shared):
@@ -339,7 +543,7 @@ def install(target: Path) -> None:
     )
     if not (target / WRANGLER).exists():
         raise OSError("npm install finished without wrangler; run it again")
-    (target / INSTALLED).write_text("")
+    (target / INSTALLED).write_text(asked)
 
 
 def tools() -> Path:
@@ -460,7 +664,11 @@ def _ensure_d1(
     # Some wrangler versions say so and still exit 0; the words decide, never the exit code alone.
     already_existed = "already exists" in output.lower()
     if created.returncode and not already_existed:
-        raise OSError(f"creating the D1 database failed:\n{output.strip()[-2000:]}")
+        # The first request to Cloudflare: an unverified email is refused here first.
+        raise StoreFailed.of(
+            OSError(f"Lore couldn't make your store's database:\n{_detail(created)}"),
+            output,
+        )
     # `d1 create` prints a config snippet; the id format survives wrangler's
     # TOML-vs-JSON output changes, so match the value rather than the syntax.
     match = re.search(r'database_id[":\s=]+([0-9a-fA-F-]{32,36})', output)
@@ -483,7 +691,8 @@ def _ensure_d1(
         with Store() as store:
             known_node = store.setting("node_url", None)
         if not known_node:
-            raise OSError(
+            raise StoreFailed(
+                "exists_elsewhere",
                 f"a {D1_NAME} database already exists on this Cloudflare account, "
                 f"but this installation ({home()}) has never deployed a node before "
                 "— adopting it would point this deploy at a database it does not "
@@ -492,7 +701,7 @@ def _ensure_d1(
                 "account really is yours and you are recovering lost local state, "
                 f"confirm the id with `npx wrangler d1 list` in {target} and paste "
                 "it into wrangler.jsonc yourself, or rerun with "
-                "LORE_ADOPT_EXISTING_D1=1 set."
+                "LORE_ADOPT_EXISTING_D1=1 set.",
             )
     if not already_existed:
         # A database made in this run is a new store: it sells nothing until a
@@ -506,13 +715,8 @@ def _ensure_d1(
     return "adopted" if already_existed else "created"
 
 
-def login() -> int:
-    """Sign in to Cloudflare from the owner's browser.
-
-    Prints the link to open (the desktop app opens it itself), waits for
-    Cloudflare's callback, then says who is signed in."""
-    if not shutil.which("npm"):
-        raise OSError(NEEDS_NODE)
+def _staged() -> Path:
+    """The store folder with wrangler in it, staged and installed if it isn't yet."""
     target = store_folder()
     with store_lock():
         if not (target / "package.json").exists():
@@ -520,6 +724,17 @@ def login() -> int:
         if not installed(target):
             muted("Installing dependencies (the first run can take a minute)...")
             install(target)
+    return target
+
+
+def login() -> int:
+    """Sign in to Cloudflare from the owner's browser.
+
+    Prints the link to open (the desktop app opens it itself), waits for
+    Cloudflare's callback, then says who is signed in."""
+    if not shutil.which("npm"):
+        raise OSError(NEEDS_NODE)
+    target = _staged()
     wrangler = target / WRANGLER
     sys.stdout.flush()
     _run((str(wrangler), "login", "--browser=false"), target, interactive=True)
@@ -535,6 +750,11 @@ def login() -> int:
 def _read(query: str, fail: str) -> list[dict[str, object]]:
     """Run `query` on the node's database through the owner's Cloudflare login,
     the same way `lore push` writes it, and return its last statement's rows."""
+    return _read_all(query, fail)[-1]
+
+
+def _read_all(query: str, fail: str) -> list[list[dict[str, object]]]:
+    """Every statement's rows, in order, from one run of `query`."""
     target = tools()
     wrangler = target / WRANGLER
     result = _run(
@@ -552,8 +772,7 @@ def _read(query: str, fail: str) -> list[dict[str, object]]:
         fail=fail,
         retry=True,
     )
-    rows: list[dict[str, object]] = json.loads(result.stdout)[-1]["results"]
-    return rows
+    return [statement["results"] for statement in json.loads(result.stdout)]
 
 
 def sales() -> list[Sale]:
@@ -582,6 +801,99 @@ def secret(name: str, value: str) -> int:
     )
     success(f"Stored {name} in Cloudflare's vault")
     return 0
+
+
+def _token(wrangler: str, target: Path) -> str | None:
+    """The token wrangler signs in with, for Cloudflare's API; none if it gives none."""
+    said = _run((wrangler, "auth", "token", "--json"), target)
+    try:
+        answer = json.loads(said.stdout or "")
+    except ValueError:
+        return None
+    token = answer.get("token") if isinstance(answer, dict) else None
+    return token if isinstance(token, str) and token else None
+
+
+def accounts() -> list[Account]:
+    """The Cloudflare accounts the owner's sign-in can put the store on."""
+    target = _staged()
+    token = _token(str(target / WRANGLER), target)
+    if token is None:
+        raise StoreFailed("not_signed_in", NOT_SIGNED_IN)
+    return Cloudflare(token).accounts()
+
+
+def choose_account(account: str) -> None:
+    """Remember which of the owner's Cloudflare accounts the store goes on."""
+    if not ACCOUNT_ID.fullmatch(account):
+        raise ValueError("a Cloudflare account id is 32 lowercase hex characters")
+    with Store() as store:
+        store.set_setting(ACCOUNT_SETTING, account)
+
+
+def _chosen() -> str | None:
+    """The account wrangler is pinned to: the one it is told to use, else the
+    one the owner chose. One answer for the check and the deploy alike."""
+    if os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+        return os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    with Store() as store:
+        chosen = store.setting(ACCOUNT_SETTING, None)
+    return chosen if isinstance(chosen, str) else None
+
+
+def _account(cloudflare: Cloudflare, config: Path) -> str | None:
+    """The account the store goes on: the one wrangler is told to use, the one
+    the owner chose, or the only one there is. Several, none chosen, and the
+    owner is asked, once."""
+    if os.environ.get("CLOUDFLARE_ACCOUNT_ID"):
+        return os.environ["CLOUDFLARE_ACCOUNT_ID"]
+    chosen = _chosen()
+    found = cloudflare.accounts()
+    if any(account.id == chosen for account in found):
+        return str(chosen)
+    if len(found) > 1:
+        names = ", ".join(account.name for account in found)
+        raise StoreFailed("many_accounts", MANY_ACCOUNTS, f"accounts: {names}")
+    if chosen is not None:
+        # The owner signed in elsewhere since choosing; that choice no longer applies.
+        with Store() as store:
+            store.set_setting(ACCOUNT_SETTING, None)
+        _replace(config, _pinned(config.read_text(), None))
+    return found[0].id if found else None
+
+
+def _ready_account(wrangler: str, target: Path) -> bool:
+    """Settle, through Cloudflare's API, what wrangler would otherwise ask with
+    no one at its prompt (XC-087): which account, and a workers.dev address for
+    an account that has never had one. True when that address is brand new.
+
+    Best-effort beyond those: if the check itself can't run, the deploy goes on
+    and wrangler says what is wrong in its own words."""
+    try:
+        token = _token(wrangler, target)
+        if token is None:
+            return False
+        cloudflare = Cloudflare(token)
+        account = _account(cloudflare, target / "wrangler.jsonc")
+        if account is None or cloudflare.subdomain(account) is not None:
+            return False
+        muted("Giving your Cloudflare account a web address (one-time)...")
+        owner = blueprint.load_blueprint()
+        name = owner.get("name") if owner else None
+        made = cloudflare.register(
+            account, subdomain_name(name if isinstance(name, str) else "")
+        )
+        _store_log(f"made the account's workers.dev address: {made}")
+        return True
+    except StoreFailed:
+        raise
+    except CloudflareError as error:
+        if error.unverified:
+            raise StoreFailed("email_unverified", VERIFY_EMAIL, str(error)) from error
+        _store_log(f"checking the Cloudflare account: {error}")
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        _store_log(f"checking the Cloudflare account: {error!r}")
+    return False
 
 
 def deploy(
@@ -688,8 +1000,19 @@ def _recorded_deploy(
     # subprocess output naming accounts, paths, and commands; none of it may
     # reach owner history, so the cause stays in the raised error alone.
     outcome = ("failed", "failed")
+    usage.record("store.attempted")
     try:
         result = _deploy(price, wallet, network, inbox_only=inbox_only)
+    except (OSError, ValueError) as error:
+        # The owner hears one plain line; the full story stays in the store log,
+        # and usage hears only which of a few known causes it was (XC-085).
+        failed = StoreFailed.of(error)
+        failed.log()
+        usage.record("store.failed", failed.reason)
+        if isinstance(error, OSError):
+            raise failed from error
+        raise
+    else:
         with Store() as store:
             open_for_sale = choice(store) is not False
         outcome = (
@@ -722,8 +1045,9 @@ def _deploy(
     with store_lock():
         target = materialize(configured_price)
         muted(f"Node source staged at {target}")
-        muted("Installing dependencies (the first run can take a minute)...")
-        install(target)
+        if not current(target):
+            muted("Installing dependencies (the first run can take a minute)...")
+            install(target)
     wrangler = str(target / WRANGLER)
 
     # Some wrangler versions exit 0 while logged out and only say so in text.
@@ -731,39 +1055,41 @@ def _deploy(
     if who.returncode or "not authenticated" in f"{who.stdout}{who.stderr}".lower():
         # The desktop agent's shell has no owner at it; the app signs in itself.
         if os.environ.get("LORE_UNATTENDED"):
-            raise OSError("not signed in to Cloudflare; sign in first, then rerun")
+            raise StoreFailed("not_signed_in", NOT_SIGNED_IN)
         muted("Opening Cloudflare login in your browser (free tier is enough)...")
         if _run((wrangler, "login"), target, interactive=True).returncode:
             raise OSError(
                 f"Cloudflare login failed; run `npx wrangler login` in {target}"
             )
+    fresh = _ready_account(wrangler, target)
 
-    if not wallet and not inbox_only:
+    if not wallet and not inbox_only and not takes_cards():
         # This check exists so a missing payout address costs seconds, not a
         # deploy. A listing that failed says nothing about the wallet, so it
-        # stops the deploy rather than being read as "no wallet".
+        # stops the deploy rather than being read as "no wallet". Card
+        # payments are enough on their own: such a store sells by card alone.
         listing = _run(
             (wrangler, "secret", "list"),
             target,
-            fail="reading your store's settings from Cloudflare failed; try again in a minute",
+            fail="reading your store's settings from Cloudflare failed",
         )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
-                "the node has no payout address; rerun with --wallet 0x<your public address>"
+                "your store has no way to be paid yet; turn on card payments "
+                "(lore cards connect) or rerun with --wallet 0x<your public address>"
             )
 
     _ensure_d1(wrangler, target)
     deployed = _run((wrangler, "deploy"), target)
     # A brand-new Cloudflare account can't run Workers until its email is verified;
     # the database is made and recorded by now, so a retry afterwards picks it up.
-    refused = f"{deployed.stdout}{deployed.stderr}"
-    if deployed.returncode and (
-        "10034" in refused or "verify your email" in refused.lower()
-    ):
-        raise OSError(VERIFY_EMAIL)
     if deployed.returncode:
-        raise OSError(f"deploy failed:\n{_detail(deployed)}")
+        raise StoreFailed.of(
+            OSError(f"deploy failed:\n{_detail(deployed)}"),
+            f"{deployed.stderr or ''}{deployed.stdout or ''}",
+        )
     print(deployed.stdout.strip())
+    _record_store(target)
 
     # Wrangler colourises under TTY-ish environments; strip escapes so \S+
     # cannot swallow them into the matched address.
@@ -829,13 +1155,20 @@ def _deploy(
     # Node smoke script needs a local socket the desktop agent's shell denies.
     from .snapshot import remote_manifest  # local import, as push_job above
 
-    try:
-        manifest = remote_manifest(url)
-    except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
-        raise OSError(
-            f"deployed, but {url} did not answer discover: {error}\n"
-            f"Stream the live error with `npx wrangler tail` in {target}"
-        ) from error
+    # A workers.dev address made this run takes a few minutes to answer.
+    probes = FRESH_PROBES if fresh else 1
+    for probe in range(probes):
+        try:
+            manifest = remote_manifest(url)
+            break
+        except (OSError, ValueError, KeyError, IndexError, TypeError) as error:
+            if probe < probes - 1:
+                time.sleep(10)
+                continue
+            raise OSError(
+                f"deployed, but {url} did not answer discover: {error}\n"
+                f"Stream the live error with `npx wrangler tail` in {target}"
+            ) from error
     count = sum(len(entries) for entries in manifest.topics.values())
     if not open_for_sale:
         success(f"Online: {url} · ready for your agents, nothing for sale")

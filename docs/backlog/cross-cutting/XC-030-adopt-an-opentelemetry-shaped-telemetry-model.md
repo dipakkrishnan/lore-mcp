@@ -4,13 +4,13 @@ title: Adopt an OpenTelemetry-shaped telemetry model and restate the privacy con
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [MON-020, MON-021, XC-029, CLI-004, APP-058]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-10-25
 ---
 
 ## Problem
@@ -48,7 +48,7 @@ until its collector, disclosure, and controls ship together.
       catalog, the privacy rules, and which plane reaches which sink.
 - [x] `PRIVACY.md` distinguishes shipped node observability from the
       proposed desktop funnel and its unimplemented controls.
-- [ ] `APP-058` is updated to point at `docs/telemetry.md` and to block on
+- [x] `APP-058` is updated to point at `docs/telemetry.md` and to block on
       the items that implement its collector and its off switch.
 
 ## Notes
@@ -59,3 +59,48 @@ stance for the desktop funnel was a deliberate call, not a default: it trades
 some of the absolute claim `PRIVACY.md` used to make for representative alpha
 data, on the condition that the disclosure and off switch actually ship in
 the same wave (`XC-029`, `CLI-004`) before `APP-058` sends anything.
+
+**2026-10-10:** `docs/telemetry.md` has drifted from the event list that
+shipped in `contracts/usage_events.json` (`APP-058`, #428). Noticed while
+filing `XC-060`..`XC-062`; recorded here because this item owns the document.
+Nothing was changed.
+
+- The funnel row names `setup.completed`, `publication.approved` and
+  `sale.viewed`. None is in the contract; the shipped names are
+  `piece.approved` and `sale.seen`, and there is no setup event. Whether
+  setup needs an event is `APP-058`'s call: its first criterion asks how
+  many installs reach setup.
+- `source.connected` and `store.listed` are sent and appear in no row,
+  against the doc's rule that an event needs a question in that table first.
+- The failure row says `cli.failed` carries "a coded command + outcome".
+  It carries the command only, as the same doc says further down.
+- The scope table still sends QA traces to "the same maintainer collector"
+  although the desktop row above it now goes to the relay, and the closing
+  paragraph still calls Workers Analytics Engine the maintainers' surface.
+- The backlog table says `APP-058` is "in-review, blocked on `XC-029` and
+  `CLI-004`". `APP-058` is `in-progress`, `CLI-004` is `completed`, and the
+  doc says `XC-029` is superseded for the desktop plane.
+
+For prioritization: `XC-029` is still `ready` at `P1` and still a blocker
+of `APP-058`, and `XC-031` still says `RELAY_URL` is `None` while
+`lore/feedback.py` pins it.
+
+**Prioritization 2026-10-19 (corrected in review):** stays `ready`, but only for the
+last criterion. `docs/telemetry.md` already exists on main and the first two criteria
+are checked; what remains is pointing `APP-058` at it and making `APP-058` block on
+its collector and off-switch items. Do not rewrite the doc from the Problem text.
+
+**2026-10-25:** Completed with no further change to `APP-058`. The last
+criterion has held since 3ac3cc6 (#255, 2026-09-08), the commit that filed
+this item: it added `APP-058`'s sentence naming `docs/telemetry.md` (`XC-030`)
+as the metric tree and privacy vocabulary its events draw from, and set
+`APP-058`'s `blockers: [XC-029, CLI-004]` (the collector and the off switch).
+The box was never ticked, and the 2026-10-19 note above read it as open work.
+
+The second criterion's wording has aged: `APP-058` (#428) and `CLI-004` have
+since shipped the desktop usage events and their off switch, and `PRIVACY.md`
+now describes them as shipped rather than proposed. Its box stays checked
+because `PRIVACY.md` is accurate about what ships. Whether `XC-029` should
+still block `APP-058` — `docs/telemetry.md` says the relay supersedes it for
+the desktop plane — and the stale backlog table in `docs/telemetry.md` are
+left to prioritization and `APP-058`; #432 records that drift in this file.

@@ -4,13 +4,13 @@ title: List setup and publish under Recent runs
 priority: P2
 effort: M
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -39,3 +39,5 @@ summary.
 ## Notes
 
 Screenshots `27-dogfood-today-after-setup.png` and `70-dogfood-relaunch.png`.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

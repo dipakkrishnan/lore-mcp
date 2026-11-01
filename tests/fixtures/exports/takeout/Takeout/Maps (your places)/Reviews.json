@@ -1,0 +1,71 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "geometry": {
+        "coordinates": [
+          -122.4194,
+          37.7599
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "date": "2026-03-08T19:44:51.112Z",
+        "five_star_rating_published": 5,
+        "google_maps_url": "https://www.google.com/maps/place//data=!4m2!3m1!1s0x808f7e1f1f1f1f1f:0x6f708192a3b4c5d6",
+        "location": {
+          "address": "3463 18th St, San Francisco, CA 94110, United States",
+          "country_code": "US",
+          "name": "Mission Chinese Food"
+        },
+        "review_text_published": "Book the counter, not a table: you see the wok station and the food arrives faster.",
+        "questions": [
+          {
+            "question": "Price per person",
+            "selected_option": "$30–50"
+          }
+        ]
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -122.4108,
+          37.8003
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "date": "2025-12-20T02:11:09.405Z",
+        "five_star_rating_published": 3,
+        "google_maps_url": "https://www.google.com/maps/place//data=!4m2!3m1!1s0x808f7e2f2f2f2f2f:0x708192a3b4c5d6e7",
+        "location": {
+          "address": "556 Columbus Ave, San Francisco, CA 94133, United States",
+          "country_code": "US",
+          "name": "Caffe Trieste"
+        }
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {
+        "coordinates": [
+          -122.4064,
+          37.7857
+        ],
+        "type": "Point"
+      },
+      "properties": {
+        "date": "2025-10-02T16:30:00.000Z",
+        "google_maps_url": "https://www.google.com/maps/place//data=!4m2!3m1!1s0x808f7e3f3f3f3f3f:0x8192a3b4c5d6e7f8",
+        "location": {
+          "address": "865 Market St, San Francisco, CA 94103, United States",
+          "country_code": "US",
+          "name": "Westfield San Francisco Centre"
+        }
+      },
+      "type": "Feature"
+    }
+  ]
+}

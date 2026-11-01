@@ -27,7 +27,8 @@ async function provision(emit) {
     [
       "tool", "install", "lore-mcp", "--force", "--reinstall",
       "--no-index", "--find-links", join(resources, "wheels"),
-      "--overrides", join(resources, "overrides.txt"),
+      // Relative, from the resources folder: uv cuts an overrides path at its first space, as in "Lore 2.app".
+      "--overrides", "overrides.txt",
       "--python", /** @type {{python: string}} */ (JSON.parse(manifest)).python, "--managed-python"
     ],
     {
@@ -36,7 +37,8 @@ async function provision(emit) {
       UV_PYTHON_INSTALL_DIR: join(home, "python"),
       UV_CACHE_DIR: join(home, "cache")
     },
-    (text) => console.error(`uv: ${text}`)
+    (text) => console.error(`uv: ${text}`),
+    resources
   );
   writeFileSync(stamp, manifest);
   return runtime;

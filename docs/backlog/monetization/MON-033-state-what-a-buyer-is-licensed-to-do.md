@@ -4,13 +4,13 @@ title: State what a buyer's agent may do with a piece it bought
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [XC-040, MON-028]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,5 @@ A seller override can come later.
 
 Raised 2026-09-29. It can't be enforced technically, but it sets
 expectations. Review the legal wording together with XC-041.
+
+**Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.

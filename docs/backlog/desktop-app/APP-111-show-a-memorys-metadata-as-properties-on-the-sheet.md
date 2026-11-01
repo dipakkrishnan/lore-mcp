@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -57,3 +57,5 @@ Filed 2026-09-12 from an operated comparison of Obsidian 1.13's Properties
 view against the Lore memory sheet. The `memories` table in `lore/store.py`
 already has `source`, `origin`, `project`, `status`, `created_at`, and
 `updated_at`; this is a rendering item until `APP-108` adds connections.
+
+**Review 2026-10-19:** not completed. Not done. The memory sheet has no labelled property rows, project row, status row or in-place project edit. All 4 criteria unmet.

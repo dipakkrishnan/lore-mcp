@@ -3,33 +3,64 @@
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 
-/** Asking the store goes through Cloudflare, so once a minute is plenty; coming back to the app asks at once. */
-const WATCH_EVERY_MS = 60_000;
+/** APP-232: how soon Lore asks the store again. A check is one short read, so it comes every few seconds while an app
+ * waits on the owner to allow it, every ten while Lore is on screen, and once a minute while it is out of sight. */
+const PACE = { asking: 3_000, onScreen: 10_000, away: 60_000 };
 
 class Watch {
   /** @type {Promise<void> | null} */
   #checking = null;
+  /** Whether an app was asking to sign in at the last answer. */
+  #asking = false;
+  /** Whether a check was asked for while one was under way, so one more read is owed. */
+  #again = false;
 
-  /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<{waiting: number, sources: string[]}>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown}} store
-   * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once. */
+  /** @param {{ready: () => boolean | Promise<boolean>, waiting: () => Promise<AgentsWaiting>, read: (name: string) => Promise<SourceRead[]>, landed: (reads: SourceRead[]) => unknown, asked: (signIns: SignInRequest[]) => unknown}} store
+   * `ready`: whether there is a store to ask; `landed`: what to do with what came in, once; `asked`: the apps asking
+   * to sign in, every time the store answers (XC-068). */
   constructor(store) {
     this.store = store;
   }
 
-  /** Bring in whatever is waiting. A check under way is this one, so two never overlap and nothing lands twice. */
+  /** Bring in whatever is waiting. Two never overlap and nothing lands twice. A check asked for while one is under way
+   * may have come after a save that read has already passed, so it waits for one more read behind it. */
   check() {
-    this.#checking ??= this.#check().finally(() => {
-      this.#checking = null;
-    });
+    if (this.#checking) {
+      this.#again = true;
+      return this.#checking;
+    }
+    this.#checking = this.#run();
     return this.#checking;
   }
 
+  /** How long until the next check. @param {boolean} onScreen whether Lore's window is in sight */
+  nextIn(onScreen) {
+    if (this.#asking) return PACE.asking;
+    return onScreen ? PACE.onScreen : PACE.away;
+  }
+
+  async #run() {
+    try {
+      do {
+        this.#again = false;
+        await this.#check();
+      } while (this.#again);
+    } finally {
+      this.#checking = null;
+    }
+  }
+
   async #check() {
-    if (!(await this.store.ready())) return;
+    if (!(await this.store.ready())) {
+      this.#asking = false;
+      return;
+    }
     /** @type {SourceRead[]} */
     const reads = [];
     try {
-      const { sources } = await this.store.waiting();
+      const { sources, sign_ins = [] } = await this.store.waiting();
+      this.#asking = sign_ins.length > 0;
+      this.store.asked(sign_ins);
       for (const name of sources) {
         // One agent's read failing leaves the others' saves to land; its own wait for the next check.
         reads.push(...(await this.store.read(name).catch(() => [])));
@@ -74,4 +105,4 @@ class AgentApps {
   }
 }
 
-module.exports = { Watch, WATCH_EVERY_MS, AgentApps };
+module.exports = { Watch, PACE, AgentApps };

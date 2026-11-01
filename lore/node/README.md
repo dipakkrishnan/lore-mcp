@@ -63,6 +63,14 @@ existing D1 database so a fresh Worker invocation can resume the same ticket.
 Pi's packaged SQLite session adapter uses Node's `node:sqlite` and cannot run in
 a Worker isolate.
 
+The node checks that the selected model's secret is present before it sells
+anything. If it is missing, or `LORE_ANSWER_MODEL` names an unsupported model,
+`discover` leaves out `answer_price_usd` and `answer` refuses with
+`answer_unavailable`, naming the missing secret or the model, with no payment
+challenge, so a buyer is never charged for an answer the node could not run.
+`result` stays free for tickets already paid for. Set the secret and a
+new session sells again.
+
 ## Make the test payment
 
 In this directory:
@@ -141,6 +149,30 @@ cannot create its own credentials: a protected GitHub **Environment** named
 Workers + D1 only) and `QA_PAYOUT_ADDRESS` (a dedicated Base Sepolia payout
 address) as Environment secrets — never repository secrets, which every
 workflow in the repo can read.
+
+## Lore's hosted stores (XC-088)
+
+An owner with no store of their own gets one Lore hosts at
+`<store>.yourlore.dev`, so their agents can save in seconds with no
+Cloudflare account. It is a second Worker built from this package,
+`lore-hosted` (`wrangler.hosted.jsonc`, `src/hosted/`): one Durable Object per
+store, each running the same `/agent` code as an owner's node on its own
+SQLite database. The owner's Mac claims a store and changes it only with
+requests it signs; see [`contracts/hosted-inbox.md`](../../contracts/hosted-inbox.md).
+
+`npm test` runs its suite too (`vitest.hosted.config.ts`). To try it locally:
+
+    npx wrangler dev -c wrangler.hosted.jsonc --local-protocol https \
+      --var STORE_DOMAIN:yourlore.test --local-upstream abcdefghijkm.yourlore.test
+
+It deploys only from `.github/workflows/deploy-hosted.yml` on merges to
+`main`. Before the first deploy an admin sets up, once:
+
+- a GitHub **Environment** named `hosted` that deploys only from `main`,
+  holding `CLOUDFLARE_API_TOKEN` from Cloudflare's "Edit Cloudflare Workers"
+  template, limited to Lore's account and the `yourlore.dev` zone;
+- a proxied wildcard DNS record `*` on `yourlore.dev` (custom domains such as
+  `checkout.` and `relay.` keep precedence over the Worker's route).
 
 ## Developing the node itself (repo checkout only)
 

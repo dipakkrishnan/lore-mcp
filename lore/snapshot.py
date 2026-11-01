@@ -10,7 +10,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, deploy, feedback, sources
+from . import automation, blueprint, deploy, feedback, hosted, sources
 from .paths import claude_home, home
 from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
 
@@ -214,6 +214,7 @@ def build() -> dict[str, object]:
         source_entries = registry.entries()
         memories = registry.provenance(store.memory_inventory())
         publications = store.publication_inventory()
+        collections = store.collections()
         publication_price = store.setting("price_usd", None)
         answer_price = store.setting("answer_price_usd", 0.0)
         answer_enabled = store.setting("answer_enabled", False) is True
@@ -223,10 +224,14 @@ def build() -> dict[str, object]:
         automations_noticed = store.setting(automation.NOTICED, False) is True
         node_url = store.setting("node_url", None)
         node_selling = deploy.selling(store)
+        agents_url = hosted.agent_address(store)
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
         jobs = store.recent_jobs(limit=20)
 
+    piece_price = (
+        float(publication_price) if isinstance(publication_price, (int, float)) else 0.0
+    )
     live, live_ids = _cached_live_state(node_url if isinstance(node_url, str) else None)
     labels = _claude_project_labels()
     prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
@@ -273,6 +278,26 @@ def build() -> dict[str, object]:
             "counts": publication_counts,
             "items": publications,
         },
+        "collections": {
+            "items": [
+                {
+                    "id": c.id,
+                    "public_id": c.public_id,
+                    "title": c.title,
+                    "price_usd": c.price_usd,
+                    "on_sale": c.on_sale,
+                    "pieces": [
+                        {"id": p.id, "public_id": p.public_id, "title": p.title}
+                        for p in c.pieces
+                        if p.active
+                    ],
+                    "value_usd": round(
+                        sum(p.active for p in c.pieces) * piece_price, 2
+                    ),
+                }
+                for c in collections
+            ]
+        },
         "pricing": {
             "publication_usd": publication_price,
             "answer_usd": answer_price if answer_enabled else None,
@@ -281,8 +306,12 @@ def build() -> dict[str, object]:
         },
         "node": {
             "url": node_url if isinstance(node_url, str) else None,
+            # Where the owner's agents save: their own store's, or the one Lore hosts (XC-088).
+            "agents": agents_url,
             # False while the store is online only for the owner's agents (XC-069).
             "selling": node_selling,
+            # Whether the store online is the one this Lore ships (APP-231).
+            "store": deploy.store_state(node_url),
             "live": live,
         },
         # Owner-run history. The stored summary is a code; the prose is applied

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -50,3 +50,5 @@ Reported by the owner while dogfooding (2026-09-02); explicitly framed as
 lower priority than the other setup-flow reports from the same session
 (APP-049, APP-050, APP-051) since it doesn't block getting through setup.
 Dogfood 2026-09-04: the owner's read was that "in depth / lightly" is a distinction they would not have asked for and the card is more form than proposal. APP-074 folded in here.
+
+**Review 2026-10-19:** not completed. Partial. APP-022 (a3056e5) streams fields into a ghost panel, but the confirm card still renders every blueprint field at full weight. Criterion 1 unmet for the confirm card.

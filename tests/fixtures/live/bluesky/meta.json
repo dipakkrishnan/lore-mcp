@@ -1,0 +1,18 @@
+{
+  "recorded_at": "2026-09-30T12:33:49+00:00",
+  "lore_version": "0.1.0",
+  "locator": "@tidewell-bsky-lore.bsky.social",
+  "requests": [
+    {
+      "n": 1,
+      "url_or_tool": "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=tidewell-bsky-lore.bsky.social&filter=posts_no_replies&limit=40",
+      "arguments": null,
+      "file": "01-app-bsky-feed.json",
+      "sha256_raw": "33d83355cb69e6f997c1a3d7ab4ddd32bb7697293fb90b7c7601417668f29f1c",
+      "bytes_raw": 7142,
+      "scrub_hits": {
+        "bsky-did": 24
+      }
+    }
+  ]
+}

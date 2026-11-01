@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-09-14
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ path the same. Shane's and Dipak's live publications are the first examples.
 
 Zane's "67% quality" rating is `XC-032`; this item is the reference picture,
 that one is the per-draft check.
+
+**Review 2026-10-19:** not completed. Not done. The empty For Sale shelf is still a plain empty state; no persona-matched or general examples.

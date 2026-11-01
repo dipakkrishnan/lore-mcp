@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -45,3 +45,5 @@ Split from MON-029 on 2026-09-29, after finding that Workers Cache hits are
 billed as requests
 (https://developers.cloudflare.com/workers/cache/). Check the current
 free-plan request limit before quoting it to sellers.
+
+**Review 2026-10-19:** not completed. Not done. No robots.txt, yourlore.dev/s/<handle> proxy or rate-limit handling. No approach recorded in the item; needs a human choice of approach first.

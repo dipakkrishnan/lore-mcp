@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -47,3 +47,5 @@ review will also ask for terms and a privacy policy.
 
 Raised 2026-09-29. Required before the Stripe platform application
 (XC-039). Get legal review before relying on the wording.
+
+**Review 2026-10-19:** not completed. Not done. No terms or takedown content under site/, no terms step when listing. All 3 criteria unmet; the takedown dry run also needs the external lore-marketplace repo.

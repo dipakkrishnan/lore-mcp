@@ -40,7 +40,7 @@ LAUNCH_KEY = "smoke-launch-key"
 DESKTOP = """import sys
 from pathlib import Path
 from lore import cli
-cli.attended_key = lambda: Path({key!r})
+cli.attended_folder = lambda: Path({folder!r})
 sys.exit(cli.main())
 """
 
@@ -123,8 +123,10 @@ class OwnerLifecycleTest(unittest.TestCase):
     def lore(self, *args: str, stdin: str = "", attended: bool = False) -> str:
         """Run one command on pipes and return its stdout; it must exit 0."""
         env = self.env | ({"LORE_ATTENDED_KEY": LAUNCH_KEY} if attended else {})
-        key = self.home / "Library/Application Support/Lore/attended"
-        entry = ["-c", DESKTOP.format(key=str(key))] if attended else ["-m", "lore"]
+        folder = self.home / "Library/Application Support/Lore"
+        entry = (
+            ["-c", DESKTOP.format(folder=str(folder))] if attended else ["-m", "lore"]
+        )
         result = subprocess.run(
             [sys.executable, *entry, *args],
             cwd=ROOT,
@@ -278,10 +280,12 @@ class OwnerLifecycleTest(unittest.TestCase):
         self.assertIn("active · claim · 2 source memories · topic: launching", listed)
         self.assertIn("  id 1", listed)
 
-        (self.home / "Library/Application Support/Lore").mkdir(parents=True)
-        (self.home / "Library/Application Support/Lore/attended").write_text(
-            LAUNCH_KEY, encoding="utf-8"
-        )
+        # As the desktop app writes it: a folder and a file only the owner can open.
+        keys = self.home / "Library/Application Support/Lore/attended.d"
+        keys.mkdir(parents=True)
+        keys.chmod(0o700)
+        (keys / "launch").touch(mode=0o600)
+        (keys / "launch").write_text(f"1\n{LAUNCH_KEY}\n", encoding="utf-8")
         pushed = self.lore(
             "push", "--local", "--worker-dir", str(self.worker), attended=True
         )
@@ -349,7 +353,7 @@ class OwnerLifecycleTest(unittest.TestCase):
                 for path in self.home.rglob("*")
                 if path.is_file()
             ],
-            ["Library/Application Support/Lore/attended"],
+            ["Library/Application Support/Lore/attended.d/launch"],
         )
         self.assertEqual(list(self.scratch.iterdir()), [])
 

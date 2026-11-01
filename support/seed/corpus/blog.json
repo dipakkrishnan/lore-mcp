@@ -1,0 +1,63 @@
+{
+  "site": {
+    "title": "Tidewell Notes",
+    "url": "https://tidewell-notes.pages.dev",
+    "description": "Notes from building Tidewell, bookings and routes for mobile groomers. Seed site for the Lore connector test suite (tidewell-seed). Nothing here is real."
+  },
+  "posts": [
+    {
+      "id": "bl-01",
+      "slug": "why-the-route-is-the-product",
+      "title": "Why the route is the product",
+      "date": "2026-05-06",
+      "canary": "canary-blog-01",
+      "format": "encoded",
+      "html": "<p>Batching a groomer's day by neighbourhood saves about an hour of driving; that hour is the whole pitch.</p>\n<p>When Delia first booked customers in the order they called, her van crossed Port Alder four times a day. Tidewell now sorts the day into clusters, and three small rules add up to the hour:</p>\n<ul>\n<li>Stops in the same neighbourhood are offered together.</li>\n<li>The first slot of the day is the one closest to the van's home.</li>\n<li>A cancellation pulls a nearby booking forward instead of leaving a gap.</li>\n</ul>\n<blockquote>The route is the product. The booking form is just how it gets fed.</blockquote>\n<p>tidewell-seed · canary-blog-01</p>"
+    },
+    {
+      "id": "bl-02",
+      "slug": "raising-the-price-without-losing-anyone",
+      "title": "Raising the price without losing anyone",
+      "date": "2026-08-06",
+      "canary": "canary-blog-02",
+      "format": "encoded",
+      "html": "<p>Raising $29 to $39 with grandfathering lost nobody; the new price only ever applied to people who never saw the old one.</p>\n<p>On 1 August the monthly price went from $29 to $39. Every groomer who was already paying kept $29 for as long as they stay. New signups see only $39, so nobody is ever told that they are paying more than someone else.</p>\n<p>The email I sent to the forty existing groomers was four sentences long, and two of them replied with a thank-you.</p>\n<p>tidewell-seed · canary-blog-02</p>"
+    },
+    {
+      "id": "bl-03",
+      "slug": "routes-ramps-van-life",
+      "title": "Routes & ramps: <van> life 🚐",
+      "date": "2026-06-18",
+      "canary": "canary-blog-03",
+      "format": "encoded",
+      "html": "<p>A day in a grooming van is mostly ramps, parking and low bridges, and the software only sees the addresses.<br>\nRamp angles decide which dogs can be booked into which van.<br>\nLow bridges decide which streets the route optimiser may use.<br>\nParking decides whether the next stop starts on time.</p>\n<p>tidewell-seed · canary-blog-03</p>"
+    },
+    {
+      "id": "bl-04",
+      "slug": "the-first-forty-never-asked-for-calendar-sync",
+      "title": "The first forty never asked for calendar sync",
+      "date": "2026-07-09",
+      "canary": "canary-blog-04",
+      "format": "description",
+      "html": "<p>Do not build calendar sync before fifty customers; the first forty never asked for it.</p>\n<p>This post is a feed item with only a description and no full-content field, so a reader has to fall back to the description to see any of the text at all.</p>\n<p>tidewell-seed · canary-blog-04</p>"
+    },
+    {
+      "id": "bl-05",
+      "slug": "how-tidewell-started",
+      "title": "How Tidewell started",
+      "date": "2026-02-20",
+      "canary": "canary-blog-05",
+      "format": "encoded",
+      "html": "<style>.seed-style-rule { color: red; }</style>\n<script>console.log('seed-script-text')</script>\n<p>Tidewell started in January 2026 with a spreadsheet and a phone call to Delia, who ran a one-van grooming shop in Port Alder and kept her bookings on a paper calendar.</p>\n<p>By March she was the first paying customer, and the spreadsheet had become a booking form with a route on the back of it.</p>\n<p>tidewell-seed · canary-blog-05</p>"
+    },
+    {
+      "id": "bl-06",
+      "slug": "short-note",
+      "title": "Short note",
+      "date": "2026-09-22",
+      "canary": null,
+      "format": "description",
+      "html": "Back next week. tidewell-seed"
+    }
+  ]
+}

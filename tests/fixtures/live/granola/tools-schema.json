@@ -1,0 +1,92 @@
+{
+ "server": "https://mcp.granola.ai/mcp",
+ "observed": "2026-09-30",
+ "note": "names and input schemas only; list_meetings no longer accepts time_range=custom",
+ "tools": {
+  "query_granola_meetings": {
+   "type": "object",
+   "properties": {
+    "query": {
+     "type": "string",
+     "minLength": 1,
+     "description": "The query to run on Granola meeting notes"
+    },
+    "document_ids": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "format": "uuid"
+     },
+     "description": "Optional list of specific meeting IDs to limit context to"
+    }
+   },
+   "required": [
+    "query"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "list_meetings": {
+   "type": "object",
+   "properties": {
+    "time_range": {
+     "type": "string",
+     "enum": [
+      "this_week",
+      "last_week",
+      "last_30_days"
+     ],
+     "default": "last_30_days",
+     "description": "Time range to query meetings from"
+    }
+   },
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "list_meeting_folders": {
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "type": "object",
+   "properties": {}
+  },
+  "get_meetings": {
+   "type": "object",
+   "properties": {
+    "meeting_ids": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "format": "uuid"
+     },
+     "minItems": 1,
+     "maxItems": 10,
+     "description": "Array of meeting UUIDs (max 10)"
+    }
+   },
+   "required": [
+    "meeting_ids"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_meeting_transcript": {
+   "type": "object",
+   "properties": {
+    "meeting_id": {
+     "type": "string",
+     "format": "uuid",
+     "description": "Meeting UUID"
+    }
+   },
+   "required": [
+    "meeting_id"
+   ],
+   "additionalProperties": false,
+   "$schema": "http://json-schema.org/draft-07/schema#"
+  },
+  "get_account_info": {
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "type": "object",
+   "properties": {}
+  }
+ }
+}

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/173
 created: 2026-09-01
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -48,3 +48,5 @@ user, I want to be able to selecta few memories that I can combine and
 synthesize." Left in `ideation` per `agents/ideation.md` step 8 — no
 concrete acceptance criterion could be written without inventing the output
 shape, which the issue doesn't specify.
+
+**Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.

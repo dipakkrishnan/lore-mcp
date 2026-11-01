@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A browser-use surface the desktop can drive with the owner watching (Claude in Chrome, Playwright over the owner's browser, or similar)"]
 github_issue: null
 created: 2026-09-05
-updated: 2026-09-12
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -37,3 +37,5 @@ open_url card would become "Lore is doing this, watch or take over".
 Raised by Dipak during the Sep 5 store-open pass. Sits behind the APP-008
 sandbox question: a browser Lore drives is a much larger surface than a URL
 it opens.
+
+**Review 2026-10-19:** not completed. Not done. e246979 only filed it and added a four-line faucet note. No browser driving of the faucet; blocked on the APP-008 sandbox question.

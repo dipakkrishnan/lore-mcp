@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -33,3 +33,5 @@ already loads, and the file is saved through the main process's save dialog.
 ## Notes
 
 Filed from the 2026-10-06 For Sale review. Low priority.
+
+**Review 2026-10-19:** not completed. Not done. No CSV export code and no Export CSV button in Sales. Both criteria unmet.

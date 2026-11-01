@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:cc="http://cyber.law.harvard.edu/rss/creativeCommonsRssModule.html">
+    <channel>
+        <title><![CDATA[Stories by owner on Medium]]></title>
+        <description><![CDATA[Stories by owner on Medium]]></description>
+        <link>https://medium.com/@owner?source=rss-bb4b1a7f4685------2</link>
+        <image>
+            <url>https://cdn-images-1.medium.com/fit/c/150/150/0*jouBKF64gwvOqpNM</url>
+            <title>Stories by owner on Medium</title>
+            <link>https://medium.com/@owner?source=rss-bb4b1a7f4685------2</link>
+        </image>
+        <generator>Medium</generator>
+        <lastBuildDate>Wed, 30 Sep 2026 13:29:41 GMT</lastBuildDate>
+        <atom:link href="https://medium.com/@owner/feed" rel="self" type="application/rss+xml"/>
+        <webMaster><![CDATA[redacted@example.com]]></webMaster>
+        <atom:link href="http://medium.superfeedr.com" rel="hub"/>
+        <item>
+            <title><![CDATA[Grandfathering, explained to a groomer]]></title>
+            <link>https://medium.com/@owner/grandfathering-explained-to-a-groomer-c97bdb95f1fc?source=rss-bb4b1a7f4685------2</link>
+            <guid isPermaLink="false">https://medium.com/p/c97bdb95f1fc</guid>
+            <dc:creator><![CDATA[owner]]></dc:creator>
+            <pubDate>Wed, 30 Sep 2026 13:29:14 GMT</pubDate>
+            <atom:updated>2026-09-30T13:29:14.930Z</atom:updated>
+            <content:encoded><![CDATA[<p>Grandfathering means the price you signed up at is the price you keep, even when the price for new customers goes up.</p><p>I explain it to groomers with a van analogy: the fuel price changed at the pump, but the tank you already filled is still full.</p><p>tidewell-seed · canary-medium-04</p><p><em>Originally published at </em><a href="https://tidewell-notes.pages.dev/import/medium/grandfathering-explained-to-a-groomer.html"><em>https://tidewell-notes.pages.dev</em></a><em>.</em></p><img src="https://medium.com/_/stat?event=post.clientViewed&referrerSource=full_rss&postId=c97bdb95f1fc" width="1" height="1" alt="">]]></content:encoded>
+        </item>
+        <item>
+            <title><![CDATA[Port Alder groomers: what a route day looks like]]></title>
+            <link>https://medium.com/@owner/port-alder-groomers-what-a-route-day-looks-like-5dd5ba5f29c9?source=rss-bb4b1a7f4685------2</link>
+            <guid isPermaLink="false">https://medium.com/p/5dd5ba5f29c9</guid>
+            <dc:creator><![CDATA[owner]]></dc:creator>
+            <pubDate>Wed, 30 Sep 2026 13:27:57 GMT</pubDate>
+            <atom:updated>2026-09-30T13:27:57.950Z</atom:updated>
+            <content:encoded><![CDATA[<p>A route day in Port Alder starts at seven with the van’s tanks filled and ends at five with a wash of the van itself, and in between there are six to nine stops.</p><p>The best days are the ones where the neighbourhoods line up and the worst are the ones with a cancelled first slot.</p><p>tidewell-seed · canary-medium-03</p><p><em>Originally published at </em><a href="https://tidewell-notes.pages.dev/import/medium/port-alder-groomers-a-route-day.html"><em>https://tidewell-notes.pages.dev</em></a><em>.</em></p><img src="https://medium.com/_/stat?event=post.clientViewed&referrerSource=full_rss&postId=5dd5ba5f29c9" width="1" height="1" alt="">]]></content:encoded>
+        </item>
+        <item>
+            <title><![CDATA[Fifty customers before calendar sync]]></title>
+            <link>https://medium.com/@owner/fifty-customers-before-calendar-sync-c0ca2ea6830d?source=rss-bb4b1a7f4685------2</link>
+            <guid isPermaLink="false">https://medium.com/p/c0ca2ea6830d</guid>
+            <dc:creator><![CDATA[owner]]></dc:creator>
+            <pubDate>Wed, 30 Sep 2026 13:27:02 GMT</pubDate>
+            <atom:updated>2026-09-30T13:27:02.947Z</atom:updated>
+            <content:encoded><![CDATA[<p>Do not build calendar sync before fifty customers; the first forty never asked for it.</p><p>Every early feature request feels urgent. The ones that come from your ten happiest customers are worth building; the ones that come from a hunch are worth a note.</p><p>tidewell-seed · canary-medium-02</p><p><em>Originally published at </em><a href="https://tidewell-notes.pages.dev/import/medium/fifty-customers-before-calendar-sync.html"><em>https://tidewell-notes.pages.dev</em></a><em>.</em></p><img src="https://medium.com/_/stat?event=post.clientViewed&referrerSource=full_rss&postId=c0ca2ea6830d" width="1" height="1" alt="">]]></content:encoded>
+        </item>
+        <item>
+            <title><![CDATA[The hour of driving is the product]]></title>
+            <link>https://medium.com/@owner/the-hour-of-driving-is-the-product-43751f8008bf?source=rss-bb4b1a7f4685------2</link>
+            <guid isPermaLink="false">https://medium.com/p/43751f8008bf</guid>
+            <dc:creator><![CDATA[owner]]></dc:creator>
+            <pubDate>Wed, 30 Sep 2026 13:25:42 GMT</pubDate>
+            <atom:updated>2026-09-30T13:25:42.994Z</atom:updated>
+            <content:encoded><![CDATA[<p>Batching a groomer’s day by neighbourhood saves about an hour of driving; that hour is the whole pitch.</p><p>A groomer does not buy a booking form, she buys back an hour of her afternoon. Everything else in the app exists to protect it.</p><p>tidewell-seed · canary-medium-01</p><p><em>Originally published at </em><a href="https://tidewell-notes.pages.dev/import/medium/the-hour-of-driving-is-the-product.html"><em>https://tidewell-notes.pages.dev</em></a><em>.</em></p><img src="https://medium.com/_/stat?event=post.clientViewed&referrerSource=full_rss&postId=43751f8008bf" width="1" height="1" alt="">]]></content:encoded>
+        </item>
+    </channel>
+</rss>

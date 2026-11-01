@@ -1,0 +1,910 @@
+{
+  "paths": {
+    ".": [
+      "array"
+    ],
+    "[]": [
+      "object"
+    ],
+    "[].account": [
+      "object"
+    ],
+    "[].account.uuid": [
+      "str"
+    ],
+    "[].chat_messages": [
+      "array"
+    ],
+    "[].chat_messages[]": [
+      "object"
+    ],
+    "[].chat_messages[].attachments": [
+      "array"
+    ],
+    "[].chat_messages[].attachments[]": [
+      "object"
+    ],
+    "[].chat_messages[].attachments[].extracted_content": [
+      "str"
+    ],
+    "[].chat_messages[].attachments[].file_name": [
+      "str"
+    ],
+    "[].chat_messages[].attachments[].file_size": [
+      "int"
+    ],
+    "[].chat_messages[].attachments[].file_type": [
+      "str"
+    ],
+    "[].chat_messages[].content": [
+      "array"
+    ],
+    "[].chat_messages[].content[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].alternative_display_type": [
+      "null"
+    ],
+    "[].chat_messages[].content[].approval_key": [
+      "null"
+    ],
+    "[].chat_messages[].content[].approval_key_legacy": [
+      "null"
+    ],
+    "[].chat_messages[].content[].approval_options": [
+      "null"
+    ],
+    "[].chat_messages[].content[].citations": [
+      "array"
+    ],
+    "[].chat_messages[].content[].citations[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].citations[].details": [
+      "object"
+    ],
+    "[].chat_messages[].content[].citations[].details.type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].citations[].details.url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].citations[].end_index": [
+      "int"
+    ],
+    "[].chat_messages[].content[].citations[].start_index": [
+      "int"
+    ],
+    "[].chat_messages[].content[].citations[].uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].citations_grouping_mode": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content": [
+      "array"
+    ],
+    "[].chat_messages[].content[].content[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].content[].file_path": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].file_uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images": [
+      "array"
+    ],
+    "[].chat_messages[].content[].content[].images[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].content[].images[].height": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].images[].id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].page_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].telemetry": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].thumbnail_height": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].images[].thumbnail_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].thumbnail_width": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].images[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].images[].width": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].is_citable": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].content[].is_expired": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].content[].is_missing": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].content[].links": [
+      "array",
+      "null"
+    ],
+    "[].chat_messages[].content[].content[].links[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].metadata": [
+      "object"
+    ],
+    "[].chat_messages[].content[].content[].metadata.favicon_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].metadata.site_domain": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].metadata.site_name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].metadata.type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].mime_type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata": [
+      "object"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.age": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.content_type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.destination_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.final_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.mime_type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.search_provider": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images": [
+      "array"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].height": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].page_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].telemetry": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].thumbnail_height": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].thumbnail_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].thumbnail_width": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].spare_images[].width": [
+      "int"
+    ],
+    "[].chat_messages[].content[].content[].text": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].content[].uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].context": [
+      "null"
+    ],
+    "[].chat_messages[].content[].cut_off": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].display_content": [
+      "null",
+      "object"
+    ],
+    "[].chat_messages[].content[].display_content.code": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.content": [
+      "array"
+    ],
+    "[].chat_messages[].content[].display_content.content[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].display_content.content[].icon_url": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.content[].resource_type": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.content[].source": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.content[].subtitles": [
+      "array"
+    ],
+    "[].chat_messages[].content[].display_content.content[].subtitles[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.content[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.content[].url": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.filename": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.is_trusted": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].display_content.json_block": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.language": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.link": [
+      "object"
+    ],
+    "[].chat_messages[].content[].display_content.link.icon_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.link.resource_type": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.link.source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.link.subtitles": [
+      "null"
+    ],
+    "[].chat_messages[].content[].display_content.link.title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.link.url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.table": [
+      "array"
+    ],
+    "[].chat_messages[].content[].display_content.table[]": [
+      "array"
+    ],
+    "[].chat_messages[].content[].display_content.table[][]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.text": [
+      "str"
+    ],
+    "[].chat_messages[].content[].display_content.type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].file_uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].flags": [
+      "null"
+    ],
+    "[].chat_messages[].content[].hidden": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].hidden_in_chat": [
+      "null"
+    ],
+    "[].chat_messages[].content[].icon_name": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].id": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].initial_turn_only": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].injection_source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.app_ids": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.app_ids[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.base_servings": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.command": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.content": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.createIfEmpty": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].input.description": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.descriptions": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.descriptions.cowork": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.file_text": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.filepaths": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.filepaths[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.ingredients": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.ingredients[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.ingredients[].amount": [
+      "float",
+      "int"
+    ],
+    "[].chat_messages[].content[].input.ingredients[].id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.ingredients[].name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.ingredients[].unit": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.kind": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.language": [
+      "null"
+    ],
+    "[].chat_messages[].content[].input.loading_messages": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.loading_messages[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.locations": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.locations[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.locations[].latitude": [
+      "float"
+    ],
+    "[].chat_messages[].content[].input.locations[].longitude": [
+      "float"
+    ],
+    "[].chat_messages[].content[].input.locations[].name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.locations[].notes": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.locations[].place_id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.max_results": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.md_citations": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.md_citations[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].end_index": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.icon_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.preview_title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].origin_tool_name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].content_body": [
+      "null"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].icon_url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].resource_type": [
+      "null"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].subtitles": [
+      "null"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].sources[].uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].start_index": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.modules": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.modules[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.new_str": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.notes": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.old_str": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.path": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.queries": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.queries[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.queries[].max_results": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.queries[].query": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.query": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.questions": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.questions[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.questions[].options": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.questions[].options[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.questions[].question": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.series": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.series[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.series[].color": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.series[].name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.series[].values": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.series[].values[]": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.source": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.steps": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.steps[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.steps[].content": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.steps[].id": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.steps[].timer_seconds": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.steps[].title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.style": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.summary_title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.type": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.url": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.variants": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.variants[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.variants[].body": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.variants[].label": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.variants[].subject": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.version_uuid": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.widget_code": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.xAxis": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.xAxis.data": [
+      "array"
+    ],
+    "[].chat_messages[].content[].input.xAxis.data[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.xAxis.title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].input.yAxis": [
+      "object"
+    ],
+    "[].chat_messages[].content[].input.yAxis.max": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.yAxis.min": [
+      "int"
+    ],
+    "[].chat_messages[].content[].input.yAxis.title": [
+      "str"
+    ],
+    "[].chat_messages[].content[].integration_icon_url": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].integration_name": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].is_error": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].is_mcp_app": [
+      "bool",
+      "null"
+    ],
+    "[].chat_messages[].content[].mcp_server_url": [
+      "null"
+    ],
+    "[].chat_messages[].content[].message": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].meta": [
+      "null",
+      "object"
+    ],
+    "[].chat_messages[].content[].meta.output_format_category": [
+      "str"
+    ],
+    "[].chat_messages[].content[].name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].prompt": [
+      "str"
+    ],
+    "[].chat_messages[].content[].remaining": [
+      "null"
+    ],
+    "[].chat_messages[].content[].signature": [
+      "null"
+    ],
+    "[].chat_messages[].content[].skip_on_truncated_continuation": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].source": [
+      "null"
+    ],
+    "[].chat_messages[].content[].start_timestamp": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].stop_timestamp": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content": [
+      "null",
+      "object"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed": [
+      "object"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.body": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.body_has_rewritten_wikilinks": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.description": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.metadata": [
+      "object"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.name": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.wikilink_refs": [
+      "array"
+    ],
+    "[].chat_messages[].content[].structured_content.parsed.wikilinks": [
+      "array"
+    ],
+    "[].chat_messages[].content[].structured_content.path": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.path_segments": [
+      "array"
+    ],
+    "[].chat_messages[].content[].structured_content.path_segments[]": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.target": [
+      "object"
+    ],
+    "[].chat_messages[].content[].structured_content.target.file_path": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.target.files_list": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].structured_content.updated_at": [
+      "str"
+    ],
+    "[].chat_messages[].content[].structured_content.version": [
+      "str"
+    ],
+    "[].chat_messages[].content[].summaries": [
+      "array"
+    ],
+    "[].chat_messages[].content[].summaries[]": [
+      "object"
+    ],
+    "[].chat_messages[].content[].summaries[].summary": [
+      "str"
+    ],
+    "[].chat_messages[].content[].text": [
+      "str"
+    ],
+    "[].chat_messages[].content[].thinking": [
+      "str"
+    ],
+    "[].chat_messages[].content[].thinking_hidden": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].tool_identifier": [
+      "null"
+    ],
+    "[].chat_messages[].content[].tool_origin": [
+      "str"
+    ],
+    "[].chat_messages[].content[].tool_use_id": [
+      "null",
+      "str"
+    ],
+    "[].chat_messages[].content[].truncated": [
+      "bool"
+    ],
+    "[].chat_messages[].content[].type": [
+      "str"
+    ],
+    "[].chat_messages[].created_at": [
+      "str"
+    ],
+    "[].chat_messages[].files": [
+      "array"
+    ],
+    "[].chat_messages[].files[]": [
+      "object"
+    ],
+    "[].chat_messages[].files[].file_name": [
+      "str"
+    ],
+    "[].chat_messages[].files[].file_uuid": [
+      "str"
+    ],
+    "[].chat_messages[].parent_message_uuid": [
+      "str"
+    ],
+    "[].chat_messages[].sender": [
+      "str"
+    ],
+    "[].chat_messages[].text": [
+      "str"
+    ],
+    "[].chat_messages[].updated_at": [
+      "str"
+    ],
+    "[].chat_messages[].uuid": [
+      "str"
+    ],
+    "[].created_at": [
+      "str"
+    ],
+    "[].name": [
+      "str"
+    ],
+    "[].summary": [
+      "str"
+    ],
+    "[].updated_at": [
+      "str"
+    ],
+    "[].uuid": [
+      "str"
+    ]
+  },
+  "vocabulary": {
+    "[].chat_messages[].content[].citations[].details.type": [
+      "web_search_citation"
+    ],
+    "[].chat_messages[].content[].content[].metadata.type": [
+      "webpage_metadata"
+    ],
+    "[].chat_messages[].content[].content[].prompt_context_metadata.content_type": [
+      "html"
+    ],
+    "[].chat_messages[].content[].content[].type": [
+      "image",
+      "image_gallery",
+      "knowledge",
+      "local_resource",
+      "text"
+    ],
+    "[].chat_messages[].content[].display_content.type": [
+      "code_block",
+      "json_block",
+      "rich_content",
+      "rich_link",
+      "table",
+      "text"
+    ],
+    "[].chat_messages[].content[].input.md_citations[].metadata.type": [
+      "generic_metadata"
+    ],
+    "[].chat_messages[].content[].type": [
+      "image",
+      "injected_prompt_block",
+      "text",
+      "thinking",
+      "token_budget",
+      "tool_result",
+      "tool_use"
+    ],
+    "[].chat_messages[].sender": [
+      "assistant",
+      "human"
+    ]
+  }
+}

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -44,3 +44,5 @@ skills and no contract test for it.
 The owner's preference on record: plain labels, no "mainnet", tasteful
 inline notices like the Claude and OpenAI consoles.
 Reviewed 2026-09-04: a rule in two skills plus a test would drift; the system prompt already owns owner-facing voice.
+
+**Review 2026-10-19:** not completed. Partial. Shipped in 8f4b62e (agent prompt bans infra words; payments wallet step reworded). The contract-test criterion was deliberately dropped (0cbf4ac note). The no-infra-words-in-a-deploy-thread check needs a manual desktop run.

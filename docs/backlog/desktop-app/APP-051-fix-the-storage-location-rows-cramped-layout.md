@@ -4,13 +4,13 @@ title: Fix the storage-location row's layout — long paths crush the label colu
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-09-04
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -41,9 +41,9 @@ Two independent fixes, likely both worth doing:
 
 ## Acceptance criteria
 
-- [ ] The "Where it lives" row's label/description text keeps a readable
+- [x] The "Where it lives" row's label/description text keeps a readable
       width regardless of how long the storage path is.
-- [ ] A long path (verified against a real `dogfood:new` sandbox path) no
+- [x] A long path (verified against a real `dogfood:new` sandbox path) no
       longer crushes the label column into a narrow wrapped sliver.
 
 ## Notes
@@ -53,3 +53,5 @@ Reported by the owner while dogfooding (2026-09-02), with a screenshot of a
 
 Dogfood 2026-09-04: with a sandbox path under /var/folders the label column collapsed to one word per line. Cause is `.row .v { flex-shrink: 0 }` (`styles.css:260`) letting the value win; let the path wrap or truncate and give the lead a minimum width.
 The relevant wrapper is `.t`, not `.lead`: give it flex room and let the value's mono element shrink and wrap.
+
+**Completed (verified 2026-10-19, by reading code and tests, no suites run):** on main in 8f4b62e (#218). Closed out in the review-queue pass.

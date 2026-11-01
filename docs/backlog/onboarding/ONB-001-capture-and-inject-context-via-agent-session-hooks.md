@@ -10,7 +10,7 @@ blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-08-26
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -71,3 +71,9 @@ qualitative ("do not pick this up until intent-driven publishing has shipped
 and earned it"), not just XC-002 shipping. Flagging for reconsideration
 rather than deciding it here: worth a fresh look at whether publishing has
 "earned" this yet.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted. The "Status:
+deferred" section above says not to pick this up until intent-driven publishing has
+"earned it", a judgment call that `XC-002` shipping does not settle (see the
+2026-08-26 pass). The `blockers` field still lists `XC-002`, so the file also
+contradicted itself while marked `ready`. Needs the owner's decision first.

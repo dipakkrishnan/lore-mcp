@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-09-13
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -65,3 +65,5 @@ as a follow-up rather than widened here. Related rows wait on `APP-108`. The
 card reads through the existing memory IPC, cached per snapshot, and shows
 after 450 ms on hover or focus; Escape, leaving, scrolling, or any re-render
 hides it. Verified by the seller persona in `support/edge.cjs`.
+
+**Review 2026-10-19:** not completed. Hover preview shipped (2cf8fc2); 5 of 7 criteria ticked and backed by code. Unmet: the For Sale preview (needs a `publication show --json` command that does not exist) and the Related-row preview (needs APP-108). Consider splitting those two out.

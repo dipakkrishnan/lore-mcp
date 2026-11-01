@@ -2,10 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { Inbox, LIMITS, failed } from "./inbox.js";
+import { type AgentEnv, SCOPE, SignIn } from "./signin.js";
 
 /**
  * The owner's own agents' endpoint, `/agent` (XC-067, contracts/inbox.md):
- * stateless MCP behind an agent key, apart from the buyer `/mcp`, so buyers
+ * stateless MCP behind an agent key or a sign-in, apart from the buyer `/mcp`, so buyers
  * never see these tools and nothing here touches payment.
  */
 
@@ -79,22 +80,42 @@ function server(inbox: Inbox): McpServer {
   return server;
 }
 
-export function isAgentPath(pathname: string): boolean {
-  return PATH.test(pathname);
+/** The agents' sign-in, for this store's address. */
+const signIn = (origin: string) => new SignIn(origin, serveInbox);
+
+/**
+ * The owner's agents' side of a store: `/agent` and its sign-in (XC-068), or null for a path that isn't theirs. An
+ * owner's own node and a hosted store (XC-088) answer it the same way.
+ */
+export function agentRoute(request: Request, env: AgentEnv, ctx: ExecutionContext): Promise<Response> | null {
+  const { origin, pathname } = new URL(request.url);
+  if (PATH.test(pathname)) return serveAgent(request, env, ctx);
+  if (pathname === "/authorize" && request.method === "GET") return signIn(origin).authorize(request, env);
+  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(origin).wait(request, env);
+  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(origin).resource.fetch(request, env, ctx);
+  if (SignIn.owns(pathname)) return signIn(origin).server.fetch(request, env, ctx);
+  return null;
 }
 
-export async function serveAgent(request: Request, env: Env): Promise<Response> {
+/**
+ * `/agent`, with a key in the address or a `lore_agent_` bearer as a pasted key gives it, or with the access token
+ * an agent got by signing in (XC-068).
+ */
+async function serveAgent(request: Request, env: AgentEnv, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
-  const presented = PATH.exec(url.pathname)?.[1] ?? request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";
-  const origin = url.origin;
-  const [, id, secret] = TOKEN.exec(presented) ?? [];
+  const inPath = PATH.exec(url.pathname)?.[1];
+  const bearer = request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";
+  const auth = signIn(url.origin);
+  if (!inPath && !bearer.startsWith("lore_agent_")) return auth.resource.fetch(request, env, ctx);
+  const [, id, secret] = TOKEN.exec(inPath ?? bearer) ?? [];
   const inbox = id ? await Inbox.open(env.LORE_DB, id, secret) : null;
   if (!inbox) {
-    return Response.json(
-      { error: "a valid Lore agent key is required" },
-      { status: 401, headers: { "WWW-Authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource"` } }
-    );
+    return Response.json({ error: "a valid Lore agent key is required" }, { status: 401, headers: { "WWW-Authenticate": `Bearer resource_metadata="${auth.metadata}", scope="${SCOPE}"` } });
   }
+  return serveInbox(request, inbox);
+}
+
+async function serveInbox(request: Request, inbox: Inbox): Promise<Response> {
   if (request.method !== "POST") return Response.json({ error: "method not allowed" }, { status: 405, headers: { Allow: "POST" } });
   const body = await request.arrayBuffer();
   if (body.byteLength > MCP_BODY_BYTES) return Response.json({ error: "request body too large" }, { status: 413 });

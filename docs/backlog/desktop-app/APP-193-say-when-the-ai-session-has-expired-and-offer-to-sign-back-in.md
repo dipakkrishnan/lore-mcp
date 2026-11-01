@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-19
 ---
 
 ## Problem
@@ -40,3 +40,12 @@ first. The Settings sign-in row shows the same state.
 
 Filed from the 2026-10-06 For Sale review. P1 because a silently dead session
 makes every Lore job fail with no explanation.
+
+**Prioritization 2026-10-19 (corrected in review):** not promoted; partly built and
+not audited. `app/desktop/src/agent.mjs` already detects a rejected refresh
+(`SIGN_IN_EXPIRED`, line 160), re-prompts through `#signInAgain` (line 806), and emits
+a `signed-out` event reading "Your ... sign-in expired. Sign in again to keep going."
+(line 954). What is still unknown is whether `renderAccount` and the Settings row
+(`renderer.js:2994`) show the expired state outside a running turn, and whether
+signing back in needs a sign-out first. Trace those two paths, then rewrite the
+criteria to the real gap.
