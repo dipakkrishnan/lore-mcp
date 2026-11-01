@@ -97,7 +97,7 @@ test("the latest strip carries only real dates, labelled for what they are", asy
   const html = marketplacePage(exchange);
   expect(html).toMatch(/<time>Oct 22<\/time>Updated in Learning to scuba dive/);
   expect(html).toMatch(/<time>Sep 15<\/time>Dipak opened a store/);
-  expect(html).toMatch(/<ul data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
+  expect(html).toMatch(/<ul data-live="latest" data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
 });
 
 test("survives a registry that can't be loaded or isn't shaped like one", async () => {

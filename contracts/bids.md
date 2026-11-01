@@ -69,6 +69,7 @@ answered and link the proof (XC-115).
 |---|---|
 | `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post gets a 303 to `/b/:id`. JSON gets a 201 with `{id, url, status_url, expires}`, where `status_url` is `/b/:id.json`. Needs no account. Rate-limited per client and globally (a 429 with a plain sentence), and `BidBook` refuses more than 100 new bids an hour, because the rate-limit bindings count per Cloudflare location. No IP is stored. `usd` is whole dollars, 5–1000. |
 | `GET /bids` | The board (XC-114). |
+| `GET /bids/stats.json` | What the board polls: `{bids, offered, markets, tape, tape_key, board, board_key}`, the counts plus the ticker and columns as HTML, each with a key that moves only on real news. |
 | `GET /bids.json` | `{bids: [public shape…], walked_away}` for bids that are open or answered, newest first. `walked_away` counts bids that were answered and then ended unfilled (MON-051). |
 | `GET /b/:id` | The bid's page (XC-115). |
 | `GET /b/:id.json` | The bid's public shape. Unknown and removed ids get a 404. |

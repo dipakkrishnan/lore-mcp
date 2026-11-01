@@ -53,8 +53,10 @@ h1{font:500 clamp(36px,6vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:
 .tape>span:before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent);transform:translateY(-1px);animation:pulse 2s ease-out infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 60%,transparent)}70%,100%{box-shadow:0 0 0 7px transparent}}
 .tape li.fresh{animation:fresh 2.4s ease-out}
+.board li.fresh{animation:flash 2.4s ease-out}
+@keyframes flash{0%,30%{background:var(--accent-soft)}100%{background:transparent}}
 @keyframes fresh{0%{opacity:0;transform:translateX(-8px);color:var(--accent)}25%{opacity:1;transform:none;color:var(--accent)}100%{color:inherit}}
-@media (prefers-reduced-motion:reduce){.tape>span:before,.tape li.fresh{animation:none}}
+@media (prefers-reduced-motion:reduce){.tape>span:before,.tape li.fresh,.board li.fresh{animation:none}}
 .tape ul{display:flex;gap:22px;min-width:0;margin:0;padding:0;list-style:none;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
 .tape ul::-webkit-scrollbar{display:none}
 .tape time{font-family:var(--mono);font-size:12px;color:var(--faint);margin-right:6px}
@@ -120,18 +122,29 @@ code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padd
 .dollar{position:relative}.dollar:before{content:"$";position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font:600 15px var(--mono)}
 .dollar input{padding-left:26px;font:600 15px var(--mono)}
 .bid-form .go{align-self:flex-start;border:0;cursor:pointer;font-family:var(--sans)}
-.note{margin:0;font-size:13px;color:var(--muted)}
+.note{margin:0;font-size:13px;color:var(--muted)}.stats+.note{margin-top:10px}
 .error{margin:0;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,#b3261e 12%,var(--surface));color:var(--ink);font-size:14px}
 .timeline{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line);font-size:14px}
 .timeline li{position:relative;padding:4px 0 10px}
 .timeline li:before{content:"";position:absolute;left:-19px;top:11px;width:8px;height:8px;border-radius:50%;background:var(--accent)}
 .timeline time{font-family:var(--mono);font-size:12px;color:var(--faint);margin-right:10px}
 .timeline a{color:var(--accent);font-weight:600}
+.sheet{flex:0 0 auto}.sheet[open]{flex-basis:100%}
+.sheet summary{list-style:none;cursor:pointer}.sheet summary::-webkit-details-marker{display:none}
+.sheet[open] summary{margin-bottom:14px}
+.spread{display:flex;justify-content:space-between;gap:10px;margin:-4px 0 8px;font-size:12px;color:var(--muted)}
+.spread b{font:600 13px var(--mono);color:var(--ink)}
+.bid{position:relative;display:grid;grid-template-columns:1fr 58px;gap:12px;align-items:center;padding:8px;margin:0 -8px;border-radius:9px}
+.bid+.bid{border-top:1px solid var(--line)}
+.bid a.q:after{content:"";position:absolute;inset:0;border-radius:9px}
+.bid:hover,.bid:focus-within{background:var(--accent-soft)}.bid:hover .q{color:var(--accent)}.bid a:focus-visible{outline:none}
+@media (max-width:640px){.sheet{flex-basis:100%}.sheet summary{text-align:center}}
 `;
 
 // Instant search over the cards already drawn; without it the form searches on the server.
-// The counts and the Latest strip show as they are, then follow /marketplace/stats.json: a count rolls and news slides in only when a real change lands.
-export const SCRIPT = `const col="<span class=\\"digit\\" aria-hidden=\\"true\\"><span>"+"0123456789".split("").map(d=>"<i>"+d+"</i>").join("")+"</span></span>";const roll=(b,v)=>{const t=String(v);b.setAttribute("aria-label",t);if(b.dataset.v===t)return;const was=b.dataset.v;b.dataset.v=t;if(!was)return;const from=was.padStart(t.length,"0").slice(-t.length);b.innerHTML=col.repeat(t.length);const cols=[...b.querySelectorAll(".digit>span")];cols.forEach((c,i)=>{c.style.transition="none";c.style.transform="translateY(-"+from[i]+"0%)"});b.offsetHeight;cols.forEach((c,i)=>{c.style.transition="";c.style.transform="translateY(-"+t[i]+"0%)"});b.classList.add("tick");setTimeout(()=>b.classList.remove("tick"),1600)};const stats=[...document.querySelectorAll("[data-stat]")];stats.forEach(b=>roll(b,b.textContent));const tl=document.querySelector(".tape ul");const news=n=>{if(!tl||typeof n.latest_key!=="string"||n.latest_key===tl.dataset.key)return;const had=new Set(tl.dataset.key.split("|"));tl.dataset.key=n.latest_key;tl.innerHTML=n.latest;n.latest_key.split("|").forEach((k,i)=>had.has(k)||tl.children[i]?.classList.add("fresh"))};stats.length&&setInterval(()=>{document.hidden||fetch("/marketplace/stats.json").then(r=>r.ok?r.json():null).then(n=>{if(!n)return;stats.forEach(b=>typeof n[b.dataset.stat]==="number"&&roll(b,n[b.dataset.stat]));news(n)}).catch(()=>{})},30000);const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
+// The counts and every [data-live] list show as they are, then follow the page's [data-poll] (the marketplace's /marketplace/stats.json by default):
+// a count rolls and a list redraws only when its key moves, and items whose data-k is new slide in.
+export const SCRIPT = `const col="<span class=\\"digit\\" aria-hidden=\\"true\\"><span>"+"0123456789".split("").map(d=>"<i>"+d+"</i>").join("")+"</span></span>";const roll=(b,v)=>{const t=String(v);b.setAttribute("aria-label",t);if(b.dataset.v===t)return;const was=b.dataset.v;b.dataset.v=t;if(!was)return;const from=was.padStart(t.length,"0").slice(-t.length);b.innerHTML=col.repeat(t.length);const cols=[...b.querySelectorAll(".digit>span")];cols.forEach((c,i)=>{c.style.transition="none";c.style.transform="translateY(-"+from[i]+"0%)"});b.offsetHeight;cols.forEach((c,i)=>{c.style.transition="";c.style.transform="translateY(-"+t[i]+"0%)"});b.classList.add("tick");setTimeout(()=>b.classList.remove("tick"),1600)};const stats=[...document.querySelectorAll("[data-stat]")];stats.forEach(b=>roll(b,b.textContent));const live=[...document.querySelectorAll("[data-live]")];const news=n=>live.forEach(l=>{const k=n[l.dataset.live+"_key"];if(typeof k!=="string"||k===l.dataset.key)return;const had=new Set(l.dataset.key.split("|"));l.dataset.key=k;l.innerHTML=n[l.dataset.live];l.querySelectorAll("[data-k]").forEach(i=>had.has(i.dataset.k)||i.classList.add("fresh"))});const poll=document.querySelector("[data-poll]")?.dataset.poll||"/marketplace/stats.json";(stats.length||live.length)&&setInterval(()=>{document.hidden||fetch(poll).then(r=>r.ok?r.json():null).then(n=>{if(!n)return;stats.forEach(b=>typeof n[b.dataset.stat]==="number"&&roll(b,n[b.dataset.stat]));news(n)}).catch(()=>{})},30000);const f=document.querySelector(".search input[name=q]"),c=[...document.querySelectorAll(".card")],t=[...document.querySelectorAll("section.tab")],e=document.querySelector(".none");f&&f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const k of c){const m=!q||k.dataset.search.includes(q);k.hidden=!m;n+=m}for(const s of t)s.hidden=!s.querySelector(".card:not([hidden])");e&&(e.hidden=n>0)});const s=document.querySelector(".tabs select");s&&s.addEventListener("change",()=>s.form.submit());document.querySelectorAll(".tabs button").forEach(b=>b.remove())`;
 
 const MARKET_AGENTS = `<p>Every market and listing, as JSON:</p><code class="endpoint">${LIST_URL}</code><p>Each store answers <code>discover</code> for free over MCP and <code>get</code> to buy. A browsing agent can also buy by card on any piece's page.</p><a href="${BUYER_SKILL}">Get the buyer skill →</a>`;
 

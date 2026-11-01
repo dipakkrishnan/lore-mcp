@@ -41,15 +41,15 @@ function latest(exchange) {
   const events = exchange.recent(5);
   const item = (e) =>
     e.row
-      ? `<li><a href="${escape(e.row.url)}"><time>${date(e.day)}</time>Updated in ${escape(e.market.name)}: ${escape(clip(e.row.question, 48))}</a></li>`
-      : `<li><a href="${escape(e.seller.store)}"><time>${date(e.day)}</time>${escape(e.seller.name)} opened a store</a></li>`;
+      ? `<li data-k="${escape(`${e.day}:${e.row.id}`)}"><a href="${escape(e.row.url)}"><time>${date(e.day)}</time>Updated in ${escape(e.market.name)}: ${escape(clip(e.row.question, 48))}</a></li>`
+      : `<li data-k="${escape(`${e.day}:${e.seller.name}`)}"><a href="${escape(e.seller.store)}"><time>${date(e.day)}</time>${escape(e.seller.name)} opened a store</a></li>`;
   return { html: events.map(item).join(""), key: events.map((e) => `${e.day}:${e.row ? e.row.id : e.seller.name}`).join("|") };
 }
 
 function tape(exchange) {
   const { html, key } = latest(exchange);
   if (!html) return "";
-  return `<div class="tape"><span>Latest</span><ul data-key="${escape(key)}">${html}</ul></div>`;
+  return `<div class="tape"><span>Latest</span><ul data-live="latest" data-key="${escape(key)}">${html}</ul></div>`;
 }
 
 function stores(exchange) {
