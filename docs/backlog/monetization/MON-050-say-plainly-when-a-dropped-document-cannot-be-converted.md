@@ -48,7 +48,7 @@ that name the file and say what to do ("paste its text instead").
       `Traceback` or `Errno`, and `cli.failed` is recorded for `collection`.
 - [ ] textutil's arguments include `-noload` for `.html`, `.htm` and
       `.webarchive` input, checked in a test.
-- [ ] Covered by tests in `tests/test_collection.py` (or `tests/test_cli.py`
+- [ ] Covered by tests in `tests/test_collection_drops.py` (or `tests/test_cli.py`
       for the `main` exit path).
 
 ## Notes

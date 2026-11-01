@@ -42,12 +42,15 @@ owner picked it.
       above it is dot-named (e.g. `tmp/.notes/essays`).
 - [ ] `_files(["../plain"])` run from inside `plain/` returns its files.
 - [ ] `dropped/.hidden/x.md` and `dropped/.x.md` are still skipped.
-- [ ] `tests/test_collection.py` covers all three cases.
+- [ ] `tests/test_collection_drops.py` covers all three cases, and the
+      dot-folder `skipTest` in
+      `test_a_dropped_folder_yields_its_text_files_and_skips_hidden_ones` is gone.
 
 ## Notes
 
-`tests/test_collection.py` has no tests of `_files` or `_read` yet, so
-these would be the first. Open PR #427 moves `add`'s body into
+`tests/test_collection_drops.py` (#550) tests `_files` and `_read`, and skips
+its folder test when the temporary directory sits under a dot-folder because
+of this bug. Open PR #427 moves `add`'s body into
 `Collections.entries()` and reuses `_files`/`_read` for a new `sell()`. The
 fix reaches both paths either way, but land it after #427 if that merges
 first. The desktop app passes only absolute paths (`state.cjs`), and Finder

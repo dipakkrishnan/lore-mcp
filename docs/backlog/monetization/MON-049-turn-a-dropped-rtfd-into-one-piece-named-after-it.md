@@ -38,10 +38,10 @@ path itself to `textutil -convert txt`, which reads rtfd input.
 - [ ] A dropped folder holding `Letter.rtfd/TXT.rtf` produces one `Letter`
       piece; nothing under `Letter.rtfd/` is walked.
 - [ ] No piece is titled `TXT`.
-- [ ] Covered by tests in `tests/test_collection.py` that run without macOS.
+- [ ] Covered by tests in `tests/test_collection_drops.py` that run without macOS.
 
 ## Notes
 
-`tests/test_collection.py` has no `_files`/`_read` tests yet. Open PR #427
+`tests/test_collection_drops.py` (#550) already tests `_files`/`_read`. Open PR #427
 reuses `_files`/`_read` for `sell()`, so this fix reaches both paths. Other
 bundle formats (`.pages`) are not in `CONVERTIBLE` and are out of scope.
