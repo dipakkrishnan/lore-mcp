@@ -1,10 +1,10 @@
 ---
 id: MON-051
 title: Let buyers bid for a piece nobody sells yet
-priority: P2
+priority: P0
 effort: M
 component: monetization
-status: in-review
+status: ready
 related: [XC-114, XC-115, XC-116, XC-117, MON-053, MON-054, MON-055, XC-093, XC-074, MON-046]
 blockers: []
 dependencies: []
