@@ -25,8 +25,8 @@ codex mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node htt
   transfer authorization and retries. The settlement receipt is appended to
   the tool result, so it lands in the buyer's conversation.
 - Two local tools, `bid` and `check_bid`, place and read bids on Lore
-  (`contracts/bids.md`) for when nothing fits. A bid moves no money; one the
-  remaining cap could not pay for is refused.
+  (`contracts/bids.md`) for when nothing fits. A bid moves no money and never
+  touches `--max-usd`; the cap applies when an answer's piece is bought.
 - Every step is logged to stderr as JSON lines (`startup`, `call`,
   `challenge`, `settled`) — tail it for a live payment feed.
 

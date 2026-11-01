@@ -75,8 +75,8 @@ function decodeReceipt(raw: unknown): Record<string, unknown> | undefined {
 }
 
 // Bids (contracts/bids.md) are records on the site, not payments: placing one
-// moves no money, so it never draws on the spend cap. A bid the cap could
-// never pay for is refused, because its answer could not be bought here.
+// moves no money, so it never touches the spend cap. The cap applies when
+// an answer's piece is bought.
 class BidDesk {
   readonly tools: Tool[] = [
     {
@@ -110,10 +110,7 @@ class BidDesk {
     }
   ];
 
-  constructor(
-    private readonly site: URL,
-    private readonly remaining: () => bigint
-  ) {}
+  constructor(private readonly site: URL) {}
 
   handles(name: string): boolean {
     return this.tools.some((tool) => tool.name === name);
@@ -131,11 +128,6 @@ class BidDesk {
     const usd = args.usd;
     if (typeof usd !== "number" || !Number.isFinite(usd)) {
       return this.refuse("Give usd as a number of whole dollars.");
-    }
-    if (BigInt(Math.round(usd * 1e6)) > this.remaining()) {
-      return this.refuse(
-        `A $${usd} bid is more than this bridge may still spend, so its answer could not be bought. Bid less or raise --max-usd.`
-      );
     }
     const { question, market, callback_url } = args;
     const response = await fetch(new URL("/bids", this.site), {
@@ -266,7 +258,7 @@ const paid = withX402Client(remote, {
   }
 });
 
-const bids = new BidDesk(new URL(values.bids), () => maxPaymentValue - authorizedPaymentValue);
+const bids = new BidDesk(new URL(values.bids));
 
 const server = new Server(
   { name: "x402-mcp-bridge", version: "0.1.0" },

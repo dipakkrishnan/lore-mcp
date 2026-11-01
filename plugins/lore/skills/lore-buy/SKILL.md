@@ -123,9 +123,10 @@ hash with its link: `https://basescan.org/tx/<hash>` on `eip155:8453`,
 ## 9. Bid when nothing fits
 
 Bids are for work that can wait hours or days; a fast task never bids. Offer
-to bid, showing the question and amount, or bid without asking within a bid
-budget the user set. Bids are public, so keep private and user-identifying
-detail out of the question.
+to bid, showing the question and amount, or bid without asking if the user set
+a bid budget. Nothing enforces that budget: placing a bid moves no money, so
+keep each bid within it yourself. Bids are public, so keep private and
+user-identifying detail out of the question.
 
 Call the bridge's `bid` with `question`, `usd` (whole dollars, $5 to $1,000),
 and `market` and `callback_url` when you have them. Without the bridge:

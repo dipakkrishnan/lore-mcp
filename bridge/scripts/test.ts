@@ -173,12 +173,12 @@ const address = httpServer.address();
 assert(address && typeof address !== "string");
 
 const origin = `http://127.0.0.1:${address.port}`;
-async function bridge(maxUsd: string): Promise<Client> {
+async function bridge(...flags: string[]): Promise<Client> {
   const client = new Client({ name: "bridge-test", version: "0.1.0" });
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
-      args: ["--import", "tsx", "src/index.ts", "--node", `${origin}/mcp`, "--max-usd", maxUsd, "--bids", origin],
+      args: ["--import", "tsx", "src/index.ts", "--node", `${origin}/mcp`, "--bids", origin, ...flags],
       env: { ...process.env, X402_PRIVATE_KEY: generatePrivateKey() },
       stderr: "inherit"
     })
@@ -188,8 +188,8 @@ async function bridge(maxUsd: string): Promise<Client> {
 const text = (result: Awaited<ReturnType<Client["callTool"]>>) =>
   (result.content as { text: string }[]).map((part) => part.text).join("\n");
 
-const client = await bridge("0.01");
-const bidder = await bridge("20");
+const client = await bridge("--max-usd", "0.01");
+const bidder = await bridge();
 try {
   const tools = await client.listTools();
   assert.match(tools.tools[0]?.description ?? "", /paid tool.*\$0\.01/);
@@ -233,13 +233,10 @@ try {
   assert(invalid.isError);
   assert.equal(text(invalid), "Write a question of at least 10 characters.");
 
+  const minimum = await bidder.callTool({ name: "bid", arguments: { question, usd: 5 } });
+  assert(!minimum.isError, `a $5 bid was refused on the default --max-usd 1: ${text(minimum)}`);
+  assert.equal(bidPosts.at(-1)?.usd, 5);
   const posts = bidPosts.length;
-  const overCap = await bidder.callTool({ name: "bid", arguments: { question, usd: 25 } });
-  assert(overCap.isError);
-  assert.match(text(overCap), /more than this bridge may still spend/);
-  const spentOut = await client.callTool({ name: "bid", arguments: { question, usd: 5 } });
-  assert(spentOut.isError, "bridge placed a bid it could no longer pay for");
-  assert.equal(bidPosts.length, posts, "a refused bid reached the site");
 
   const check = async (id: string) => bidder.callTool({ name: "check_bid", arguments: { id } });
   const open = JSON.parse(text(await check("openbid001")));
