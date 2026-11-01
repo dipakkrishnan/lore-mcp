@@ -433,9 +433,13 @@ class Obsidian(Connector):
         """Under the path a connected vault's source keeps, so one already read is known by
         it; a path that can't be resolved (a link that loops) is offered as Obsidian names it."""
         try:
-            return self.reader.locate(path)[0]
+            located = self.reader.locate(path)[0]
         except (OSError, RuntimeError):
+            # Python 3.12 and older raise on a link that loops.
             return path
+        # Python 3.13 and newer resolve as far as they can and stop on the link
+        # itself, so a located path that is still a link is one that loops.
+        return path if Path(located).is_symlink() else located
 
 
 class Role(Enum):

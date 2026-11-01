@@ -26,7 +26,23 @@
     },
     "memory.saved": null,
     "piece.approved": null,
+    "store.attempted": null,
+    "store.online": null,
     "store.opened": null,
+    "store.failed": {
+      "prop": "reason",
+      "values": [
+        "email_unverified",
+        "no_subdomain",
+        "many_accounts",
+        "exists_elsewhere",
+        "not_signed_in",
+        "no_payout",
+        "timeout",
+        "not_answering",
+        "other"
+      ]
+    },
     "store.listed": null,
     "sale.seen": {
       "prop": "via",

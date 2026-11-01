@@ -90,7 +90,12 @@ Self-hosting stays possible in code, but isn't offered in the app for now.
 
 ## Open decisions
 
-1. Handles: `yourlore.dev/<handle>`, picked at sign-up and changeable once.
+1. ~~Handles: `yourlore.dev/<handle>`, picked at sign-up and changeable once.~~
+   Decided in XC-088: a store's address is `<store>.yourlore.dev`, a random
+   12-character id the owner never picks, so sign-up asks nothing and a later
+   handle never changes an agent's link (Bluesky's DID-and-handle split). Each
+   store is its own origin, so the agent sign-in works unchanged
+   (`contracts/hosted-inbox.md`).
 2. Is it acceptable that the running service can read paid parts? The only
    alternative is delivering from the owner's Mac, which means no sales
    while it's asleep.
