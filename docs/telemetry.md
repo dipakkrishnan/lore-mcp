@@ -16,6 +16,7 @@ Three planes, three different trust boundaries:
 |---|---|---|---|
 | **Node (owner)** | The deployed x402 Worker, `lore/node/` | The owner's own Cloudflare account, via Workers' built-in observability. Never the maintainers'. | None needed — it is the owner's own infrastructure, same as any other Cloudflare Worker they run. |
 | **Desktop (funnel)** | Milestones the app and `lore` observe (`APP-058`) | The feedback relay's `/events` route, which re-checks every event and passes it to PostHog | **Opt-out, on by default**, disclosed before the first event and in Settings, with an off switch (`CLI-004`). |
+| **Site (agent demand)** | One event per request to an agent-facing address on yourlore.dev (`XC-120`): `agent.llms`, `agent.catalog`, `agent.json`, `agent.sitemap`, and `agent.bid` / `agent.mcp` once those routes exist, each with a coarse `agent` family | `site/src/demand.js` → the relay's binding-only `SiteEvents` entrypoint (two codes, never the request) → PostHog, under one fixed site id | None needed: cookieless, no IP, no per-visitor id; described in `PRIVACY.md`. |
 | **QA node (maintainer)** | The standing `lore-qa` deployment, `MON-008` | The same maintainer collector, over OTLP | N/A — maintainer-owned infrastructure and synthetic fixture data only. |
 
 `PRIVACY.md` describes only shipped behavior. The desktop funnel shipped with

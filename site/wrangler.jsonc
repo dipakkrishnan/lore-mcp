@@ -12,6 +12,9 @@
     "not_found_handling": "none",
     "run_worker_first": ["/", "/download", "/marketplace", "/marketplace/*", "/marketplace.json", "/marketplace.jsonl", "/llms.txt", "/robots.txt", "/sitemap.xml", "/bids", "/bids/*", "/bids.json", "/b/*"]
   },
+  // Agent demand (XC-120): two codes per count to the relay's binding-only SiteEvents
+  // entrypoint, never the request itself. Without the binding nothing is counted.
+  "services": [{ "binding": "RELAY", "service": "lore-feedback-relay", "entrypoint": "SiteEvents" }],
   "routes": [
     { "pattern": "yourlore.dev", "custom_domain": true },
     { "pattern": "www.yourlore.dev", "custom_domain": true }

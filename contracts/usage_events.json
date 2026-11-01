@@ -71,5 +71,34 @@
         "other"
       ]
     }
+  },
+  "site_description": "Requests yourlore.dev's Worker counts (XC-120), one per request, cookieless, under one fixed id for the whole site, carrying only a coarse agent family taken from the User-Agent. They reach the relay only through its binding-only SiteEvents entrypoint, never the public /events route; lore/usage.py never sends them.",
+  "site_events": {
+    "names": [
+      "agent.llms",
+      "agent.catalog",
+      "agent.json",
+      "agent.sitemap",
+      "agent.bid",
+      "agent.mcp"
+    ],
+    "prop": "agent",
+    "values": [
+      "claudebot",
+      "claude-user",
+      "gptbot",
+      "chatgpt-user",
+      "oai-searchbot",
+      "perplexitybot",
+      "perplexity-user",
+      "grok",
+      "google",
+      "bingbot",
+      "curl",
+      "python",
+      "node",
+      "browser",
+      "other"
+    ]
   }
 }

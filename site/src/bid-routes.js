@@ -5,6 +5,7 @@ import { tellBuyer } from "./bid-callback.js";
 import { readAnswer, readBid } from "./bid-input.js";
 import { bidPage, missingBidPage } from "./bid-pages.js";
 import { publicBid } from "./bids.js";
+import { countDemand } from "./demand.js";
 import { homePage } from "./home.js";
 import { registryMarkets } from "./markets.js";
 
@@ -98,6 +99,7 @@ export class BidDesk {
     if (read.error) return fail(read.error, 400, fields);
     const placed = await this.book.place(read.value);
     if (!placed) return fail("Lots of bids are coming in right now. Try again in a few minutes.", 429, fields);
+    countDemand("agent.bid", this.request, this.env, this.ctx);
     const { id, url, expires } = publicBid(placed, this.origin);
     if (!asJson) return Response.redirect(url, 303);
     return json({ id, url, status_url: `${url}.json`, expires }, 201);
