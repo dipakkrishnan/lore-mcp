@@ -91,10 +91,19 @@ function remoteServer(): Server {
   return server;
 }
 
+// When set, the remote node answers 503 to everything, as if it went down
+// after the bridge connected.
+let remoteDown = false;
+
 const app = createMcpExpressApp();
 app.post(
   "/mcp",
   async (req: IncomingMessage & { body?: unknown }, res: ServerResponse) => {
+  if (remoteDown) {
+    res.statusCode = 503;
+    res.end();
+    return;
+  }
   const server = remoteServer();
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   await server.connect(transport);
@@ -262,6 +271,15 @@ try {
   assert.equal(text(viaRemote), "remote bid");
   assert.equal(bidPosts.length, posts, "the bridge's bid shadowed the remote node's");
   remoteBid = false;
+
+  // Bids go to --bids, not --node: a node that is down must not fail them.
+  remoteDown = true;
+  const whileDown = await bidder.callTool({ name: "bid", arguments: { question, usd: 5 } });
+  assert(!whileDown.isError, `a bid failed because the remote node was down: ${text(whileDown)}`);
+  assert.equal(bidPosts.length, posts + 1, "the bid was not placed while the remote node was down");
+  const checkWhileDown = await check("openbid001");
+  assert(!checkWhileDown.isError, text(checkWhileDown));
+  remoteDown = false;
   console.log(
     "ok: bridge declined the decoy challenge, paid once, surfaced the receipt, stopped at its spend cap, " +
       "and placed and checked bids without spending"
