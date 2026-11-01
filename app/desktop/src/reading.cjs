@@ -52,6 +52,7 @@ function landed(reading, report, stored, folder, wrote = []) {
   /** @type {Map<number, ReadyMemory>} */
   const memories = new Map();
   for (const entry of [...report.memories, ...wrote.map((file) => ({ file, worth_selling: false, why: "" }))]) {
+    if (!entry.file) continue;
     const path = resolve(folder, entry.file);
     const memory = stored.find((candidate) => candidate.status === "private" && resolve(candidate.source_path) === path);
     if (!memory || !path.startsWith(folder + sep) || memories.has(memory.id)) continue;
@@ -59,6 +60,18 @@ function landed(reading, report, stored, folder, wrote = []) {
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
   return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
+}
+
+/** What a reading judged of an agent's saves, by id, as the card that shows them already holds them: only the saves it
+ * was given, so an id the model made up is never shown. @param {Reading} reading @param {ReadingReport} report @returns {ReadyRun} */
+function judged(reading, report) {
+  /** @type {ReadyMemory[]} */
+  const memories = [];
+  for (const save of reading.judge ?? []) {
+    const verdict = report.memories.find((entry) => entry.id === save.id);
+    if (verdict) memories.push({ id: save.id, title: save.title, sell: verdict.worth_selling, work: false, why: verdict.why });
+  }
+  return { title: reading.title, read: reading.judge?.length ?? 0, memories, at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** APP-233: what one of the owner's agents saved, for Today as soon as it is read in. The agent wrote them as memories
@@ -301,4 +314,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds, Suggestions, suggested };
+module.exports = { many, plural, worthReading, asking, landed, judged, saved, announcement, Ready, Badge, Seen, seenIds, Suggestions, suggested };
