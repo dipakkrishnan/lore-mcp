@@ -5509,9 +5509,10 @@ function approvalMeta(card, topic, actions, ...chips) {
 function approvalForm(candidate) {
   /** @type {Record<string, HTMLInputElement | HTMLTextAreaElement>} */
   const field = {};
-  const edited = () => ({ ...candidate, title: field.title.value, teaser: field.teaser.value, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value, content: field.paid.value });
+  const edited = () => ({ ...candidate, title: field.title.value, topic: field.topic.value, teaser: field.teaser.value, useful_if: field.usefulIf.value, not_useful_if: field.notUsefulIf.value, sample: field.sample.value, content: field.paid.value });
   const card = readFirst(candidate.title, () => void previewPage(edited()), (fields) => {
     field.title = draftField(fields, "Title", candidate.title, true);
+    field.topic = draftField(fields, "Topic · free, the heading buyers see on your store", candidate.topic);
     field.teaser = draftField(fields, "Teaser · free, what buyers see first", candidate.teaser);
     field.usefulIf = draftField(fields, "Good for · free", candidate.useful_if ?? "");
     field.notUsefulIf = draftField(fields, "Not for · free", candidate.not_useful_if ?? "");
@@ -5655,7 +5656,7 @@ async function decide(original, approve, candidate = original) {
 
 /** Apply one card, then offer the push once the last card is answered. @param {() => Promise<void>} action @param {boolean} approve */
 async function settle(action, approve) {
-  if ((await act(action, approve ? "Approved. It goes live with your next store update." : undefined)) && approve) approvedThisPass = true;
+  if ((await act(action)) && approve) approvedThisPass = true;
   // Ask the store what is still waiting: the reload act() ran can lose to a newer one (the agent watch reloads every
   // few seconds), and a stale list would hold back the push.
   const [left, extras] = await Promise.all([window.lore.candidates().catch(() => candidates), window.lore.extras().catch(() => extraDrafts)]);

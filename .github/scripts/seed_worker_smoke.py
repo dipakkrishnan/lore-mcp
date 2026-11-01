@@ -31,6 +31,7 @@ def main() -> None:
             content="Full content the smoke test never reads or asserts on.",
             topic=TOPIC,
             teaser=TEASER,
+            sample="A free sample the smoke test seeds. A piece without one isn't for sale.",
             provenance=[memory_id],
         )
 

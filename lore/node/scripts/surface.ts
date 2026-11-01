@@ -15,8 +15,9 @@ export const TOOL_NAMES = ["answer", "discover", "get", "result"] as const;
 /** Keys every discover() catalog entry carries. */
 export const ENTRY_KEYS = ["id", "kind", "teaser", "updated_at"] as const;
 
-/** Keys an entry carries only when the owner wrote them; free like the teaser. */
-export const ENTRY_EXTRAS = ["not_useful_if", "sample", "useful_if"] as const;
+/** Keys an entry carries only when the owner wrote them; free like the teaser. A node also says
+ * roughly how long the piece runs. */
+export const ENTRY_EXTRAS = ["not_useful_if", "sample", "useful_if", "words"] as const;
 
 /** Why a catalog entry's keys are wrong, or null when they are right. */
 export function entryKeysProblem(keys: string[]): string | null {

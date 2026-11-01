@@ -1646,6 +1646,7 @@ class PublicationApplyTest(LoreTestCase):
             "content": "a bounded claim about pricing agent APIs",
             "topic": "pricing",
             "teaser": "What this claim tells a buyer about pricing",
+            "sample": "We priced the first API at a dollar. Then we watched who paid.",
             "provenance": [self.memory_id],
         }
         path = self.lore_home / "candidates.json"
@@ -1688,16 +1689,17 @@ class PublicationApplyTest(LoreTestCase):
         )
         # Approve the first; edit then approve the second; reject the third.
         # The edit prompt asks title, teaser, sample, useful if, not useful if,
-        # then content in that order.
+        # content, then the public topic in that order.
         answers = [
             "a",
             "e",
             "Edited claim",
             "",
-            "Two demos, one deck.",
+            "Two demos. One deck.",
             "",
             "",
             "",
+            "Go-to-market",
             "a",
             "r",
         ]
@@ -1715,7 +1717,10 @@ class PublicationApplyTest(LoreTestCase):
         self.assertEqual(
             saved["Edited claim"].content, "a bounded claim about pricing agent APIs"
         )
-        self.assertEqual(saved["Edited claim"].sample, "Two demos, one deck.")
+        self.assertEqual(saved["Edited claim"].sample, "Two demos. One deck.")
+        self.assertEqual(saved["Edited claim"].topic, "Go-to-market")
+        # Approved topics read in sentence case on the store.
+        self.assertEqual(saved["First claim"].topic, "Pricing")
 
     def test_rejecting_everything_saves_nothing_and_says_so(self) -> None:
         with (
@@ -1762,7 +1767,7 @@ class PublicationApplyTest(LoreTestCase):
         self.assertIn("answerable over MCP", text)
         self.assertIn("lore publication revoke", text)
         # The topic is externally visible, so approving the card approves it too.
-        self.assertIn("topic: pricing", text)
+        self.assertIn("topic: Pricing", text)
 
     def test_a_malformed_candidates_file_is_refused(self) -> None:
         for payload, message in (
@@ -2008,7 +2013,6 @@ class PublicationApplyTest(LoreTestCase):
             "content": "The owner's final wording.",
         }
         for field, value in (
-            ("topic", "different"),
             ("kind", "content"),
             ("provenance", [self.seed_memory("other evidence")]),
         ):
@@ -2045,9 +2049,51 @@ class PublicationApplyTest(LoreTestCase):
             (edited["title"], edited["teaser"], edited["content"]),
         )
         self.assertEqual(publication.kind.value, original["kind"])
-        self.assertEqual(publication.topic, original["topic"])
+        self.assertEqual(publication.topic, "Pricing")
         self.assertEqual(publication.provenance, original["provenance"])
         self.assertFalse(self.staged_path.exists())
+
+    def test_nothing_goes_on_sale_without_a_sample_or_under_a_private_topic(
+        self,
+    ) -> None:
+        # MON-052: a buyer judges a piece by its sample, and the store heads it
+        # with its topic, so both are checked when it's drafted and approved.
+        for override, message in (
+            ({"sample": ""}, "Add a free sample of at least two sentences"),
+            ({"sample": "Just one sentence here."}, "Add a free sample"),
+            ({"topic": "Pricing lesson"}, "can't be the name of your private topic"),
+            ({"topic": "Travel: window seat on United, beach trips"}, "short public"),
+        ):
+            with self.subTest(override=override):
+                with self.assertRaisesRegex(ValueError, message):
+                    self.drafted(override)
+        self.assertFalse(self.staged_path.exists())
+
+        # A draft staged before the rule still shows; the owner fixes it on its card.
+        self.staged_path.write_text(
+            Path(self.candidates({"sample": ""})).read_text(encoding="utf-8")
+        )
+        with captured() as out:
+            cli.publication_candidates()
+        (original,) = json.loads(out.getvalue())
+        with desktop_stdin(
+            json.dumps({"original": original, "candidate": original, "approve": True})
+        ):
+            with self.assertRaisesRegex(ValueError, "Add a free sample"):
+                cli.publication_decide()
+        fixed = original | {
+            "sample": "We priced it at a dollar. Few paid.",
+            "topic": "agent APIs",
+        }
+        with desktop_stdin(
+            json.dumps({"original": original, "candidate": fixed, "approve": True})
+        ):
+            with captured():
+                self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            (publication,) = store.list_publications()
+        self.assertEqual(publication.sample, fixed["sample"])
+        self.assertEqual(publication.topic, "Agent APIs")
 
     def test_identical_drafts_are_consumed_one_card_at_a_time(self) -> None:
         memory = self.seed_memory("twin evidence")
@@ -2057,6 +2103,7 @@ class PublicationApplyTest(LoreTestCase):
             "content": "The same lesson, drafted twice.",
             "kind": "claim",
             "topic": "testing",
+            "sample": "We ran it twice. Both runs agreed.",
             "provenance": [memory],
         }
         with desktop_stdin(json.dumps([card, card])), captured():
@@ -2255,7 +2302,10 @@ class PublicationExtrasTest(LoreTestCase):
             self.public_id = store.active_publication(self.piece).public_id
 
     def drafted(self, *overrides: dict) -> list[dict]:
-        base = {"publication_id": self.piece, "sample": "We started at a dollar."}
+        base = {
+            "publication_id": self.piece,
+            "sample": "We started at a dollar. Then we watched who paid.",
+        }
         batch = json.dumps([base | o for o in (overrides or ({},))])
         with patch.object(sys, "stdin", StringIO(batch)), captured():
             self.assertEqual(cli.extras_draft("-"), 0)
@@ -2286,7 +2336,7 @@ class PublicationExtrasTest(LoreTestCase):
 
     def test_the_desktop_app_updates_the_piece_in_place_and_pushes(self) -> None:
         first, second = self.drafted({}, {"useful_if": "you sell to developers"})
-        edited = first | {"sample": "The owner's own excerpt."}
+        edited = first | {"sample": "The owner's own excerpt. In their words."}
         with Store() as store:
             store.set_setting("node_url", "https://node.example/mcp")
             store.set_setting("node_selling", True)
@@ -2305,7 +2355,7 @@ class PublicationExtrasTest(LoreTestCase):
             (piece.public_id, piece.sample, piece.content),
             (
                 self.public_id,
-                "The owner's own excerpt.",
+                "The owner's own excerpt. In their words.",
                 "a bounded claim about pricing agent APIs",
             ),
         )
@@ -2335,7 +2385,7 @@ class PublicationExtrasTest(LoreTestCase):
         batch = [
             {
                 "original": first,
-                "extras": first | {"sample": "Edited."},
+                "extras": first | {"sample": "Edited. Twice."},
                 "approve": True,
             },
             {"extras": second, "approve": True},
@@ -2348,7 +2398,7 @@ class PublicationExtrasTest(LoreTestCase):
             self.assertEqual(cli.extras_decide(), 0)
         push.assert_called_once_with(str(cli.store_folder()))
         self.assertEqual(json.loads(out.getvalue()), {"approved": 2, "remaining": 1})
-        self.assertEqual(self.live().sample, "Edited.")
+        self.assertEqual(self.live().sample, "Edited. Twice.")
         with Store() as store:
             self.assertEqual(
                 store.active_publication(other).useful_if, "you sell to developers"
@@ -2423,7 +2473,7 @@ class PublicationExtrasTest(LoreTestCase):
         piece = self.live()
         self.assertEqual(
             (piece.sample, piece.useful_if),
-            ("We started at a dollar.", "you price an API"),
+            ("We started at a dollar. Then we watched who paid.", "you price an API"),
         )
         with Store() as store:
             self.assertEqual(store.active_publication(other).useful_if, "")

@@ -70,6 +70,17 @@ describe("storefront", () => {
     expect(ld(html).itemListElement[0].item).not.toHaveProperty("offers");
   });
 
+  it("heads each topic with its short public name in sentence case, never the detail after it (MON-052)", () => {
+    const entry = catalog.topics.pricing[0];
+    const html = storefront(
+      { ...catalog, topics: { "Travel: window seat on United; beach trips for diving": [entry], "review interfaces thesis": [entry] } },
+      store
+    );
+    expect(html).toContain("<h2>Travel <small>1</small></h2>");
+    expect(html).toContain("<h2>Review interfaces thesis <small>1</small></h2>");
+    expect(html).not.toContain("window seat");
+    expect(html).not.toContain("diving");
+  });
 });
 
 describe("publicationPage", () => {
@@ -80,7 +91,7 @@ describe("publicationPage", () => {
     expect(html).toContain(`get {&quot;id&quot;: &quot;${A}&quot;}`);
     expect(html).toContain("<p class=\"amount\">$0.01</p>");
     const data = ld(html);
-    expect(data).toMatchObject({ "@type": "Product", name: "Why hire managers <before> ten engineers?", category: "team scaling" });
+    expect(data).toMatchObject({ "@type": "Product", name: "Why hire managers <before> ten engineers?", category: "Team scaling" });
     expect(data.offers.seller.name).toBe("Dipak’s Working Lore");
   });
 
@@ -94,6 +105,12 @@ describe("publicationPage", () => {
     expect(html).toContain("Not useful if you&#39;re solo");
     expect(html).not.toContain("<b>paragraph");
     expect(html).toContain('<meta property="og:description" content="First &lt;b&gt;paragraph&lt;/b&gt;. Second one.">');
+  });
+
+  it("says how long the piece runs (MON-052)", () => {
+    expect(publicationPage({ ...piece, words: 23 }, store)).toContain("<span>23 words</span>");
+    expect(publicationPage({ ...piece, words: 1234 }, store)).toContain("<span>About 1230 words</span>");
+    expect(publicationPage(piece, store)).not.toContain("words</span>");
   });
 
   it("renders without a sample or fit lines exactly as before", () => {

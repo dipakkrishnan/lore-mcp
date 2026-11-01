@@ -104,7 +104,10 @@ describe("a collection, to people", () => {
     expect(await (await visit("/")).text()).toContain(`href="/p/${COLLECTION}"`);
     const html = await (await visit(`/p/${COLLECTION}`)).text();
     expect(html).toContain("The Full Shelf");
-    expect(html).toContain("a second teaser");
+    // A piece with no free sample still belongs to the collection, without a page of its own.
+    expect(html).toContain('<div class="card"><h3>a second teaser</h3>');
+    expect(html).not.toContain(`href="/p/${SECOND}"`);
+    expect(html).toContain(`href="/p/${FIXTURE_PUBLICATION_ID}"`);
     expect(html).toContain("Buy for $2.00");
     expect(html).toContain("Worth $0.02 separately");
     expect(html).toContain(TOOL);

@@ -2,7 +2,7 @@
 // Generated from lore/node/src/storefront.ts by `npm run preview` in lore/node. Do not edit.
 
 // src/collections.ts
-var toolName = (collection) => `collection_${collection.id}`;
+var toolName = ({ id }) => `collection_${id}`;
 
 // src/storefront.ts
 var agentsPay = (store) => store.agentsPay !== false;
@@ -18,7 +18,11 @@ var date = (iso) => {
   return Number.isNaN(parsed.getTime()) ? iso : day.format(parsed);
 };
 var anchor = (section) => `topic-${section + 1}`;
-var label = (topic) => topic || "Other";
+var label = (topic) => {
+  const name = topic.split(/[:;]/)[0].trim();
+  return name ? name[0].toUpperCase() + name.slice(1) : "Other";
+};
+var length = (words) => words ? `${words < 50 ? words : `About ${Math.round(words / 10) * 10}`} words` : "";
 var seller = (store) => store.name || "A Lore store";
 var person = (store) => store.name ? { "@type": "Person", name: store.name } : void 0;
 var pieces = (catalog) => Object.entries(catalog.topics).flatMap(([topic, entries], section) => entries.map((entry) => ({ ...entry, topic, section })));
@@ -165,9 +169,9 @@ function storefront(catalog, store, sets = []) {
   const body = `<h1>${escape(name)}</h1><p class="lede">${lede}</p>${buying}`;
   return page(`${name} \xB7 Lore`, `${count2} firsthand ${count2 === 1 ? "piece" : "pieces"} for sale on Lore.`, `${store.origin}/`, body + foot(store), data);
 }
-var clip = (text, length) => {
+var clip = (text, length2) => {
   const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > length ? `${flat.slice(0, length - 1).trimEnd()}\u2026` : flat;
+  return flat.length > length2 ? `${flat.slice(0, length2 - 1).trimEnd()}\u2026` : flat;
 };
 var paragraphs = (text) => text.split(/\n\s*\n/).map((paragraph) => {
   const heading = paragraph.trim().match(/^## (.+)$/);
@@ -220,16 +224,20 @@ function publicationPage(piece, store, problem = "", left = 0) {
   const body = `<a class="back" href="/">\u2190 ${escape(name)}</a>
 ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul class="chips"><li><a class="chip" href="/#${anchor(piece.section)}">${escape(label(piece.topic))}</a></li></ul>
 <h1 class="teaser">${escape(piece.teaser)}</h1>
-<div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
+<div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span>${piece.words ? `<span>${length(piece.words)}</span>` : ""}<span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || piece.useful_if && `Useful if ${piece.useful_if}` || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} \xB7 ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
-function collectionPage(set, entries, store, single, problem = "") {
+function collectionPage(set, alone, store, single, problem = "") {
   const name = seller(store);
   const url = `${store.origin}/p/${set.id}`;
-  const cards = entries.map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`).join("");
+  const entries = set.shelf;
+  const cards = entries.map((entry) => {
+    const inner = `<h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div>`;
+    return `<li>${alone.has(entry.id) ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
+  }).join("");
   const data = {
     "@context": "https://schema.org",
     "@type": "Product",

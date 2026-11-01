@@ -23,6 +23,15 @@ describe("store pages", () => {
     expect(html).not.toContain("the secret owner-approved content");
   });
 
+  it("doesn't offer a piece that has no free sample, on the store, on its page, or to checkout (MON-052)", async () => {
+    const unsampled = "1111111111111111807ae5f3";
+    const store = await (await visit("/")).text();
+    expect(store).toContain("a teaser that is safe to advertise");
+    expect(store).not.toContain("a second teaser");
+    expect(store).not.toContain(`/p/${unsampled}`);
+    for (const path of [`/p/${unsampled}`, `/p/${unsampled}.json`]) expect((await visit(path)).status).toBe(404);
+  });
+
   it("answers HEAD with headers only", async () => {
     const response = await visit(`/p/${FIXTURE_PUBLICATION_ID}`, "HEAD");
     expect(response.status).toBe(200);

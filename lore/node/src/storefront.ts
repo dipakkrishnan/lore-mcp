@@ -49,7 +49,12 @@ const date = (iso: string) => {
   return Number.isNaN(parsed.getTime()) ? iso : day.format(parsed);
 };
 const anchor = (section: number) => `topic-${section + 1}`;
-const label = (topic: string) => topic || "Other";
+// A heading shows the topic's short name only: an older piece's topic can run on into a private detail.
+const label = (topic: string) => {
+  const name = topic.split(/[:;]/)[0].trim();
+  return name ? name[0].toUpperCase() + name.slice(1) : "Other";
+};
+const length = (words?: number) => (words ? `${words < 50 ? words : `About ${Math.round(words / 10) * 10}`} words` : "");
 const seller = (store: Store) => store.name || "A Lore store";
 const person = (store: Store) => (store.name ? { "@type": "Person", name: store.name } : undefined);
 
@@ -311,20 +316,25 @@ export function publicationPage(piece: Piece, store: Store, problem = "", left =
   const body = `<a class="back" href="/">← ${escape(name)}</a>
 ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul class="chips"><li><a class="chip" href="/#${anchor(piece.section)}">${escape(label(piece.topic))}</a></li></ul>
 <h1 class="teaser">${escape(piece.teaser)}</h1>
-<div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span><span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
+<div class="meta"><span>${KINDS[piece.kind] ?? escape(piece.kind)}</span>${piece.words ? `<span>${length(piece.words)}</span>` : ""}<span>Updated ${date(piece.updated_at)}</span><span>By ${escape(name)}</span></div>
 ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || (piece.useful_if && `Useful if ${piece.useful_if}`) || `A firsthand piece by ${name}, for sale on Lore.`, 200);
   return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
 }
 
-/** A collection's page: its pieces' teasers, its one price, and what they'd cost one by one.
+/** A collection's page: its pieces' teasers, its one price, and what they'd cost one by one. A piece sold
+ * on its own links to its page; one that isn't (no free sample yet) shows only in the collection.
  * `store` carries the collection's price and, when it clears the card minimum, the checkout. */
-export function collectionPage(set: Collection, entries: Piece[], store: Store, single: number, problem = ""): string {
+export function collectionPage(set: Collection, alone: Set<string>, store: Store, single: number, problem = ""): string {
   const name = seller(store);
   const url = `${store.origin}/p/${set.id}`;
+  const entries = set.shelf;
   const cards = entries
-    .map((entry) => `<li><a class="card" href="/p/${escape(entry.id)}"><h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div></a></li>`)
+    .map((entry) => {
+      const inner = `<h3>${escape(entry.teaser)}</h3><div class="meta"><span>${KINDS[entry.kind] ?? escape(entry.kind)}</span><span>${date(entry.updated_at)}</span></div>`;
+      return `<li>${alone.has(entry.id) ? `<a class="card" href="/p/${escape(entry.id)}">${inner}</a>` : `<div class="card">${inner}</div>`}</li>`;
+    })
     .join("");
   const data = {
     "@context": "https://schema.org",

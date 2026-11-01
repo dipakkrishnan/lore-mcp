@@ -30,12 +30,14 @@ from lore.store import (
     JobStatus,
     OwnerJob,
     PublicationExtras,
+    PublicationInput,
     PublicationKind,
     Status,
     Store,
     Verdict,
     gist,
     new_public_id,
+    opening,
     valid_public_id,
 )
 
@@ -1180,7 +1182,7 @@ class PublicationTest(LoreTestCase):
             store.set_extras(
                 PublicationExtras(
                     publication_id=pid,
-                    sample="We priced the first tier at a dollar.",
+                    sample="We priced the first tier at a dollar. Nobody blinked.",
                     useful_if="you are pricing an agent API",
                 )
             )
@@ -1190,7 +1192,9 @@ class PublicationTest(LoreTestCase):
             (after.public_id, after.title, after.content, after.created_at),
             (before.public_id, before.title, before.content, before.created_at),
         )
-        self.assertEqual(after.sample, "We priced the first tier at a dollar.")
+        self.assertEqual(
+            after.sample, "We priced the first tier at a dollar. Nobody blinked."
+        )
         self.assertEqual(after.useful_if, "you are pricing an agent API")
         self.assertGreater(after.updated_at, before.updated_at)
 
@@ -1297,6 +1301,64 @@ class PublicationTest(LoreTestCase):
                 (derived,),
             ).fetchone()[0]
         self.assertEqual(sources, 0)
+
+
+class ForSaleTest(LoreTestCase):
+    """MON-052: what a piece needs before it can go on sale."""
+
+    def candidate(self, **fields: object) -> PublicationInput:
+        memory = self.seed_memory("Travel: window seat on United")
+        return PublicationInput.model_validate(
+            {
+                "title": "Seats",
+                "content": "Pick the left side.",
+                "topic": "travel",
+                "teaser": "Which seat?",
+                "sample": "I fly twice a month. Seats matter.",
+                "provenance": [memory],
+            }
+            | fields
+        )
+
+    def test_a_ready_piece_goes_on_sale_under_its_topic_in_sentence_case(
+        self,
+    ) -> None:
+        with Store() as store:
+            self.assertEqual(store.for_sale(self.candidate()).topic, "Travel")
+
+    def test_it_needs_a_sample_and_a_short_public_topic(self) -> None:
+        for fields, message in (
+            ({"sample": ""}, "Add a free sample"),
+            ({"sample": "Only one."}, "Add a free sample"),
+            ({"topic": "TRAVEL: window seat on united"}, "private topic"),
+            ({"topic": "x" * 41}, "up to 40 characters"),
+        ):
+            with self.subTest(fields=fields), Store() as store:
+                with self.assertRaisesRegex(ValueError, message):
+                    store.for_sale(self.candidate(**fields))
+
+    def test_free_parts_on_a_piece_for_sale_keep_a_sample(self) -> None:
+        with Store() as store:
+            piece = store.add_publication(**self.candidate().model_dump())
+            with self.assertRaisesRegex(ValueError, "Add a free sample"):
+                store.set_extras(
+                    PublicationExtras(publication_id=piece, useful_if="you fly")
+                )
+            self.assertEqual(
+                store.active_publication(piece).sample,
+                "I fly twice a month. Seats matter.",
+            )
+
+
+class OpeningTest(unittest.TestCase):
+    def test_drafts_the_first_two_sentences_past_headings(self) -> None:
+        text = "# Notes\n\nOne. Two? Three! " + "More words follow here. " * 5
+        self.assertEqual(opening(text), "One. Two?")
+
+    def test_drafts_nothing_that_would_give_most_of_the_piece_away(self) -> None:
+        for text in ("One sentence only.", "One. Two. Three."):
+            with self.subTest(text=text):
+                self.assertEqual(opening(text), "")
 
 
 class PublicationMigrationTest(LoreTestCase):

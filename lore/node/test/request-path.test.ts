@@ -21,7 +21,8 @@ const PIECE = {
   title: "XC013-PAID-TITLE",
   content: "XC013-PAID-CONTENT",
   topic: "xc013-paid-topic",
-  teaser: "a request-path teaser"
+  teaser: "a request-path teaser",
+  sample: "A request-path sample. It is free to read."
 };
 const PAID_ONLY = [PIECE.title, PIECE.content];
 
@@ -67,10 +68,10 @@ async function salesOf(id: string): Promise<number> {
 
 beforeAll(async () => {
   await env.LORE_DB.prepare(
-    `INSERT INTO publications (public_id, title, content, kind, topic, teaser, updated_at)
-     VALUES (?1, ?2, ?3, 'note', ?4, ?5, '2026-01-03T00:00:00Z')`
+    `INSERT INTO publications (public_id, title, content, kind, topic, teaser, sample, updated_at)
+     VALUES (?1, ?2, ?3, 'note', ?4, ?5, ?6, '2026-01-03T00:00:00Z')`
   )
-    .bind(PIECE.id, PIECE.title, PIECE.content, PIECE.topic, PIECE.teaser)
+    .bind(PIECE.id, PIECE.title, PIECE.content, PIECE.topic, PIECE.teaser, PIECE.sample)
     .run();
   // A fresh Worker's first answer can run past the per-test timeout; spend
   // that wait here rather than in whichever test happens to run first.
@@ -121,7 +122,7 @@ describe("before any payment", () => {
       expect(payload).not.toHaveProperty("free_copies");
       const topics = payload.topics as Record<string, Record<string, unknown>[]>;
       expect(topics[PIECE.topic]).toEqual([
-        { id: PIECE.id, teaser: PIECE.teaser, kind: "note", updated_at: "2026-01-03" }
+        { id: PIECE.id, teaser: PIECE.teaser, kind: "note", updated_at: "2026-01-03", sample: PIECE.sample, words: 1 }
       ]);
       for (const entry of Object.values(topics).flat()) {
         expect(entryKeysProblem(Object.keys(entry)), JSON.stringify(entry)).toBeNull();

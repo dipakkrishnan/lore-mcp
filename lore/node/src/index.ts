@@ -385,14 +385,13 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
   }
   const set = sets.find((candidate) => candidate.id === id);
   if (!set) return undefined;
-  const entries = set.pieces.flatMap((member) => all.filter((piece) => piece.id === member));
   return {
     id,
     teaser: set.title,
     priceUsd: set.price_usd,
     sold: (copy) => `Collection: ${copy.title}`,
     copy: () => collectionCopy(env.LORE_DB, set),
-    page: (store, problem) => collectionPage(set, entries, store, priceOf(settings), problem)
+    page: (store, problem) => collectionPage(set, new Set(all.map((piece) => piece.id)), store, priceOf(settings), problem)
   };
 }
 
