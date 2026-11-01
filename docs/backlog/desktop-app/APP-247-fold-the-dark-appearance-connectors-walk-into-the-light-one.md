@@ -4,13 +4,13 @@ title: Fold the dark-appearance connectors walk into the light one
 priority: P2
 effort: S
 component: desktop-app
-status: ready
-related: [XC-077, APP-066, APP-225]
+status: completed
+related: [XC-077, APP-066, APP-225, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -85,20 +85,36 @@ from step 2 arrive with it; nothing else needs them.
 
 ## Acceptance criteria
 
-- [ ] `.github/workflows/tests.yml` has one `support/edge.sh connectors` step.
-- [ ] Every assertion the dark connectors run made still runs somewhere:
+- [x] The one list CI runs, `app/desktop/support/walks.cjs` (XC-077), has one
+      `connectors` entry. (As filed: "`tests.yml` has one `support/edge.sh
+      connectors` step"; XC-077 moved the list out of `tests.yml`.)
+- [x] Every assertion the dark connectors run made still runs somewhere:
       the boot-time "drawn dark, as kept" check (`edge.cjs:667`) runs on a
       walk launched with `LORE_EDGE_APPEARANCE=dark`; the connectors list and
       at least one open sheet pass the layout check in dark colours at 1040
       and 900 px; the connectors branch's own checks run once, light.
-- [ ] The Desktop macOS job's median duration drops by at least 40 s over
-      the next 8 green runs (per-step medians, as in the 2026-10-26
-      investigation), and no check is dropped from the walk log.
-- [ ] `npm test` still passes (`test/ci-edge.test.cjs`), and APP-225's
-      acceptance note names the new arrangement.
+- [x] `npm test` still passes (`test/walks.test.cjs`, which replaced
+      `test/ci-edge.test.cjs` in XC-077), and APP-225's acceptance note names
+      the new arrangement.
+
+The criterion as filed "the Desktop macOS job's median duration drops by at
+least 40 s over the next 8 green runs, and no check is dropped from the walk
+log" cannot be checked in the implementing PR; it moved to XC-083.
 
 ## Notes
 
+- Implemented 2026-10-27. In `support/walks.cjs` the dark `connectors` entry is
+  gone and `faq` carries `appearance: "dark"`; in `support/edge.cjs` the
+  connectors branch, after `shot("settings-connected")`, calls
+  `window.lore.setAppearance("dark")`, checks `--bg` and `nativeTheme.themeSource`
+  flipped, shoots `settings-connected-dark` and the reopened ChatGPT Manage sheet
+  as `export-manage-dark` (each shot runs the layout check at the window's width
+  and at 900 px), then sets `light` back and checks that too before the Today
+  check. `test/walks.test.cjs` covers a walk with an appearance (`faq (dark)`)
+  being launched with it on every attempt. One correction to the item's
+  reasoning: the boot-time check at `edge.cjs:667` runs before any branch, on the
+  welcome screen, so `faq` was chosen for being the cheapest walk that never reads
+  `DARK`, not for the page it paints. The 8-run duration check moved to XC-083.
 - Rank 7 of 9 in the 2026-10-26 CI investigation's low-effort list; the
   investigation's B report, F11, is the source for the "one unique
   assertion" finding, re-read against `main` @ d8530d95 today.

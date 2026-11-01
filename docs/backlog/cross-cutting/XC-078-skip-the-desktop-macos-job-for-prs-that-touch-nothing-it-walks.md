@@ -4,13 +4,13 @@ title: Skip the desktop macOS job for PRs that touch nothing it walks
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
-related: [XC-077, XC-079, XC-081]
+status: completed
+related: [XC-077, XC-079, XC-081, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -81,21 +81,39 @@ are not read by `app/desktop/src`, `app/desktop/support` or `app/desktop/packagi
 
 ## Acceptance criteria
 
-- [ ] A PR that changes only files outside the walk-input list (for example a
+- [x] A PR that changes only files outside the walk-input list (for example a
       `docs/backlog/` item, a `site/` change, or a `lore/node/src/` change with its
       tests) finishes CI with no macOS job in about 2.5 minutes (over the 200 runs
       in the window, the Linux jobs alone span p50 2.2 min, p90 2.5 min).
-- [ ] A PR that changes any file in the walk-input list, including one that
+- [x] A PR that changes any file in the walk-input list, including one that
       touches only `plugins/lore/skills/`, `tests/fixtures/` or `uv.lock`, still
       runs `Desktop macOS checks`.
-- [ ] The skip is visible in the run as a skipped `Desktop macOS checks` job (grey,
+- [x] The skip is visible in the run as a skipped `Desktop macOS checks` job (grey,
       "skipped"), not as a job that is absent from the run.
-- [ ] The required Linux checks still report on every PR, including the skipped
+- [x] The required Linux checks still report on every PR, including the skipped
       ones; no PR waits on an "Expected" check.
-- [ ] Over the 50 PR runs after it lands, the share of PR runs that start a macOS
-      job is about 68% or less (130 of 191 merged PRs touched a walk input).
+
+The fifth criterion as filed ("over the 50 PR runs after it lands, the share of
+PR runs that start a macOS job is about 68% or less") cannot be checked in the
+implementing PR; it moved to XC-083, which measures it once the window has run.
 
 ## Notes
+
+Implemented 2026-10-27. The rules live in `.github/scripts/desktop_inputs.py`
+(tested by `tests/test_desktop_inputs.py`), not in a third-party path-filter
+action: the repo pins only `actions/*` and `astral-sh/*`, and a script makes the
+list unit-testable. A `changes` job (`ubuntu-latest`, pull requests only,
+`fetch-depth: 2`) pipes `git diff --no-renames --name-only HEAD^1 HEAD` on the
+merge commit into the script under `shell: bash`, so a failed diff is red rather
+than an empty list; `--no-renames` lists a move as its deletion and addition, so a
+file moved out of `app/desktop` still counts. `desktop-check` runs when
+`!cancelled() && (push || needs.changes.outputs.desktop != 'false')`: fail open,
+so a failed or skipped `changes` job (empty output, not `'false'`) still runs it,
+and pushes to `main` never wait on it. The script itself is on the input list for
+the same reason `tests.yml` is. Verified before merge with a probe PR into the
+implementing branch that changed one `docs/backlog` file: `changes` passed,
+`Desktop macOS checks` showed as skipped, the required checks reported, and the
+run finished on the Linux jobs alone. The 50-run share check moved to XC-083.
 
 Filed from the 2026-10-26 CI investigation (read-only against `main` @ d8530d95);
 ranked 2 of 9 in its low-effort list. The 61-of-191 figure classifies the files of

@@ -75,9 +75,8 @@ let signedInToCloudflare = false;
 let signInHangs = false;
 /** @type {number | undefined} */
 let signInWait;
-let storeElsewhere = false;
-/** APP-223: whether the account signed in to hasn't verified its email, so Workers refuse the deploy. */
-let emailUnverified = false;
+/** XC-088: whether the hosted store can't be reached, so putting it online fails; each try records it. */
+let storeUnreachable = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
@@ -288,16 +287,13 @@ if (scenario === "listing") {
     // stand-in node answers only /agent, so its probe is kept for the whole walk instead of expiring a minute in.
     execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
   };
-  // APP-215: the first-run chat's store goes online through the app, signing in to Cloudflare first when it must; both
-  // stood in for, so nothing reaches a real account.
+  // XC-088: the place online for the owner's agents, which Lore hosts, stood in for by the stand-in node, so nothing
+  // reaches yourlore.dev. It fails, in the CLI's own words, while the walk says it can't be reached.
   const state = require(join(src, "state.cjs"));
   state.storeOnline = async () => {
-    storeOnlineCalls.push(signedInToCloudflare);
-    if (!signedInToCloudflare) return "The deploy did not finish: not signed in to Cloudflare; sign in first, then rerun.";
-    if (storeElsewhere) return "The deploy did not finish: a lore-publications database already exists on this Cloudflare account, but this installation has never deployed a node before.";
-    if (emailUnverified) return "The deploy did not finish: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again..";
+    storeOnlineCalls.push(storeUnreachable);
+    if (storeUnreachable) throw new Error("Lore couldn't put your store online: yourlore.dev didn't answer (offline)");
     standInDeploy();
-    return "The store is deployed.\nYour store is online for your agents. Nothing for sale yet.";
   };
   // APP-223: the real sign-in, its wait and its stop, with the CLI's `node login` stood in for by a process that prints
   // the page to open, then signs in at once or waits on the browser until it is stopped. Pages open nowhere.
@@ -324,6 +320,13 @@ if (scenario === "listing") {
     LoreAgent.prototype.synthesize = function (/** @type {Reading} */ reading) {
       readings.push(reading);
       readTimes.push(Date.now());
+      const land = (/** @type {ReadingReport} */ report) => setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, report)).then(() => { readingsLanded++; }), 1500);
+      // An agent's saves are only judged: nothing written, and the first of them judged worth selling.
+      if (reading.judge) {
+        const first = Math.min(...reading.judge.map((save) => save.id));
+        land({ read: reading.judge.length, memories: reading.judge.map(({ id }) => id === first ? { id, worth_selling: true, why: "a pricing rule from real placements" } : { id, worth_selling: false, why: "" }) });
+        return;
+      }
       const folder = join(process.env.LORE_HOME ?? "", "memories");
       mkdirSync(folder, { recursive: true });
       // One topic per reading, so each of the walk's saves brings something new.
@@ -335,7 +338,7 @@ if (scenario === "listing") {
         ["sign-off-in-writing.md", "# Get the final cut signed off in writing\n\nA written sign-off ends the revisions; a nod on a call starts more. From what Grok saved, October 2026.\n"]
       ][readings.length - 1];
       writeFileSync(join(folder, file), text);
-      setTimeout(() => void readingHeld.then(() => this.options.memoriesReady?.(reading, { read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] })).then(() => { readingsLanded++; }), 1500);
+      land({ read: reading.added, memories: [{ file, worth_selling: true, why: "a pricing rule from real placements" }] });
     };
     require(join(src, "main.cjs"));
   });
@@ -1242,6 +1245,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await sleep(200);
         await shot("settings-connected");
+        // APP-247: the connectors surfaces in dark, flipped from this light walk as the settings walk does, in place of a
+        // second connectors walk launched dark. Each shot runs the layout check at both widths.
+        await js(`window.lore.setAppearance("dark")`);
+        check("switched to dark, the connectors page turns at once", (await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`)) && nativeTheme.themeSource === "dark", await js(BG));
+        await shot("settings-connected-dark");
+        await js(clickOn("ChatGPT"));
+        await waitFor(`document.querySelector("dialog.sheet[open]")`);
+        await shot("export-manage-dark");
+        await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
+        await sleep(200);
+        await js(`window.lore.setAppearance("light")`);
+        check("…and back to light before Today", (await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`)) && nativeTheme.themeSource === "light", await js(BG));
         await js(`window.__lore.show("today")`);
         await sleep(300);
         const today = await js(`document.querySelector("#content").textContent`);
@@ -1643,43 +1658,21 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("firstrun-apps-connected");
 
         const picks = await js(`[...document.querySelectorAll("#content .first-choices .choice")].map((c) => c.textContent)`);
-        check("…offering the AI the owner talks to, the one on this Mac first", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Claude Code or Codex", "None of these"]), JSON.stringify(picks));
+        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "None of these"]), JSON.stringify(picks));
         check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
         await shot("firstrun-pick");
+        storeUnreachable = true;
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);
         answers++;
-        check("with no store online, Grok Bot is asked to save here too, and nothing goes on sale", await waitFor(`${chat}.includes("Want Grok Bot to save here too? Grok Bot works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.")`), await js(chat));
+        check("with no store online, Grok Bot gets a private place online, sealed for this Mac, with nothing on sale, and the owner free to leave", await waitFor(`${chat}.includes("Grok Bot works online, so Lore keeps a private place online for it to save to. What Grok Bot saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.")`), await js(chat));
         check("…and the owner's answer, a pill, says who gave it to a screen reader", await js(`document.querySelector("#content .first-run .line.owner > .sr-only")?.textContent === "You: "`));
-        await shot("firstrun-store");
-        // APP-223: a sign-in left open in the browser can be opened again, or cancelled, and never strands the card.
-        const pages = () => opened.filter((url) => url.startsWith("https://dash.cloudflare.com/")).length;
         const buttons = `[...document.querySelectorAll("#content .first-run button")].map((b) => b.textContent)`;
-        signInHangs = true;
-        await tap("Set it up");
-        check("while Cloudflare's sign-in waits on the browser, the card offers it again, or Cancel", await waitFor(`${chat}.includes("Finish signing in to Cloudflare in your browser") && ${buttons}.includes("Open sign-in again") && ${buttons}.includes("Cancel")`, 80) && pages() === 1, `${pages()} pages; ${await js(chat)}`);
-        await shot("firstrun-sign-in-waiting");
-        await tap("Open sign-in again");
-        check("…Open sign-in again opens the same page", await waitFor(`true`) && pages() === 2 && opened.at(-1) === opened.at(-2), JSON.stringify(opened.slice(-2)));
-        await tap("Cancel");
-        check("…and Cancel stops it, back at Set it up with nothing to say", await waitFor(`${buttons}.includes("Set it up") && !${buttons}.includes("Cancel")`, 40) && !(await js(`Boolean(document.querySelector("#content .first-run .problem"))`)), await js(chat));
-        signInWait = 2000;
-        await tap("Set it up");
-        check("a sign-in that never finishes gives up after a while, plainly, with Set it up again", await waitFor(`${chat}.includes("Cloudflare sign-in didn't finish. Try again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
-        signInHangs = false;
-        signInWait = undefined;
-        storeElsewhere = true;
-        await tap("Set it up");
-        check("an account that already has a Lore store is told so, and nothing is set up there", await waitFor(`${chat}.includes("This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.") && ${buttons}.includes("Set it up")`, 60) && await js(`window.lore.snapshot().then((s) => !s.node.url)`), await js(chat));
-        await shot("firstrun-store-elsewhere");
-        storeElsewhere = false;
-        emailUnverified = true;
-        await tap("Set it up");
-        check("an account whose email isn't verified yet is told what to do, plainly", await waitFor(`${chat}.includes("Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.") && ${buttons}.includes("Set it up")`, 60), await js(chat));
-        await shot("firstrun-verify-email");
-        emailUnverified = false;
-        await tap("Set it up");
+        check("…a place that can't be reached says why, with Try again, and no sign-in anywhere", await waitFor(`${chat}.includes("Lore couldn't put your store online: yourlore.dev didn't answer (offline)") && ${buttons}.includes("Try again")`, 60) && !/sign in|free on Cloudflare/i.test(await js(chat)) && opened.length === 0, await js(chat));
+        await shot("firstrun-store");
+        storeUnreachable = false;
+        await tap("Try again");
         answers++;
-        check("putting it online signs in to Cloudflare first, then puts it online for agents only", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([false, false, false, true, true, true]), JSON.stringify(storeOnlineCalls));
+        check("trying again puts it online and goes straight on to the link", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80) && JSON.stringify(storeOnlineCalls) === JSON.stringify([true, false]), JSON.stringify(storeOnlineCalls));
         const message = await copyMessage();
         const linked = new RegExp(`^${(ask + agentUrl).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$`);
         check("Grok Bot's message to paste is in the chat two answers after it is asked about", answers === 2 && linked.test(message), `${answers} answers; ${message}`);
@@ -1802,11 +1795,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.lore.setFirstRun({ state: "started" })`);
         await relaunch();
         await picker();
-        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
-        await waitFor(`${chat}.includes("Set it up")`);
         const letOnline = hold("store:online");
         const connectsBefore = connects();
-        await tap("Set it up");
+        await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Claude")).click()`);
+        await waitFor(`${chat}.includes("Setting it up…")`);
         await js(`document.querySelector("#first-run-skip").click()`);
         letOnline();
         check("a Skip while the store goes online stays a Skip, and connects nothing after it", await stayedSkipped() && connects() === connectsBefore, `${JSON.stringify(await kept())}; ${connects() - connectsBefore} connects after`);
@@ -1831,20 +1823,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and the catalog offers no generic Personal agent", !(await js(`[...document.querySelectorAll("#content .row b")].some((b) => b.textContent === "Personal agent")`)));
         await shot("agents-offer");
 
-        // No store online: the sheet puts it online first, the way the store always goes online, then picks up.
+        // XC-088: no store online, and no step for it: the sheet goes straight to picking, and Connect puts it online.
         installedApps = ["grok", "claude"];
         await js(`${agentRow("Connect an agent")}.querySelector("button").click()`);
-        await waitFor(`${primary}?.textContent === "Put your store online"`);
-        await sleep(400);
-        check("with no store online, the first step says why it goes online, plainly", await js(`${sheet}.includes("Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.")`), await js(sheet));
-        await shot("agents-store-first");
-        await js(`${primary}.click()`);
-        const deploying = await waitFor(`document.querySelector("#title").textContent === "Open your store"`);
-        for (let i = 0; i < 40 && !prompts.length; i++) await sleep(100);
-        check("…and puts it online through the store's own deploy", deploying && prompts.some((p) => p.task === "deploy" && /personal agents/.test(p.text)), JSON.stringify(prompts));
-        check("once the store is online, the sheet continues to the setup", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80), await js(sheet));
+        check("with no store online, the sheet goes straight to which agent, with no Cloudflare step and the owner free to leave", await waitFor(`${sheet}.includes("Which agent should save to Lore?")`, 80) && (await js(sheet)).includes("you can move to your own Cloudflare whenever you like") && !/sign in to Cloudflare|free on Cloudflare|Put your store online/i.test(await js(sheet)), await js(sheet));
         const picks = await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].map((o) => o.textContent)`);
-        check("…offering each of the five, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
+        check("…offering each of the six, each with its mark, Muse as coming soon", JSON.stringify(picks) === JSON.stringify(["Grok Bot", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "Other"]) && await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].every((o) => o.querySelector("img.logo"))`), JSON.stringify(picks));
         check("Connect waits for a choice", await js(`${primary}.disabled`));
         // APP-217: Muse can't be chosen, and nothing mints a key for it, not even a call past the sheet.
         const keys = async () => (await js(`window.lore.agents()`)).length;
@@ -1947,10 +1931,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         for (let i = 0; i < 60 && !notes.length; i++) await sleep(250);
         check("its saves are one Mac notification that names Grok, before any reading of them", notes.length === 1 && notes[0].words.title === "Grok Bot saved 2 things to Lore" && notes[0].words.body === "2 new memories. They stay private on this Mac.", JSON.stringify(notes.map((n) => n.words)));
         check("…and a red 2 on the dock", badges.at(-1) === 2, JSON.stringify(badges));
+        const libraryIds = `window.lore.snapshot().then((s) => JSON.stringify(s.library.items.map((i) => i.id).sort((a, b) => a - b)))`;
+        const heldIds = await js(libraryIds);
         releaseReading();
-        // The count moves when the reading's memories join the card; crediting them to Grok comes after, so wait for both.
-        for (let i = 0; i < 80 && (badges.at(-1) !== 3 || readingsLanded < 1); i++) await sleep(250);
-        check("what Lore wrote from them joins the count, a red 3, and says nothing more", badges.at(-1) === 3 && notes.length === 1, JSON.stringify([badges, notes.length]));
+        // The reading only judges what Grok saved: its verdicts join the card they are on, and the count stays.
+        for (let i = 0; i < 80 && readingsLanded < 1; i++) await sleep(250);
+        await sleep(1000);
+        check("what Lore judged of them leaves the count at a red 2, and says nothing more", readingsLanded === 1 && badges.at(-1) === 2 && notes.length === 1, JSON.stringify([badges, notes.length, readingsLanded]));
+        // The duplicate this fixes: a reading of an agent's saves once wrote a memory of its own beside them.
+        check("…and writes no memory beside Grok's own saves", await js(libraryIds) === heldIds, `${heldIds} → ${await js(libraryIds)}`);
         check("Grok's row says what it saved, and when", await waitFor(`/Saved 2 · last today/.test(${agentRow("Grok Bot")}?.textContent ?? "")`), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         check("…with Grok's mark, and the offer to connect another", await js(`${agentRow("Grok Bot")}.querySelector("img.logo").src.endsWith("assets/grok.svg") && Boolean(${agentRow("Connect another agent")})`));
         await shot("agents-connected");
@@ -1960,13 +1949,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         notes[0].handlers.click();
         check("clicking it lands on what Grok Bot saved, in Inventory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…the memory Lore wrote from it marked New, what was seen already not", await waitFor(isNew("Price a sync placement by its reach")) && !(await js(isNew("How I price sync placements"))), await js(listed));
+        check("…just the two things it saved, seen already, with nothing of Lore's beside them", await waitFor(`Boolean(${rowOf("How I price sync placements")}) && Boolean(${rowOf("Quote sync fees in the buyer's currency")})`) && (await js(`document.querySelectorAll("#content .row").length`)) === 2 && !(await js(`Boolean(document.querySelector("#content .new-mark"))`)), await js(listed));
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("today")`);
         const card = `[...document.querySelectorAll("#content .section")].find((s) => s.textContent.includes("New memories"))`;
-        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot3 new memories · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
+        check("Today's new memories are one folded card named for Grok", await waitFor(`${card}?.querySelector(".ready-head")?.textContent.includes("From Grok Bot2 new memories · 1 worth selling")`) && !(await js(`Boolean(${card}.querySelector(".ready-items"))`)), await js(`${card}?.textContent ?? ""`));
         await js(`${card}.querySelector(".ready-head .task-link").click()`);
-        check("…which opens onto what Lore wrote from it", await waitFor(`${card}?.querySelector(".ready-items")?.textContent.includes("Price a sync placement by its reach")`));
+        const cardRow = (title) => `[...(${card}?.querySelectorAll(".ready-items .row") ?? [])].find((r) => r.textContent.includes(${JSON.stringify(title)}))`;
+        check("…which opens onto what Grok saved, the one Lore judged worth selling marked so", await waitFor(`/Worth selling · a pricing rule from real placements/.test(${cardRow("How I price sync placements")}?.textContent ?? "") && /Private/.test(${cardRow("Quote sync fees in the buyer's currency")}?.textContent ?? "")`), await js(`${card}?.textContent ?? ""`));
         const cardText = await js(`${card}.textContent`);
         check("…each memory saying what it is to the owner", cardText.includes("Worth selling · "), cardText);
         check("…with Grok Bot's mark in its tile", await js(`${card}.querySelector(".row .mark-stack .routine-mark img.logo")?.src.endsWith("assets/grok.svg")`));
@@ -2001,19 +1991,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and its sheet says so", await waitFor(`/From Grok Bot/.test(document.querySelector("dialog.sheet[open] .sheet-head")?.textContent ?? "")`), await js(sheet));
         await shot("agents-memory-from");
         await js(`document.querySelector("dialog.sheet[open] .icon-btn[aria-label=Close]").click()`);
-        // APP-213: the memory Lore wrote from what Grok saved is Grok's too, in Inventory and in its preview.
-        const written = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach"))`;
-        check("in Inventory, what Lore wrote from Grok's save says it came from Grok, with its mark", await waitFor(`/From Grok Bot · /.test(${written}?.textContent ?? "") && ${written}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${written}?.textContent ?? ""`));
-        check("…and so does what Grok saved itself", await js(`${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`));
+        // APP-213: what Lore judged worth selling is Grok's own save, Grok's in Inventory and in its preview.
+        check("in Inventory, what Lore judged worth selling is Grok's own save, from Grok with its mark", await waitFor(`/From Grok Bot · /.test(${saved}?.textContent ?? "") && ${saved}.querySelector(".mark-stack img.logo")?.src.endsWith("assets/grok.svg")`), await js(`${saved}?.textContent ?? ""`));
         // Any refresh hides a preview (render() does), so the pointer comes back to the row until one stays up.
         const peekLine = `document.querySelector(".peek .provenance")?.textContent ?? ""`;
         for (let i = 0; i < 5 && !(await js(`Boolean(document.querySelector(".peek"))`)); i++) {
-          await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("Price a sync placement by its reach")).querySelector(".task-link").dispatchEvent(new MouseEvent("mouseenter"))`);
+          await js(`${saved}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseenter"))`);
           await waitFor(`document.querySelector(".peek")`, 8);
         }
         check("its preview leads with where it came from, then the day", await waitFor(`/^From Grok Bot · [A-Z][a-z]{2} \\d{1,2}$/.test(${peekLine})`) && await js(`document.querySelector(".peek .provenance img.logo")?.src.endsWith("assets/grok.svg")`), await js(peekLine));
         await shot("agents-preview");
-        await js(`${written}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseleave"))`);
+        await js(`${saved}.querySelector(".task-link").dispatchEvent(new MouseEvent("mouseleave"))`);
 
         // Manage: a new key stops the old one, and Disconnect stops the agent and keeps what it saved.
         await js(`window.__lore.show("connectors")`);
@@ -2062,7 +2050,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           const [told, landed] = [notes.length, readingsLanded];
           await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title, content: `${title}, as I actually do it.`, kind: "preference" }] } });
           app.emit("browser-window-focus");
-          // APP-233: the notification comes as the save is read in; what Lore writes from it lands after.
+          // APP-233: the notification comes as the save is read in; what Lore judges of it lands after.
           for (let i = 0; i < 80 && (notes.length === told || readingsLanded === landed); i++) await sleep(250);
           return notes.length === told + 1 && readingsLanded > landed;
         };
@@ -2073,27 +2061,27 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Grok Bot's card says Saved 5, as a link", await waitFor(savedLink, 80), await js(`${agentRow("Grok Bot")}?.textContent ?? ""`));
         await js(`${savedLink}.click()`);
         check("…which lands on what it saved, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…the new save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I quote a rush job")} && ${isNew("Quote a rush fee up front")}`) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Price a sync placement by its reach")}`)), await js(listed));
+        check("…the new save marked New, the rest not", await waitFor(isNew("How I quote a rush job")) && !(await js(`${isNew("How I price sync placements")} || ${isNew("Quote sync fees in the buyer's currency")}`)), await js(listed));
         await shot("agents-see-them-card");
-        // Seen means on screen: with the old key's late note listed too, what Lore wrote from the rush job sits below the fold.
-        const rush = await js(`${rowOf("Quote a rush fee up front")}.dataset.memory`);
-        await js(`${rowOf("Quote a rush fee up front")}.scrollIntoView({ block: "center" })`);
+        // Seen means on screen: scrolled to, the rush job is kept as seen.
+        const rush = await js(`window.lore.snapshot().then((s) => s.library.items.find((i) => i.title === "How I quote a rush job")?.arrival)`);
+        await js(`${rowOf("How I quote a rush job")}.scrollIntoView({ block: "center" })`);
         check("…and once on screen it is kept as seen", await waitFor(`window.lore.memoriesSeen(0).then((kept) => kept.arrivals.includes(${Number(rush)}))`, 20), rush);
         await js(`window.__lore.show("today")`);
         check("a third save lands while the owner is on Today", await saveMore("How I bill a rerun"));
         const headerLink = `[...(${card}?.querySelectorAll(".ready-head button.inline") ?? [])].find((b) => b.textContent === "See them →")`;
-        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("Bill a rerun at half the first fee") && ${headerLink}`, 80), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
+        check("Today's new memories, all from Grok Bot, link to what it saved", await waitFor(`${card}?.textContent.includes("How I bill a rerun") && ${headerLink}`, 80), await js(`${card}?.querySelector(".list-aside")?.textContent ?? ""`));
         await shot("agents-today-see-them");
         await js(`${headerLink}.click()`);
         check("…which lands filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…the third save and what Lore wrote from it marked New, the rest not", await waitFor(`${isNew("How I bill a rerun")} && ${isNew("Bill a rerun at half the first fee")}`) && !(await js(`${isNew("How I quote a rush job")} || ${isNew("Quote a rush fee up front")}`)), await js(listed));
+        check("…the third save marked New, the rest not", await waitFor(isNew("How I bill a rerun")) && !(await js(isNew("How I quote a rush job"))), await js(listed));
         await shot("agents-see-them-inventory");
         // Seen means on screen: the last row is below the fold until the owner scrolls to it.
-        await js(`${rowOf("Bill a rerun at half the first fee")}.scrollIntoView({ block: "center" })`);
+        await js(`${rowOf("How I bill a rerun")}.scrollIntoView({ block: "center" })`);
         const seenIds = await js(`window.lore.snapshot().then((s) => s.library.items.filter((i) => /rerun/i.test(i.title)).map((i) => i.arrival))`);
         const seenFile = join(process.env.LORE_DESKTOP_USER_DATA ?? "", "memories-seen.json");
         const kept = async () => (await new (require(join(src, "reading.cjs")).Seen)(seenFile).read(0)).arrivals;
-        check("once on screen, they are kept as seen on disk, for the next launch", await (async () => { for (let i = 0; i < 20; i++) { const ids = await kept(); if (seenIds.length === 2 && seenIds.every((id) => ids.includes(id))) return true; await sleep(250); } return false; })(), JSON.stringify([seenIds, await kept()]));
+        check("once on screen, they are kept as seen on disk, for the next launch", await (async () => { for (let i = 0; i < 20; i++) { const ids = await kept(); if (seenIds.length === 1 && seenIds.every((id) => ids.includes(id))) return true; await sleep(250); } return false; })(), JSON.stringify([seenIds, await kept()]));
         await js(`window.__lore.show("connectors")`);
         await js(`window.__lore.show("memories")`);
         check("…and New clears on the next visit", await waitFor(`${rowOf("How I bill a rerun")} && !document.querySelector("#content .new-mark")`), await js(listed));
@@ -2117,7 +2105,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
           await js(`window.__lore.signIn()`);
         }
         check("…which lands on what Grok Bot saved, filtered, after the page has loaded", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(`document.querySelector("#title").textContent + " | " + (${chip})`));
-        check("…with the new save and what Lore wrote from it marked New", await waitFor(`${isNew("How I sign off a cut")} && ${isNew("Get the final cut signed off in writing")}`) && !(await js(isNew("How I bill a rerun"))), await js(listed));
+        check("…with the new save marked New", await waitFor(isNew("How I sign off a cut")) && !(await js(isNew("How I bill a rerun"))), await js(listed));
         await shot("agents-reopened-see-them");
         await js(`window.__lore.show("connectors")`);
         await waitFor(agentRow("Grok Bot"));
@@ -2233,6 +2221,40 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-other-setup");
         await press("Done");
 
+        // #597: Instinct is texted a setup message holding only the plain address; its key goes, apart, to Instinct's secure form.
+        check("Instinct gets its own text-first sheet, waiting for its first save", await connectNew("Instinct", "Instinct"), await js(sheet));
+        const textFirst = await js(sheet);
+        check("…three steps: text it the setup message, its key into Instinct's secure form, approve one memory", JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the setup message and text it to Instinct, in the conversation you already have", "When Instinct asks for your Lore key, copy it below into the secure form Instinct gives you. Never text the key", "Instinct shows you one memory it would save. Approve it, and Lore shows here when it arrives"]), JSON.stringify(await stepsOf()));
+        check("…no address, key or instructions rows, no Copy all, and nothing asking it to save everything or every evening", await js(`!document.querySelector("dialog.sheet[open] .copy-row, dialog.sheet[open] .agent-next") && ![...document.querySelectorAll("dialog.sheet[open] button")].some((b) => /^Copy all/.test(b.textContent))`) && textFirst.includes("Key shown once") && textFirst.includes("Connecting Instinct is new. If Instinct can't finish it, connect it as Other instead.") && await js(`[...document.querySelectorAll("dialog.sheet[open] button.inline")].some((b) => b.textContent === "connect it as Other instead")`), textFirst);
+        const copyFrom = async (/** @type {string} */ selector) => {
+          const before = copied.length;
+          await js(`document.querySelector("dialog.sheet[open] ${selector}").click()`);
+          for (let i = 0; i < 20 && copied.length === before; i++) await sleep(50);
+          return copied.at(-1) ?? "";
+        };
+        const setupMessage = await copyFrom(".agent-message");
+        check("…Copy message gives the setup message, with the plain address and no key", setupMessage === `Help me connect my Lore. Show me one memory you'd save, and ask me before saving anything. My Lore's address: ${agentUrl}` && !/lore_agent_/.test(setupMessage), setupMessage);
+        const instinctKey = await copyFrom(".agent-secure-key .agent-link");
+        check("…and Copy key gives the key alone, for the secure form, masked on screen", /^lore_agent_[0-9a-f]{16}_[A-Za-z0-9_-]{43}$/.test(instinctKey) && !textFirst.includes(instinctKey) && /••••/.test(textFirst), instinctKey);
+        await sleep(300);
+        await shot("agents-instinct-setup");
+        // The owner approves one memory in Instinct, and Instinct saves it with the key from the secure form.
+        const one = await (await call(instinctKey, "tools/call", { name: "store", arguments: { items: [{ title: "I take calls before noon", content: "I keep afternoons for deep work, so I book calls before noon.", key: "calls-before-noon", kind: "preference" }] } })).json();
+        check("Instinct's one approved save reaches the store", one.result?.isError === false, JSON.stringify(one));
+        check("…and the sheet says it's on this Mac, one click from it", await waitFor(`${sheet}.includes("1 memory from Instinct on this Mac · See it →")`, 120), await js(sheet));
+        await shot("agents-instinct-saved");
+        await press("Done");
+        check("…and it joins the agents with Instinct's mark", await waitFor(`/Saved 1/.test(${agentRow("Instinct")}?.textContent ?? "") && ${agentRow("Instinct")}.querySelector("img.logo").src.endsWith("assets/instinct.svg")`, 80), await js(`${agentRow("Instinct")}?.textContent ?? ""`));
+        await js(`[...${agentRow("Instinct")}.querySelectorAll("button")].find((b) => b.textContent === "Manage").click()`);
+        check("Manage for Instinct offers, once it has saved, the ask to keep saving, asking before each save", await waitFor(`${sheet}.includes("When you want Instinct to keep saving, text it this. It asks you before each save:") && ${sheet}.includes("From now on, when you learn something about me worth keeping, show it to me and save it to Lore once I say yes.")`), await js(sheet));
+        await press("Get a new key");
+        check("…a new key is copied into Instinct's secure form, never texted", await waitFor(`${sheet}.includes("You copy the new one into Instinct's secure form, never into a text.")`), await js(sheet));
+        await js(`${primary}.click()`);
+        check("…and the new key's sheet has no setup message, only the key and its steps", await waitFor(`document.querySelector("dialog.sheet[open] .form-head h2")?.textContent === "A new link for Instinct"`, 80) && JSON.stringify(await stepsOf()) === JSON.stringify(["Copy the new key below into the secure form Instinct gives you for Lore, in place of the old one. Never text the key", "Lore shows here when Instinct's next save arrives"]) && await js(`!document.querySelector("dialog.sheet[open] .agent-message") && Boolean(document.querySelector("dialog.sheet[open] .agent-secure-key"))`), await js(sheet));
+        const newKey = await copyFrom(".agent-secure-key .agent-link");
+        check("…a different key, and the old one stops working", newKey !== instinctKey && /^lore_agent_/.test(newKey) && (await call(instinctKey, "tools/call", { name: "store", arguments: { items: [{ title: "x", content: "y", key: "x", kind: "preference" }] } })).status === 401, newKey);
+        await press("Done");
+
         // Claude Code's own memory on this Mac connects from its tile, and turns off from it again.
         const histories = `[...document.querySelectorAll("#content section")].find((s) => s.querySelector("h2")?.textContent === "Your apps")`;
         const claudeCode = `[...(${histories}?.querySelectorAll(".row") ?? [])].find((r) => r.querySelector("b").textContent === "Claude Code")`;
@@ -2256,7 +2278,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         // XC-069: the store went online only for the agents. Nothing in the app says anything is for sale, and
         // opening it for sale is still the first approved piece's own step, with a price and where payments go.
-        check("the deploy thread asked only to put the store online for the agents", prompts.some((p) => p.task === "deploy") && prompts.filter((p) => p.task === "deploy").every((p) => /personal agents/.test(p.text) && !/price|payout|wallet/i.test(p.text)), JSON.stringify(prompts));
+        check("putting the store online for the agents (XC-088) ran no deploy thread, so asked nothing of a price or payout", !prompts.some((p) => p.task === "deploy") && storeOnlineCalls.length === 1, `${JSON.stringify(prompts)}; ${JSON.stringify(storeOnlineCalls)}`);
         check("the store is online for agents, not open for sale", await js(`window.lore.snapshot().then((s) => Boolean(s.node.url) && s.node.selling === false)`));
         await js(`window.__lore.show("store")`);
         const bar = `(document.querySelector("#content .store-bar")?.textContent ?? "")`;
@@ -2267,7 +2289,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("today")`);
         check("…and Today offers no store update", await waitFor(todayShown) && !(await js(`/Update store|live yet/.test(document.querySelector("#content").textContent)`)), await js(`document.querySelector("#content").textContent`));
         // The first approved piece: opening the store for sale asks for a price and where payments go, as always.
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n first = s.db.execute('SELECT min(id) FROM memories').fetchone()[0]\n s.add_publication(title='Price a sync placement by its reach', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[first])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n judged = s.db.execute(\"SELECT id FROM memories WHERE title = 'How I price sync placements'\").fetchone()[0]\n s.add_publication(title='How I price sync placements', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[judged])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         const rung = `document.querySelector("#content .next-step")`;
         check("the first approved piece offers to open the store, with a price and where payments go", await waitFor(`/Pick a price and where payments go/.test(${rung}?.textContent ?? "")`, 80), await js(`document.querySelector("#content").textContent`));

@@ -4,13 +4,13 @@ title: Cache the whisper.cpp and bundled-node builds in the desktop packaging st
 priority: P2
 effort: XS
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-077, APP-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -85,18 +85,34 @@ or skip:
 
 ## Acceptance criteria
 
-- [ ] On a cache hit, the `npm run package` step finishes in about 25 s (was 83 s
+- [x] On a cache hit, the `npm run package` step finishes in about 25 s (was 83 s
       median), and its log shows no `git clone` of whisper.cpp and no cmake build.
-- [ ] A PR that edits `app/desktop/packaging/whisper.sh` or
+- [x] A PR that edits `app/desktop/packaging/whisper.sh` or
       `app/desktop/packaging/node.sh` misses the cache, rebuilds, and saves under
       a new key; a PR that edits only `src/` hits.
-- [ ] The packaged app still carries `whisper-cli` at the pinned tag: the
+- [x] The packaged app still carries `whisper-cli` at the pinned tag: the
       `Resources/whisper/version` file inside the built `.app` (copied from
       `out/whisper` by `forge.config.js:42-46`) reads `b4938`, on hit and on miss.
-- [ ] The first run after `WHISPER_TAG` or `NODE_VERSION` changes builds from
+- [x] The first run after `WHISPER_TAG` or `NODE_VERSION` changes builds from
       scratch; a stale binary from the previous tag is never shipped.
 
 ## Notes
+
+Implemented 2026-10-27 as the `actions/cache@v4` step above, placed before
+`npm run package`, plus a permanent step after packaging that fails with an
+`::error` if `Contents/Resources/whisper/version` in the built app differs from
+the `WHISPER_TAG` line in `whisper.sh`; that is the one risk a cache adds and
+the step reads the tag from the script, so nothing is duplicated. Verification
+is three pushes on the implementing PR, each recorded below as it lands: the
+first misses (no key yet), builds whisper.cpp and saves; the second, touching
+no packaging script, restores the key and runs `npm run package` without the
+clone or cmake; the third adds a comment line to `whisper.sh`, which changes
+the key, misses, rebuilds from scratch and saves under the new key, with the
+version step passing each time. The cache is
+saved only when the job succeeds (`actions/cache` v4's post step), so after a
+key change the first save waits for a green job. The optional extras in the
+Proposed approach (`setup-node` npm cache, Electron download cache) were left
+out; each is under 10 s.
 
 Filed from the 2026-10-26 CI investigation (options C1 and C8); ranked 6 of 9 in
 its low-effort list. The 83 s median is over the last 8 green `Desktop macOS

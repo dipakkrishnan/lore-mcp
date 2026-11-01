@@ -4,13 +4,13 @@ title: Retry a failed desktop walk once, and report every retry
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
-related: [XC-072, XC-077]
+status: completed
+related: [XC-072, XC-077, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -83,20 +83,38 @@ not whether it is counted.
 
 ## Acceptance criteria
 
-- [ ] A walk that fails and then passes leaves a `::warning` annotation naming the
+- [x] A walk that fails and then passes leaves a `::warning` annotation naming the
       walk and a `pass (retry)` row in the step summary, and the job passes.
-- [ ] A walk that fails twice fails the job, with the first and second attempts'
+- [x] A walk that fails twice fails the job, with the first and second attempts'
       logs both in the step log.
-- [ ] No walk is ever run more than twice in one job.
-- [ ] The number of retried walks in any run can be read from its step summary
+- [x] No walk is ever run more than twice in one job.
+- [x] The number of retried walks in any run can be read from its step summary
       without opening the log, and the first attempt's `walk.log` and screenshots
       are kept (and uploaded, once XC-072's artifact step exists).
-- [ ] Over the 50 CI runs after it lands, `Desktop macOS checks` fails on fewer
-      than 3% of runs (baseline 21.1%; expected about 0.3%), and the retried-walk
-      count over those runs is reported alongside, so the flake rate XC-072 tracks
-      is visible rather than hidden.
+
+The fifth criterion as filed ("over the 50 CI runs after it lands, `Desktop macOS
+checks` fails on fewer than 3% of runs, with the retried-walk count reported
+alongside") cannot be checked in the implementing PR; it moved to XC-083, which
+measures both numbers once the window has run.
 
 ## Notes
+
+Implemented 2026-10-27 in `app/desktop/support/walks.cjs` (the XC-077 runner):
+a failed first attempt is pushed to the back of the queue and run once more; its
+`FAIL <walk> ..., retrying` group prints at once without an `::error`, the retry
+prints its own `PASS|FAIL <walk> on retry` group, then either `::warning
+title=<walk> passed on retry::<first FAIL or ERROR line>` or `::error title=<walk>
+walk failed::Failed twice...`. The summary table has one row per walk (light and
+dark `connectors` apart), `pass (retry)` where it applies, both attempts' times,
+and always a `K of N walks passed on retry.` line; that line is the count to trust,
+since GitHub shows at most ten warning annotations per step. `edge.sh` now prints
+`FAIL <scenario> said nothing` when a walk logs no check line, so the annotation
+text is never empty. `test/walks.test.cjs` runs the runner against a stand-in
+`edge.sh` (`LORE_WALKS_EDGE`) that fails on command: it checks the three-way
+report, the exact attempt counts (never a third), the light/dark split and the
+non-CI output in about a second. The 50-run check moved to XC-083, and XC-072's
+Notes now say that for its last criterion a walk that passed on retry counts as a
+failure.
 
 Filed from the 2026-10-26 CI investigation (read-only against `main` @ d8530d95);
 ranked 3 of 9 in its low-effort list. Expected job failure after one retry per

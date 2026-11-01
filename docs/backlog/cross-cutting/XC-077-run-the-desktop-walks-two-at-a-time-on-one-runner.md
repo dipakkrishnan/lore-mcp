@@ -4,13 +4,13 @@ title: Run the desktop walks two at a time on one runner
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
-related: [XC-072, APP-066]
+status: completed
+related: [XC-072, APP-066, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -76,20 +76,30 @@ So the cap is 2.
 
 ## Acceptance criteria
 
-- [ ] A green `Desktop macOS checks` job finishes in about 11 minutes (was about
+- [x] A green `Desktop macOS checks` job finishes in about 11 minutes (was about
       19; p50 18.9 min over the Oct 20-26 window).
-- [ ] A run of `tests.yml` still starts exactly one macOS job.
-- [ ] A failing walk is named three ways in the same run: a `FAIL <walk>` log
+- [x] A run of `tests.yml` still starts exactly one macOS job.
+- [x] A failing walk is named three ways in the same run: a `FAIL <walk>` log
       group holding that walk's full output, an `::error` annotation on the step,
       and a `**FAIL**` row in the step summary table.
-- [ ] `npm run test:edge` and CI run the same list of walks from one place, and
+- [x] `npm run test:edge` and CI run the same list of walks from one place, and
       `test/ci-edge.test.cjs` is gone.
-- [ ] Over the 50 CI runs after it lands, the desktop job's failure rate is no
-      worse than the baseline: 48 of 228 macOS jobs (21.1%) failed over Oct 20-26,
-      which matches the 22.8% predicted from a 1.17% per-walk failure rate
-      compounded over 22 walks.
+
+The fifth criterion as filed ("over the 50 CI runs after it lands, the desktop
+job's failure rate is no worse than 48 of 228, 21.1%") cannot be checked in the
+implementing PR; it moved to XC-083, which measures it once the window has run.
 
 ## Notes
+
+Implemented 2026-10-27. `app/desktop/support/walks.cjs` is the #560 runner with
+the `--shard` option and its balancing loop removed; `test:edge` runs it, CI runs
+it with `--jobs 2` after one `uv sync --locked` at the repo root, and
+`test/ci-edge.test.cjs` is deleted. One addition outside the plan: `edge.sh` now
+prints the whole `walk.log` (and the hang sample, when there is one) after a walk
+fails, so the `FAIL <walk>` group really does hold the walk's output; before,
+`edge.sh` echoed only the `PASS|FAIL|ERROR` lines and left the rest in a temp
+directory the CI runner discards. The 50-run failure-rate check moved to XC-083,
+which sets the precedent for XC-078, XC-080 and XC-081's trailing-window criteria.
 
 Filed from the 2026-10-26 CI investigation (read-only against `main` @ d0ea8057
 and d8530d95); ranked 1 of 9 in its low-effort list. The walk timings are
