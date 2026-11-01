@@ -4,13 +4,13 @@ title: Give main.cjs's owner-gate callbacks a testable seam
 priority: P2
 effort: S
 component: desktop-app
-status: ready
+status: completed
 related: [APP-056, APP-057, APP-006, APP-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-10-19
+updated: 2026-10-28
 ---
 
 ## Problem
@@ -55,14 +55,16 @@ returns to `working` after a throw.
 
 ## Acceptance criteria
 
-- [ ] The owner-gate callbacks live in a module importable from
+- [x] The owner-gate callbacks live in a module importable from
       `node --test` without Electron.
-- [ ] `openUrl`'s refusal and its three answer mappings each have a test.
-- [ ] `storeSecret` refuses an empty value, and a test asserts the secret
-      reaches the CLI over stdin and is absent from the returned text.
-- [ ] `cloudflareLogin`'s decline path, dash-URL extraction, and error unwrap
+- [x] `openUrl`'s refusal and its three answer mappings each have a test.
+- ~~`storeSecret` refuses an empty value, and a test asserts the secret
+      reaches the CLI over stdin and is absent from the returned text.~~
+      Obsolete: the `store_secret` tool and its `storeSecret` callback were
+      removed with MON-025 (#339); nothing on main vaults a pasted secret.
+- [x] `cloudflareLogin`'s decline path, dash-URL extraction, and error unwrap
       each have a test.
-- [ ] A pending owner request rejects on quit, and `#attended` restores
+- [x] A pending owner request rejects on quit, and `#attended` restores
       `working` when its action throws.
 
 ## Notes
@@ -75,3 +77,25 @@ by `test/app.test.cjs`; the gap is specifically the Electron-only half in
 test either, which is the same gap seen from the agent's side.
 
 **Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+
+**Implementation 2026-10-28:** `app/desktop/src/owner.cjs` now holds the
+cards waiting on the owner (`OwnerRequests`: ask, answer, `rejectAll`) and the
+`cloudflareLogin`/`openUrl` gates (`ownerGates`); `main.cjs` builds both from
+the window and the agent, and its window-closed and `before-quit` handlers call
+`rejectAll`. Tests are in `app/desktop/test/owner.test.cjs`. Two things had
+moved since this item was written:
+
+- `storeSecret` no longer exists (see the struck criterion).
+- The dash-URL extraction and the `lore: ` unwrap moved out of `main.cjs` into
+  `state.cjs`'s `cloudflareSignIn`, which was already Electron-free but had no
+  unit test (only the walks reached it through `support/edge.cjs`). They are
+  tested there directly. Only the decline branch and the "finish in your
+  browser" notice stay in the gate. `signInToCloudflare` stays in `main.cjs`, so
+  the walks' stand-in for `state.cloudflareSignIn` is still the one used.
+
+`main.cjs` still can't load outside Electron. Its wiring (the quit and
+window-close rejections, the `agent:respond` handler, the gates spread into the
+agent's options) is pinned by a text scan, the way `ipc-contract.test.cjs`
+reads it. `#attended` is pinned by the emitted task records: `needs_you` with
+the page title, then `working`, both for a callback that throws and for one
+that is declined.

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { Inbox, LIMITS, failed } from "./inbox.js";
-import { SCOPE, SignIn } from "./signin.js";
+import { type AgentEnv, SCOPE, SignIn } from "./signin.js";
 
 /**
  * The owner's own agents' endpoint, `/agent` (XC-067, contracts/inbox.md):
@@ -80,18 +80,28 @@ function server(inbox: Inbox): McpServer {
   return server;
 }
 
-export function isAgentPath(pathname: string): boolean {
-  return PATH.test(pathname);
-}
-
 /** The agents' sign-in, for this store's address. */
-export const signIn = (origin: string) => new SignIn(origin, serveInbox);
+const signIn = (origin: string) => new SignIn(origin, serveInbox);
+
+/**
+ * The owner's agents' side of a store: `/agent` and its sign-in (XC-068), or null for a path that isn't theirs. An
+ * owner's own node and a hosted store (XC-088) answer it the same way.
+ */
+export function agentRoute(request: Request, env: AgentEnv, ctx: ExecutionContext): Promise<Response> | null {
+  const { origin, pathname } = new URL(request.url);
+  if (PATH.test(pathname)) return serveAgent(request, env, ctx);
+  if (pathname === "/authorize" && request.method === "GET") return signIn(origin).authorize(request, env);
+  if (pathname === "/authorize/wait" && request.method === "POST") return signIn(origin).wait(request, env);
+  if (pathname.startsWith("/.well-known/oauth-protected-resource/agent")) return signIn(origin).resource.fetch(request, env, ctx);
+  if (SignIn.owns(pathname)) return signIn(origin).server.fetch(request, env, ctx);
+  return null;
+}
 
 /**
  * `/agent`, with a key in the address or a `lore_agent_` bearer as a pasted key gives it, or with the access token
  * an agent got by signing in (XC-068).
  */
-export async function serveAgent(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+async function serveAgent(request: Request, env: AgentEnv, ctx: ExecutionContext): Promise<Response> {
   const url = new URL(request.url);
   const inPath = PATH.exec(url.pathname)?.[1];
   const bearer = request.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";

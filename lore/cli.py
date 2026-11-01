@@ -33,6 +33,7 @@ from . import sources as sources_module
 from . import usage
 from .agents import Agents
 from .collection import Collections, Drop
+from .hosted import Hosted
 from .inbox import AgentApp, Inbox, InboxError
 from .paths import home, store_folder
 from .sources import Registry, available_sources
@@ -483,6 +484,11 @@ def parser() -> argparse.ArgumentParser:
         "deploy", help="deploy the node Worker to your own Cloudflare account"
     )
     node_deploy.add_argument(
+        "--account",
+        help="which of your Cloudflare accounts the store goes on, by id "
+        "(`lore node accounts`); remembered after",
+    )
+    node_deploy.add_argument(
         "--wallet",
         help="public payout address (0x + 40 hex) set as the node's LORE_WALLET",
     )
@@ -496,6 +502,11 @@ def parser() -> argparse.ArgumentParser:
         action="store_true",
         help="put your store online for your own agents with nothing for sale: "
         "no price or payout address needed",
+    )
+    node_commands.add_parser(
+        "host",
+        help="put your store online at yourlore.dev for your own agents: "
+        "no Cloudflare account, and nothing for sale",
     )
     node_commands.add_parser("login", help="sign in to Cloudflare through your browser")
     node_sales = node_commands.add_parser("sales", help="what your node has sold")
@@ -511,6 +522,10 @@ def parser() -> argparse.ArgumentParser:
         help="vault a Coinbase credential on the node; the value is read from stdin",
     )
     node_secret.add_argument("name", choices=deploy_module.SECRETS)
+    node_accounts = node_commands.add_parser(
+        "accounts", help="the Cloudflare accounts your sign-in can put the store on"
+    )
+    node_accounts.add_argument("--json", action="store_true")
 
     publication = commands.add_parser(
         "publication", help="approve, list, and revoke external publications"
@@ -806,21 +821,27 @@ def main(argv: list[str] | None = None) -> int:
             return serve(serve_args)
         if args.command == "node":
             if args.node_command == "deploy":
+                if args.account:
+                    deploy_module.choose_account(args.account)
                 deployed = deploy_module.deploy(
                     args.wallet, args.network, inbox_only=args.inbox_only
                 )
-                if deployed == 0 and not args.inbox_only:
-                    usage.record("store.opened")
+                if deployed == 0:
+                    usage.record("store.online" if args.inbox_only else "store.opened")
                 return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
                 return deploy_module.secret(args.name, sys.stdin.read().strip())
+            if args.node_command == "host":
+                return host_store()
             if args.node_command == "login":
                 return deploy_module.login()
             if args.node_command == "sales":
                 return sales(args.json)
             if args.node_command == "views":
                 return views(args.json)
+            if args.node_command == "accounts":
+                return cloudflare_accounts(args.json)
         if args.command == "publication":
             if args.publication_command == "review":
                 return publication_apply(args.file)
@@ -1537,6 +1558,19 @@ def delete_memory(memory_id: int, as_json: bool) -> int:
     return 0
 
 
+def host_store() -> int:
+    """XC-088: the owner's store, hosted by Lore, ready for their agents in seconds.
+    An owner whose store runs on their own Cloudflare keeps that one."""
+    with Store() as store:
+        node_url = store.setting("node_url", None)
+        if node_url:
+            success(f"Online: {node_url} · on your own Cloudflare")
+            return 0
+        hosted = Hosted.claim(store)
+    success(f"Online: {hosted.origin} · ready for your agents, nothing for sale")
+    return 0
+
+
 def sales(as_json: bool) -> int:
     rows = deploy_module.sales()
     for via in {
@@ -1576,6 +1610,16 @@ def views(as_json: bool) -> int:
         print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
     if not rows:
         muted("No page views yet.")
+    return 0
+
+
+def cloudflare_accounts(as_json: bool) -> int:
+    found = deploy_module.accounts()
+    if as_json:
+        print(json.dumps([account.model_dump() for account in found]))
+        return 0
+    for account in found:
+        print(f"  {account.id}  {account.name}")
     return 0
 
 
