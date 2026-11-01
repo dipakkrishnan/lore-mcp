@@ -5,12 +5,12 @@ priority: P0
 effort: S
 component: cross-cutting
 status: ideation
-related: [MON-052, XC-094, XC-091, XC-070, APP-118]
+related: [MON-051, XC-114, MON-052, XC-094, XC-091, XC-070, APP-118]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-10-31
 ---
 
 ## Problem
@@ -40,3 +40,5 @@ download block with next steps. Replace the made-up window cards with plainer ex
 ## Notes
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+- Oct 31: the home page's real example can be live bids. Show the top three open bids from XC-114 above the what-is and what-isn't list (mock in the bids proposal, https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi).
