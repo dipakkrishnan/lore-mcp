@@ -17,14 +17,18 @@ attached with the paperclip or dropped onto the window.
 npm --prefix app/desktop run check
 npm --prefix app/desktop test
 npm --prefix app/desktop run test:capture   # attended capture against a disposable Lore home
-npm --prefix app/desktop run test:edge      # every renderer persona, driven under real Electron
+npm --prefix app/desktop run test:edge      # every renderer walk, driven under real Electron, two at a time
 ```
 
-CI (`desktop-check` in `.github/workflows/tests.yml`, macOS) runs `check`, `test`,
-every persona in `test:edge` as its own step, and `package`. A persona step needs
-no provider or Cloudflare credential. `test:capture` is the one suite CI does not
-run: it prompts the operator for Return, so it stays attended. Adding a persona to
-`test:edge` without a CI step fails `test/ci-edge.test.cjs`. A
+`test:edge` runs `support/walks.cjs`, which holds the one list of walks (each with
+its measured time) and runs them two at a time, longest first;
+`node app/desktop/support/walks.cjs faq store` runs just those. CI (`desktop-check`
+in `.github/workflows/tests.yml`, macOS) runs `check`, `test`, the same list with
+`node support/walks.cjs --jobs 2`, and `package` (XC-077). A new walk is one line
+in `support/walks.cjs`; CI picks it up from there. Keep walks two at a time: on a
+three-core CI runner a third slows every walk and fails some. A walk needs no
+provider or Cloudflare credential. `test:capture` is the one suite CI does not
+run: it prompts the operator for Return, so it stays attended. A
 channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
 reverse, or a `window.lore` member the renderer uses but preload does not expose,
 fails `test/ipc-contract.test.cjs`.

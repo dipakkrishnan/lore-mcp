@@ -5,12 +5,12 @@ priority: P1
 effort: M
 component: cross-cutting
 status: in-review
-related: [APP-066, XC-003]
+related: [APP-066, XC-003, XC-080, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-10-27
 ---
 
 ## Problem
@@ -69,6 +69,13 @@ looks right.
       change under test.
 
 ## Notes
+
+2026-10-27 (XC-080): `support/walks.cjs` now runs a failed walk once more, so the
+job's colour no longer measures flakiness. For the last acceptance criterion
+above, a walk that passed on retry counts as a failed run: read each run's
+`K of N walks passed on retry.` summary line (and its `passed on retry` warning
+annotations), not the job conclusion. XC-083 records that count over the 50 runs
+after XC-080 lands.
 
 Evidence below was gathered on 2026-10-20 from the job and log data of the last
 100 `tests.yml` runs (`gh api repos/.../actions/runs/<id>/jobs`, `gh run view

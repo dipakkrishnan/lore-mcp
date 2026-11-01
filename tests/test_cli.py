@@ -29,6 +29,7 @@ from lore import automation, blueprint, cli, feedback
 from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
+from lore.cloudflare import Account
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
@@ -222,7 +223,7 @@ class MainDispatchTest(LoreTestCase):
         self,
     ) -> None:
         # XC-069: online for the owner's agents; the store.opened event waits
-        # for the deploy that puts something on sale.
+        # for the deploy that puts something on sale, and store.online says so (XC-085).
         with (
             patch("lore.deploy.deploy", return_value=0) as deploy,
             patch("lore.usage.record") as record,
@@ -230,7 +231,35 @@ class MainDispatchTest(LoreTestCase):
             self.assertEqual(cli.main(["node", "deploy", "--inbox-only"]), 0)
         self.assertEqual(deploy.call_args.args, (None, None))
         self.assertEqual(deploy.call_args.kwargs, {"inbox_only": True})
-        record.assert_not_called()
+        record.assert_called_once_with("store.online")
+
+    def test_node_deploy_remembers_the_account_chosen_before_deploying(self) -> None:
+        account = "f" * 32
+        with patch("lore.deploy.deploy", return_value=0):
+            self.assertEqual(
+                cli.main(["node", "deploy", "--inbox-only", "--account", account]), 0
+            )
+        with Store() as store:
+            self.assertEqual(store.setting(deploy_module.ACCOUNT_SETTING), account)
+
+    def test_a_store_failure_is_one_plain_line(self) -> None:
+        failed = deploy_module.StoreFailed(
+            "email_unverified", deploy_module.VERIFY_EMAIL, "all of it\nover lines"
+        )
+        with (
+            patch("lore.deploy.deploy", side_effect=failed),
+            redirect_stderr(StringIO()) as said,
+        ):
+            self.assertEqual(cli.main(["node", "deploy", "--inbox-only"]), 1)
+        self.assertEqual(said.getvalue(), f"lore: {deploy_module.VERIFY_EMAIL}\n")
+
+    def test_node_accounts_lists_them_as_json(self) -> None:
+        found = [Account(id="a" * 32, name="Ada's Account")]
+        with patch("lore.deploy.accounts", return_value=found), captured() as output:
+            self.assertEqual(cli.main(["node", "accounts", "--json"]), 0)
+        self.assertEqual(
+            json.loads(output.getvalue()), [{"id": "a" * 32, "name": "Ada's Account"}]
+        )
 
     def test_status_says_a_store_online_for_agents_sells_nothing(self) -> None:
         with Store() as store:

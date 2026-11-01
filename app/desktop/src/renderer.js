@@ -52,8 +52,6 @@ let snapshot = null;
 let apps = [];
 /** What the owner's personal agents have saved, as their store counts it; null until Connectors asks. @type {AgentEntry[] | null} */
 let agents = null;
-/** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
-let agentAfterStore = false;
 /** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
 let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
@@ -96,6 +94,10 @@ const collectionPicks = new Set();
 let collectionPasting = false;
 /** Whether a collection that already has pieces shows the picker to add more. */
 let collectionAdding = false;
+/** A suggestion under review shows only its own memories, not every one kept; null shows them all. @type {number[] | null} */
+let pickBundle = null;
+/** The suggestion being reviewed: it leaves Today only once its memories go in, so stepping away keeps it. @type {CollectionSuggestion | null} */
+let reviewing = null;
 /** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
 let collectionStep = 0;
 /** The name the chosen memories suggest, offered on the naming step. */
@@ -202,7 +204,6 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
@@ -302,21 +303,7 @@ function row(label, detail, trailing, serif = true) {
   return node;
 }
 
-marked.use({ renderer: { html: () => "" } });
 const FRONTMATTER = /^---\n([\s\S]*?)\n---\n*/;
-
-/** @param {string} text */
-function markdown(text) {
-  const node = el("div", "md");
-  node.innerHTML = marked.parse(text, { async: false });
-  for (const link of node.querySelectorAll("a")) {
-    const href = link.getAttribute("href") ?? "";
-    if (!/^https?:\/\//i.test(href)) link.removeAttribute("href");
-    else { link.target = "_blank"; link.rel = "noreferrer"; }
-  }
-  for (const image of node.querySelectorAll("img")) image.remove();
-  return node;
-}
 
 /** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
  * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
@@ -712,8 +699,11 @@ function storeAddress(node) {
   const url = /** @type {string} */ (node.url);
   const box = el("span", "address");
   box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
+  // Where buyers browse every store, this one among them.
+  box.append(outLink("Markets ↗", MARKETS, "quiet-link"));
   const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
+  // The store's own dashboard, named for what it is to the owner, not who hosts it.
+  if (console) box.append(outLink("Dashboard ↗", console, "quiet-link"));
   const payouts = payoutLink(node.live, "quiet-link");
   if (payouts) box.append(payouts);
   return box;
@@ -735,6 +725,9 @@ function lineIcon(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
 
+/** The public exchange every open store is part of. */
+const MARKETS = "https://yourlore.dev/marketplace";
+
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
   connect: lineIcon(`<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path>`),
@@ -742,6 +735,8 @@ const STEP_ICONS = {
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
+  collection: lineIcon(`<path d="M3.5 7.5L12 3l8.5 4.5L12 12z"></path><path d="M3.5 12L12 16.5 20.5 12"></path><path d="M3.5 16.5L12 21l8.5-4.5"></path>`),
+  ask: lineIcon(`<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
 
@@ -856,20 +851,31 @@ function displayTasks() {
   return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn) && (item.state === "working" || recent(item.updatedAt))).slice(0, 3);
 }
 
-/** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
+/** The evening check-in leads Today: a card shaped like New memories, its questions whole beneath it, and a way to say not today.
+ * @param {CheckIn} asked */
 function checkInCard(asked) {
-  const answer = button("Answer", "primary", () => void openTask("evening"));
-  const later = button("Not today", "quiet", () => {
+  const answer = () => void openTask("evening");
+  const later = inline("Not today", () => {
     loads++;
     checkIn = null;
     render();
     void window.lore.dismissCheckIn();
   });
-  const [first, ...rest] = asked.questions;
-  return section("Check in", card([
-    row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
-    ...rest.map((each) => row(each.question, `About ${each.title}`, cell(), false))
-  ]));
+  const head = el("div", "row routine ready-head");
+  const text = el("div", "t");
+  text.append(el("b", "sans", asked.questions.length === 1 ? "A question about today" : `${asked.questions.length} questions about today`), el("span", "", "Five minutes? Lore saves only what you approve."));
+  head.append(markTile(STEP_ICONS.ask), text, later, button("Answer", "primary", answer));
+  const items = el("div", "ready-items");
+  for (const each of asked.questions) {
+    const question = row(each.question, `About ${each.title}`, undefined, false);
+    question.addEventListener("click", answer);
+    items.append(question);
+  }
+  const box = el("div", "ready-group open check-in");
+  box.append(head, items);
+  const list = el("div", "routines today-cards");
+  list.append(box);
+  return section("Check in", list);
 }
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
@@ -1098,7 +1104,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -1217,12 +1223,12 @@ class FirstRunChat {
     if (choice === "coding") return this.leave("done", () => void startSetup());
     this.picked = [choice, label];
     this.problem = "";
-    if (snapshot?.node.url) return this.connect();
+    if (snapshot?.node.agents) return this.connect();
     this.stage = "store";
-    this.redraw();
+    return this.putOnline();
   }
 
-  /** The store online for the owner's agents, on the owner's tap: the deploy and, if it must, the Cloudflare sign-in. */
+  /** XC-088: a place online for the owner's agents, hosted by Lore in seconds, then on to connecting the one picked. */
   async putOnline() {
     const run = this.#run;
     this.working = true;
@@ -1231,7 +1237,7 @@ class FirstRunChat {
     try {
       await window.lore.storeOnline();
       // Asked of the store itself: a refresh already under way (an app's reading) can leave the window's copy stale.
-      const online = Boolean((await window.lore.snapshot()).node.url);
+      const online = Boolean((await window.lore.snapshot()).node.agents);
       void load();
       // Skipped while it went online: the store stays online, and nothing goes on to connect.
       if (!this.current(run)) return;
@@ -1242,7 +1248,7 @@ class FirstRunChat {
       if (!this.current(run)) return;
       this.working = false;
       // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
-      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      const said = reason(error, "Lore couldn't set up a place for your agents. Try again.");
       this.problem = said === "Cancelled" ? "" : said;
       this.redraw();
     }
@@ -1457,17 +1463,13 @@ class FirstRunChat {
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
-      lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
+      lore(`${who} works online, so Lore keeps a private place online for it to save to. What ${who} saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.`);
       const box = el("div", "card request");
-      const waiting = this.working && signingIn;
-      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
+      box.append(el("p", "hint", this.working ? "Setting it up…" : "It takes a few seconds."));
       if (this.problem) box.append(el("p", "problem", this.problem));
-      if (waiting) box.append(signInActions());
-      else {
+      if (!this.working) {
         const actions = el("div", "actions");
-        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
-        go.disabled = this.working;
-        actions.append(go);
+        actions.append(button("Try again", "primary", () => void this.putOnline()));
         box.append(actions);
       }
       lore(box);
@@ -1539,7 +1541,10 @@ class FirstRunChat {
     const list = el("div", "choices first-choices");
     const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
     const only = this.installed.length === 1 ? this.installed[0] : null;
+    // Claude Code's or Codex's memory, once Lore reads it, is not offered again.
+    const reading = (snapshot?.library.sources ?? []).some((source) => source.name in HISTORIES && source.enabled);
     for (const [choice, label] of ordered) {
+      if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
       const soon = choice === "muse";
@@ -1559,7 +1564,8 @@ class FirstRunChat {
   connectCard(app, who) {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
-    if (this.handed) {
+    if (this.handed && app === "instinct") box.append(...textFirst(this.handed, true));
+    else if (this.handed) {
       if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
       else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
       box.append(...afterConnect(app, who));
@@ -1575,7 +1581,7 @@ class FirstRunChat {
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once" : "Private link, shown once"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -2049,12 +2055,14 @@ function newCollection(title, picks = []) {
   if (collectionBusy) return;
   gistsAsked = false;
   // A fresh start: nothing ticked, typed or opened for another collection carries into this one.
+  reviewing = null;
   collectionPicks.clear();
   collectionDraft = "";
   pickQuery = "";
   collectionPasting = false;
   collectionAdding = false;
   editingCollectionPrice = false;
+  pickBundle = picks.length ? [...picks] : null;
   collectionPending = title ?? UNTITLED;
   showCollection(0);
   collectionStep = 1;
@@ -2093,7 +2101,8 @@ async function addToCollection(input) {
   // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
   if (done) {
     if (input.items?.length) collectionDraft = "";
-    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; }
+    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; pickBundle = null; }
+    if (reviewing) { void dropSuggestion(reviewing); reviewing = null; }
     collectionAdding = false;
     collectionPasting = false;
     if (collectionStep === 1) {
@@ -2220,7 +2229,8 @@ function memoryPicker(s) {
   };
   /** @type {Array<() => void>} */
   const syncs = [];
-  const groups = [...byTopic(privateMemories(s))].map(([topic, memories]) => {
+  const kept = privateMemories(s);
+  const groups = [...byTopic(pickBundle ? kept.filter((memory) => pickBundle?.includes(memory.id)) : kept)].map(([topic, memories]) => {
     const box = el("div", "card rows inv-group pick-group");
     const head = el("label", "inv-group-head pick-head");
     const every = el("input");
@@ -2294,40 +2304,58 @@ function memoryPicker(s) {
     for (const sync of syncs) sync();
     count();
   });
-  const list = el("div", "inv-stack pick-list");
+  // A suggestion's few memories show whole; every memory kept scrolls under its search.
+  const list = el("div", pickBundle ? "inv-stack" : "inv-stack pick-list");
   list.append(...groups, none);
-  const files = button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
+  const files = pickBundle
+    ? button("Choose from all memories", "quiet", () => { pickBundle = null; render(); })
+    : button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
   const foot = el("div", "pick-foot");
   const left = el("div", "pick-left");
   left.append(chosen, files);
   foot.append(left, add);
   count();
-  wrap.append(find, list, foot);
+  if (pickBundle) wrap.append(list, foot);
+  else wrap.append(find, list, foot);
   if (pickQuery) { find.value = pickQuery; find.dispatchEvent(new Event("input")); }
   if (typing) queueMicrotask(() => find.focus());
   return wrap;
 }
 
-/** What automations suggest collecting: each a name, how many memories and from where, opened in Lore's own picker.
+/** What automations suggest collecting: each a name and what's in it, opened in Lore's own picker.
  * @param {Snapshot} s */
 function suggestionsCard(s) {
-  const kept = new Set(privateMemories(s).map((memory) => memory.id));
+  const kept = new Map(privateMemories(s).map((memory) => [memory.id, memory.title]));
   const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
   if (!live.length) return null;
   const rows = live.map(({ each, memories }) => {
     // Added to only when one collection has that name; with two alike it starts its own, which the owner names.
-    const named = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
-    const into = named.length === 1 ? named[0] : undefined;
-    const detail = `${into ? `Add ${memories.length} to it` : `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`} · from ${each.from}`;
-    const node = row(each.title, detail, cell(
-      button("Dismiss", "quiet neutral", () => void dropSuggestion(each)),
-      button("Review", "secondary", () => void reviewSuggestion(each, memories, into))
-    ), false);
-    node.prepend(markTile(STEP_ICONS.sell));
-    node.classList.add("suggestion");
-    return node;
+    const alike = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    const into = alike.length === 1 ? alike[0] : undefined;
+    const count = `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`;
+    const detail = `${into ? `Adds ${count} to it` : count} · ${named(memories.map((id) => kept.get(id) ?? ""))}`;
+    const review = () => reviewSuggestion(each, memories, into);
+    const dismiss = el("button", "dismiss", "×");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
+    dismiss.addEventListener("click", () => void dropSuggestion(each));
+    // Shaped as a New memories row: a stack of memories, marked as Inventory is, then its name, what's in it and Review.
+    const head = el("div", "row routine ready-head suggestion");
+    const text = el("div", "t");
+    text.append(el("b", "sans", each.title), el("span", "", detail));
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(markTile(STEP_ICONS.collection), text, inline("Review →", review), chevron, dismiss);
+    head.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element && event.target.closest("button"))) review();
+    });
+    const box = el("div", "ready-group");
+    box.append(head);
+    return box;
   });
-  return section("Suggested collections", card(rows));
+  const list = el("div", "routines today-cards");
+  list.append(...rows);
+  return section("Suggested collections", list);
 }
 
 /** @param {CollectionSuggestion} each */
@@ -2339,12 +2367,17 @@ async function dropSuggestion(each) {
 
 /** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
  * @param {CollectionSuggestion} each @param {number[]} memories @param {CollectionItem | undefined} into */
-async function reviewSuggestion(each, memories, into) {
-  await dropSuggestion(each);
-  if (!into) return void newCollection(each.title, memories);
+function reviewSuggestion(each, memories, into) {
+  if (!into) {
+    newCollection(each.title, memories);
+    reviewing = each;
+    return;
+  }
   showCollection(into.id);
+  reviewing = each;
   gistsAsked = false;
   collectionAdding = true;
+  pickBundle = [...memories];
   for (const id of memories) collectionPicks.add(id);
   render();
 }
@@ -2404,7 +2437,8 @@ function collectionWizard(item, fill) {
   let body;
   if (collectionStep === 1) {
     body = el("div", "wizard-body");
-    body.append(el("p", "wizard-lead", "Pick the memories to sell together. Ticking a topic picks everything in it."), fill);
+    const lead = pickBundle ? `Lore picked ${pickBundle.length === 1 ? "this memory" : `these ${pickBundle.length}`}. Untick any that don't belong.` : "Pick the memories to sell together. Ticking a topic picks everything in it.";
+    body.append(el("p", "wizard-lead", lead), fill);
     // The empty collection is the only trace of starting; Cancel takes it back.
     const cancel = button("Cancel", "quiet neutral", async () => {
       collectionStep = 0;
@@ -2503,7 +2537,7 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; if (collectionAdding) gistsAsked = false; render(); });
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
   const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
   contents.classList.add("collection-contents");
   return [
@@ -2802,8 +2836,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
-  const node = el("img", asset === "grok" ? "logo full" : "logo");
+  // Grok Bot's and Instinct's marks are already whole tiles; framing them in another reads as a box in a box.
+  const node = el("img", asset === "grok" || asset === "instinct" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
@@ -3253,10 +3287,9 @@ function tiles(rows) {
 }
 
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
-const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
-const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
+const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", instinct: "instinct", other: "agent" };
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -3296,6 +3329,17 @@ const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I
 const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
+/** #597: Instinct is texted, not configured. The owner texts it a setup message holding only the plain address, and
+ * copies the key into the secure form Instinct gives, never into the conversation. Setup asks for one memory the owner
+ * approves; saving from then on is its own ask, offered once a save has come. New, so its note says what to do if
+ * Instinct can't finish. */
+const INSTINCT = {
+  ask: "Help me connect my Lore. Show me one memory you'd save, and ask me before saving anything. My Lore's address: ",
+  first: ["Copy the setup message and text it to Instinct, in the conversation you already have", "When Instinct asks for your Lore key, copy it below into the secure form Instinct gives you. Never text the key", "Instinct shows you one memory it would save. Approve it, and Lore shows here when it arrives"],
+  again: ["Copy the new key below into the secure form Instinct gives you for Lore, in place of the old one. Never text the key", "Lore shows here when Instinct's next save arrives"],
+  ongoing: "From now on, when you learn something about me worth keeping, show it to me and save it to Lore once I say yes.",
+  note: "Connecting Instinct is new. If Instinct can't finish it, "
+};
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
@@ -3488,20 +3532,7 @@ class AgentSetup {
   }
 
   open() {
-    if (snapshot?.node.url) this.pick();
-    else this.store();
-  }
-
-  /** The store goes online the way it always does, in its own thread; the sheet comes back once it is. */
-  store() {
-    this.form.text(STORE_FIRST);
-    this.form.open({
-      primary: "Put your store online",
-      submit: () => {
-        agentAfterStore = true;
-        void startDeploy(AGENT_STORE_INTENT);
-      }
-    });
+    this.pick();
   }
 
   pick() {
@@ -3524,7 +3555,7 @@ class AgentSetup {
       option.prepend(agentMark(app, label));
       rows.append(option);
     }
-    form.note("What it saves stays private on this Mac.");
+    form.note(snapshot?.node.agents ? "What it saves stays private on this Mac." : "Lore keeps a private place online for it to save to. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.");
     form.open({
       primary: "Connect",
       working: "Connecting…",
@@ -3533,6 +3564,11 @@ class AgentSetup {
       submit: async () => {
         if (!chosen) return false;
         const [app, name] = chosen;
+        // XC-088: with nowhere online for agents to save yet, Lore hosts one first, in seconds.
+        if (!snapshot?.node.agents) {
+          await window.lore.storeOnline();
+          await load();
+        }
         if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
         else await this.keyed(app, name);
         return false;
@@ -3639,7 +3675,11 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    const guide = agentGuide(handed, first);
+    const instead = () => void act(async () => {
+      await window.lore.disconnectAgent(handed.source, false);
+      await this.keyed("other", where);
+    });
+    const guide = app === "instinct" ? textFirst(handed, first, first ? instead : undefined) : agentGuide(handed, first);
     if (guide) form.body.append(...guide);
     else {
       const list = el("ol", "agent-steps");
@@ -3648,14 +3688,14 @@ class AgentSetup {
     }
     const hint = el("span", "form-hint quiet-hint");
     hint.innerHTML = LOCK_ICON;
-    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    hint.append(el("span", "", first ? (app === "instinct" ? "Key shown once" : "Private link, shown once") : app === "instinct" ? "The old key stopped working" : "The old link stopped working"));
     form.aside.append(hint);
     if (!guide) {
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
-    if (first) form.body.append(...afterConnect(app, where));
+    if (first && app !== "instinct") form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
@@ -3672,7 +3712,18 @@ class AgentSetup {
     this.form.body.append(line);
     const { dialog } = this.form;
     // Asked only while this sheet is on screen.
+    /** @type {() => void} */
+    let arriving = () => {};
     const stop = firstSave(handed, () => dialog.open, (saved) => {
+      // Instinct (#597): reaching the store is said apart from reaching this Mac.
+      if (handed.agent.app === "instinct") {
+        line.replaceChildren(el("span", "shimmer", `${who}'s save reached your store. Bringing it to this Mac…`));
+        arriving = onThisMac(source, () => dialog.open, (memories) => void loadAgents().then(() => line.replaceChildren(el("span", "dot ok"), el("span", "", `${plural(memories, "memory")} from ${who} on this Mac · `), inline("See it →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }))));
+        return;
+      }
       if (first) {
         line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
           closeSheet();
@@ -3680,7 +3731,10 @@ class AgentSetup {
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
     });
-    dialog.addEventListener("close", stop);
+    dialog.addEventListener("close", () => {
+      stop();
+      arriving();
+    });
   }
 }
 
@@ -3707,6 +3761,50 @@ function howTo(handed, how) {
   const byHand = el("details", "agent-by-hand");
   byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
   return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
+}
+
+/** Instinct's steps (#597): the setup message to text it, which holds only the plain address, and apart from it the key,
+ * for Instinct's secure form; a new key is only the key. `instead` connects it as Other, where the sheet can.
+ * @param {AgentKey} handed @param {boolean} first @param {() => void} [instead] */
+function textFirst(handed, first, instead) {
+  const list = el("ol", "agent-steps");
+  for (const step of first ? INSTINCT.first : INSTINCT.again) list.append(el("li", "", step));
+  const masked = el("span", "agent-link-url");
+  masked.append(el("span", "agent-link-key", "••••••••••••"));
+  const key = el("div", "agent-secure-key");
+  key.append(el("p", "hint", "Your Lore key, for Instinct's secure form only"), copyLink(masked, handed.key, handed.agent.name, "", "Copy key"));
+  const note = el("p", "hint", INSTINCT.note);
+  if (instead) note.append(inline("connect it as Other instead", instead), ".");
+  else note.append("connect it as Other instead.");
+  return [list, ...(first ? [plainLink(handed.mcp_url, handed.agent.name, INSTINCT.ask, "Copy message")] : []), key, note];
+}
+
+/** Waits, while `active`, until what the agent saved is on this Mac, not only in the store. Returns what stops it.
+ * @param {string} source @param {() => boolean} active @param {(memories: number) => void} arrived */
+function onThisMac(source, active, arrived) {
+  let done = false;
+  const check = async () => {
+    if (done || !active()) return;
+    const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source);
+    if (done || !entry || entry.waiting || !entry.memories) return;
+    stop();
+    arrived(entry.memories);
+  };
+  const poll = setInterval(() => {
+    if (active()) void window.lore.checkAgents().finally(check);
+  }, FIRST_SAVE_EVERY_MS);
+  /** @param {SourceRead[]} reads */
+  const landed = (reads) => {
+    if (reads.some((read) => read.name === source)) void check();
+  };
+  const stop = () => {
+    done = true;
+    clearInterval(poll);
+    agentWaiting.delete(landed);
+  };
+  agentWaiting.add(landed);
+  void check();
+  return stop;
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
@@ -3765,7 +3863,9 @@ function openAgent(source) {
   const form = new FormSheet(name, agentMark(source.app, name));
   form.text(agentLine(source));
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
-  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  // Instinct saves from then on only when asked, and asks the owner before each save (#597).
+  const offer = !saved ? null : source.app === "instinct" ? promptOffer(`When you want ${name} to keep saving, text it this. It asks you before each save:`, INSTINCT.ongoing) : eveningOffer(source.app, name);
   if (offer) form.body.append(offer);
   const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
   if (signedIn) {
@@ -3778,7 +3878,7 @@ function openAgent(source) {
   form.open();
   function rekey() {
     const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
-    confirm.text(`The key ${name} has now stops working at once. You give it the new one the same way.`);
+    confirm.text(`The key ${name} has now stops working at once. ${source.app === "instinct" ? `You copy the new one into ${name}'s secure form, never into a text.` : "You give it the new one the same way."}`);
     confirm.button("Cancel", "secondary", () => openAgent(source));
     confirm.open({
       primary: "Get a new key",
@@ -4276,7 +4376,7 @@ function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
   view = next === "memories" || next === "store" ? "inventory" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; }
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
   if (next === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
@@ -4316,13 +4416,6 @@ async function load() {
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
-    if (agentAfterStore && snapshot.node.url && !taskItems.some((item) => item.kind === "deploy" && item.state === "working")) {
-      agentAfterStore = false;
-      // Back where the owner started, with the sheet at its next step.
-      if (detailTask === "deploy") closeTask();
-      show("connectors");
-      new AgentSetup().open();
-    }
   } catch {
     if (ticket !== loads) return;
     const error = el("section", "card error");
@@ -6003,7 +6096,6 @@ function startNew(what) {
   closeNewMenu();
   if (what === "collection") void newCollection();
   else if (what === "automation") { show("automations"); openNewRoutine(); }
-  else startCapture();
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
 newMenu.addEventListener("keydown", (event) => {
@@ -6211,7 +6303,7 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew(event.shiftKey ? "collection" : "memory"); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew("collection"); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();

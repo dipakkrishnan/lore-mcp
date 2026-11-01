@@ -20,7 +20,7 @@ node (TypeScript) and `lore/inbox.py` test against
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,                 -- 16 hex
   name TEXT NOT NULL,                  -- 1-40 chars, owner's label
-  app TEXT NOT NULL,                   -- grok|muse|chatgpt|claude|other
+  app TEXT NOT NULL,                   -- grok|muse|chatgpt|claude|instinct|other
   token_hash TEXT NOT NULL,            -- hex sha256(secret)
   created_at TEXT NOT NULL,
   revoked_at TEXT,
