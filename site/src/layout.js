@@ -31,7 +31,7 @@ main{max-width:1120px;margin:0 auto;padding:20px 16px 72px}
 .head{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;margin-bottom:22px}
 h1{font:500 clamp(36px,6vw,52px)/1.05 var(--serif);letter-spacing:-.02em;margin:0 0 10px}
 .lede{color:var(--muted);margin:0;max-width:40em}
-.stats{display:flex;gap:26px;margin:14px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
+.stats{display:flex;flex-wrap:wrap;gap:4px 26px;margin:14px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
 .stats li{display:flex;align-items:baseline;gap:7px}
 .stats b{display:inline-flex;font:600 24px/1.2 var(--mono);letter-spacing:-.02em;color:var(--ink);transition:color .6s}
 .stats b.tick{color:var(--accent)}
@@ -136,6 +136,7 @@ code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padd
 .spread b{font:600 13px var(--mono);color:var(--ink)}
 .bid{position:relative;display:grid;grid-template-columns:1fr 58px;gap:12px;align-items:center;padding:8px;margin:0 -8px;border-radius:9px}
 .bid+.bid{border-top:1px solid var(--line)}
+.grid>.empty{grid-column:1/-1;margin:0}
 .bid a.q:after{content:"";position:absolute;inset:0;border-radius:9px}
 .bid:hover,.bid:focus-within{background:var(--accent-soft)}.bid:hover .q{color:var(--accent)}.bid a:focus-visible{outline:none}
 @media (max-width:640px){.sheet{flex-basis:100%}.sheet summary{text-align:center}}

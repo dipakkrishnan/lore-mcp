@@ -68,7 +68,7 @@ export function bidPage(bid, { markets, origin, now = Date.now() }) {
     agents: agentsPanel(origin, `/b/${bid.id}.json`),
     data: { "@context": "https://schema.org", "@type": "Question", name: bid.question, dateCreated: bid.created, answerCount: bid.answers.length, url: `${SITE}/b/${bid.id}` },
     body: `<p class="crumb"><a href="/bids">Bids</a> / ${marketLink}</p><h1>${escape(bid.question)}</h1>
-<ul class="stats"><li><b>${money(bid.usd)}</b>offered</li><li><b>${STATUS[bid.status]}</b>${left ? `${left} left` : ""}</li><li><b>${bid.answers.length}</b>${bid.answers.length === 1 ? "answer" : "answers"}</li></ul>
+<ul class="stats"><li><b>${money(bid.usd)}</b>offered</li>${left ? `<li><b>${left}</b>left</li>` : `<li><b>${STATUS[bid.status]}</b></li>`}<li><b>${bid.answers.length}</b>${bid.answers.length === 1 ? "answer" : "answers"}</li></ul>
 <p class="note">The buyer pays only if they accept an answer. If nobody answers in 7 days, the bid ends.</p>
 <h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${bid.answers.map(answer).join("")}</ul>` : `<p class="empty">No answers yet.</p>`}
 <h2 class="part">History</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>`

@@ -67,7 +67,7 @@ describe("placing a bid", () => {
     expect(html).toContain(`<link rel="alternate" type="application/json" href="/b/${id}.json">`);
     expect(html).toContain("<b>$20</b>offered");
     expect(html).toContain('<a href="/marketplace/rl-evals">RL evals</a>');
-    expect(html).toContain("7 days left");
+    expect(html).toContain("<b>7 days</b>left");
   });
 
   test("the /bids page carries a form that posts without a script", async () => {
@@ -370,7 +370,7 @@ describe("the board", () => {
     const { html, key } = board([bid("a", "unsorted", 900), bid("b", "rl-evals", 10), bid("c", "rl-evals", 40, 1), bid("d", "diving", 20)], markets, exchange);
     const order = [...html.matchAll(/href="\/b\/(\w)"/g)].map((m) => m[1]);
     expect(order).toEqual(["c", "b", "d", "a"]);
-    expect(key).toBe("c:1|b:0|d:0|a:0");
+    expect(key).toBe("rl-evals@$1|c:1|b:0|diving@|d:0|unsorted@|a:0");
     expect(html).toContain("<span>Top bid <b>$40</b></span><span>Lowest ask <b>$1</b></span>");
     expect(html).toContain("<span>Top bid <b>$20</b></span><span>No pieces yet</span>");
     expect(html).toContain('<a href="/marketplace/rl-evals">RL evals</a>');
@@ -388,7 +388,8 @@ describe("the board", () => {
 
   test("the poll carries the counts, the ticker and the board, each keyed to move on real news", async () => {
     const before = await (await call("/bids/stats.json")).json();
-    expect(before).toMatchObject({ bids: 0, offered: 0, markets: 0, tape: "", board: "" });
+    expect(before).toMatchObject({ bids: 0, offered: 0, markets: 0, tape: "", board_key: "" });
+    expect(before.board).toContain("No live bids yet.");
     const id = await placed();
     const placedNow = await (await call("/bids/stats.json")).json();
     expect(placedNow).toMatchObject({ bids: 1, offered: 20, markets: 1 });
@@ -398,9 +399,11 @@ describe("the board", () => {
     const answered = await (await call("/bids/stats.json")).json();
     expect(answered.tape).toContain("Answered · $20 · @dipak · RL evals");
     expect(answered.tape_key).not.toBe(placedNow.tape_key);
-    expect(answered.board_key).toBe(`${id}:1`);
+    expect(answered.board_key).toBe(`rl-evals@|${id}:1`);
     await call(`/b/${id}`, { method: "DELETE", headers: ADMIN });
-    expect(await (await call("/bids/stats.json")).json()).toMatchObject({ bids: 0, tape: "", board: "" });
+    const emptied = await (await call("/bids/stats.json")).json();
+    expect(emptied).toMatchObject({ bids: 0, tape: "", board_key: "" });
+    expect(emptied.board).toContain("No live bids yet.");
   });
 
   test("a form mistake comes back with the sheet open", async () => {
