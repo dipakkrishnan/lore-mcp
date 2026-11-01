@@ -13,7 +13,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  type CallToolResult
+  type CallToolResult,
+  type Tool
 } from "@modelcontextprotocol/sdk/types.js";
 import { toClientEvmSigner } from "@x402/evm";
 import { withX402Client } from "agents/x402";
@@ -73,16 +74,131 @@ function decodeReceipt(raw: unknown): Record<string, unknown> | undefined {
   return undefined;
 }
 
+// Bids (contracts/bids.md) are records on the site, not payments: placing one
+// moves no money, so it never draws on the spend cap. A bid the cap could
+// never pay for is refused, because its answer could not be bought here.
+class BidDesk {
+  readonly tools: Tool[] = [
+    {
+      name: "bid",
+      description:
+        "Offer to pay for an answer nobody sells yet, when discover finds nothing that fits. " +
+        "Free to place and returns at once with an id and a status_url; sellers answer over " +
+        "hours or days, so use it only for work that can wait. The bid ends after 7 days. " +
+        "Nothing is charged until you buy an answer.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          question: { type: "string", minLength: 10, maxLength: 280 },
+          usd: { type: "integer", minimum: 5, maximum: 1000, description: "Whole dollars you would pay." },
+          market: { type: "string", description: "A Lore market slug; omit if unsure." },
+          callback_url: { type: "string", description: "An https URL Lore POSTs to on each new answer." }
+        },
+        required: ["question", "usd"]
+      }
+    },
+    {
+      name: "check_bid",
+      description:
+        "Read a bid you placed: its status (open, answered, filled, expired) and each answer's " +
+        "seller, preview, price and piece_url. Free. Buy at most one answer, through get on its piece.",
+      inputSchema: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"]
+      }
+    }
+  ];
+
+  constructor(
+    private readonly site: URL,
+    private readonly remaining: () => bigint
+  ) {}
+
+  handles(name: string): boolean {
+    return this.tools.some((tool) => tool.name === name);
+  }
+
+  async call(name: string, args: Record<string, unknown> = {}): Promise<CallToolResult> {
+    try {
+      return name === "bid" ? await this.place(args) : await this.check(args);
+    } catch (err) {
+      return this.refuse(`Could not reach Lore bids: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async place(args: Record<string, unknown>): Promise<CallToolResult> {
+    const usd = args.usd;
+    if (typeof usd !== "number" || !Number.isFinite(usd)) {
+      return this.refuse("Give usd as a number of whole dollars.");
+    }
+    if (BigInt(Math.round(usd * 1e6)) > this.remaining()) {
+      return this.refuse(
+        `A $${usd} bid is more than this bridge may still spend, so its answer could not be bought. Bid less or raise --max-usd.`
+      );
+    }
+    const { question, market, callback_url } = args;
+    const response = await fetch(new URL("/bids", this.site), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ question, usd, market, callback_url }),
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (!response.ok) return this.refuse(await this.reason(response));
+    const placed = (await response.json()) as { id: string; url: string; status_url: string; expires: string };
+    emit("bid", { id: placed.id, usd });
+    return this.reply({
+      id: placed.id,
+      url: placed.url,
+      status_url: new URL(placed.status_url, this.site).href,
+      expires: placed.expires
+    });
+  }
+
+  private async check(args: Record<string, unknown>): Promise<CallToolResult> {
+    const id = args.id;
+    if (typeof id !== "string" || !/^[a-z0-9]{1,32}$/.test(id)) {
+      return this.refuse("That is not a bid id.");
+    }
+    const response = await fetch(new URL(`/b/${id}.json`, this.site), {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(10_000)
+    });
+    if (response.status === 404) return this.refuse(`No bid ${id}; it may have been removed.`);
+    if (!response.ok) return this.refuse(await this.reason(response));
+    return this.reply(await response.json());
+  }
+
+  private async reason(response: Response): Promise<string> {
+    try {
+      const { error } = (await response.json()) as { error?: unknown };
+      if (typeof error === "string") return error;
+    } catch {
+      // Not JSON: fall through to the status.
+    }
+    return `Lore bids answered ${response.status}.`;
+  }
+
+  private reply(body: unknown): CallToolResult {
+    return { content: [{ type: "text", text: JSON.stringify(body) }] };
+  }
+
+  private refuse(text: string): CallToolResult {
+    return { isError: true, content: [{ type: "text", text }] };
+  }
+}
+
 const { values } = parseArgs({
   options: {
     node: { type: "string" },
     network: { type: "string", default: "eip155:84532" },
-    "max-usd": { type: "string", default: "1" }
+    "max-usd": { type: "string", default: "1" },
+    bids: { type: "string", default: "https://yourlore.dev" }
   }
 });
 if (!values.node) {
   console.error(
-    "usage: x402-mcp-bridge --node https://<host>/mcp [--network eip155:84532] [--max-usd 1]"
+    "usage: x402-mcp-bridge --node https://<host>/mcp [--network eip155:84532] [--max-usd 1] [--bids https://yourlore.dev]"
   );
   process.exit(1);
 }
@@ -150,6 +266,8 @@ const paid = withX402Client(remote, {
   }
 });
 
+const bids = new BidDesk(new URL(values.bids), () => maxPaymentValue - authorizedPaymentValue);
+
 const server = new Server(
   { name: "x402-mcp-bridge", version: "0.1.0" },
   { capabilities: { tools: {} } }
@@ -158,11 +276,15 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   // The wrapper annotates paid tools' descriptions with their price, so the
   // model can weigh cost before calling.
-  return paid.listTools();
+  const { tools } = await paid.listTools();
+  return { tools: [...tools.filter((tool) => !bids.handles(tool.name)), ...bids.tools] };
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   emit("call", { tool: request.params.name });
+  if (bids.handles(request.params.name)) {
+    return bids.call(request.params.name, request.params.arguments);
+  }
   const result = (await paid.callTool(null, request.params)) as CallToolResult;
   const receipt = decodeReceipt(result._meta?.["x402/payment-response"]);
   if (receipt) {
