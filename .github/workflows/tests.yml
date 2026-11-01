@@ -32,7 +32,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
-      - run: uv run python -m unittest discover -s tests -v
+      # XC-096: the suite runs under coverage and every file in lore/ is held
+      # to 90% statements and 90% branches, checked per file (tests/gate.py
+      # explains why one global fail_under is not enough). The Worker steps
+      # gate.py also knows are this workflow's own jobs, so only the Python
+      # half runs here. The per-file table lands in the step summary.
+      - run: uv run python tests/gate.py --python-only
 
   python-types:
     name: Python type checks
