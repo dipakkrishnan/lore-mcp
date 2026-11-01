@@ -41,7 +41,9 @@ back to an answer later.
 - Oct 31: lore-buy step 9 and the bridge's `bid` / `check_bid` tools (`--bids`, default
   yourlore.dev) are in. A bid moves no money, so it never draws on `--max-usd`; a bid above
   what the cap still allows is refused, since its answer could not be bought through the
-  bridge. The bridge keeps no bid state; the agent keeps the id.
+  bridge. The bridge keeps no bid state; the agent keeps the id. A remote node's own `bid` or
+  `check_bid` wins over the bridge's. The two checked criteria are verified against a
+  stand-in for the contract's routes; the live path waits on MON-051, so merge after it.
 - The callback criterion is the site's: `contracts/bids.md` stores `callback_url` but does
   not yet say when Lore POSTs to it. It stays open until MON-051 delivers callbacks, and the
   email fallback likewise rides on MON-051.

@@ -276,13 +276,18 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   // The wrapper annotates paid tools' descriptions with their price, so the
   // model can weigh cost before calling.
+  // A remote tool of the same name always wins over a local bid tool.
   const { tools } = await paid.listTools();
-  return { tools: [...tools.filter((tool) => !bids.handles(tool.name)), ...bids.tools] };
+  const remote = new Set(tools.map((tool) => tool.name));
+  return { tools: [...tools, ...bids.tools.filter((tool) => !remote.has(tool.name))] };
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   emit("call", { tool: request.params.name });
-  if (bids.handles(request.params.name)) {
+  if (
+    bids.handles(request.params.name) &&
+    !(await paid.listTools()).tools.some((tool) => tool.name === request.params.name)
+  ) {
     return bids.call(request.params.name, request.params.arguments);
   }
   const result = (await paid.callTool(null, request.params)) as CallToolResult;

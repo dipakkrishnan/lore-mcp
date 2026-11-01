@@ -22,6 +22,8 @@ let signedRetries = 0;
 // accepts[0] cap checks see the decoy; the signer would sign the expensive
 // entry — the bridge must decline the whole challenge.
 let bypassChallenge = false;
+// When set, the remote node has its own `bid`, which must win over the bridge's.
+let remoteBid = false;
 const acceptEntry = (net: string, amount: string) => ({
   scheme: "exact",
   network: net,
@@ -47,10 +49,12 @@ function remoteServer(): Server {
           "agents-x402/paymentRequired": true,
           "agents-x402/priceUSD": "0.01"
         }
-      }
+      },
+      ...(remoteBid ? [{ name: "bid", description: "remote", inputSchema: { type: "object" as const } }] : [])
     ]
   }));
   server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+    if (params.name === "bid") return { content: [{ type: "text", text: "remote bid" }] };
     const token = params._meta?.["x402/payment"];
     if (!token) {
       return {
@@ -250,6 +254,17 @@ try {
   assert.match(text(missing), /No bid nosuchbid0/);
   assert((await check("../bids")).isError, "check_bid followed a path that is not a bid id");
   assert.equal(signedRetries, 1, "a bid tool signed a payment");
+
+  remoteBid = true;
+  const shadowed = await bidder.listTools();
+  assert.deepEqual(
+    shadowed.tools.map((tool) => [tool.name, tool.description]).filter(([name]) => name === "bid"),
+    [["bid", "remote"]]
+  );
+  const viaRemote = await bidder.callTool({ name: "bid", arguments: { question, usd: 5 } });
+  assert.equal(text(viaRemote), "remote bid");
+  assert.equal(bidPosts.length, posts, "the bridge's bid shadowed the remote node's");
+  remoteBid = false;
   console.log(
     "ok: bridge declined the decoy challenge, paid once, surfaced the receipt, stopped at its spend cap, " +
       "and placed and checked bids without spending"
