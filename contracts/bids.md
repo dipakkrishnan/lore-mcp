@@ -17,7 +17,7 @@ CREATE TABLE bids (
   question TEXT NOT NULL,       -- 10..280 chars, trimmed
   usd_cents INTEGER NOT NULL,   -- 500..100000
   market TEXT NOT NULL,         -- a registry market slug, or "unsorted"
-  email TEXT,                   -- optional; never public
+  email TEXT,                   -- optional; never public; kept for MON-053, not yet used or asked for on the form
   callback_url TEXT,            -- optional https URL; never public
   created TEXT NOT NULL,        -- ISO 8601 UTC
   expires TEXT NOT NULL         -- created + 7 days

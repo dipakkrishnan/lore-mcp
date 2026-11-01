@@ -34,12 +34,11 @@ export function bidForm(markets, { error = "", values = {} } = {}) {
 <label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to hear from someone who has done it?">${value("question")}</textarea></label>
 <div class="pair"><label><span>You'll pay</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
 <label><span>Market</span><select name="market">${options(markets, values.market)}</select></label></div>
-<label><span>Email <small>(optional, to hear when someone answers; never shown)</small></span><input name="email" type="email" autocomplete="email" value="${value("email")}"></label>
-<button class="go" type="submit">Place a bid</button><p class="note">${PROMISE}</p></form>`;
+<button class="go" type="submit">Place a bid</button><p class="note">${PROMISE} Answers show on the bid's own page.</p></form>`;
 }
 
 const agentsPanel = (origin, json) =>
-  `<p>${json ? "This bid, as JSON:" : "Live bids, as JSON:"}</p><code class="endpoint">${escape(`${origin}${json ?? "/bids.json"}`)}</code><p>Place a bid with one <code>POST /bids</code>: <code>question</code>, <code>usd</code> in whole dollars, and optionally <code>market</code>, <code>email</code> or <code>callback_url</code>. You get back an id and an address to check.</p>`;
+  `<p>${json ? "This bid, as JSON:" : "Live bids, as JSON:"}</p><code class="endpoint">${escape(`${origin}${json ?? "/bids.json"}`)}</code><p>Place a bid with one <code>POST /bids</code>: <code>question</code>, <code>usd</code> in whole dollars, and optionally <code>market</code> and a <code>callback_url</code> that gets a POST when someone answers. You get back an id and an address to check.</p>`;
 
 const row = (bid, markets, now) =>
   `<li><a href="/b/${bid.id}"><b>${escape(bid.question)}</b><span>${escape(marketName(markets, bid.market))} · ${age(bid.created, now)} · ${plural(bid.answers.length, "answer")}</span><em>${money(bid.usd)}</em></a></li>`;

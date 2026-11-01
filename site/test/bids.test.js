@@ -24,7 +24,7 @@ beforeEach(async () => {
     outbound.push({ url: String(url), init });
     return new Response(null, { status: 204 });
   });
-  await runInDurableObject(book(), (_instance, state) => state.storage.sql.exec("DELETE FROM bid_events; DELETE FROM bids"));
+  await runInDurableObject(book(), (_instance, state) => state.storage.sql.exec("DELETE FROM bid_events; DELETE FROM bids; DELETE FROM meta"));
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -74,6 +74,7 @@ describe("placing a bid", () => {
     expect(html).toMatch(/<form class="bid-form" method="post" action="\/bids">/);
     expect(html).toContain('<option value="rl-evals">RL evals</option>');
     expect(html).toContain("You pay only if you accept an answer. If nobody answers in 7 days, the bid ends.");
+    expect(html).not.toContain('name="email"');
   });
 
   test("an unknown or missing market files under unsorted", async () => {

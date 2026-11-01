@@ -9,7 +9,7 @@ export const HOURLY_CAP = 100;
 const LIVE_SHOWN = 200;
 const ID_LENGTH = 10;
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
-const ENDED = ["filled", "expired", "removed"];
+const UNENDED = `NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type IN ('filled', 'expired', 'removed'))`;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS bids (
@@ -19,7 +19,8 @@ CREATE TABLE IF NOT EXISTS bid_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, bid_id TEXT NOT NULL, type TEXT NOT NULL, at TEXT NOT NULL, data TEXT);
 CREATE INDEX IF NOT EXISTS bid_events_by_bid ON bid_events (bid_id, seq);
 CREATE INDEX IF NOT EXISTS bids_by_created ON bids (created);
-CREATE INDEX IF NOT EXISTS bids_by_expires ON bids (expires);`;
+CREATE INDEX IF NOT EXISTS bids_by_expires ON bids (expires);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value);`;
 
 // The public columns. email and callback_url are never selected for a reader.
 const PUBLIC = "id, question, usd_cents, market, created, expires";
@@ -100,26 +101,18 @@ export class BidBook extends DurableObject {
     this.#expire(now);
     const ids = this.sql
       .exec(
-        `SELECT id FROM bids b WHERE NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type IN (${ENDED.map(() => "?").join(", ")}))
-         ORDER BY created DESC, rowid DESC LIMIT ?`,
-        ...ENDED,
+        `SELECT id FROM bids b WHERE expires > ? AND ${UNENDED} ORDER BY created DESC, rowid DESC LIMIT ?`,
+        iso(now),
         LIVE_SHOWN
       )
       .toArray();
     return ids.map(({ id }) => this.#read(id));
   }
 
-  /** Answered and then left to end without a fill: how often buyers walk away (MON-051). */
+  /** Answered and then left to end without a fill: how often buyers walk away (MON-051). Counted as each bid ends. */
   walkedAway(now = Date.now()) {
     this.#expire(now);
-    return this.sql
-      .exec(
-        `SELECT COUNT(*) AS n FROM bids b
-         WHERE EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')
-           AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'expired')
-           AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type IN ('filled', 'removed'))`
-      )
-      .one().n;
+    return this.#meta("walked_away") ?? 0;
   }
 
   /**
@@ -156,15 +149,26 @@ export class BidBook extends DurableObject {
     this.sql.exec("INSERT INTO bid_events (bid_id, type, at, data) VALUES (?, ?, ?, ?)", id, type, at, data && JSON.stringify(data));
   }
 
-  /** Writes the expired event for every bid whose week ran out, so the timeline records it. */
+  #meta(key) {
+    return this.sql.exec("SELECT value FROM meta WHERE key = ?", key).toArray()[0]?.value;
+  }
+
+  #setMeta(key, value) {
+    this.sql.exec("INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", key, value);
+  }
+
+  /**
+   * Writes the expired event for each bid whose week ran out since the last sweep, so the timeline
+   * records it. The cursor keeps each read's work to the bids that just ended, not the whole history.
+   */
   #expire(now) {
-    this.sql.exec(
-      `INSERT INTO bid_events (bid_id, type, at, data)
-       SELECT id, 'expired', expires, NULL FROM bids b
-       WHERE expires <= ? AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type IN (${ENDED.map(() => "?").join(", ")}))
-       ORDER BY expires`,
-      iso(now),
-      ...ENDED
-    );
+    const since = this.#meta("swept") ?? "";
+    const until = iso(now);
+    if (until <= since) return;
+    const ending = `FROM bids b WHERE expires > ? AND expires <= ? AND ${UNENDED}`;
+    const walked = this.sql.exec(`SELECT COUNT(*) AS n ${ending} AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')`, since, until).one().n;
+    this.sql.exec(`INSERT INTO bid_events (bid_id, type, at, data) SELECT id, 'expired', expires, NULL ${ending} ORDER BY expires`, since, until);
+    this.#setMeta("swept", until);
+    if (walked) this.#setMeta("walked_away", (this.#meta("walked_away") ?? 0) + walked);
   }
 }
