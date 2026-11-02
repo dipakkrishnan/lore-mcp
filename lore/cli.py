@@ -1438,10 +1438,13 @@ def search(
 
 def bids_match() -> int:
     """Match the board's open bids to the owner's memories, here, and print the strong ones (APP-274)."""
-    from .bids import BidMatcher, OpenBid
+    from .bids import BIDS_AT_MOST, BOARD_BYTES, BidMatcher, OpenBid
 
-    bids = []
-    for bid in json.loads(sys.stdin.read()).get("bids", []):
+    board = sys.stdin.read(BOARD_BYTES + 1)
+    if len(board) > BOARD_BYTES:
+        raise ValueError("the bids board is too big to read")
+    bids: list[OpenBid] = []
+    for bid in json.loads(board).get("bids", [])[:BIDS_AT_MOST]:
         try:
             bids.append(OpenBid.model_validate(bid))
         except ValidationError:

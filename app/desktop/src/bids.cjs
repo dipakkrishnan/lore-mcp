@@ -1,20 +1,29 @@
+const { randomUUID } = require("node:crypto");
 const { readFile, rename, writeFile } = require("node:fs/promises");
 const { plural } = require("./reading.cjs");
 
-// APP-274: open bids on yourlore.dev that the owner already knows the answer to. The board is public and read as
-// it is; `lore bids match` decides which bids the owner's memories answer, on this Mac, so nothing about a memory
-// leaves it until the owner sends an answer.
+// APP-274: open bids on yourlore.dev that the owner already knows the answer to. `lore bids match` decides which bids
+// the owner's memories answer, on this Mac. Reading the board tells yourlore.dev only that this Mac's address looks
+// every quarter hour or so; no memory, match or dismissal leaves the Mac until the owner sends an answer.
 
 const BIDS_URL = "https://yourlore.dev/bids.json";
-/** Bids stay open a week, so a look every quarter hour finds each in time; coming back to the app looks sooner. */
+/** Bids stay open a week, so a look every quarter hour finds each in time. */
 const LOOK_EVERY_MS = 15 * 60_000;
-/** Each look runs the matcher over the whole library, so coming back to the app twice in a minute looks once. */
-const AT_MOST_EVERY_MS = 60_000;
+/** Each look lands up to this share of the interval early or late, so the board can't time the owner's day by it. */
+const JITTER = 0.2;
+/** The board is public, so what Lore reads of it is bounded: bytes, bids, and each question's length, as contracts/bids.md caps it. */
+const BOARD_BYTES = 1_000_000;
+const BIDS_AT_MOST = 200;
+const QUESTION_AT_MOST = 280;
+const BID_ID = /^[a-z0-9]{10}$/;
 /** Past this many new matches at once, one notification says how many instead of one each. */
 const ONE_EACH = 3;
 
 /** @param {number} usd */
 const dollars = (usd) => `$${Number.isInteger(usd) ? usd : usd.toFixed(2)}`;
+
+/** How long until the next look. @param {() => number} [random] */
+const nextLook = (random = Math.random) => Math.round(LOOK_EVERY_MS * (1 - JITTER + 2 * JITTER * random()));
 
 /** One notification per new match, or one for the lot. @param {BidMatch[]} fresh @returns {Array<{title: string, body: string}>} */
 function announcements(fresh) {
@@ -28,14 +37,25 @@ function announcements(fresh) {
   }));
 }
 
+/** The bids worth matching from what the board said: well-formed, within the caps, at most BIDS_AT_MOST.
+ * @param {unknown} board @returns {Array<Record<string, unknown>>} */
+function boardBids(board) {
+  const listed = /** @type {{bids?: unknown}} */ (board)?.bids;
+  return (Array.isArray(listed) ? listed : [])
+    .filter((bid) => BID_ID.test(bid?.id) && typeof bid.question === "string" && bid.question.length <= QUESTION_AT_MOST && Number.isFinite(bid.usd) && typeof bid.expires === "string")
+    .slice(0, BIDS_AT_MOST);
+}
+
 /** The open bids the owner's memories answer, kept on disk with the ones the owner dismissed and the ones already
- * announced, so a relaunch never repeats a banner and a dismissed bid never comes back. */
+ * announced, so a relaunch never repeats a banner and a dismissed bid never comes back. Every change to the file goes
+ * through one queue, so a dismissal never crosses a look. */
 class BidWatch {
   /** @type {Promise<BidMatch[]> | null} */
   #checking = null;
-  #lastLook = -Infinity;
+  /** The last change to the file; the next waits for it. @type {Promise<unknown>} */
+  #writing = Promise.resolve();
 
-  /** @param {{file: string, match: (board: unknown) => Promise<BidMatch[]>, badge: (count: number) => void, url?: string, fetch?: typeof globalThis.fetch, now?: () => number}} options */
+  /** @param {{file: string, match: (board: {bids: Array<Record<string, unknown>>}) => Promise<BidMatch[]>, badge: (count: number) => void, url?: string, fetch?: typeof globalThis.fetch, now?: () => number}} options */
   constructor({ file, match, badge, url = BIDS_URL, fetch: read = globalThis.fetch, now = Date.now }) {
     this.file = file;
     this.match = match;
@@ -45,7 +65,7 @@ class BidWatch {
     this.now = now;
   }
 
-  /** Read the board and match it; hands back the matches not announced before. Offline, it keeps what it had. */
+  /** Read the board and match it; hands back the matches not yet announced. Offline, it keeps what it had. */
   check() {
     this.#checking ??= this.#check().finally(() => {
       this.#checking = null;
@@ -64,11 +84,18 @@ class BidWatch {
     return (await this.matches()).find((match) => match.bid.id === id) ?? null;
   }
 
+  /** The owner was told of these, so they are never announced again. Called once the banner is up. @param {string[]} ids */
+  announced(ids) {
+    return this.#change((state) => ({ ...state, announced: [...new Set([...state.announced, ...ids])] }));
+  }
+
   /** Not this one: it leaves, and stays gone. @param {string} id */
-  async dismiss(id) {
-    const state = await this.#read();
-    if (!state.dismissed.includes(id)) state.dismissed.push(id);
-    await this.#save({ ...state, matches: state.matches.filter((match) => match.bid.id !== id) });
+  dismiss(id) {
+    return this.#change((state) => ({
+      ...state,
+      dismissed: state.dismissed.includes(id) ? state.dismissed : [...state.dismissed, id],
+      matches: state.matches.filter((match) => match.bid.id !== id)
+    }));
   }
 
   /** Put the badge back after a relaunch. */
@@ -77,24 +104,35 @@ class BidWatch {
   }
 
   async #check() {
-    if (this.now() - this.#lastLook < AT_MOST_EVERY_MS) return [];
-    this.#lastLook = this.now();
     const response = await this.fetch(this.url, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error(`The bids board answered ${response.status}`);
-    const board = await response.json();
-    const found = await this.match(board);
-    const state = await this.#read();
+    if (Number(response.headers.get("content-length")) > BOARD_BYTES) throw new Error("The bids board sent too much");
+    const bytes = await response.arrayBuffer();
+    if (bytes.byteLength > BOARD_BYTES) throw new Error("The bids board sent too much");
+    const bids = boardBids(JSON.parse(new TextDecoder().decode(bytes)));
+    const found = bids.length ? await this.match({ bids }) : [];
     // Only ids still on the board are worth remembering; a bid that ended never comes back.
-    const live = new Set((Array.isArray(board?.bids) ? board.bids : []).map((/** @type {{id: string}} */ bid) => bid.id));
-    const dismissed = state.dismissed.filter((id) => live.has(id));
-    const byBid = new Map(found.filter((match) => !dismissed.includes(match.bid.id)).map((match) => [match.bid.id, match]));
-    const matches = [...byBid.values()];
-    const fresh = matches.filter((match) => !state.announced.includes(match.bid.id));
-    await this.#save({ matches, dismissed, announced: [...new Set([...state.announced.filter((id) => live.has(id)), ...byBid.keys()])] });
-    return fresh;
+    const live = new Set(bids.map((bid) => /** @type {string} */ (bid.id)));
+    const state = await this.#change((state) => {
+      const dismissed = state.dismissed.filter((id) => live.has(id));
+      const matches = [...new Map(found.filter((match) => !dismissed.includes(match.bid.id)).map((match) => [match.bid.id, match])).values()];
+      return { matches, dismissed, announced: state.announced.filter((id) => live.has(id)) };
+    });
+    return state.matches.filter((match) => !state.announced.includes(match.bid.id));
   }
 
-  /** @returns {Promise<{matches: BidMatch[], dismissed: string[], announced: string[]}>} */
+  /** One read-modify-write, after any under way. @param {(state: BidState) => BidState} next @returns {Promise<BidState>} */
+  #change(next) {
+    const turn = this.#writing.then(async () => {
+      const state = next(await this.#read());
+      await this.#save(state);
+      return state;
+    });
+    this.#writing = turn.catch(() => {});
+    return turn;
+  }
+
+  /** @returns {Promise<BidState>} */
   async #read() {
     try {
       const state = JSON.parse(await readFile(this.file, "utf8"));
@@ -103,13 +141,16 @@ class BidWatch {
     return { matches: [], dismissed: [], announced: [] };
   }
 
-  /** Written beside the file, then renamed over it, so a crash mid-write leaves the old one whole.
-   * @param {{matches: BidMatch[], dismissed: string[], announced: string[]}} state */
+  /** Written beside the file under a name of its own, then renamed over it, so a crash mid-write leaves the old one whole.
+   * @param {BidState} state */
   async #save(state) {
-    await writeFile(`${this.file}.tmp`, JSON.stringify(state));
-    await rename(`${this.file}.tmp`, this.file);
+    const temporary = `${this.file}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(state));
+    await rename(temporary, this.file);
     this.badge(state.matches.length);
   }
 }
 
-module.exports = { BidWatch, announcements, dollars, BIDS_URL, LOOK_EVERY_MS };
+/** @typedef {{matches: BidMatch[], dismissed: string[], announced: string[]}} BidState */
+
+module.exports = { BidWatch, announcements, boardBids, nextLook, dollars, BIDS_URL, LOOK_EVERY_MS, BIDS_AT_MOST };

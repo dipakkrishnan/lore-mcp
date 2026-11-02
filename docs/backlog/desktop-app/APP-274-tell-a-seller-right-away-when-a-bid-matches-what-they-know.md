@@ -40,5 +40,6 @@ built, the matching happens by hand (MON-055).
 
 Nov 1: P0. The engine is built: the app reads the board, `lore bids match` scores each open bid
 against the kept memories on the Mac (contracts/bids.md, "Matching on the seller's Mac"), the
-snapshot carries `bidMatches`, and `bids:draft` drafts the answer as a piece tied to the bid.
+snapshot carries `bidMatches`, and `bids:draft` drafts the answer, with no tools and only the matched
+memories, as a piece tied to the bid.
 The Inbox (a later PR) shows them. Sending without the admin token is MON-056.

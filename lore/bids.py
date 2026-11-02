@@ -25,6 +25,12 @@ SHARED = 2
 # The most memories one match names, and how many the search reads to find them.
 TOP = 3
 READ = 20
+# The board is public, so what is read of it is bounded: bytes, bids, and a
+# question's length as contracts/bids.md caps it, and the words searched for.
+BOARD_BYTES = 1_000_000
+BIDS_AT_MOST = 200
+QUESTION_AT_MOST = 280
+TERMS_AT_MOST = 16
 
 WORD = re.compile(r"[^\W_]+")
 SUFFIXES = ("ies", "ing", "ed", "es", "s")
@@ -47,7 +53,7 @@ class OpenBid(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     id: str = Field(pattern=BID_ID, min_length=10)
-    question: str = Field(min_length=1)
+    question: str = Field(min_length=1, max_length=QUESTION_AT_MOST)
     usd: float
     market: str = ""
     url: str = ""
@@ -72,7 +78,7 @@ def stems(text: str) -> list[str]:
                 break
         if word not in found:
             found.append(word)
-    return found
+    return found[:TERMS_AT_MOST]
 
 
 class BidMatcher:

@@ -314,6 +314,9 @@ type BidMatch = {
   score: number;
 };
 
+/** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
+type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
+
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
 type PublicationExtras = {
   publication_id: number;
@@ -545,6 +548,7 @@ type LoreAgentInstance = {
   dispose(): void;
   synthesize(reading: Reading): void;
   checkIn(job: CheckInJob): void;
+  draftBid(match: BidMatch, memories: Memory[]): Promise<BidDraft | null>;
   settled(): Promise<void>;
 };
 

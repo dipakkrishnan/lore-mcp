@@ -21,7 +21,9 @@ def board() -> list[dict]:
     return json.loads((FIXTURES / "bids.json").read_text(encoding="utf-8"))["bids"]
 
 
-class BidMatchTest(LoreTestCase):
+class LibraryCase(LoreTestCase):
+    """The fixture library, kept."""
+
     def setUp(self) -> None:
         super().setUp()
         with Store() as store:
@@ -38,6 +40,8 @@ class BidMatchTest(LoreTestCase):
                     content=memory["content"],
                 )
 
+
+class BidMatchTest(LibraryCase):
     def scores(self) -> dict[str, float]:
         """Every bid's best score with no line drawn, so the corpus shows where the gap is."""
         with patch.object(bids, "THRESHOLD", 0.0), Store() as store:
@@ -136,3 +140,32 @@ class StemsTest(LoreTestCase):
         )
         self.assertEqual(stems("Which policies, policy?"), ["polic", "policy"])
         self.assertEqual(stems("the and of"), [])
+
+
+class BoundsTest(LibraryCase):
+    def run_match(self, sent: str) -> list[dict]:
+        with patch.object(sys, "stdin", StringIO(sent)), captured() as out:
+            self.assertEqual(cli.main(["bids", "match"]), 0)
+        return json.loads(out.getvalue())
+
+    def test_a_question_past_the_contract_s_length_is_never_matched(self) -> None:
+        long = board()[0] | {"question": board()[0]["question"] + " x" * 200}
+        self.assertEqual(self.run_match(json.dumps({"bids": [long]})), [])
+
+    def test_only_the_first_bids_up_to_the_cap_are_read(self) -> None:
+        filler = [board()[9] | {"id": f"f{n:09d}"} for n in range(bids.BIDS_AT_MOST)]
+        found = self.run_match(json.dumps({"bids": [*filler, board()[0]]}))
+        self.assertEqual(found, [])
+
+    def test_a_board_past_the_byte_cap_is_refused(self) -> None:
+        sent = json.dumps({"bids": board()})
+        with (
+            patch.object(bids, "BOARD_BYTES", 10),
+            patch.object(sys, "stdin", StringIO(sent)),
+        ):
+            with self.assertRaisesRegex(ValueError, "too big"):
+                cli.bids_match()
+
+    def test_only_so_many_words_are_searched(self) -> None:
+        words = " ".join(f"word{n}" for n in range(40))
+        self.assertEqual(len(stems(words)), bids.TERMS_AT_MOST)

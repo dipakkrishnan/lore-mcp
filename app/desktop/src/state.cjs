@@ -559,6 +559,16 @@ async function matchBids(loreHome, board) {
   return records(await lore(loreHome, ["bids", "match"], JSON.stringify(board)), "bid matches");
 }
 
+/** Stage a bid's answer beside the drafts already waiting, replacing an earlier answer to the same bid. The app, not
+ * the model, says which memories it draws on and which bid it answers. @param {string} loreHome @param {BidMatch} match
+ * @param {BidDraft} words */
+async function stageBidAnswer(loreHome, match, words) {
+  const topic = match.bid.market && match.bid.market !== "unsorted" ? match.bid.market : "answers";
+  const answer = { ...words, kind: "claim", topic, provenance: match.memories.map((memory) => memory.id), bid: match.bid.id };
+  const waiting = (await candidates(loreHome)).filter((draft) => draft.bid !== match.bid.id);
+  await lore(loreHome, ["publication", "draft", "-"], JSON.stringify([...waiting, answer]));
+}
+
 /** @param {string} loreHome @param {unknown} id @returns {Promise<Memory>} */
 async function readMemory(loreHome, id) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -984,6 +994,7 @@ module.exports = {
   readViews,
   searchMemories,
   matchBids,
+  stageBidAnswer,
   readMemory,
   readGists,
   judgeMemories,
