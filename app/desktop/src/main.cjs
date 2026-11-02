@@ -25,8 +25,9 @@ if (!app.requestSingleInstanceLock()) app.exit();
 process.env.LORE_APP_VERSION = app.getVersion();
 const TASKS = new Set(["capture", "setup", "publish", "deploy", "evening"]);
 /** What the renderer may report: that the usage notice was on screen, and that the app opened. */
-const USAGE = new Set(["noticed", "app.opened"]);
+const USAGE = new Set(["noticed", "app.installed", "app.opened"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
+const FIRST_RUN_STEPS = new Set(["apps", "agent", "store", "link", "saved", "skipped"]);
 
 /** @type {LoreAgentInstance | undefined} */
 let agent;
@@ -139,8 +140,10 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
       return auth;
     });
   });
-  ipcMain.handle("usage:record", (_event, name) => {
-    if (!USAGE.has(name)) throw new Error("Unknown usage event");
+  ipcMain.handle("usage:record", (_event, name, step) => {
+    // The first-run chat's steps are the one event the renderer sends with a value, and only one of these.
+    if (name === "firstrun.step" && FIRST_RUN_STEPS.has(step)) return lore(loreHome, ["telemetry", "record", name, step]).then(() => undefined);
+    if (!USAGE.has(name) || step !== undefined) throw new Error("Unknown usage event");
     return lore(loreHome, name === "noticed" ? ["telemetry", "noticed"] : ["telemetry", "record", name]).then(() => undefined);
   });
   ipcMain.handle("telemetry:set", (_event, on) => lore(loreHome, ["telemetry", on === true ? "on" : "off"]).then(() => undefined));

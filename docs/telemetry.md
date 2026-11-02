@@ -29,9 +29,11 @@ a row in this table needed it — nothing is collected "just in case."
 
 | Question | Metric | Plane | Supplied by |
 |---|---|---|---|
-| Do installs reach first value? | Funnel conversion across setup → capture → publish → store | desktop | `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
+| Do installs reach first value? | Funnel conversion across install → setup → capture → publish → store | desktop | `app.installed` (an install's first event, sent once the welcome screen has said what is sent: `APP-250`), `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
 | Do people come back? | Distinct days with an `app.opened` per install | desktop | `app.opened` |
+| Where does the first-run chat lose new owners? | Installs reaching each step: apps connected → agent picked → store online → link shown → first save, or skipped | desktop | `firstrun.step{step}`, each step once per install |
 | Which operations fail for real users? | Failure rate by CLI command | desktop | `cli.failed` with a coded command + outcome |
+| Do agents, apps and the owner keep putting memories in? | Days with a save per install, by way in; installs whose personal agent saved; installs that drafted a piece (`XC-090`) | desktop | `memory.saved{via}` once a day per way in, `agent.connected{agent}` and `piece.drafted` once |
 | Is a deployed node serving? | Request rate, error rate, p50/p95 latency by tool | node (owner) | Workers' automatic request tracing, `observability.traces` in `wrangler.jsonc` |
 | Are buyers hitting revoked or stale ids? | `get` miss rate | node (owner) | `lore.get` span, `lore.outcome = "not_found"` — the drift signal `MON-013` wants |
 | Does the paid path complete? | Verified vs. settled vs. billed-but-unrecorded | node (owner) | `lore.sale` span, `lore.settled` / `lore.outcome` |
@@ -61,7 +63,9 @@ answers.
   opening, a sign-in), and Python records the rest where they happen. The
   closed list is `contracts/usage_events.json`: a name and at most one coded
   property per event. Milestones are sent once per install, `app.opened` once
-  a day, `cli.failed` each time with only the command's name. Nothing is sent
+  a day, `cli.failed` each time with only the command's name, except for the
+  store reads the app polls every minute (`node sales`, `node views`), whose
+  failures mean the store is out of reach, not a broken command (`CLI-016`). Nothing is sent
   before the notice (`telemetry_noticed`) or with telemetry off, and every
   event sent is appended to `~/.lore/usage.log`. Sending is a 2-second,
   best-effort POST that never fails a command.
@@ -125,7 +129,11 @@ exception) into span attributes:
 4. **Install id** (desktop plane) is random, generated locally, resettable,
    and derived from nothing about the machine.
 5. **No shape disclosures.** A milestone is "first memory saved," never "412
-   memories" — a count discloses how much someone has written.
+   memories" — a count discloses how much someone has written. Repeats are
+   kept only as days: `memory.saved{via}` is sent at most once a day for each
+   way in, so a dashboard sees on how many days an install saved something,
+   the same shape `app.opened` already has, and never how many memories came
+   in. A count per day, even bucketed, would be that shape disclosure.
 6. **Owner node data never reaches the maintainer.** Different Cloudflare
    account, different destination, by construction — the node plane has no
    `destinations` entry pointed at maintainer infrastructure.

@@ -1896,7 +1896,9 @@ class PublicationApplyTest(LoreTestCase):
         return self.lore_home / "publish-candidates.json"
 
     def test_drafting_validates_then_stages_for_approval(self) -> None:
-        staged = self.drafted({"title": "First"}, {"title": "Second"})
+        with patch.object(cli.usage, "record") as record:
+            staged = self.drafted({"title": "First"}, {"title": "Second"})
+        record.assert_called_once_with("piece.drafted")
         self.assertEqual([c["title"] for c in staged], ["First", "Second"])
         with captured() as out:
             self.assertEqual(cli.publication_candidates(), 0)

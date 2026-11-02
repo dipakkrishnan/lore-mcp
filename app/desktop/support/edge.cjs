@@ -84,11 +84,15 @@ const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
 /** APP-214: the next turn fails a moment in, the way agent.mjs reports a thrown turn. */
 let failNextTurn = false;
+/** The first-run steps the renderer reported, in order. @type {string[]} */
+const steps = [];
 /** APP-211: every call the renderer made to the main process, every usage event it asked to record, and every write
  * remembering the automations notice. In fresh, the first of each write fails as a busy CLI's would (the usage one at
  * once, the automations one after a moment), and the third automations write is slow. */
 const ipc = [];
 const usage = [];
+/** How many more writes remembering the usage notice fail, as a busy CLI's would; a walk sets it again to fail the next. */
+let failNoticed = 1;
 const routinesNoticed = [];
 /** APP-215: calls the firstrun walk holds until it lets them go, and calls it makes fail once, by channel.
  * @type {Map<string, Promise<unknown>>} */
@@ -115,6 +119,7 @@ const hold = (channel) => {
   const locked = () => new Error("database is locked");
   ipcMain.handle = (channel, listener) => handle(channel, (event, ...args) => {
     ipc.push(channel);
+    if (channel === "usage:record" && args[0] === "firstrun.step") steps.push(args[1]);
     if (failOnce.delete(channel)) return Promise.reject(new Error("the walk made this fail"));
     const waiting = held.get(channel);
     if (waiting) return waiting.then(() => listener(event, ...args));
@@ -123,7 +128,7 @@ const hold = (channel) => {
     if (scenario !== "fresh") return listener(event, ...args);
     if (channel === "usage:record") {
       usage.push(args[0]);
-      if (args[0] === "noticed" && usage.filter((name) => name === "noticed").length === 1) return Promise.reject(locked());
+      if (args[0] === "noticed" && failNoticed > 0 && failNoticed--) return Promise.reject(locked());
     }
     if (channel === "routines:noticed") {
       routinesNoticed.push(Date.now());
@@ -947,10 +952,21 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       } else if (scenario === "fresh") {
         // APP-109: an empty Lore names the next action and carries the control that takes it.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
-        // APP-211: signing out before the first load lands leaves nothing remembered and nothing sent.
+        // APP-250: the welcome screen says usage events are sent, with what was sent one click away, and remembers saying it.
+        check("the welcome screen says usage events are sent, with a way to see them", await js(`(() => { const see = document.querySelector("#welcome-usage"); return Boolean(see?.checkVisibility()) && see.textContent === "See what's sent" && see.parentElement.textContent.startsWith("Lore sends anonymous usage events"); })()`));
+        await shot("welcome-usage");
+        for (let i = 0; i < 40 && !usage.length; i++) await sleep(100);
+        await sleep(500);
+        check("…and tries to remember it once it's on screen; that first write fails and nothing else is sent", JSON.stringify(usage) === JSON.stringify(["noticed"]) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true)`), JSON.stringify(usage));
+        // APP-211: signing out before the first load lands leaves nothing remembered but what the welcome screen said.
         await js(`window.__lore.signIn(); auth = { credentials: [] }; enter(); true`);
         await sleep(2500);
-        check("signing out while Lore loads remembers nothing and sends nothing", usage.length === 0 && await js(`document.body.dataset.state === "welcome" && !document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true && s.setup.automations_noticed === false)`), JSON.stringify(usage));
+        check("signing out while Lore loads remembers only the welcome screen's notice, and counts the install", JSON.stringify(usage) === JSON.stringify(["noticed", "noticed", "app.installed"]) && await js(`document.body.dataset.state === "welcome" && !document.querySelector("#status .notice")`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true && s.setup.automations_noticed === false)`), JSON.stringify(usage));
+        check("…and the install is counted once, in the local log", readFileSync(join(process.env.LORE_HOME ?? "", "usage.log"), "utf8").includes('"app.installed"'));
+        // From here the owner signed in before the welcome screen said it (APP-250), so Today says it instead.
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nfrom lore import usage\nwith Store() as s:\n s.set_setting(usage.NOTICED_SETTING, False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        usage.length = 0;
+        failNoticed = 1;
         // APP-211: the owner is on another page when Lore loads. Today's notices wait for Today, and aren't remembered as said until seen.
         await js(`window.__lore.show("connectors")`);
         await js(`window.__lore.signIn()`);
@@ -969,7 +985,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "changed" })`);
         check("…a later snapshot remembers it", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`), JSON.stringify(usage));
         for (let i = 0; i < 40 && !usage.includes("app.opened"); i++) await sleep(100);
-        check("…and only then counts Lore as opened", JSON.stringify(usage) === JSON.stringify(["noticed", "noticed", "app.opened"]), JSON.stringify(usage));
+        check("…and only then counts Lore as opened, never as a new install", JSON.stringify(usage) === JSON.stringify(["noticed", "noticed", "app.installed", "app.opened"]) && (readFileSync(join(process.env.LORE_HOME ?? "", "usage.log"), "utf8").match(/app\.installed/g) ?? []).length === 1, JSON.stringify(usage));
         check("…with the notice shown once throughout", await js(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("anonymous usage events")).length === 1`));
         check("…and says nothing about reading connected apps while none is connected", !(await js(`document.querySelector("#status").textContent`)).includes("connected apps") && await js(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`), await js(`document.querySelector("#status").textContent`));
         await shot("today-usage-notice");
@@ -1036,18 +1052,22 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(1000);
         check("…and later snapshots leave it alone", routinesNoticed.length === 2 && await js(`${toldAutomations} === 0`), String(routinesNoticed.length));
         // APP-211: both notices unsaid again; sign in, and sign out while the slow automations write is out. Nothing queued behind it goes out.
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nfrom lore import automation, usage\nwith Store() as s:\n s.set_setting(automation.NOTICED, False)\n s.set_setting(usage.NOTICED_SETTING, False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        // Signed out first, so the welcome screen's own notice is said before both are unsaid again.
         await js(`auth = { credentials: [] }; enter(); true`);
+        const welcomed = usage.length;
+        for (let i = 0; i < 40 && usage.length < welcomed + 2; i++) await sleep(100);
+        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nfrom lore import automation, usage\nwith Store() as s:\n s.set_setting(automation.NOTICED, False)\n s.set_setting(usage.NOTICED_SETTING, False)"], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.signIn()`);
         check("signed in again, Today says both", await waitFor(`${toldAutomations} === 1 && document.querySelector("#status").textContent.includes("anonymous usage events")`));
         for (let i = 0; i < 40 && routinesNoticed.length < 3; i++) await sleep(50);
-        await js(`auth = { credentials: [] }; enter(); true`);
         const signedOut = usage.length;
+        await js(`auth = { credentials: [] }; enter(); true`);
         await sleep(3500);
-        check("signed out while a write is out: nothing queued behind it goes out, and nothing is left told", routinesNoticed.length === 3 && usage.length === signedOut && await js(`told.size === 0`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed !== true)`), JSON.stringify(usage.slice(signedOut)));
+        check("signed out while a write is out: nothing queued behind it goes out, and nothing is left told but the welcome screen's notice", routinesNoticed.length === 3 && JSON.stringify(usage.slice(signedOut)) === JSON.stringify(["noticed", "app.installed"]) && await js(`told.size === 0`) && await js(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`), JSON.stringify(usage.slice(signedOut)));
         await js(`window.__lore.signIn()`);
-        check("…and signing in again is a fresh sign-in: the one notice still unsaid shows, once", await waitFor(`document.querySelector("#status").textContent.includes("anonymous usage events")`) && await js(`[...document.querySelectorAll("#status .notice")].length === 1`), await js(`document.querySelector("#status").textContent`));
-        check("…is remembered, and only then counts Lore as opened", await waitFor(`window.lore.snapshot().then((s) => s.setup.telemetry_noticed === true)`) && await waitFor(`window.lore.snapshot().then(() => true)`) && JSON.stringify(usage.slice(signedOut)) === JSON.stringify(["noticed", "app.opened"]), JSON.stringify(usage.slice(signedOut)));
+        await waitFor(todayShown);
+        for (let i = 0; i < 40 && !usage.slice(signedOut).includes("app.opened"); i++) await sleep(100);
+        check("…and signing in again is a fresh sign-in: the welcome screen said it, so Today doesn't, and Lore counts as opened", !(await js(`document.querySelector("#status").textContent`)).includes("anonymous usage events") && JSON.stringify(usage.slice(signedOut)) === JSON.stringify(["noticed", "app.installed", "app.opened"]), JSON.stringify(usage.slice(signedOut)) + " " + await js(`document.querySelector("#status").textContent`));
       } else if (scenario === "obsidian") {
         // APP-124: an app by name, one Connect, the vault offered rather than asked for.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -1713,6 +1733,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…each of its titles first, with Grok Bot's mark", await waitFor(`[...${savedCard}.querySelectorAll(".row")].slice(1, 4).every((r) => r.querySelector("img.logo")?.src.endsWith("assets/grok.svg"))`, 40) && /How I price sync placements/.test(await js(`${savedCard}.textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…counting what the apps on this Mac brought in too, after the relaunch as well", /brought in \d+ memor(y|ies) too\./.test(await js(`${savedCard}.querySelector(".first-saved-apps")?.textContent ?? ""`)) && /Claude Code/.test(await js(`${savedCard}.querySelector(".first-saved-apps").textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…and the first run is done", await waitFor(`window.lore.firstRun().then((k) => k?.state === "done")`), JSON.stringify(await kept()));
+        check("…each step it passed reported once, in order, never the failed tries", JSON.stringify(steps) === JSON.stringify(["apps", "agent", "store", "link", "saved"]), JSON.stringify(steps));
         check("…and nothing shimmers once it has saved", await js(`!document.querySelector("#content .first-run .shimmer")`));
         // APP-230: the message it was sent already set up its routine, so the first run ends on the next AI or Today.
         check("…without asking a second time for the routine", !(await js(chat)).includes("routine"), await js(chat));
@@ -1733,6 +1754,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#first-run-skip").click()`);
         check("Skip for now lands on Today with its one next step", await waitFor(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelectorAll("#content .next-step").length === 1`), await js(`document.querySelector("#content").textContent`));
         check("…and is kept as skipped", await waitFor(`window.lore.firstRun().then((k) => k?.state === "skipped")`), JSON.stringify(await kept()));
+        check("…and reported as skipped", steps.at(-1) === "skipped", JSON.stringify(steps));
         await shot("firstrun-skipped-today");
         await relaunch();
         check("…so a relaunch stays on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));

@@ -224,6 +224,8 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** The apps a personal agent can be (CAP-036). */
 /** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
 type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
+/** How far a new owner got through the first-run chat, as a usage event (contracts/usage_events.json). */
+type FirstRunStep = "apps" | "agent" | "store" | "link" | "saved" | "skipped";
 
 /** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
 type AppearanceChoice = "system" | "light" | "dark";
@@ -402,9 +404,10 @@ interface Window {
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
-    usage(name: "noticed" | "app.opened"): Promise<void>;
+    usage(name: "noticed" | "app.installed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
     usageLog(): Promise<string>;
+    usage(name: "firstrun.step", step: FirstRunStep): Promise<void>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;

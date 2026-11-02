@@ -34,7 +34,9 @@ the first time you open an updated app, or once in the terminal.
 - **What is never sent:** your memories, pieces, titles, prompts, file paths,
   URLs, prices, amounts, wallet or payment details, or how many of anything
   you have. Most events are sent only the first time they happen; "app
-  opened" at most once a day; a failed command says only which command.
+  opened", and "memory saved" with how it came in (you, an agent, a connected
+  app, or Lore's own summaries), at most once a day each; a failed command says
+  only which command.
 - **Where it goes:** to the maintainers' relay (`relay.yourlore.dev`), which
   drops anything not on the fixed list (`contracts/usage_events.json`) and
   passes the rest to PostHog, an analytics service, with no person profile

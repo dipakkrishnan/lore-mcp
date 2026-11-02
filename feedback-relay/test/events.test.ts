@@ -49,6 +49,17 @@ describe("usage events", () => {
     ]);
   });
 
+  it("takes how far a first run got as one of its steps, nothing else", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "firstrun.step", props: { step: "link" }, at: AT },
+        { name: "firstrun.step", props: { step: "Grok Bot" }, at: AT },
+        { name: "firstrun.step", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([{ name: "firstrun.step", props: { step: "link" }, at: AT }]);
+  });
+
   it("knows every event in the shared contract", () => {
     for (const [name, prop] of Object.entries(contract.events)) {
       const props = prop ? { [prop.prop]: prop.values[0] } : {};
@@ -84,6 +95,25 @@ describe("usage events", () => {
         timestamp: expect.stringMatching(/Z$/) as unknown,
         properties: { agent: "curl", app_version: "site", $process_person_profile: false, $ip: null }
       }
+    ]);
+  });
+
+  it("takes how a memory came in, and still takes the bare save older copies of Lore send", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "memory.saved", props: { via: "agent" }, at: AT },
+        { name: "memory.saved", props: {}, at: AT },
+        { name: "memory.saved", props: { via: "my notes" }, at: AT },
+        { name: "agent.connected", props: { agent: "grok" }, at: AT },
+        { name: "agent.connected", props: {}, at: AT },
+        { name: "piece.drafted", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([
+      { name: "memory.saved", props: { via: "agent" }, at: AT },
+      { name: "memory.saved", props: {}, at: AT },
+      { name: "agent.connected", props: { agent: "grok" }, at: AT },
+      { name: "piece.drafted", props: {}, at: AT }
     ]);
   });
 
