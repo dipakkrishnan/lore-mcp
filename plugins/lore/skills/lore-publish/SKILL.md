@@ -168,6 +168,24 @@ approved changes don't reach the edge until pushed. If they choose Monetize,
 say that the payment flow will ask whether to keep the exact publication through
 `get` only or also add grounded proxy responses through `answer`.
 
+## Answering a bid
+
+When Lore asks you to answer a bid (someone posted a question with an amount
+on yourlore.dev), you are told the bid's id, its question, and the memories
+Lore matched to it. Draft exactly one candidate that answers that question
+from those memories (read them in full; add another only if it plainly
+belongs). Put the bid's id on it as `"bid"`, write the teaser as the bid's
+question in the owner's terms, and skip the topic question: use the bid's
+market as `topic` unless it is `unsorted`, then a short topic of your own the
+owner sees on the card. The card is the owner's to approve, edit, or skip;
+nothing reaches the bid until they send it.
+
+```sh
+lore publication draft - <<'LORE_PUBLISH'
+[{"title": "...", "teaser": "...", "content": "...", "kind": "claim", "topic": "...", "provenance": [12], "bid": "k3v9q2m7xa"}]
+LORE_PUBLISH
+```
+
 ## Free parts for a piece already on sale
 
 To add or rewrite the `sample`, `useful_if` and `not_useful_if` of a piece

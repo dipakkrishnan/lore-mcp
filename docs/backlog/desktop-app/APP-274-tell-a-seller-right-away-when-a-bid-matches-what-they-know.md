@@ -1,16 +1,16 @@
 ---
 id: APP-274
 title: Tell a seller right away when a bid matches what they know
-priority: P2
+priority: P0
 effort: L
 component: desktop-app
-status: in-review
-related: [MON-051, CAP-036, XC-114]
+status: in-progress
+related: [MON-051, CAP-036, XC-114, MON-056]
 blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-01
 ---
 
 ## Problem
@@ -37,3 +37,8 @@ memories. The owner edits it and sends it, and it is listed as the answer piece.
 
 Oct 31: called the magic moment, and the proactive version of the check-in. Before this is
 built, the matching happens by hand (MON-055).
+
+Nov 1: P0. The engine is built: the app reads the board, `lore bids match` scores each open bid
+against the kept memories on the Mac (contracts/bids.md, "Matching on the seller's Mac"), the
+snapshot carries `bidMatches`, and `bids:draft` drafts the answer as a piece tied to the bid.
+The Inbox (a later PR) shows them. Sending without the admin token is MON-056.

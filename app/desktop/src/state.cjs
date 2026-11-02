@@ -552,6 +552,13 @@ async function searchMemories(loreHome, query) {
   return JSON.parse(await lore(loreHome, ["search", ...terms, "--status", "private", "--limit", "30", "--json"]));
 }
 
+/** The bids on the board that the owner's kept memories answer, decided here (APP-274). The board goes in on stdin,
+ * as a decision would, so no question a stranger wrote is ever read as an option. @param {string} loreHome @param {unknown} board
+ * @returns {Promise<BidMatch[]>} */
+async function matchBids(loreHome, board) {
+  return records(await lore(loreHome, ["bids", "match"], JSON.stringify(board)), "bid matches");
+}
+
 /** @param {string} loreHome @param {unknown} id @returns {Promise<Memory>} */
 async function readMemory(loreHome, id) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
@@ -976,6 +983,7 @@ module.exports = {
   readSales,
   readViews,
   searchMemories,
+  matchBids,
   readMemory,
   readGists,
   judgeMemories,

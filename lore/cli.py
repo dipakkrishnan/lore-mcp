@@ -20,6 +20,7 @@ from pydantic import (
     Field,
     StrictInt,
     TypeAdapter,
+    ValidationError,
     field_validator,
 )
 
@@ -428,6 +429,12 @@ def parser() -> argparse.ArgumentParser:
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("desktop-state", help="print the desktop app state as JSON")
+    bids = commands.add_parser("bids", help="open bids your memories can answer")
+    bids_commands = bids.add_subparsers(dest="bids_command", required=True)
+    bids_commands.add_parser(
+        "match",
+        help="read /bids.json on stdin; print the bids your kept memories answer",
+    )
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the per-publication price")
     price.add_argument(
@@ -781,6 +788,8 @@ def main(argv: list[str] | None = None) -> int:
 
             print(json.dumps(build(), separators=(",", ":"), allow_nan=False))
             return 0
+        if args.command == "bids":
+            return bids_match()
         if args.command == "help":
             return manual()
         if args.command == "price":
@@ -1424,6 +1433,21 @@ def search(
         return 0
     for memory in memories:
         memory_card(memory)
+    return 0
+
+
+def bids_match() -> int:
+    """Match the board's open bids to the owner's memories, here, and print the strong ones (APP-274)."""
+    from .bids import BidMatcher, OpenBid
+
+    bids = []
+    for bid in json.loads(sys.stdin.read()).get("bids", []):
+        try:
+            bids.append(OpenBid.model_validate(bid))
+        except ValidationError:
+            continue  # one bid the board shows oddly never hides the rest
+    with Store() as store:
+        print(json.dumps(BidMatcher(store).matches(bids)))
     return 0
 
 
@@ -2205,7 +2229,7 @@ def publication_decide() -> int:
             break
     else:
         raise ValueError("that candidate is not drafted; nothing saved")
-    for field in ("kind", "topic", "provenance"):
+    for field in ("kind", "topic", "provenance", "bid"):
         if getattr(decision.candidate, field) != getattr(original, field):
             raise ValueError("only a draft's wording can be edited")
     if decision.approve:

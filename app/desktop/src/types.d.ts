@@ -101,6 +101,8 @@ type Snapshot = {
   // Optional on purpose: an installed CLI older than this app has no `jobs` in
   // its snapshot, and Today must render without it rather than throw.
   jobs?: { items: JobItem[] };
+  // Open bids the owner's memories answer, best first (APP-274). Added by the app, not the CLI.
+  bidMatches: BidMatch[];
 };
 
 type JobItem = {
@@ -301,6 +303,15 @@ type PublicationCandidate = {
   kind: "claim" | "content";
   topic: string;
   provenance: number[];
+  // The bid this draft answers (APP-274); absent on a piece drafted on its own.
+  bid?: string;
+};
+
+/** An open bid on yourlore.dev that the owner's memories answer, matched on this Mac (APP-274). */
+type BidMatch = {
+  bid: { id: string; question: string; usd: number; market: string; url: string; expires: string };
+  memories: Array<{ id: number; title: string }>;
+  score: number;
 };
 
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
@@ -445,6 +456,8 @@ interface Window {
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
     editRoutine(id: string, text: string, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
+    draftBid(id: string): Promise<void>;
+    dismissBid(id: string): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
