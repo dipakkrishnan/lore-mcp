@@ -355,13 +355,30 @@ function inline(label, onClick) {
   return node;
 }
 
-/** Render a memory's content as markdown, pulling the description out of any frontmatter. @param {string} content */
-function renderMemoryBody(content) {
+/** Render a memory's content as markdown, pulling the description out of any frontmatter, the title out of the body,
+ * and an agent's bookkeeping into properties (APP-284). @param {string} content @param {string} title */
+function renderMemoryBody(content, title) {
   const meta = content.match(FRONTMATTER)?.[1] ?? "";
-  const node = markdown(content.replace(FRONTMATTER, ""));
-  node.classList.add("body");
+  const text = new MemoryText(title, content.replace(FRONTMATTER, "")).read();
+  const node = el("div", "md body");
+  for (const part of text.parts) {
+    if ("keywords" in part) node.append(el("p", "keywords", part.keywords));
+    else node.append(...markdown(part.markdown).childNodes);
+  }
   const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
   if (description) node.prepend(el("p", "lede", description));
+  /** @type {[string, string][]} */
+  const props = [["Project", text.project], ["Updated", text.updated ? when(text.updated) : ""], ["Scope", text.scope]];
+  const shown = props.filter(([, value]) => value);
+  if (shown.length) {
+    const list = el("dl", "props memory-props");
+    for (const [label, value] of shown) {
+      const item = el("div", "prop");
+      item.append(el("dt", "", label), el("dd", "", value));
+      list.append(item);
+    }
+    node.prepend(list);
+  }
   return node;
 }
 
@@ -452,7 +469,7 @@ async function openMemory(id) {
     actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
-  let body = renderMemoryBody(memory.content);
+  let body = renderMemoryBody(memory.content, memory.title);
   function startRename() {
     const input = el("input", "draft-title");
     input.type = "text";
@@ -509,7 +526,7 @@ async function openMemory(id) {
         tell(reason(error, "Lore could not save that."), true);
         return;
       }
-      body = renderMemoryBody(memory.content);
+      body = renderMemoryBody(memory.content, memory.title);
       textarea.replaceWith(body);
       showActions();
       void load();

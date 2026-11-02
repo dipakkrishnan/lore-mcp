@@ -367,6 +367,7 @@ type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | 
 type BidLook = { match: BidMatch; drafting: boolean; draft: PublicationCandidate | null; approved: boolean; dismissed: boolean };
 
 declare const Inbox: typeof import("./inbox.js").Inbox;
+declare const MemoryText: typeof import("./memorytext.js").MemoryText;
 /** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
 type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
 
