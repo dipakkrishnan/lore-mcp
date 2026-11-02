@@ -1,7 +1,7 @@
 // Runs the renderer walks (support/edge.sh), several at a time. Each walk already keeps its own Lore home, Electron
 // profile, store and ports, so walks side by side cannot see each other.
 // Usage: node support/walks.cjs [--jobs N] [name ...]
-//   --jobs N    walks at once (default 2: on a three-core macos-14 runner two side by side take as long as one
+//   --jobs N    walks at once (default 2: on a three-core macos-15 runner two side by side take as long as one
 //               alone; a third slows each walk two to two and a half times and fails a third of them)
 //   name ...    run only these walks
 // XC-077: this list is the one CI runs and `npm run test:edge` runs. `seconds` is the walk's time alone on a CI runner
