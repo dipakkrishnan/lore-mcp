@@ -112,6 +112,7 @@ class UsageTest(LoreTestCase):
         usage.record("app.opened")
         self.assertFalse(usage.record("app.installed"))
         self.assertEqual(self.names(), ["app.opened"])
+
     def test_events_carry_only_coded_values(self) -> None:
         usage.notice_shown()
         with self.assertRaises(ValueError):

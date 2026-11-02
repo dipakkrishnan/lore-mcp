@@ -48,6 +48,11 @@ CONNECTORS = (
     "feed",
     "agents",
 )
+# How a memory came in (XC-090): the owner capturing it, a personal agent saving
+# to the inbox, a connected app read, or Lore's own synthesis.
+SAVED_VIA = ("capture", "agent", "connector", "synthesis")
+# Which personal agent first saved to the inbox; inbox.AgentApp's values.
+AGENT_APPS = ("grok", "muse", "chatgpt", "claude", "instinct", "other")
 COMMANDS = (
     "setup",
     "sync",
@@ -79,11 +84,6 @@ STORE_FAILURES = (
 )
 # How far a new owner got through the app's first-run chat, each step once.
 FIRST_RUN_STEPS = ("apps", "agent", "store", "link", "saved", "skipped")
-# How a memory came in (XC-090): the owner capturing it, a personal agent saving
-# to the inbox, a connected app read, or Lore's own synthesis.
-SAVED_VIA = ("capture", "agent", "connector", "synthesis")
-# Which personal agent first saved to the inbox; inbox.AgentApp's values.
-AGENT_APPS = ("grok", "muse", "chatgpt", "claude", "instinct", "other")
 # name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
     "app.installed": ("first", None),
