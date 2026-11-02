@@ -77,11 +77,14 @@ STORE_FAILURES = (
     "not_answering",
     "other",
 )
+# How far a new owner got through the app's first-run chat, each step once.
+FIRST_RUN_STEPS = ("apps", "agent", "store", "link", "saved", "skipped")
 # name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
     "app.installed": ("first", None),
     "app.opened": ("daily", None),
     "signin.completed": ("once", None),
+    "firstrun.step": ("once", ("step", FIRST_RUN_STEPS)),
     "source.connected": ("once", ("connector", CONNECTORS)),
     "memory.saved": ("once", None),
     "piece.approved": ("once", None),

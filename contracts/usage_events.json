@@ -4,6 +4,17 @@
     "app.installed": null,
     "app.opened": null,
     "signin.completed": null,
+    "firstrun.step": {
+      "prop": "step",
+      "values": [
+        "apps",
+        "agent",
+        "store",
+        "link",
+        "saved",
+        "skipped"
+      ]
+    },
     "source.connected": {
       "prop": "connector",
       "values": [

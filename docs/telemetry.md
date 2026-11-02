@@ -31,6 +31,7 @@ a row in this table needed it — nothing is collected "just in case."
 |---|---|---|---|
 | Do installs reach first value? | Funnel conversion across install → setup → capture → publish → store | desktop | `app.installed` (an install's first event, sent once the welcome screen has said what is sent: `APP-250`), `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
 | Do people come back? | Distinct days with an `app.opened` per install | desktop | `app.opened` |
+| Where does the first-run chat lose new owners? | Installs reaching each step: apps connected → agent picked → store online → link shown → first save, or skipped | desktop | `firstrun.step{step}`, each step once per install |
 | Which operations fail for real users? | Failure rate by CLI command | desktop | `cli.failed` with a coded command + outcome |
 | Is a deployed node serving? | Request rate, error rate, p50/p95 latency by tool | node (owner) | Workers' automatic request tracing, `observability.traces` in `wrangler.jsonc` |
 | Are buyers hitting revoked or stale ids? | `get` miss rate | node (owner) | `lore.get` span, `lore.outcome = "not_found"` — the drift signal `MON-013` wants |

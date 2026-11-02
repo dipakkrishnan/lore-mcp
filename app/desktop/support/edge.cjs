@@ -84,6 +84,8 @@ const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
 /** APP-214: the next turn fails a moment in, the way agent.mjs reports a thrown turn. */
 let failNextTurn = false;
+/** The first-run steps the renderer reported, in order. @type {string[]} */
+const steps = [];
 /** APP-211: every call the renderer made to the main process, every usage event it asked to record, and every write
  * remembering the automations notice. In fresh, the first of each write fails as a busy CLI's would (the usage one at
  * once, the automations one after a moment), and the third automations write is slow. */
@@ -117,6 +119,7 @@ const hold = (channel) => {
   const locked = () => new Error("database is locked");
   ipcMain.handle = (channel, listener) => handle(channel, (event, ...args) => {
     ipc.push(channel);
+    if (channel === "usage:record" && args[0] === "firstrun.step") steps.push(args[1]);
     if (failOnce.delete(channel)) return Promise.reject(new Error("the walk made this fail"));
     const waiting = held.get(channel);
     if (waiting) return waiting.then(() => listener(event, ...args));
@@ -1730,6 +1733,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…each of its titles first, with Grok Bot's mark", await waitFor(`[...${savedCard}.querySelectorAll(".row")].slice(1, 4).every((r) => r.querySelector("img.logo")?.src.endsWith("assets/grok.svg"))`, 40) && /How I price sync placements/.test(await js(`${savedCard}.textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…counting what the apps on this Mac brought in too, after the relaunch as well", /brought in \d+ memor(y|ies) too\./.test(await js(`${savedCard}.querySelector(".first-saved-apps")?.textContent ?? ""`)) && /Claude Code/.test(await js(`${savedCard}.querySelector(".first-saved-apps").textContent`)), await js(`${savedCard}?.textContent ?? ""`));
         check("…and the first run is done", await waitFor(`window.lore.firstRun().then((k) => k?.state === "done")`), JSON.stringify(await kept()));
+        check("…each step it passed reported once, in order, never the failed tries", JSON.stringify(steps) === JSON.stringify(["apps", "agent", "store", "link", "saved"]), JSON.stringify(steps));
         check("…and nothing shimmers once it has saved", await js(`!document.querySelector("#content .first-run .shimmer")`));
         // APP-230: the message it was sent already set up its routine, so the first run ends on the next AI or Today.
         check("…without asking a second time for the routine", !(await js(chat)).includes("routine"), await js(chat));
@@ -1750,6 +1754,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#first-run-skip").click()`);
         check("Skip for now lands on Today with its one next step", await waitFor(`document.querySelector("#title").textContent !== "Welcome to Lore" && document.querySelectorAll("#content .next-step").length === 1`), await js(`document.querySelector("#content").textContent`));
         check("…and is kept as skipped", await waitFor(`window.lore.firstRun().then((k) => k?.state === "skipped")`), JSON.stringify(await kept()));
+        check("…and reported as skipped", steps.at(-1) === "skipped", JSON.stringify(steps));
         await shot("firstrun-skipped-today");
         await relaunch();
         check("…so a relaunch stays on Today", await waitFor(todayShown, 80) && await js(`document.querySelector("#title").textContent !== "Welcome to Lore"`));
