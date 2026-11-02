@@ -6,13 +6,17 @@ import sqlite3
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import StringIO
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, get_args
 from unittest.mock import patch
 
 from helpers import LoreTestCase, captured
 
 from lore import __version__, cli, feedback, usage
+from lore import sources as sources_module
+from lore.inbox import AgentApp
+from lore.sources import Source
 from lore.store import Store
 
 Received = tuple[str, dict[str, str], dict[str, object]]
@@ -78,7 +82,7 @@ class UsageTest(LoreTestCase):
     def test_a_milestone_is_sent_once_and_never_counts(self) -> None:
         usage.notice_shown()
         for _ in range(3):
-            usage.record("memory.saved")
+            usage.record("piece.approved")
             usage.record("app.opened")
         usage.record("source.connected", "obsidian")
         usage.record("source.connected", "substack")
@@ -87,7 +91,7 @@ class UsageTest(LoreTestCase):
         self.assertEqual(
             self.names(),
             [
-                "memory.saved",
+                "piece.approved",
                 "app.opened",
                 "source.connected",
                 "source.connected",
@@ -163,21 +167,29 @@ class UsageTest(LoreTestCase):
         usage.notice_shown()
         with Store() as store:
             store.set_setting(usage.SENT_SETTING, "not a record")
-        self.assertTrue(usage.record("memory.saved"))
-        self.assertFalse(usage.record("memory.saved"))
-        self.assertEqual(self.names(), ["memory.saved"])
+        self.assertTrue(usage.record("piece.approved"))
+        self.assertFalse(usage.record("piece.approved"))
+        self.assertEqual(self.names(), ["piece.approved"])
 
     def test_the_relay_and_the_cli_share_one_list(self) -> None:
         contract = json.loads(
             (Path(__file__).parents[1] / "contracts/usage_events.json").read_text()
         )
+        # `optional` is the relay's alone: it keeps the bare events older copies sent.
+        listed = {
+            name: {key: value for key, value in prop.items() if key != "optional"}
+            if prop
+            else None
+            for name, prop in contract["events"].items()
+        }
         self.assertEqual(
             {
                 name: {"prop": prop[0], "values": list(prop[1])} if prop else None
                 for name, (_, prop) in usage.EVENTS.items()
             },
-            contract["events"],
+            listed,
         )
+        self.assertEqual(usage.AGENT_APPS, get_args(AgentApp))
 
     def test_a_failed_command_says_which_command_and_nothing_else(self) -> None:
         usage.notice_shown()
@@ -218,6 +230,71 @@ class UsageTest(LoreTestCase):
         self.assertIn("anonymous usage events", notice)
         with Store() as store:
             self.assertTrue(store.setting(usage.NOTICED_SETTING))
+
+    def test_saves_count_once_a_day_for_each_way_in_never_how_many(self) -> None:
+        usage.notice_shown()
+        for via in ("capture", "capture", "agent", "capture"):
+            usage.record("memory.saved", via)
+        self.assertEqual(
+            [event["props"] for event in self.sent],
+            [{"via": "capture"}, {"via": "agent"}],
+        )
+        with Store() as store:
+            sent = store.setting(usage.SENT_SETTING)
+            store.set_setting(
+                usage.SENT_SETTING, sent | {"memory.saved:capture": "2000-01-01"}
+            )
+        self.assertTrue(usage.record("memory.saved", "capture"))
+        self.assertFalse(usage.record("memory.saved", "agent"))
+
+    def test_each_way_in_is_named_by_where_the_memory_came_from(self) -> None:
+        usage.notice_shown()
+        sources_module.Registry._saved(
+            Source("agent-a", "Grok", "a", kind="agent", app="grok")
+        )
+        sources_module.Registry._saved(Source("agent-b", "Mine", "b", kind="agent"))
+        sources_module.Registry._saved(
+            Source("automation", "Synthesis", "/x", origin="automation")
+        )
+        sources_module.Registry._saved(Source("vault", "Vault", "/v"))
+        self.assertEqual(
+            [(event["name"], event["props"]) for event in self.sent],
+            [
+                ("memory.saved", {"via": "agent"}),
+                ("agent.connected", {"agent": "grok"}),
+                ("agent.connected", {"agent": "other"}),
+                ("memory.saved", {"via": "synthesis"}),
+                ("memory.saved", {"via": "connector"}),
+            ],
+        )
+
+    def test_a_read_that_brings_something_in_counts_a_save_and_one_that_doesnt_never(
+        self,
+    ) -> None:
+        usage.notice_shown()
+        root = self.lore_home.parent / "vault"
+        root.mkdir()
+        (root / "note.md").write_text(
+            "# Note\n\nA note long enough to be a memory here."
+        )
+        with Store() as store:
+            name = str(sources_module.Registry(store).add(str(root))["name"])
+            self.assertEqual(self.names(), ["memory.saved"])
+            with Store() as other:
+                other.set_setting(usage.SENT_SETTING, {})
+            sources_module.Registry(store).read([name])
+        self.assertEqual(self.names(), ["memory.saved"])
+
+    def test_a_capture_counts_a_save_only_when_something_was_kept(self) -> None:
+        usage.notice_shown()
+        batch = json.dumps([{"title": "A lesson", "content": "the body"}])
+        for _ in range(2):
+            with Store() as store:
+                store.set_setting(usage.SENT_SETTING, {})
+            with patch("sys.stdin", StringIO(batch)), captured():
+                cli.capture_apply("-")
+        self.assertEqual(self.sent[0]["props"], {"via": "capture"})
+        self.assertEqual(len(self.sent), 1)
 
 
 class SendTest(LoreTestCase):
@@ -286,7 +363,7 @@ class SendTest(LoreTestCase):
             relay() as (base, received),
             patch.dict(os.environ, {"LORE_USAGE_URL": f"{base}/events"}),
         ):
-            self.record("memory.saved", "/Users/me/notes")
+            self.record("piece.drafted", "/Users/me/notes")
         (_, _, body) = received[0]
         self.assertEqual(body["events"], [self.logged()[0]])
         self.assertEqual(self.logged()[0]["props"], {})
