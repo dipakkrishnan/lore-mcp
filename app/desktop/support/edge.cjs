@@ -2556,7 +2556,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "changed" })`);
         await js(`window.__lore.show("connectors")`);
         const rhythm = `[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them"))?.textContent ?? ""`;
-        check("Connectors says Lore keeps the rhythm while it is open", await waitFor(`(${rhythm}).includes("Every day at 9 AM, while Lore is open. Last read")`), await js(rhythm));
+        const hour = Number(synthesis?.hour);
+        check("Connectors says Lore keeps the rhythm while it is open", await waitFor(`(${rhythm}).includes("Every day at ${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}, while Lore is open. Last read")`), await js(rhythm));
         check("…in plain words", !/cron|executor|schedul(e|ing) task/i.test(await js(rhythm)), await js(rhythm));
         await js(`[...document.querySelectorAll("#content .row")].find((r) => r.textContent.includes("How often Lore reads them")).scrollIntoView()`);
         await sleep(300);
