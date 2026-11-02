@@ -48,10 +48,13 @@ CREATE TABLE buyers (           -- only for bids placed with a card; never publi
   customer TEXT,                -- cus_… on Lore's platform, set when Stripe saves the card
   payment_method TEXT           -- pm_… on Lore's platform; replaced when the buyer updates the card
 );
+CREATE TABLE charges (          -- one row per accepted event whose charge checkout answered
+  seq INTEGER PRIMARY KEY,      -- the accepted event's seq; the attempt id is bid-<id>-<seq>
+  bid_id TEXT NOT NULL,
+  payment_intent TEXT,          -- the pi_… Lore created, or null when it was declined at once
+  account TEXT                  -- the seller's acct_… it was created on
+);
 ```
-
-`meta` also holds `sent:<seq>` for each accepted event whose charge went to
-checkout, so a charge goes out once.
 
 **Status** is computed from the events: `removed` wins, then `filled`, then
 `paying` (the latest `accepted` has no `declined` after it), then `expired`
@@ -64,24 +67,31 @@ timeline records the end without a timer.
 **Card lifecycle.**
 
 - *Placed.* A person's bid is `pending` and unlisted until checkout's webhook
-  says Stripe saved the card; then `opened {card: true}`. An agent's bid
+  says Stripe saved the card; then `opened {card: true}`. When checkout can't
+  make a setup page, the bid is deleted whole, so it holds no slot in the hour's cap. An agent's bid
   without a card opens at once with `{card: false}`.
-- *Accepted.* The buyer accepts one answer, or the book accepts the first
+- *Accepted.* The buyer accepts one answer (accepting the answer already being
+  paid again is a no-op, so concurrent clicks make one `accepted` event), or the book accepts the first
   answer at `min(first answer + 2 days, expires)`. A carded bid with an answer
   is therefore accepted before its week ends, and an accepted bid ends through
   its payment, not the clock. The Durable Object's alarm sends each accepted
   charge to checkout once, with the attempt id `bid-<id>-<seq>` as Stripe's
   idempotency key; when Stripe can't be reached it tries again a minute later.
 - *Declined.* A declined card or a bank asking to confirm appends `declined`
-  with a plain `message`. The bid is `answered` again, and only the buyer sees
+  with a plain `message`, whether checkout's reply says so or Stripe reports
+  `payment_intent.payment_failed` or `.canceled` later for that same charge. The bid is `answered` again, and only the buyer sees
   why and an "Update your card" button. A new card appends `card_updated` and
   accepts the same answer again. A decline nobody fixes ends the bid at
   `max(decline + 2 days, expires)`, counted as walked away.
 - *Filled.* Only `BidBook.paid`, reached only through the site's `BidRail`
   service entrypoint, which only checkout's Stripe webhook calls, after
   `payment_intent.succeeded` on the seller's account tied to the answer's store.
-  It needs an accepted answer and at least the bid amount, and a retried
-  webhook appends nothing. `proof` is the Stripe charge id; the PaymentIntent
+  It fills only for the exact PaymentIntent recorded for the latest accepted
+  answer, on the seller account it was created on, in `usd`, for exactly the
+  bid amount. A retry for the same charge answers `filled` again and appends
+  nothing; a report that arrives before the charge's reply was recorded answers
+  `pending`, and checkout returns 503 so Stripe sends it again. Only on
+  `filled` is the seller's store told. `proof` is the Stripe charge id; the PaymentIntent
   stays private and opens the piece for the buyer.
 
 ## Public shape
@@ -125,7 +135,7 @@ cookie). With the key (cookie or `Authorization: Bearer`), `/b/:id.json` adds
 | `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post always saves a card: it gets a 303 to Stripe's setup page, which returns to `/b/:id`, and the key cookie. JSON gets a 201 with `{id, url, status_url, expires, card}`, where `status_url` is `/b/:id.json`; with `"card": true` it also gets `card_url` (Stripe's setup page, for the agent's person), `key` and `manage_url`. When checkout can't make a setup page, a 502 says so plainly. Needs no account. Rate-limited per client and globally (a 429 with a plain sentence), and `BidBook` refuses more than 100 new bids an hour, because the rate-limit bindings count per Cloudflare location. No IP is stored. `usd` is whole dollars, 5–1000. |
 | `GET /bids` | The board (XC-114). |
 | `GET /bids/stats.json` | What the board polls: `{bids, offered, markets, tape, tape_key, board, board_key}`, the counts plus the ticker and columns as HTML, each with a key that moves only on real news. |
-| `GET /bids.json` | `{bids: [public shape…], walked_away}` for bids that are open or answered, newest first. `walked_away` counts bids that were answered and then ended unfilled (MON-051). |
+| `GET /bids.json` | `{bids: [public shape…], walked_away}` for bids that are open or answered (a bid whose charge is out isn't listed), carded first, newest first. `walked_away` counts bids that were answered and then ended unfilled (MON-051). |
 | `GET /b/:id` | The bid's page (XC-115). |
 | `GET /b/:id.json` | The bid's public shape. Unknown and removed ids get a 404. |
 | `POST /b/:id/accept` | The buyer accepts an answer: `answer` (its index) as a form post with the key cookie, or JSON with `Authorization: Bearer <key>`. A form gets a 303 to `/b/:id`; JSON a 202 with the public shape. 403 without the key; 409 with no card, an unknown answer, or a bid not `answered`. |
@@ -149,7 +159,12 @@ checkout's Stripe webhook, over the `BIDS_RAIL` service binding to the site's
 | From → to | Methods |
 |---|---|
 | site `CHECKOUT` → checkout `BidCards` | `setup({bid, question, customer, return_url}) → {url}` (null when Stripe can't); `charge({bid, attempt, customer, payment_method, piece_url, usd_cents, question}) → {ok: true, payment_intent} \| {ok: false, retry: true} \| {ok: false, reason, message}` |
-| checkout `BIDS_RAIL` → site `BidRail` | `cardSaved(bid, {customer, payment_method})`, after `checkout.session.completed` (setup mode) on the platform; `paid(bid, {payment_intent, charge, amount_cents})`, after `payment_intent.succeeded` on the seller's account |
+| checkout `BIDS_RAIL` → site `BidRail` | `cardSaved(bid, {customer, payment_method})`, after `checkout.session.completed` (setup mode) on the platform; `paid(bid, {payment_intent, charge, amount_cents, currency, account}) → "filled" \| "pending" \| "rejected"`, after `payment_intent.succeeded`; `failed(bid, {payment_intent, account, message}) → "declined" \| "pending" \| "rejected"`, after `payment_intent.payment_failed` or `.canceled` |
+
+**Webhook secrets.** The platform endpoint's secret is accepted only for
+setup-mode `checkout.session.completed` on Lore's own account; the Connect
+endpoint's secret only for events on sellers' accounts. Neither authorizes the
+other's events.
 
 `charge` reads the payee from the answer's store (`/p/<id>.json`) and refuses
 unless that account is tied to that store, exactly as a piece checkout does.

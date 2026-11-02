@@ -25,6 +25,8 @@ type Event = {
       setup_intent?: string;
       amount_received?: number;
       latest_charge?: string;
+      currency?: string;
+      last_payment_error?: { code?: string };
       metadata?: Record<string, string>;
     };
   };
@@ -33,7 +35,8 @@ type Event = {
 /** yourlore.dev's bid book, as its BidRail entrypoint offers it. */
 type Rail = {
   cardSaved(bid: string, card: { customer: string; payment_method: string }): Promise<boolean>;
-  paid(bid: string, payment: { payment_intent: string; charge: string; amount_cents: number }): Promise<boolean>;
+  paid(bid: string, payment: { payment_intent: string; charge: string; amount_cents: number; currency: string; account: string }): Promise<"filled" | "pending" | "rejected">;
+  failed(bid: string, failure: { payment_intent: string; account: string; message: string }): Promise<"declined" | "pending" | "rejected">;
 };
 const rail = (env: Env) => env.BIDS_RAIL as unknown as Rail;
 
@@ -68,41 +71,76 @@ async function cardSaved(env: Env, bid: string, setupIntent: string): Promise<Re
   }
 }
 
-/** A bid's direct charge settled on the seller's account: the bid is filled, and the seller's store counts the sale. */
-async function bidPaid(env: Env, event: Event): Promise<Response> {
+/** The bid charge an event names, when it is one Lore made on an account tied to the store it paid. */
+async function bidCharge(env: Env, event: Event) {
   const intent = event.data.object;
   const account = event.account ?? "";
   const { lore_bid: bid = "", origin = "", piece = "" } = intent.metadata ?? {};
-  if (!ACCOUNT.test(account) || !BID.test(bid) || !PIECE.test(piece) || !intent.id || !intent.latest_charge) return reply(200, "not a Lore bid");
+  if (!ACCOUNT.test(account) || !BID.test(bid) || !PIECE.test(piece) || !intent.id?.startsWith("pi_")) return null;
+  return (await boundStore(env, account)) === origin ? { intent, account, bid, origin, piece, id: intent.id } : null;
+}
+
+/** A bid's direct charge settled: the bid book fills it if it is that bid's charge, and only then is the seller's store told. */
+async function bidPaid(env: Env, event: Event): Promise<Response> {
   try {
-    if ((await boundStore(env, account)) !== origin) return reply(200, "not this account's store");
-    await rail(env).paid(bid, { payment_intent: intent.id, charge: intent.latest_charge, amount_cents: intent.amount_received ?? 0 });
-    const notice = await fetch(`${origin}/p/${piece}/paid`, { method: "POST", body: new URLSearchParams({ session_id: intent.id }) });
-    // The bid book ignores a fill it already has, so Stripe's retry only re-sends the store's notice.
+    const found = await bidCharge(env, event);
+    if (!found?.intent.latest_charge) return reply(200, "not a Lore bid charge");
+    const verdict = await rail(env).paid(found.bid, {
+      payment_intent: found.id,
+      charge: found.intent.latest_charge,
+      amount_cents: found.intent.amount_received ?? 0,
+      currency: found.intent.currency ?? "",
+      account: found.account
+    });
+    // The charge's own reply hasn't reached the bid book yet; Stripe sends the event again.
+    if (verdict === "pending") return reply(503, "bid book not ready");
+    if (verdict !== "filled") return reply(200, "not this bid's charge");
+    const notice = await fetch(`${found.origin}/p/${found.piece}/paid`, { method: "POST", body: new URLSearchParams({ session_id: found.id }) });
+    // A retry fills nothing twice: the book answers "filled" again for the same charge, and the store keeps a sale once.
     return notice.ok ? reply(200, "bid filled") : reply(502, "store refused");
   } catch {
     return reply(502, "unreachable");
   }
 }
 
-/** The Connect endpoint and the platform endpoint each sign with their own secret. */
-async function signedByStripe(body: string, header: string, env: Env): Promise<boolean> {
-  for (const secret of [env.STRIPE_WEBHOOK_SECRET, env.STRIPE_PLATFORM_WEBHOOK_SECRET]) {
-    if (await signed(body, header, secret)) return true;
+/** A bid's charge failed or was canceled after checkout sent it: a decline the buyer sees and can fix. */
+async function bidFailed(env: Env, event: Event): Promise<Response> {
+  try {
+    const found = await bidCharge(env, event);
+    if (!found) return reply(200, "not a Lore bid charge");
+    const bank = found.intent.last_payment_error?.code === "authentication_required";
+    const message = event.type === "payment_intent.canceled" ? "Your card couldn't be charged." : bank ? "Your bank wants to confirm this payment." : "Your card was declined.";
+    const verdict = await rail(env).failed(found.bid, { payment_intent: found.id, account: found.account, message });
+    if (verdict === "pending") return reply(503, "bid book not ready");
+    return reply(200, verdict === "declined" ? "bid declined" : "not this bid's charge");
+  } catch {
+    return reply(502, "unreachable");
   }
-  return false;
+}
+
+const BID_FAILED = new Set(["payment_intent.payment_failed", "payment_intent.canceled"]);
+
+/**
+ * The platform endpoint's secret signs only a bid buyer's saved card, an event on Lore's own
+ * account; the Connect endpoint's secret signs only what happens on sellers' accounts.
+ */
+async function platformEvent(env: Env, event: Event): Promise<Response> {
+  const session = event.data.object;
+  const bid = session.metadata?.lore_bid ?? "";
+  const setup = event.type === "checkout.session.completed" && session.mode === "setup" && !event.account;
+  return setup && BID.test(bid) && session.setup_intent ? cardSaved(env, bid, session.setup_intent) : reply(200, "ignored");
 }
 
 export async function webhook(request: Request, env: Env): Promise<Response> {
   const body = await request.text();
-  if (!(await signedByStripe(body, request.headers.get("stripe-signature") ?? "", env))) return reply(400, "unsigned");
+  const header = request.headers.get("stripe-signature") ?? "";
+  const [connect, platform] = await Promise.all([signed(body, header, env.STRIPE_WEBHOOK_SECRET), signed(body, header, env.STRIPE_PLATFORM_WEBHOOK_SECRET)]);
+  if (!connect && !platform) return reply(400, "unsigned");
   const event = JSON.parse(body) as Event;
+  if (platform) return platformEvent(env, event);
   const session = event.data.object;
-  const bid = session.metadata?.lore_bid ?? "";
-  if (event.type === "checkout.session.completed" && session.mode === "setup") {
-    return !event.account && BID.test(bid) && session.setup_intent ? cardSaved(env, bid, session.setup_intent) : reply(200, "not a Lore bid");
-  }
-  if (event.type === "payment_intent.succeeded") return bid ? bidPaid(env, event) : reply(200, "ignored");
+  if (event.type === "payment_intent.succeeded") return session.metadata?.lore_bid ? bidPaid(env, event) : reply(200, "ignored");
+  if (BID_FAILED.has(event.type)) return session.metadata?.lore_bid ? bidFailed(env, event) : reply(200, "ignored");
   // Anything else Stripe sends is acknowledged and dropped; a 2xx stops it retrying.
   if (!PAID_EVENTS.has(event.type) || session.payment_status !== "paid") return reply(200, "ignored");
   const account = event.account ?? "";

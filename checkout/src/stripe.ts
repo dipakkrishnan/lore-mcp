@@ -65,7 +65,7 @@ export function retrieveSession(env: Env, account: string, id: string): Promise<
   return call(env, account, `/v1/checkout/sessions/${id}`);
 }
 
-export type Intent = { id: string; status: string; amount_received: number; latest_charge: string | null; metadata: Record<string, string> };
+export type Intent = { id: string; status: string; amount_received: number; currency?: string; latest_charge: string | null; metadata: Record<string, string> };
 
 /** A bid's direct charge, read like a Checkout Session so /verify answers the same for both. */
 export async function retrieveIntent(env: Env, account: string, id: string): Promise<Session> {
@@ -128,6 +128,7 @@ export async function chargeBid(env: Env, charge: BidCharge): Promise<Intent> {
     "automatic_payment_methods[allow_redirects]": "never",
     description: charge.question.slice(0, 250),
     "metadata[lore_bid]": charge.bid,
+    "metadata[lore_attempt]": charge.attempt,
     "metadata[origin]": charge.origin,
     "metadata[piece]": charge.piece
   };

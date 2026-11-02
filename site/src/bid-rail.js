@@ -16,9 +16,15 @@ export class BidRail extends WorkerEntrypoint {
     return this.book.cardSaved(bid, { customer, payment_method });
   }
 
-  /** Stripe settled the accepted answer's charge on the seller's account. */
-  paid(bid, { payment_intent, charge, amount_cents }) {
-    if (!ID.test(bid) || !STRIPE_ID("pi").test(payment_intent) || !STRIPE_ID("(ch|py)").test(charge) || !Number.isInteger(amount_cents)) return false;
-    return this.book.paid(bid, { payment_intent, charge, amount_cents });
+  /** Stripe settled a bid's charge on the seller's account: "filled", "pending" (try again) or "rejected". */
+  paid(bid, { payment_intent, charge, amount_cents, currency, account }) {
+    if (!ID.test(bid) || !STRIPE_ID("pi").test(payment_intent) || !STRIPE_ID("(ch|py)").test(charge) || !STRIPE_ID("acct").test(account) || !Number.isInteger(amount_cents)) return "rejected";
+    return this.book.paid(bid, { payment_intent, charge, amount_cents, currency, account });
+  }
+
+  /** Stripe failed or canceled a bid's charge after it was sent: "declined", "pending" (try again) or "rejected". */
+  failed(bid, { payment_intent, account, message }) {
+    if (!ID.test(bid) || !STRIPE_ID("pi").test(payment_intent) || !STRIPE_ID("acct").test(account) || typeof message !== "string") return "rejected";
+    return this.book.failed(bid, { payment_intent, account, message: message.slice(0, 200) });
   }
 }

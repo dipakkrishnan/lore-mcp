@@ -16,7 +16,7 @@ export class BidCards extends WorkerEntrypoint {
     if (request.payment_method === "pm_unreachable") return { ok: false, retry: true };
     if (request.payment_method === "pm_declined") return { ok: false, reason: "card_declined", message: "Your card was declined." };
     if (request.payment_method === "pm_authenticate") return { ok: false, reason: "authentication_required", message: "Your bank wants to confirm this payment." };
-    return { ok: true, payment_intent: `pi_${request.attempt.replace(/-/g, "_")}` };
+    return { ok: true, payment_intent: `pi_${request.attempt.replace(/-/g, "_")}`, account: "acct_1Seller" };
   }
 
   asked() {

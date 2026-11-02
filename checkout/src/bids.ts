@@ -9,7 +9,7 @@ import { StripeError, boundStore, chargeBid, createCustomer, createSetupSession 
 export type Setup = { bid: string; question: string; customer: string | null; return_url: string };
 export type Charge = { bid: string; attempt: string; customer: string; payment_method: string; piece_url: string; usd_cents: number; question: string };
 /** `retry` means Stripe couldn't be reached and nothing was decided; the bid book sends the same attempt again. */
-export type Charged = { ok: true; payment_intent: string } | { ok: false; retry: true } | { ok: false; reason: string; message: string };
+export type Charged = { ok: true; payment_intent: string; account: string } | { ok: false; retry: true } | { ok: false; reason: string; message: string };
 
 const BID = /^[a-z0-9]{10}$/;
 const CUSTOMER = /^cus_[A-Za-z0-9]+$/;
@@ -66,7 +66,8 @@ export class BidCards extends WorkerEntrypoint<Env> {
       const paid = await chargeBid(this.env, { attempt, account: found.stripe_account, customer, paymentMethod: payment_method, cents: usd_cents, bid, question, ...target });
       if (paid.status === "requires_action") return refused("authentication_required", "Your bank wants to confirm this payment.");
       if (!["succeeded", "processing"].includes(paid.status)) return refused(paid.status, "Your card couldn't be charged.");
-      return { ok: true, payment_intent: paid.id };
+      // A card still processing settles or fails later, through payment_intent.succeeded or .payment_failed.
+      return { ok: true, payment_intent: paid.id, account: found.stripe_account };
     } catch (error) {
       return outcome(error);
     }

@@ -125,7 +125,10 @@ export class BidDesk {
     const made = { id, url, status_url: `${url}.json`, expires, card };
     if (!card) return asJson ? json(made, 201) : go(url);
     const setup = await this.setup(id, read.value.question);
-    if (!setup) return fail("Saving a card isn't working right now. Try again in a minute.", 502, fields);
+    if (!setup) {
+      await this.book.abandon(id);
+      return fail("Saving a card isn't working right now. Try again in a minute.", 502, fields);
+    }
     if (asJson) return json({ ...made, card_url: setup, key: placed.key, manage_url: `${url}?key=${placed.key}` }, 201);
     return go(setup, keyCookie(id, placed.key));
   }

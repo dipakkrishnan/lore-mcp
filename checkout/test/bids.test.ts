@@ -35,7 +35,7 @@ function stripe({ store = listing(), boundTo = STORE, charge, setup = {}, notice
     if (path === "/v1/checkout/sessions") return Response.json({ id: "cs_test_setup", url: "https://checkout.stripe.test/c/setup/cs_test_setup" });
     if (path.startsWith("/v1/setup_intents/")) return Response.json({ status: "succeeded", customer: "cus_buyer", payment_method: "pm_saved", metadata: { lore_bid: BID }, ...setup });
     if (path === "/v1/payment_methods") return Response.json({ id: "pm_cloned" });
-    if (path === "/v1/payment_intents") return charge ? Response.json(charge.body, { status: charge.status }) : Response.json({ id: "pi_bid", status: "succeeded", amount_received: 2000, latest_charge: "ch_bid", metadata: {} });
+    if (path === "/v1/payment_intents") return charge ? Response.json(charge.body, { status: charge.status }) : Response.json({ id: "pi_bid", status: "succeeded", amount_received: 2000, currency: "usd", latest_charge: "ch_bid", metadata: {} });
     if (path.startsWith("/v1/payment_intents/")) return Response.json({ id: "pi_bid", status: "succeeded", amount_received: 2000, latest_charge: "ch_bid", metadata: { origin: STORE, piece: PIECE, lore_bid: BID } });
     throw new Error(`unexpected Stripe call during test: ${request.method} ${path}`);
   });
@@ -57,10 +57,10 @@ const setupDone = (overrides: Record<string, unknown> = {}) => ({
   type: "checkout.session.completed",
   data: { object: { id: "cs_test_setup", mode: "setup", payment_status: "no_payment_required", setup_intent: "seti_1", metadata: { lore_bid: BID }, ...overrides } }
 });
-const bidPaid = (overrides: Record<string, unknown> = {}) => ({
-  type: "payment_intent.succeeded",
+const bidPaid = (overrides: Record<string, unknown> = {}, bid = BID, type = "payment_intent.succeeded") => ({
+  type,
   account: ACCOUNT,
-  data: { object: { id: "pi_bid", amount_received: 2000, latest_charge: "ch_bid", metadata: { lore_bid: BID, origin: STORE, piece: PIECE }, ...overrides } }
+  data: { object: { id: "pi_bid", amount_received: 2000, currency: "usd", latest_charge: "ch_bid", metadata: { lore_bid: bid, origin: STORE, piece: PIECE }, ...overrides } }
 });
 
 beforeEach(async () => rail().forget());
@@ -107,7 +107,7 @@ describe("saving a bidder's card", () => {
 describe("charging an accepted answer", () => {
   it("clones the card onto the seller's account and charges it there, off session, once per attempt", async () => {
     const sent = stripe();
-    expect(await exports.BidCards.charge(CHARGE)).toEqual({ ok: true, payment_intent: "pi_bid" });
+    expect(await exports.BidCards.charge(CHARGE)).toEqual({ ok: true, payment_intent: "pi_bid", account: ACCOUNT });
     const [clone, intent] = sent.filter((s) => s.url.includes("/v1/payment_"));
     expect(clone.headers.get("stripe-account")).toBe(ACCOUNT);
     expect(Object.fromEntries(clone.body)).toEqual({ customer: "cus_buyer", payment_method: "pm_saved" });
@@ -121,6 +121,7 @@ describe("charging an accepted answer", () => {
       confirm: "true",
       off_session: "true",
       "metadata[lore_bid]": BID,
+      "metadata[lore_attempt]": `bid-${BID}-7`,
       "metadata[origin]": STORE,
       "metadata[piece]": PIECE
     });
@@ -160,15 +161,15 @@ describe("a bid's settled charge", () => {
     expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "bid filled" });
     expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "bid filled" });
     const told = await rail().told();
-    expect(told[0]).toEqual({ paid: [BID, { payment_intent: "pi_bid", charge: "ch_bid", amount_cents: 2000 }] });
+    expect(told[0]).toEqual({ paid: [BID, { payment_intent: "pi_bid", charge: "ch_bid", amount_cents: 2000, currency: "usd", account: ACCOUNT }] });
     expect(sent.filter((s) => s.url.endsWith("/paid")).map((s) => s.body.get("session_id"))).toEqual(["pi_bid", "pi_bid"]);
   });
 
   it("fills nothing for a charge on an account tied to another store, or one Lore didn't make", async () => {
     stripe({ boundTo: "https://someone-else.test" });
-    expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "not this account's store" });
+    expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "not a Lore bid charge" });
     expect(await (await deliver(bidPaid({ metadata: {} }), CONNECT_SECRET)).json()).toEqual({ outcome: "ignored" });
-    expect(await (await deliver(bidPaid({ latest_charge: null }), CONNECT_SECRET)).json()).toEqual({ outcome: "not a Lore bid" });
+    expect(await (await deliver(bidPaid({ latest_charge: null }), CONNECT_SECRET)).json()).toEqual({ outcome: "not a Lore bid charge" });
     expect(await rail().told()).toEqual([]);
   });
 
@@ -176,6 +177,38 @@ describe("a bid's settled charge", () => {
     stripe();
     expect((await deliver(bidPaid(), "whsec_someone_else")).status).toBe(400);
     expect(await rail().told()).toEqual([]);
+  });
+
+  it("takes each secret only for its own events: the platform's for saved cards, Connect's for sellers' payments", async () => {
+    const sent = stripe();
+    expect(await (await deliver(bidPaid(), PLATFORM_SECRET)).json()).toEqual({ outcome: "ignored" });
+    expect(await (await deliver(bidPaid({}, BID, "payment_intent.payment_failed"), PLATFORM_SECRET)).json()).toEqual({ outcome: "ignored" });
+    expect(await (await deliver(setupDone(), CONNECT_SECRET)).json()).toEqual({ outcome: "ignored" });
+    expect(await (await deliver({ ...setupDone(), account: ACCOUNT }, PLATFORM_SECRET)).json()).toEqual({ outcome: "ignored" });
+    expect(await rail().told()).toEqual([]);
+    expect(sent.filter((s) => s.url.endsWith("/paid"))).toEqual([]);
+  });
+
+  it("tells the store nothing when the bid book doesn't fill, and asks Stripe to retry when it isn't ready", async () => {
+    const sent = stripe();
+    expect(await (await deliver(bidPaid({}, "rejectedbd"), CONNECT_SECRET)).json()).toEqual({ outcome: "not this bid's charge" });
+    const early = await deliver(bidPaid({}, "pendingbid"), CONNECT_SECRET);
+    expect(early.status).toBe(503);
+    expect(sent.filter((s) => s.url.endsWith("/paid"))).toEqual([]);
+  });
+
+  it("turns a charge that fails or is canceled later into a plain decline for the bid book", async () => {
+    stripe();
+    const failed = await deliver(bidPaid({ last_payment_error: { code: "card_declined" } }, BID, "payment_intent.payment_failed"), CONNECT_SECRET);
+    expect(await failed.json()).toEqual({ outcome: "bid declined" });
+    await deliver(bidPaid({ last_payment_error: { code: "authentication_required" } }, BID, "payment_intent.payment_failed"), CONNECT_SECRET);
+    await deliver(bidPaid({}, BID, "payment_intent.canceled"), CONNECT_SECRET);
+    expect((await rail().told()).map((t) => t.failed)).toEqual([
+      [BID, { payment_intent: "pi_bid", account: ACCOUNT, message: "Your card was declined." }],
+      [BID, { payment_intent: "pi_bid", account: ACCOUNT, message: "Your bank wants to confirm this payment." }],
+      [BID, { payment_intent: "pi_bid", account: ACCOUNT, message: "Your card couldn't be charged." }]
+    ]);
+    expect((await deliver(bidPaid({}, "pendingbid", "payment_intent.payment_failed"), CONNECT_SECRET)).status).toBe(503);
   });
 
   it("opens the piece for the buyer: /verify reads a bid's payment like a Checkout Session", async () => {

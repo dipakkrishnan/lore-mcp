@@ -27,7 +27,12 @@ CREATE INDEX IF NOT EXISTS bids_by_created ON bids (created);
 CREATE INDEX IF NOT EXISTS bids_by_expires ON bids (expires);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value);
 CREATE TABLE IF NOT EXISTS buyers (
-  bid_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, customer TEXT, payment_method TEXT);`;
+  bid_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, customer TEXT, payment_method TEXT);
+CREATE TABLE IF NOT EXISTS charges (
+  seq INTEGER PRIMARY KEY, bid_id TEXT NOT NULL, payment_intent TEXT, account TEXT);`;
+// A bid whose latest accepted answer has no decline after it: its charge is out.
+const PAYING = `EXISTS (SELECT 1 FROM bid_events a WHERE a.bid_id = b.id AND a.type = 'accepted'
+  AND NOT EXISTS (SELECT 1 FROM bid_events d WHERE d.bid_id = b.id AND d.seq > a.seq AND d.type = 'declined'))`;
 // Carded bids that have an answer and no accepted event yet: the ones the clock may accept.
 const WAITING = `FROM bids b JOIN buyers k ON k.bid_id = b.id WHERE k.payment_method IS NOT NULL AND ${UNENDED}
   AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')
@@ -158,14 +163,19 @@ export class BidBook extends DurableObject {
     return row && typeof key === "string" && (await same(await digest(key), row.key_hash)) ? { found, customer: row.customer } : null;
   }
 
-  /** The buyer accepts answer `answer` (its index). Returns the bid, or why not: "missing", "card", "state". */
+  /**
+   * The buyer accepts answer `answer` (its index). Returns the bid, or why not: "missing", "card",
+   * "state". Accepting the answer already being paid returns the bid again, so a repeat is harmless.
+   */
   async accept(id, key, answer, now = Date.now()) {
-    const mine = await this.buyer(id, key, now);
-    if (!mine) return "missing";
-    const { bid, events } = mine.found;
+    if (!(await this.buyer(id, key, now))) return "missing";
+    // Read again after the key check's await, so the check and the append run with nothing between them.
+    const { bid, events } = this.#read(id);
     if (!this.#buyer(id).payment_method) return "card";
     const answers = events.filter((e) => e.type === "answered");
-    if (statusOf(bid, events, now) !== "answered" || !Number.isInteger(answer) || !answers[answer]) return "state";
+    const status = statusOf(bid, events, now);
+    if (status === "paying" && paying(events).data.answer === answer) return { bid, events };
+    if (status !== "answered" || !Number.isInteger(answer) || !answers[answer]) return "state";
     this.#append(id, "accepted", iso(now), { answer, auto: false });
     await this.#schedule(now);
     return this.#read(id);
@@ -190,17 +200,53 @@ export class BidBook extends DurableObject {
     return true;
   }
 
+  /** A placed bid whose card setup never started: removed whole, so it holds no row and no slot in the hour's cap. */
+  abandon(id) {
+    const found = this.#read(id);
+    if (!found || found.events.length) return false;
+    this.sql.exec("DELETE FROM buyers WHERE bid_id = ?", id);
+    this.sql.exec("DELETE FROM bids WHERE id = ?", id);
+    return true;
+  }
+
+  /**
+   * Whether a Stripe report is about the charge out for this bid: the PaymentIntent Lore created
+   * for the latest accepted answer, on the seller account it was created on. "pending" when that
+   * charge's reply hasn't been recorded yet, so the webhook is sent again.
+   */
+  #outstanding(found, payment_intent, account) {
+    const accepted = paying(found.events);
+    if (!accepted) return { verdict: "rejected" };
+    const sent = this.sql.exec("SELECT payment_intent, account FROM charges WHERE seq = ?", accepted.seq).toArray()[0];
+    if (!sent) return { verdict: "pending" };
+    return sent.payment_intent === payment_intent && sent.account === account ? { verdict: "ok", accepted } : { verdict: "rejected" };
+  }
+
   /**
    * The payment rail's word that an accepted charge settled (checkout's Stripe webhook, over
-   * BidRail). Appends `filled` once; a retried webhook changes nothing. Nothing else calls this.
+   * BidRail). Fills the bid only for that exact charge, in dollars, for the full amount. Returns
+   * "filled" (also for a retry of the same charge), "pending" or "rejected". Nothing else fills.
    */
-  paid(id, { payment_intent, charge, amount_cents }, now = Date.now()) {
+  paid(id, { payment_intent, charge, amount_cents, currency, account }, now = Date.now()) {
     const found = this.#read(id);
-    if (!found || found.events.some((e) => e.type === "filled" || e.type === "removed")) return false;
-    const accepted = found.events.findLast((e) => e.type === "accepted");
-    if (!accepted || !(amount_cents >= found.bid.usd_cents)) return false;
+    if (!found || found.events.some((e) => e.type === "removed")) return "rejected";
+    const filled = found.events.find((e) => e.type === "filled");
+    if (filled) return filled.data.payment_intent === payment_intent ? "filled" : "rejected";
+    const { verdict, accepted } = this.#outstanding(found, payment_intent, account);
+    if (verdict !== "ok") return verdict;
+    if (currency !== "usd" || amount_cents !== found.bid.usd_cents) return "rejected";
     this.#append(id, "filled", iso(now), { rail: "card", proof: charge, payment_intent, answer: accepted.data.answer });
-    return true;
+    return "filled";
+  }
+
+  /** The rail's word that the charge out for this bid failed after it was sent: a decline, like one at once. */
+  failed(id, { payment_intent, account, message }, now = Date.now()) {
+    const found = this.#read(id);
+    if (!found || found.events.some((e) => e.type === "filled" || e.type === "removed")) return "rejected";
+    const { verdict, accepted } = this.#outstanding(found, payment_intent, account);
+    if (verdict !== "ok") return verdict;
+    this.#append(id, "declined", iso(now), { answer: accepted.data.answer, reason: "failed", message });
+    return "declined";
   }
 
   /** Accepts what the clock says is due, then sends each charge not yet sent. */
@@ -225,8 +271,8 @@ export class BidBook extends DurableObject {
         // Checkout says to try again when Stripe couldn't be reached; the same attempt id keeps it one charge.
         if (result.retry) retry = true;
         else {
+          this.sql.exec("INSERT INTO charges VALUES (?, ?, ?, ?)", seq, id, result.ok ? result.payment_intent : null, result.ok ? result.account : null);
           if (!result.ok) this.#append(id, "declined", iso(Date.now()), { answer, reason: result.reason, message: result.message });
-          this.#setMeta(`sent:${seq}`, 1);
         }
       } catch (error) {
         console.error(`bid ${id}: charge not sent: ${error.message}`);
@@ -250,7 +296,7 @@ export class BidBook extends DurableObject {
       .exec(
         `SELECT id FROM bids b WHERE expires > ? AND ${UNENDED}
           AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'opened')
-          AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'accepted')
+          AND NOT ${PAYING}
           ORDER BY EXISTS (SELECT 1 FROM buyers k WHERE k.bid_id = b.id AND k.payment_method IS NOT NULL) DESC, created DESC, rowid DESC LIMIT ?`,
         iso(now),
         LIVE_SHOWN
@@ -286,9 +332,9 @@ export class BidBook extends DurableObject {
     const bid = this.sql.exec(`SELECT ${PUBLIC}, (SELECT payment_method FROM buyers WHERE bid_id = id) IS NOT NULL AS card FROM bids WHERE id = ?`, id).toArray()[0];
     if (!bid) return null;
     const events = this.sql
-      .exec("SELECT type, at, data FROM bid_events WHERE bid_id = ? ORDER BY seq", id)
+      .exec("SELECT seq, type, at, data FROM bid_events WHERE bid_id = ? ORDER BY seq", id)
       .toArray()
-      .map(({ type, at, data }) => ({ type, at, data: data ? JSON.parse(data) : null }));
+      .map(({ seq, type, at, data }) => ({ seq, type, at, data: data ? JSON.parse(data) : null }));
     return { bid: { ...bid }, events };
   }
 
@@ -302,7 +348,7 @@ export class BidBook extends DurableObject {
       .exec(
         `SELECT a.bid_id AS id, a.seq, a.data FROM bid_events a WHERE a.type = 'accepted'
           AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = a.bid_id AND e.seq > a.seq AND e.type IN ('declined', 'filled', 'removed'))
-          AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'sent:' || a.seq)`
+          AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.seq = a.seq)`
       )
       .toArray()
       .map(({ id, seq, data }) => ({ id, seq, answer: JSON.parse(data).answer }));
