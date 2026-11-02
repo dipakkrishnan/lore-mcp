@@ -12,8 +12,11 @@ export default defineProject({
           STRIPE_API: "https://stripe.test",
           STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
           STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret",
+          STRIPE_PLATFORM_WEBHOOK_SECRET: "whsec_test_platform_not_a_real_secret",
           ACCOUNT_TOKEN_SECRET: "not_a_real_token_secret"
-        }
+        },
+        // A stand-in for yourlore.dev's BidRail entrypoint, recording what the rail told it.
+        workers: [{ name: "yourlore-site", modules: true, scriptPath: "./test/fake-site.js", compatibilityDate: "2026-06-11" }]
       }
     })
   ],

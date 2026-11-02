@@ -1,7 +1,8 @@
 """Anonymous usage events (APP-058): where installs get to, never what is in them.
 
 Each event is a closed name with at most one coded property, sent with the
-install's random id and the app version. A milestone is sent once per install
+install's random id and the app version. `app.installed` is only ever an install's
+first event, so each install is counted once. A milestone is sent once per install
 (so nothing reveals how much someone has written), `app.opened` once a day,
 and `cli.failed` and `store.failed` each time. Nothing is sent until the owner has seen the
 notice, and nothing at all with telemetry off. Every event sent is also
@@ -47,6 +48,11 @@ CONNECTORS = (
     "feed",
     "agents",
 )
+# How a memory came in (XC-090): the owner capturing it, a personal agent saving
+# to the inbox, a connected app read, or Lore's own synthesis.
+SAVED_VIA = ("capture", "agent", "connector", "synthesis")
+# Which personal agent first saved to the inbox; inbox.AgentApp's values.
+AGENT_APPS = ("grok", "muse", "chatgpt", "claude", "instinct", "other")
 COMMANDS = (
     "setup",
     "sync",
@@ -76,12 +82,19 @@ STORE_FAILURES = (
     "not_answering",
     "other",
 )
+# How far a new owner got through the app's first-run chat, each step once.
+FIRST_RUN_STEPS = ("apps", "agent", "store", "link", "saved", "skipped")
 # name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
+    "app.installed": ("first", None),
     "app.opened": ("daily", None),
     "signin.completed": ("once", None),
+    "firstrun.step": ("once", ("step", FIRST_RUN_STEPS)),
     "source.connected": ("once", ("connector", CONNECTORS)),
-    "memory.saved": ("once", None),
+    # Once a day for each way in: how many days an install keeps saving, never how much.
+    "memory.saved": ("daily", ("via", SAVED_VIA)),
+    "agent.connected": ("once", ("agent", AGENT_APPS)),
+    "piece.drafted": ("once", None),
     "piece.approved": ("once", None),
     "store.attempted": ("once", None),
     "store.online": ("once", None),
@@ -109,13 +122,16 @@ def record(name: str, value: str = "") -> bool:
     if prop and value not in prop[1]:
         raise ValueError(f"{name} can't carry {value!r}")
     try:
-        return _record(name, frequency, {prop[0]: value} if prop else {}, value)
+        # A value on an event that carries none is dropped here, not kept as a key.
+        return _record(
+            name, frequency, {prop[0]: value} if prop else {}, value if prop else ""
+        )
     except (OSError, sqlite3.Error):
         return False
 
 
 def _record(name: str, frequency: str, props: dict[str, str], value: str) -> bool:
-    key = f"{name}:{value}" if frequency == "once" else name
+    key = f"{name}:{value}" if frequency == "once" or value else name
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with Store() as store:
         if store.setting(ENABLED_SETTING, True) is False:
@@ -125,6 +141,8 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
         sent = store.setting(SENT_SETTING, {})
         sent = sent if isinstance(sent, dict) else {}
         if frequency == "once" and key in sent:
+            return False
+        if frequency == "first" and sent:
             return False
         if frequency == "daily" and sent.get(key) == today:
             return False
