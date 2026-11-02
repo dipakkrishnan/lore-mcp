@@ -1352,7 +1352,8 @@ def capture_apply(file: str) -> int:
     """Validate and save memories the owner corrected in an attended agent session."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     results = capture_module.save(json.loads(text))
-    usage.record("memory.saved")
+    if any(result["status"] != "unchanged" for result in results):
+        usage.record("memory.saved", "capture")
     print(json.dumps(results, indent=2))
     return 0
 
@@ -2183,6 +2184,7 @@ def publication_draft(file: str) -> int:
             "every draft repeats a piece already for sale; draft something new"
         )
     _stage(candidates)
+    usage.record("piece.drafted")
     success(
         f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
         "for the owner to approve"

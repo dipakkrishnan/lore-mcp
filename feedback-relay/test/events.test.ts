@@ -98,6 +98,25 @@ describe("usage events", () => {
     ]);
   });
 
+  it("takes how a memory came in, and still takes the bare save older copies of Lore send", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "memory.saved", props: { via: "agent" }, at: AT },
+        { name: "memory.saved", props: {}, at: AT },
+        { name: "memory.saved", props: { via: "my notes" }, at: AT },
+        { name: "agent.connected", props: { agent: "grok" }, at: AT },
+        { name: "agent.connected", props: {}, at: AT },
+        { name: "piece.drafted", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([
+      { name: "memory.saved", props: { via: "agent" }, at: AT },
+      { name: "memory.saved", props: {}, at: AT },
+      { name: "agent.connected", props: { agent: "grok" }, at: AT },
+      { name: "piece.drafted", props: {}, at: AT }
+    ]);
+  });
+
   it("passes events to PostHog as an install id with no person profile", async () => {
     const sent = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
     await forward({ ...env, POSTHOG_KEY: "phc_test" }, parseBatch(batch([{ name: "sale.seen", props: { via: "agent" }, at: AT }]))!);

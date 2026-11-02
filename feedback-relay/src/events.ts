@@ -7,7 +7,7 @@ import contract from "../../contracts/usage_events.json";
  * stored, so an old or altered copy of Lore can't widen what is collected.
  */
 
-const EVENTS = contract.events as Record<string, { prop: string; values: string[] } | null>;
+const EVENTS = contract.events as Record<string, { prop: string; values: string[]; optional?: boolean } | null>;
 const INSTALL_ID = /^[0-9a-f]{32}$/;
 const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
 const AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
@@ -23,7 +23,7 @@ function event(value: unknown): Event | null {
   if (typeof name !== "string" || !Object.hasOwn(EVENTS, name) || typeof at !== "string" || !AT.test(at)) return null;
   const allowed = EVENTS[name];
   const given = typeof props === "object" && props !== null ? Object.entries(props) : [];
-  if (!allowed) return given.length ? null : { name, props: {}, at };
+  if (!allowed || (allowed.optional && !given.length)) return given.length ? null : { name, props: {}, at };
   if (given.length !== 1) return null;
   const [[key, coded]] = given;
   return key === allowed.prop && typeof coded === "string" && allowed.values.includes(coded) ? { name, props: { [key]: coded }, at } : null;
