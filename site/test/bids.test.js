@@ -1,10 +1,12 @@
-import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
-import { env } from "cloudflare:workers";
+import { createExecutionContext, runDurableObjectAlarm, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
+import { env, exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { board } from "../src/bid-board.js";
 import { callbackAllowed } from "../src/bid-callback.js";
 import { readAnswer, readBid } from "../src/bid-input.js";
-import { BidBook, HOURLY_CAP, LIFETIME_MS, statusOf } from "../src/bids.js";
+import { CARD_TERMS } from "../src/bid-pages.js";
+import { BidDesk } from "../src/bid-routes.js";
+import { ACCEPT_MS, BidBook, HOURLY_CAP, LIFETIME_MS, statusOf } from "../src/bids.js";
 import worker from "../src/worker.js";
 
 const REGISTRY = { markets: [{ id: "rl-evals", name: "RL evals", tab: "AI" }], sellers: [] };
@@ -25,7 +27,11 @@ beforeEach(async () => {
     outbound.push({ url: String(url), init });
     return new Response(null, { status: 204 });
   });
-  await runInDurableObject(book(), (_instance, state) => state.storage.sql.exec("DELETE FROM bid_events; DELETE FROM bids; DELETE FROM meta"));
+  await runInDurableObject(book(), async (_instance, state) => {
+    state.storage.sql.exec("DELETE FROM bid_events; DELETE FROM bids; DELETE FROM meta; DELETE FROM buyers; DELETE FROM charges");
+    await state.storage.deleteAlarm();
+  });
+  await env.CHECKOUT.forget();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -42,30 +48,61 @@ const placeForm = (fields = {}, extra) =>
 const answer = (id, fields = ANSWER, headers = ADMIN) => sendJson(`/b/${id}/answers`, "POST", fields, headers);
 const placed = async (fields) => (await (await place(fields)).json()).id;
 
+/** A person's bid: the form post, Stripe's setup page, then checkout's word that the card is saved. */
+async function cardedBid(fields = {}, payment_method = "pm_card_visa") {
+  const response = await placeForm(fields);
+  expect(response.status).toBe(303);
+  const [, id] = response.headers.get("location").match(/^https:\/\/checkout\.stripe\.test\/c\/setup\/([a-z0-9]{10})$/);
+  const cookie = response.headers.get("set-cookie").split(";")[0];
+  expect(await exports.BidRail.cardSaved(id, { customer: "cus_buyer", payment_method })).toBe(true);
+  return { id, cookie };
+}
+const charges = async () => (await env.CHECKOUT.asked()).filter((call) => call.charge).map((call) => call.charge);
+const shape = async (id, headers = {}) => (await call(`/b/${id}.json`, { headers })).json();
+/**
+ * Runs the book's alarm until every accepted charge has gone to checkout. The alarm may already be
+ * running on its own (it's set for "now"), so this waits for that run instead of racing it.
+ */
+const drain = () =>
+  vi.waitFor(async () => {
+    await runDurableObjectAlarm(book());
+    const unsent = await runInDurableObject(book(), (_instance, state) =>
+      state.storage.sql
+        .exec(`SELECT COUNT(*) AS n FROM bid_events a WHERE a.type = 'accepted' AND NOT EXISTS (SELECT 1 FROM charges c WHERE c.seq = a.seq)
+          AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = a.bid_id AND e.seq > a.seq AND e.type IN ('declined', 'filled', 'removed'))`)
+        .one().n
+    );
+    expect(unsent).toBe(0);
+  });
+/** What Stripe would report for the charge the fake checkout made last for this bid. */
+const settlement = async (id, overrides = {}) => {
+  const attempt = (await charges()).findLast((c) => c.bid === id).attempt;
+  return { payment_intent: `pi_${attempt.replace(/-/g, "_")}`, charge: "ch_paid", amount_cents: 2000, currency: "usd", account: "acct_1Seller", ...overrides };
+};
+
 describe("placing a bid", () => {
   test("a JSON post gets an id, a page and a status address, open for 7 days", async () => {
     const response = await place();
     expect(response.status).toBe(201);
     const body = await response.json();
-    expect(Object.keys(body).sort()).toEqual(["expires", "id", "status_url", "url"]);
+    expect(Object.keys(body).sort()).toEqual(["card", "expires", "id", "status_url", "url"]);
+    expect(body.card).toBe(false);
     expect(body.id).toMatch(/^[a-z0-9]{10}$/);
     expect(body.url).toBe(`https://yourlore.dev/b/${body.id}`);
     expect(body.status_url).toBe(`https://yourlore.dev/b/${body.id}.json`);
     const bid = await (await call(`/b/${body.id}.json`)).json();
-    expect(bid).toMatchObject({ id: body.id, question: QUESTION, usd: 20, market: "rl-evals", status: "open", answers: [], events: [{ type: "opened" }] });
+    expect(bid).toMatchObject({ id: body.id, question: QUESTION, usd: 20, market: "rl-evals", status: "open", card: false, answers: [], events: [{ type: "opened" }] });
     expect(Date.parse(bid.expires) - Date.parse(bid.created)).toBe(LIFETIME_MS);
     expect(bid.created).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   });
 
-  test("a form post, with no script, lands on the bid's own page", async () => {
-    const response = await placeForm();
-    expect(response.status).toBe(303);
-    const [, id] = response.headers.get("location").match(/\/b\/([a-z0-9]{10})$/);
+  test("a form post, with no script, saves a card with Stripe and lands on the bid's own page", async () => {
+    const { id } = await cardedBid();
     const html = await (await call(`/b/${id}`)).text();
     expect(html).toContain(`<title>${QUESTION}</title>`);
     expect(html).toContain(`<h1>${QUESTION}</h1>`);
     expect(html).toContain(`<link rel="alternate" type="application/json" href="/b/${id}.json">`);
-    expect(html).toContain('<ul class="props"><li><b>$20</b> offered</li><li><a href="/bids?market=rl-evals">RL evals</a></li><li>7 days left</li><li>New</li></ul>');
+    expect(html).toContain('<ul class="props"><li><b>$20</b> offered</li><li>Card on file</li><li><a href="/bids?market=rl-evals">RL evals</a></li><li>7 days left</li><li>New</li></ul>');
   });
 
   test("an open bid's page offers a way to answer it and a way to pass it on, and no API spec", async () => {
@@ -84,7 +121,8 @@ describe("placing a bid", () => {
     const html = await (await call("/bids")).text();
     expect(html).toMatch(/<form class="bid-form" method="post" action="\/bids">/);
     expect(html).toContain('<option value="rl-evals">RL evals</option>');
-    expect(html).toContain("No card needed to ask. You read a free preview of each answer and pay only for one you choose to buy. If nobody answers in 7 days, the bid ends.");
+    expect(html).toContain(CARD_TERMS);
+    expect(html).toContain("Add card and place bid");
     expect(html).not.toContain('name="email"');
   });
 
@@ -184,7 +222,7 @@ describe("status", () => {
 
   test("a week-old bid ends, records it, leaves the board, and takes no answers", async () => {
     const old = Date.now() - LIFETIME_MS - 60_000;
-    const { bid } = await book().place({ question: QUESTION, usd_cents: 2000, market: "rl-evals" }, old);
+    const { bid } = (await book().place({ question: QUESTION, usd_cents: 2000, market: "rl-evals" }, { now: old })).found;
     const shape = await (await call(`/b/${bid.id}.json`)).json();
     expect(shape.status).toBe("expired");
     expect(shape.events.map((e) => e.type)).toEqual(["opened", "expired"]);
@@ -196,7 +234,7 @@ describe("status", () => {
 
   test("counts bids that were answered and then left to end", async () => {
     const old = Date.now() - LIFETIME_MS - 60_000;
-    const { bid } = await book().place({ question: QUESTION, usd_cents: 2000, market: "rl-evals" }, old);
+    const { bid } = (await book().place({ question: QUESTION, usd_cents: 2000, market: "rl-evals" }, { now: old })).found;
     await book().answer(bid.id, { ...ANSWER, usd_cents: 2000 }, old + 1000);
     await placed();
     const list = await (await call("/bids.json")).json();
@@ -363,8 +401,259 @@ describe("filled", () => {
     const bid = await (await call(`/b/${id}.json`)).json();
     expect(bid.status).toBe("answered");
     expect(bid.events.map((e) => e.type)).not.toContain("filled");
-    const methods = Object.getOwnPropertyNames(BidBook.prototype);
-    expect(methods.filter((m) => /fill/i.test(m))).toEqual([]);
+    // The book's one filling method is reached only through the BidRail service binding.
+    expect(Object.getOwnPropertyNames(BidBook.prototype).filter((m) => /fill|paid/i.test(m))).toEqual(["paid"]);
+    expect(Object.getOwnPropertyNames(BidDesk.prototype).filter((m) => /fill|paid/i.test(m))).toEqual([]);
+  });
+});
+
+describe("a card on every person's bid (MON-054)", () => {
+  test("placing by form saves a card first; the bid opens only when checkout says Stripe saved it", async () => {
+    const response = await placeForm();
+    const [, id] = response.headers.get("location").match(/setup\/([a-z0-9]{10})$/);
+    expect(response.headers.get("set-cookie")).toMatch(new RegExp(`^lore_bid_${id}=[a-z0-9]{32}; Path=/b/${id}; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax$`));
+    const [{ setup }] = await env.CHECKOUT.asked();
+    expect(setup).toEqual({ bid: id, question: QUESTION, customer: null, return_url: `https://yourlore.dev/b/${id}` });
+    expect(await shape(id)).toMatchObject({ status: "pending", card: false, events: [] });
+    expect((await (await call("/bids.json")).json()).bids).toEqual([]);
+    const cookie = response.headers.get("set-cookie").split(";")[0];
+    expect(await (await call(`/b/${id}`, { headers: { cookie } })).text()).toContain("Your card isn't saved yet");
+
+    const card = { customer: "cus_buyer", payment_method: "pm_card_visa" };
+    expect(await exports.BidRail.cardSaved(id, card)).toBe(true);
+    expect(await exports.BidRail.cardSaved(id, card)).toBe(false);
+    expect(await shape(id)).toMatchObject({ status: "open", card: true, events: [{ type: "opened" }] });
+    expect((await (await call("/bids.json")).json()).bids.map((b) => b.id)).toEqual([id]);
+  });
+
+  test("a bid whose card can't be set up says so and keeps what was typed", async () => {
+    const response = await placeForm({ question: "What happens when checkout is down?" });
+    expect(response.status).toBe(502);
+    const html = await response.text();
+    expect(html).toContain("Saving a card isn&#39;t working right now. Try again in a minute.");
+    expect(html).toContain("What happens when checkout is down?");
+  });
+
+  test("an agent's bid without a card is labeled and listed below carded ones", async () => {
+    const { id: carded } = await cardedBid({ question: "The carded question, placed first?" });
+    const bare = await placed();
+    expect((await (await call("/bids.json")).json()).bids.map((b) => [b.id, b.card])).toEqual([[carded, true], [bare, false]]);
+    const board = await (await call("/bids")).text();
+    expect(board.indexOf(carded)).toBeLessThan(board.indexOf(bare));
+    expect(board).toContain("<span>No card on file</span>");
+    expect(await (await call(`/b/${bare}`)).text()).toContain("This bid has no card on file, so it's a promise only: you're paid if the buyer buys your answer.");
+  });
+
+  test("an agent can ask for a card: it gets Stripe's page for its person and a key", async () => {
+    const body = await (await place({ card: true })).json();
+    expect(body).toMatchObject({ card: true, card_url: `https://checkout.stripe.test/c/setup/${body.id}` });
+    expect(body.key).toMatch(/^[a-z0-9]{32}$/);
+    expect(body.manage_url).toBe(`${body.url}?key=${body.key}`);
+    const page = await call(`/b/${body.id}?key=${body.key}`);
+    expect(page.headers.get("set-cookie")).toContain(`lore_bid_${body.id}=${body.key}`);
+    expect(await shape(body.id, { authorization: `Bearer ${body.key}` })).toMatchObject({ receipt_url: null, payment_problem: null });
+    expect(await shape(body.id)).not.toHaveProperty("receipt_url");
+  });
+
+  test("accepting charges once, straight to the answer's seller, and only the rail fills it", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    expect(await (await call(`/b/${id}`, { headers: { cookie } })).text()).toContain("Accept and pay $20");
+    expect(await (await call(`/b/${id}`)).text()).not.toContain("Accept and pay");
+    const accepted = await call(`/b/${id}/accept`, { method: "POST", headers: { cookie, "content-type": "application/x-www-form-urlencoded" }, body: "answer=0" });
+    expect(accepted.status).toBe(303);
+    expect((await shape(id)).status).toBe("paying");
+
+    await drain();
+    await drain();
+    const sent = await charges();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ bid: id, customer: "cus_buyer", payment_method: "pm_card_visa", piece_url: ANSWER.piece_url, usd_cents: 2000 });
+    expect(await (await call(`/b/${id}`, { headers: { cookie } })).text()).toContain("Charging your card to pay @dipak");
+
+    const payment = await settlement(id);
+    expect(await exports.BidRail.paid(id, payment)).toBe("filled");
+    expect(await exports.BidRail.paid(id, payment)).toBe("filled");
+    expect(await exports.BidRail.paid(id, { ...payment, payment_intent: "pi_other" })).toBe("rejected");
+    const bid = await shape(id);
+    expect(bid.status).toBe("filled");
+    expect(bid.events.filter((e) => e.type === "filled")).toEqual([{ type: "filled", at: expect.any(String), rail: "card", proof: "ch_paid" }]);
+    expect(JSON.stringify(bid)).not.toContain(payment.payment_intent);
+    const mine = await (await call(`/b/${id}`, { headers: { cookie } })).text();
+    expect(mine).toContain(`href="${ANSWER.piece_url}?session_id=${payment.payment_intent}">Read the answer</a>`);
+  });
+
+  test("only the buyer can accept, only an answer that exists, and only with a card", async () => {
+    const { id, cookie } = await cardedBid();
+    const accept = (headers, body = { answer: 0 }) => sendJson(`/b/${id}/accept`, "POST", body, headers);
+    expect((await accept({ cookie })).status).toBe(409);
+    await answer(id);
+    expect((await accept({})).status).toBe(403);
+    expect((await accept({ authorization: `Bearer ${"x".repeat(32)}` })).status).toBe(403);
+    expect((await accept({ cookie }, { answer: 3 })).status).toBe(409);
+    const bare = await placed();
+    await answer(bare);
+    expect((await sendJson(`/b/${bare}/accept`, "POST", { answer: 0 }, { cookie })).status).toBe(403);
+    expect((await accept({ cookie })).status).toBe(202);
+    expect((await accept({ cookie })).status).toBe(202);
+    expect((await accept({ cookie }, { answer: 1 })).status).toBe(409);
+  });
+
+  test("a declined card leaves the bid answered, says so plainly, and a new card pays the same answer", async () => {
+    const { id, cookie } = await cardedBid({}, "pm_declined");
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    await drain();
+    expect((await shape(id)).status).toBe("answered");
+    const page = await (await call(`/b/${id}`, { headers: { cookie } })).text();
+    expect(page).toContain("Your card was declined. @dipak hasn't been paid. Update your card and we'll try again.");
+    expect(page).not.toContain("Accept and pay");
+    expect(await (await call(`/b/${id}`)).text()).not.toContain("declined");
+
+    const update = await call(`/b/${id}/card`, { method: "POST", headers: { cookie } });
+    expect(update.status).toBe(303);
+    expect((await env.CHECKOUT.asked()).at(-1).setup.customer).toBe("cus_buyer");
+    await exports.BidRail.cardSaved(id, { customer: "cus_buyer", payment_method: "pm_card_visa" });
+    expect((await shape(id)).status).toBe("paying");
+    await drain();
+    const sent = await charges();
+    expect(sent.map((c) => c.payment_method)).toEqual(["pm_declined", "pm_card_visa"]);
+    expect(new Set(sent.map((c) => c.attempt)).size).toBe(2);
+    expect(await exports.BidRail.paid(id, await settlement(id))).toBe("filled");
+  });
+
+  test("a bank asking to confirm is a plain problem too", async () => {
+    const { id, cookie } = await cardedBid({}, "pm_authenticate");
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    await drain();
+    expect(await shape(id, { cookie })).toMatchObject({ status: "answered", payment_problem: "Your bank wants to confirm this payment." });
+  });
+
+  test("the first answer is accepted on its own 2 days after it came in", async () => {
+    const { id } = await cardedBid();
+    await book().answer(id, { ...ANSWER, usd_cents: 2000 }, Date.now() - ACCEPT_MS - 60_000);
+    await book().answer(id, { ...ANSWER, handle: "second", usd_cents: 2000 }, Date.now() - 60_000);
+    await drain();
+    const bid = await shape(id);
+    expect(bid.status).toBe("paying");
+    expect(bid.events.find((e) => e.type === "accepted")).toMatchObject({ answer: 0, auto: true });
+    expect((await charges()).map((c) => c.bid)).toEqual([id]);
+  });
+
+  test("a carded bid answered late in its week is accepted at the week's end, not ended", async () => {
+    const { id } = await cardedBid();
+    await book().answer(id, { ...ANSWER, usd_cents: 2000 });
+    const later = await book().find(id, Date.now() + LIFETIME_MS + 60_000);
+    expect(later.events.map((e) => e.type)).toEqual(["opened", "answered", "accepted"]);
+  });
+
+  test("a declined card not replaced within 2 days ends the bid and counts as walked away", async () => {
+    const { id, cookie } = await cardedBid({}, "pm_declined");
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    await drain();
+    expect((await book().find(id, Date.now() + ACCEPT_MS + 60_000)).events.at(-1).type).toBe("declined");
+    const ended = await book().find(id, Date.now() + LIFETIME_MS + 60_000);
+    expect(ended.events.at(-1).type).toBe("expired");
+    expect(await book().walkedAway(Date.now() + LIFETIME_MS + 60_000)).toBe(1);
+  });
+
+  test("two alarm runs at once send an accepted charge once", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    await runInDurableObject(book(), async (instance, state) => {
+      await instance.accept(id, cookie.split("=")[1], 0);
+      await state.storage.deleteAlarm();
+      await Promise.all([instance.alarm(), instance.alarm()]);
+    });
+    expect((await charges()).map((c) => c.bid)).toEqual([id]);
+  });
+
+  test("a charge checkout couldn't send is kept and tried again", async () => {
+    const { id, cookie } = await cardedBid({}, "pm_unreachable");
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    await vi.waitFor(async () => {
+      await runDurableObjectAlarm(book());
+      expect((await charges()).length).toBeGreaterThanOrEqual(2);
+    });
+    expect(new Set((await charges()).map((c) => c.attempt)).size).toBe(1);
+    expect((await shape(id)).status).toBe("paying");
+    expect(await runInDurableObject(book(), (_instance, state) => state.storage.getAlarm())).not.toBeNull();
+  });
+
+  test("the rail refuses what isn't Stripe's shape or a bid nobody accepted", async () => {
+    const { id } = await cardedBid();
+    await answer(id);
+    const any = { payment_intent: "pi_1", charge: "ch_1", amount_cents: 2000, currency: "usd", account: "acct_1Seller" };
+    expect(await exports.BidRail.paid(id, any)).toBe("rejected");
+    expect(await exports.BidRail.paid("nope", any)).toBe("rejected");
+    expect(await exports.BidRail.paid(id, { ...any, account: "nope" })).toBe("rejected");
+    expect(await exports.BidRail.cardSaved(id, { customer: "x", payment_method: "pm_1" })).toBe(false);
+    expect((await shape(id)).status).toBe("answered");
+  });
+
+  test("only the exact charge Lore made fills the bid: its PaymentIntent, seller account, currency and amount", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    // Stripe's webhook can beat the charge's own reply; the rail says to send it again. The alarm is
+    // held inside the object so the charge's reply can't land first.
+    const early = { payment_intent: "pi_early", charge: "ch_1", amount_cents: 2000, currency: "usd", account: "acct_1Seller" };
+    const key = cookie.split("=")[1];
+    const verdict = await runInDurableObject(book(), async (instance, state) => {
+      await instance.accept(id, key, 0);
+      const said = instance.paid(id, early);
+      await state.storage.setAlarm(Date.now());
+      return said;
+    });
+    expect(verdict).toBe("pending");
+    await drain();
+    for (const wrong of [{ payment_intent: "pi_someone_else" }, { account: "acct_1Other" }, { amount_cents: 1999 }, { amount_cents: 2001 }, { currency: "eur" }]) {
+      expect(await exports.BidRail.paid(id, await settlement(id, wrong))).toBe("rejected");
+    }
+    expect((await shape(id)).status).toBe("paying");
+    expect(await exports.BidRail.paid(id, await settlement(id))).toBe("filled");
+  });
+
+  test("two accepts at once make one accepted event and one charge", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    const accept = () => sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    const replies = await Promise.all([accept(), accept(), accept()]);
+    expect(replies.map((r) => r.status)).toEqual([202, 202, 202]);
+    expect((await shape(id)).events.filter((e) => e.type === "accepted")).toHaveLength(1);
+    await drain();
+    expect(await charges()).toHaveLength(1);
+    expect((await sendJson(`/b/${id}/accept`, "POST", { answer: 1 }, { cookie })).status).toBe(409);
+  });
+
+  test("a charge that fails or is canceled after it was sent is a decline the buyer can fix", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    await drain();
+    const { payment_intent, account } = await settlement(id);
+    expect(await exports.BidRail.failed(id, { payment_intent: "pi_someone_else", account, message: "Your card was declined." })).toBe("rejected");
+    expect((await shape(id)).status).toBe("paying");
+    expect(await exports.BidRail.failed(id, { payment_intent, account, message: "Your card was declined." })).toBe("declined");
+    expect(await shape(id, { cookie })).toMatchObject({ status: "answered", payment_problem: "Your card was declined." });
+    expect(await exports.BidRail.paid(id, await settlement(id))).toBe("rejected");
+  });
+
+  test("a bid whose card couldn't be set up leaves nothing behind and spends none of the hour's cap", async () => {
+    await placeForm({ question: "What happens when checkout is down?" });
+    await runInDurableObject(book(), (_instance, state) => expect(state.storage.sql.exec("SELECT COUNT(*) AS n FROM bids").one().n).toBe(0));
+  });
+
+  test("a declined bid stays on the board; only a bid being paid leaves it", async () => {
+    const { id, cookie } = await cardedBid({}, "pm_declined");
+    await answer(id);
+    await sendJson(`/b/${id}/accept`, "POST", { answer: 0 }, { cookie });
+    const listed = async () => (await (await call("/bids.json")).json()).bids.map((b) => b.id);
+    expect(await listed()).toEqual([]);
+    await drain();
+    expect(await listed()).toEqual([id]);
   });
 });
 
@@ -374,7 +663,13 @@ describe("the board", () => {
     { id: "diving", name: "Diving", tab: "Travel" }
   ];
   const now = Date.parse("2026-11-01T00:00:00Z");
-  const bid = (id, market, usd, answers = 0) => ({ id, market, usd, status: "open", question: `Question ${id} is long enough?`, created: "2026-10-31T22:10:00Z", expires: "2026-11-07T22:10:00Z", answers: Array(answers).fill({}) });
+  const bid = (id, market, usd, answers = 0) => ({ id, market, usd, status: "open", question: `Question ${id} is long enough?`, created: "2026-10-31T22:10:00Z", expires: "2026-11-07T22:10:00Z", answers: Array(answers).fill({}), card: true });
+
+  test("ranks bids with a card above bigger ones without, and says which have none", () => {
+    const { html } = board([{ ...bid("a", "rl-evals", 900), card: false }, bid("b", "rl-evals", 10)], markets, "", now);
+    expect([...html.matchAll(/href="\/b\/(\w)"/g)].map((m) => m[1])).toEqual(["b", "a"]);
+    expect(html.match(/No card on file/g)).toHaveLength(1);
+  });
 
   test("draws one row per bid, biggest first: amount, question, market, time left, answers", () => {
     const { html, key } = board([bid("a", "unsorted", 900), bid("b", "rl-evals", 10), bid("c", "rl-evals", 40, 1), bid("d", "diving", 20)], markets, "", now);
@@ -419,10 +714,10 @@ describe("the board", () => {
     expect(emptied).toMatchObject({ bids: 0, board_key: "" });
   });
 
-  test("?ask opens the place-a-bid form, which says no card is needed", async () => {
+  test("?ask opens the place-a-bid form, which says how the card is used", async () => {
     const html = await (await call("/bids?ask")).text();
     expect(html).toContain('<details class="sheet" id="ask" open>');
-    expect(html).toContain("No card needed to ask.");
+    expect(html).toContain(CARD_TERMS);
   });
 
   test("a form mistake comes back with the sheet open", async () => {

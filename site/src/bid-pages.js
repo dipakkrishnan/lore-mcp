@@ -4,8 +4,11 @@ import { date, escape, money, page, plural } from "./layout.js";
 
 export const SITE = "https://yourlore.dev";
 const HOUR = 3_600_000;
-const STATUS = { open: "Open", answered: "Answered", filled: "Filled", expired: "Ended" };
+const STATUS = { pending: "Waiting for a card", open: "Open", answered: "Answered", paying: "Paying", filled: "Filled", expired: "Ended" };
 const PROMISE = "If nobody answers in 7 days, the bid ends.";
+/** What a buyer agrees to when they place a bid (MON-054). */
+export const CARD_TERMS =
+  "Stripe saves your card now and charges it only when you accept an answer, straight to the person who wrote it. If you don't pick one within 2 days of the first answer, that answer is accepted. If nobody answers in 7 days, the bid ends and nothing is charged.";
 
 /** "3 answers", "New" for an unanswered bid under a day old, or null: an empty count says nothing. */
 export function answered(bid, now = Date.now()) {
@@ -35,12 +38,15 @@ export function bidForm(markets, { error = "", values = {} } = {}) {
 <label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to hear from someone who has done it?">${value("question")}</textarea></label>
 <div class="pair"><label><span>You'll pay</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
 <label><span>Market</span><select name="market">${options(markets, values.market)}</select></label></div>
-<button class="go" type="submit">Place a bid</button><p class="note">No card needed to ask. You read a free preview of each answer and pay only for one you choose to buy. If nobody answers in 7 days, the bid ends. Answers show on the bid's own page.</p></form>`;
+<button class="go" type="submit">Add card and place bid</button><p class="note">${CARD_TERMS}</p></form>`;
 }
 
 function event(e) {
   const label = {
     opened: "Opened",
+    accepted: e.auto ? "First answer accepted after 2 days" : "Answer accepted",
+    declined: "Payment didn't go through",
+    card_updated: "Card updated",
     answered: `Answered by @${escape(e.handle)}`,
     filled: `Filled ${e.rail === "x402" ? "in USDC" : "by card"}${/^https:\/\//.test(e.proof ?? "") ? ` · <a href="${escape(e.proof)}">proof</a>` : ""}`,
     expired: "Ended",
@@ -52,12 +58,32 @@ function event(e) {
 const answer = (a) =>
   `<li class="offer"><div><h2>@${escape(a.handle)}</h2><blockquote>${escape(a.preview)}</blockquote><p class="by">Answered ${date(a.at)}</p></div><div class="buy"><a class="go" href="${escape(a.piece_url)}">Buy · ${money(a.usd)}</a></div></li>`;
 
-/** /b/:id: the question, its amount, market and time left; a way to answer it or pass it on; the answers; and the history. */
-export function bidPage(bid, { markets, now = Date.now() }) {
+const acceptable = (bid, a, i) =>
+  `<li class="offer"><div><h2>@${escape(a.handle)}</h2><blockquote>${escape(a.preview)}</blockquote><p class="by">Answered ${date(a.at)}</p></div><div class="buy"><form method="post" action="/b/${bid.id}/accept"><input type="hidden" name="answer" value="${i}"><button class="go" type="submit">Accept and pay ${money(bid.usd)}</button></form></div></li>`;
+
+const cardButton = (bid, label) => `<form method="post" action="/b/${bid.id}/card"><button class="go" type="submit">${label}</button></form>`;
+
+/** What only the buyer sees: their card's state, what went wrong in plain words, and what to do next. */
+function buyerPanel(bid, buyer) {
+  const handle = bid.answers[bid.events.findLast((e) => e.type === "accepted")?.answer]?.handle;
+  const says = [buyer.error && `<p class="error" role="alert">${escape(buyer.error)}</p>`];
+  if (bid.status === "pending") says.push(`<p class="note">Your card isn't saved yet, so this bid isn't listed. Add it to open the bid.</p>${cardButton(bid, "Add your card")}`);
+  else if (buyer.problem) says.push(`<p class="error" role="alert">${escape(buyer.problem)} ${handle ? `@${escape(handle)} hasn't been paid. ` : ""}Update your card and we'll try again.</p>${cardButton(bid, "Update your card")}`);
+  else if (bid.status === "paying") says.push(`<p class="note">Charging your card${handle ? ` to pay @${escape(handle)}` : ""}. This page shows it once Stripe confirms.</p>`);
+  else if (bid.status === "filled" && buyer.receipt) says.push(`<a class="go" href="${escape(buyer.receipt)}">Read the answer</a>`);
+  else if (bid.status === "answered") says.push(`<p class="note">Accept the answer you want. If you don't choose, the first one is accepted 2 days after it came in.</p>`);
+  says.push(`<p class="note">This is your bid. To manage it from another device, keep this private link: <code>${escape(`${SITE}/b/${bid.id}?key=${buyer.key}`)}</code></p>`);
+  return `<section class="mine">${says.filter(Boolean).join("")}</section>`;
+}
+
+/** /b/:id: the question, its amount, market and time left; a way to answer it or pass it on; the answers; and the history. The buyer also sees their own panel. */
+export function bidPage(bid, { markets, buyer = null, now = Date.now() }) {
+  const choosing = buyer && bid.status === "answered" && bid.card && !buyer.problem;
+  const answers = bid.answers.map((a, i) => (choosing ? acceptable(bid, a, i) : answer(a))).join("");
   const left = timeLeft(bid, now);
   const market = bid.market === "unsorted" ? "" : marketName(markets, bid.market);
   const marketLink = markets.some((m) => m.id === bid.market) ? `<a href="/bids?market=${encodeURIComponent(bid.market)}">${escape(market)}</a>` : escape(market);
-  const props = [`<b>${money(bid.usd)}</b> offered`, ...(market ? [marketLink] : []), left ? `${left} left` : STATUS[bid.status], ...[answered(bid, now) ?? []].flat()];
+  const props = [`<b>${money(bid.usd)}</b> offered`, bid.card ? "Card on file" : "No card on file", ...(market ? [marketLink] : []), left ? `${left} left` : STATUS[bid.status], ...[answered(bid, now) ?? []].flat()];
   const url = `${SITE}/b/${bid.id}`;
   return page({
     title: bid.question,
@@ -68,9 +94,10 @@ export function bidPage(bid, { markets, now = Date.now() }) {
     data: { "@context": "https://schema.org", "@type": "Question", name: bid.question, dateCreated: bid.created, answerCount: bid.answers.length, url },
     body: `<p class="crumb"><a href="/bids">Bids</a></p><h1>${escape(bid.question)}</h1>
 <ul class="props">${props.map((p) => `<li>${p}</li>`).join("")}</ul>
-${left ? `<div class="actions"><a class="go" href="/download?bid=${escape(bid.id)}">Answer with Lore</a><a class="quiet" data-share href="${escape(url)}">Know someone who knows? Share</a></div>
-<p class="note">Answer with Lore gets you the free Mac app. Lore drafts an answer from what your AIs have already saved there, and nothing is sent until you approve it. The buyer reads a free preview, then pays you to read the full answer. ${PROMISE}</p>` : ""}
-<h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${bid.answers.map(answer).join("")}</ul>` : `<p class="empty">No answers yet.</p>`}
+${buyer ? buyerPanel(bid, buyer) : ""}
+${left && !buyer ? `<div class="actions"><a class="go" href="/download?bid=${escape(bid.id)}">Answer with Lore</a><a class="quiet" data-share href="${escape(url)}">Know someone who knows? Share</a></div>
+<p class="note">Answer with Lore gets you the free Mac app. Lore drafts an answer from what your AIs have already saved there, and nothing is sent until you approve it. ${bid.card ? "The buyer's card is saved with Stripe and is charged when they accept your answer, straight to you." : "This bid has no card on file, so it's a promise only: you're paid if the buyer buys your answer."} ${PROMISE}</p>` : ""}
+<h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${answers}</ul>` : `<p class="empty">No answers yet.</p>`}
 <h2 class="part">Activity</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>`
   });
 }

@@ -14,7 +14,11 @@ export default defineProject({
         compatibilityDate: "2026-08-22",
         bindings: { BIDS_ADMIN_TOKEN: "test-admin-token" },
         // The relay's SiteEvents entrypoint, stood in for; tests that check a count pass their own RELAY.
-        workers: [{ name: "lore-feedback-relay", modules: true, compatibilityDate: "2026-08-22", script: RELAY }]
+        // And a stand-in for Lore's checkout: it never reaches Stripe, and records what it was asked.
+        workers: [
+          { name: "lore-feedback-relay", modules: true, compatibilityDate: "2026-08-22", script: RELAY },
+          { name: "lore-checkout", modules: true, scriptPath: "./test/fake-checkout.js", compatibilityDate: "2026-08-22" }
+        ]
       }
     })
   ],

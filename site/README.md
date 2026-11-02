@@ -35,6 +35,13 @@ npx wrangler secret put BIDS_ADMIN_TOKEN   # e.g. the output of: openssl rand -h
 Without it every owner route answers 401. Use it as `Authorization: Bearer <token>` on
 `POST /b/:id/answers` and `DELETE /b/:id`.
 
+A person's bid saves a card first (MON-054). The `CHECKOUT` service binding names the
+card checkout Worker's `BidCards` entrypoint (`checkout/`), which talks to Stripe; this
+Worker holds no Stripe key. Checkout reports saved cards and settled charges back through
+this Worker's `BidRail` entrypoint, which no route exposes. Deploy `checkout/` with its
+platform webhook secret before or alongside this Worker; until it is live, a person's bid
+can't be placed and says so.
+
 ## Test
 
 ```sh

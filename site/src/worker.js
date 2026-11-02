@@ -9,6 +9,7 @@ import { countDemand } from "./demand.js";
 import { clip, date, DOWNLOAD, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
 
+export { BidRail } from "./bid-rail.js";
 export { BidBook } from "./bids.js";
 
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";

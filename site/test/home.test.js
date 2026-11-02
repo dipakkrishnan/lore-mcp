@@ -47,7 +47,7 @@ describe("the home page", () => {
     expect(html).toMatch(/<\/h1>[\s\S]*<aside class="demand" aria-labelledby="bids-title">[\s\S]*<\/section>/);
     expect(rows(html)).toEqual(["b", "d", "c", "f"]);
     expect(html).toContain('<a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a>');
-    expect(html).toContain("No card needed to ask; you pay only for an answer you choose to buy.");
+    expect(html).toContain("Your card is saved when you ask and charged only for the answer you accept.");
   });
 
   test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
