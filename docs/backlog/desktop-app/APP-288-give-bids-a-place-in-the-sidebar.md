@@ -4,7 +4,7 @@ title: Give Bids a place in the sidebar
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: completed
 related: [APP-283, APP-274, APP-282]
 blockers: []
 dependencies: [APP-283]
@@ -29,7 +29,20 @@ memory rows and no Draft button.
 
 ## Acceptance criteria
 
-- [ ] The sidebar reads Inbox, Inventory, Bids, Connectors, and Bids shows the count of matches.
-- [ ] Both tabs list from what the app already fetched; no extra request to yourlore.dev.
-- [ ] Every row opens its bid page; ↑/↓ step through the list.
-- [ ] Empty states: "No open bids" (All) and "Nothing on the board matches what you know yet" (Matches).
+- [x] The sidebar reads Inbox, Inventory, Bids, Connectors, and Bids shows the count of matches.
+- [x] Both tabs list from what the app already fetched; no extra request to yourlore.dev.
+- [x] Every row opens its bid page; ↑/↓ step through the list.
+- [x] Empty states: "No open bids" (All) and "Nothing on the board matches what you know yet" (Matches).
+
+## Notes
+
+- `BidWatch` kept only the matches, so each look now also keeps the board it read, trimmed to what a row shows (id,
+  question, amount, market, link, close date), in the same `bid-matches.json`, still bounded by `BOARD_BYTES` and
+  `BIDS_AT_MOST`. `board()` reads it back less the dismissed and the closed. No new fetch: the snapshot reads the file.
+- All lists the board in its own order, then any match the last look didn't list. Matches lists best first.
+- A row shows a pill in place of its time left while the owner's answer is under way: Drafting, Answer drafted,
+  Answer ready. There is no "Paid" yet: nothing tells the app a bid was paid until MON-056 sends answers.
+- A bid page opened from Bids has Bids as its breadcrumb, steps through the tab it came from, and Esc goes back there.
+- Automations stays in the sidebar after Connectors, as #641 left it.
+- Design gap: markets show as their slug in words ("Rl evals"), as the bid page already did, because the app has no
+  market names. The mock's "AI research" needs the registry's names on the board or in the app.

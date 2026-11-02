@@ -1314,7 +1314,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(todayShown);
         // APP-201: the sidebar holds the main places; Settings, help and feedback live in the account menu.
         const nav = await js(`[...document.querySelectorAll("nav button")].map((b) => b.dataset.view).join()`);
-        check("the sidebar lists only the four main places", nav === "inbox,inventory,connectors,automations", nav);
+        check("the sidebar lists only the main places", nav === "inbox,inventory,bids,connectors,automations", nav);
+        // APP-288: with no board to read (edge.sh points it nowhere), Bids says so on each tab.
+        await js(`document.querySelector("nav [data-view=bids]").click()`);
+        check("Bids opens on what the owner knows, and says nothing matches yet", await waitFor(`document.querySelector("#title").textContent === "Bids" && document.querySelector("#content").textContent === "Nothing on the board matches what you know yet" && document.querySelector("[data-count=bids]").textContent === ""`), await js(`document.querySelector("#content").textContent`));
+        await js(`[...document.querySelectorAll("#page-tabs .ptab")].find((tab) => tab.textContent.startsWith("All")).click()`);
+        check("…and All says there are no open bids", await waitFor(`document.querySelector("#content").textContent === "No open bids"`), await js(`document.querySelector("#content").textContent`));
+        await js(`window.__lore.show("inbox")`);
+        check("…and the tabs are Bids' alone", await waitFor(`document.querySelector("#page-tabs").hidden`));
         check("…and no lone feedback link outside the account menu", await js(`document.querySelector("#account-menu").contains(document.querySelector("#feedback-open")) && !document.querySelector("aside > .feedback-open")`));
         // APP-202, APP-214: How it works is for an owner with nothing kept yet (the today walk covers it); this one has memories.
         check("an owner with memories is not offered How it works", await js(`${todayShown} && document.querySelector("#content .irow.help") === null`));

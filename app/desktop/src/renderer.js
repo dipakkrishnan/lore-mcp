@@ -42,13 +42,14 @@ const paletteList = $("#palette-list");
 const paletteEnter = $("#palette-enter");
 const mainEl = $("#main");
 const stepper = $("#stepper");
+const pageTabs = $("#page-tabs");
 const stepperAt = $("#stepper-at");
 const stepUp = /** @type {HTMLButtonElement} */ ($("#step-up"));
 const stepDown = /** @type {HTMLButtonElement} */ ($("#step-down"));
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
 /** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
@@ -1140,7 +1141,7 @@ class InboxView {
       bids: s.bidMatches ?? [],
       drafts: candidates,
       drafting: bidPage.drafting,
-      answered: new Set([...bidPage.approved.keys(), ...s.publications.items.filter((item) => item.bid && item.state === "approved").map((item) => item.bid ?? "")]),
+      answered: answeredBids(s),
       updates: extraDrafts.length,
       offer: pushOffer && !pushing ? { label: forSale(s) ? "What you approved isn't on your store yet" : "What you approved isn't on sale yet", action: forSale(s) ? "Push now" : "Open your store" } : null,
       problems,
@@ -1287,6 +1288,92 @@ class InboxView {
 
 const inbox = new InboxView();
 
+/** Bids whose answer the owner approved. @param {Snapshot} s */
+function answeredBids(s) {
+  return new Set([...bidPage.approved.keys(), ...s.publications.items.filter((item) => item.bid && item.state === "approved").map((item) => item.bid ?? "")]);
+}
+
+/** APP-288: the bids on the board, every one or only those the owner's memories answer, one line each, from what the
+ * app already read. */
+class BidsView {
+  /** @type {BidsInput["tab"]} */
+  tab = "matches";
+  /** The selected row, by bid id, so a redraw keeps it. */
+  selected = "";
+  /** The last rows drawn. @type {BidRow[]} */
+  shown = [];
+
+  /** @param {Snapshot} s @param {BidsInput["tab"]} [tab] */
+  rows(s, tab = this.tab) {
+    const drafted = new Set(candidates.flatMap((candidate) => (candidate.bid ? [candidate.bid] : [])));
+    return new Inbox().bids({ matches: s.bidMatches ?? [], board: s.bidBoard ?? [], tab, drafting: bidPage.drafting, drafted, answered: answeredBids(s) });
+  }
+
+  /** The two text tabs beside the title, each with its count. @param {Snapshot} s */
+  tabs(s) {
+    return /** @type {const} */ ([["matches", "Matches what I know"], ["all", "All"]]).map(([id, label]) => {
+      const tab = el("button", "ptab");
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(this.tab === id));
+      tab.append(label, el("span", "n", String(this.rows(s, id).length)));
+      tab.addEventListener("click", () => { this.tab = id; render(); });
+      return tab;
+    });
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const rows = this.rows(s);
+    this.shown = rows;
+    if (!rows.length) return [el("p", "caught-up", this.tab === "all" ? "No open bids" : "Nothing on the board matches what you know yet")];
+    if (!rows.some((row) => row.id === this.selected)) this.selected = rows[0].id;
+    const list = el("div", "inbox bids");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Bids");
+    for (const row of rows) {
+      const node = el("div", "irow brow");
+      node.setAttribute("role", "listitem");
+      node.dataset.key = row.id;
+      node.classList.toggle("sel", row.id === this.selected);
+      const question = el("span", "say", row.question);
+      question.title = row.question;
+      const left = el("span", "age left");
+      left.append(row.pill ? chip(row.pill.label, row.pill.tint) : row.left);
+      const strength = signal(row.strength);
+      strength.title = ["No match", "", "Good match", "Strong match"][row.strength];
+      node.append(el("b", "amt", row.amount), question, el("span", "mkt", row.market), left, strength);
+      node.addEventListener("click", () => bidPage.open(row.id, "bids"));
+      node.addEventListener("mousemove", () => this.select(row.id));
+      list.append(node);
+    }
+    return [list];
+  }
+
+  /** @param {string} id */
+  select(id) {
+    if (this.selected === id) return;
+    this.selected = id;
+    for (const node of content.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === id);
+    content.querySelector(".irow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens. @param {KeyboardEvent} event @returns {boolean} Whether it was the page's key. */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.id === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.id);
+      return true;
+    }
+    if (event.key === "Enter" && this.shown[at]) { bidPage.open(this.shown[at].id, "bids"); return true; }
+    return false;
+  }
+}
+
+const bidsView = new BidsView();
+
 /** A bid's own page (APP-283): the question, what Lore found that answers it, the answer once drafted, and its
  * timeline, with its properties in a column beside it. */
 class BidPage {
@@ -1306,16 +1393,31 @@ class BidPage {
   /** The answer being edited, kept across redraws so typing survives the agent's next event. @type {{key: string, node: HTMLElement} | null} */
   form = null;
 
-  /** @param {string} id */
-  open(id) {
+  /** The list the page was opened from, which its breadcrumb, Esc and ↑/↓ go back to. @type {"inbox" | "bids"} */
+  from = "inbox";
+
+  /** @param {string} id @param {"inbox" | "bids"} [from] */
+  open(id, from = "inbox") {
     this.id = id;
-    this.last = snapshot?.bidMatches.find((match) => match.bid.id === id) ?? null;
+    this.from = from;
+    // Back on the list, the bid last open is the one selected.
+    if (from === "bids") bidsView.selected = id;
+    else inbox.selected = `bid:${id}`;
+    this.last = snapshot ? this.find(snapshot, id) : null;
     show("bid");
   }
 
-  /** The bids the page steps through: the Inbox's, in its order. @param {Snapshot} s */
+  /** The bid as a match; one on the board that nothing kept answers has no memories (APP-288). @param {Snapshot} s @param {string} id */
+  find(s, id) {
+    const match = s.bidMatches.find((each) => each.bid.id === id);
+    if (match) return match;
+    const bid = (s.bidBoard ?? []).find((each) => each.id === id);
+    return bid ? Inbox.unmatched(bid) : null;
+  }
+
+  /** The bids the page steps through: the list it came from, in its order. @param {Snapshot} s */
   ids(s) {
-    return inbox.rows(s).filter((row) => row.kind === "bid").map((row) => row.ref ?? "");
+    return this.from === "bids" ? bidsView.rows(s).map((row) => row.id) : inbox.rows(s).filter((row) => row.kind === "bid").map((row) => row.ref ?? "");
   }
 
   /** ↑/↓ to the bid before or after this one. @param {number} by */
@@ -1323,7 +1425,7 @@ class BidPage {
     if (!snapshot) return;
     const ids = this.ids(snapshot);
     const next = ids[ids.indexOf(this.id) + by];
-    if (next) this.open(next);
+    if (next) this.open(next, this.from);
   }
 
   /** Not this one: off the Inbox, and the page says so. @param {string} id */
@@ -1358,7 +1460,7 @@ class BidPage {
 
   /** @param {Snapshot} s */
   parts(s) {
-    const match = s.bidMatches.find((each) => each.bid.id === this.id) ?? (this.last?.bid.id === this.id ? this.last : null);
+    const match = this.find(s, this.id) ?? (this.last?.bid.id === this.id ? this.last : null);
     if (!match) return [el("p", "caught-up", "This bid isn't open anymore")];
     this.last = match;
     const id = match.bid.id;
@@ -1458,9 +1560,10 @@ class BidPage {
     prop("Status", chip(page.status, BidPage.TINTS[page.state]));
     prop("Pays", el("b", "", Inbox.dollars(match.bid.usd)));
     prop("Buyer", "Kept private");
-    if (match.bid.market && match.bid.market !== "unsorted") prop("Market", match.bid.market[0].toUpperCase() + match.bid.market.slice(1).replace(/-/g, " "));
-    if (page.state !== "expired" && page.state !== "dismissed") {
-      prop("Time left", page.left ?? "—");
+    const market = Inbox.market(match.bid.market);
+    if (market) prop("Market", market);
+    if (page.state !== "expired" && page.state !== "dismissed") prop("Time left", page.left ?? "—");
+    if (page.state !== "expired" && page.state !== "dismissed" && match.memories.length) {
       const strength = el("span", "strength");
       strength.append(signal(match.strength === "strong" ? 3 : 2), match.strength === "strong" ? "Strong" : "Good");
       prop("Match", strength);
@@ -4794,14 +4897,14 @@ function renderAutomations(s) {
   return [page];
 }
 
-const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
   const detail = view === "inbox" ? detailTask : null;
   const welcoming = view === "inbox" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
@@ -4810,10 +4913,12 @@ function render() {
   // A collection's name is its heading, renamed in place.
   title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
   title.spellcheck = false;
-  // APP-283: the Inbox, a bid and the drafts are pages: a header bar with a breadcrumb, rows edge to edge.
-  const paged = !detail && !welcoming && (view === "inbox" || view === "bid" || view === "drafts");
+  // APP-283: the Inbox, Bids, a bid and the drafts are pages: a header bar with a breadcrumb, rows edge to edge.
+  const paged = !detail && !welcoming && (view === "inbox" || view === "bids" || view === "bid" || view === "drafts");
   mainEl.classList.toggle("paged", paged);
-  taskBack.textContent = paged ? "Inbox" : view === "collection" && !detail ? "← Inventory" : "← Inbox";
+  // A bid's breadcrumb is the list it was opened from.
+  const list = view === "bid" ? bidPage.from : view === "drafts" ? "inbox" : view;
+  taskBack.textContent = paged ? (list === "bids" ? "Bids" : "Inbox") : view === "collection" && !detail ? "← Inventory" : "← Inbox";
   taskBack.hidden = !detail && view !== "collection" && view !== "bid" && view !== "drafts";
   stepper.hidden = view !== "bid";
   if (view === "bid" && snapshot) {
@@ -4834,10 +4939,13 @@ function render() {
   log.hidden = !detail;
   syncComposer();
   // A collection lives in Inventory, so Inventory stays lit while one is open.
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" ? "inbox" : view)));
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" ? list : view)));
   if (!snapshot) return;
   $("[data-count=inbox]").textContent = String(inbox.count(snapshot) || "");
   $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
+  $("[data-count=bids]").textContent = String(bidsView.rows(snapshot, "matches").length || "");
+  pageTabs.hidden = view !== "bids";
+  pageTabs.replaceChildren(...(view === "bids" ? bidsView.tabs(snapshot) : []));
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -6561,7 +6669,7 @@ document.addEventListener("drop", (event) => {
   if (attachments.length) startCapture();
 });
 
-taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" || view === "drafts" ? show("inbox") : closeTask()));
+taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" ? show(bidPage.from) : view === "drafts" ? show("inbox") : closeTask()));
 // An answer grows to its text, so a wider or narrower window fits it again.
 addEventListener("resize", () => { for (const area of mainEl.querySelectorAll("textarea.answer")) fit(/** @type {HTMLTextAreaElement} */ (area)); });
 stepUp.addEventListener("click", () => bidPage.step(-1));
@@ -6835,21 +6943,22 @@ document.addEventListener("keydown", (event) => {
   pageKey(event);
 });
 
-/** APP-283: the Inbox and a bid's page by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
+/** APP-283, APP-288: the Inbox, Bids and a bid's page by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
 function pageKey(event) {
   const typing = event.target instanceof HTMLElement && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
   if (event.defaultPrevented || typing || event.metaKey || event.ctrlKey || event.altKey || palette.open || document.querySelector("dialog[open]") || !newMenu.hidden || document.body.dataset.state !== "app") return;
   const handled = view === "inbox" && !detailTask && !firstRun.active ? inbox.key(event)
+    : view === "bids" ? bidsView.key(event)
     : view === "bid" ? bidKey(event)
     : false;
   if (handled) event.preventDefault();
 }
 
-/** On a bid: ↑/↓ or K/J to the bid before or after, Esc back to the Inbox. @param {KeyboardEvent} event */
+/** On a bid: ↑/↓ or K/J to the bid before or after, Esc back to the list it came from. @param {KeyboardEvent} event */
 function bidKey(event) {
   if (event.key === "ArrowUp" || event.key === "k") bidPage.step(-1);
   else if (event.key === "ArrowDown" || event.key === "j") bidPage.step(1);
-  else if (event.key === "Escape") show("inbox");
+  else if (event.key === "Escape") show(bidPage.from);
   else return false;
   return true;
 }

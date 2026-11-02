@@ -105,6 +105,8 @@ type Snapshot = {
   jobs?: { items: JobItem[] };
   // Open bids the owner's memories answer, best first (APP-274). Added by the app, not the CLI.
   bidMatches: BidMatch[];
+  // Every open bid the last look read, less the dismissed, in the board's order (APP-288). Added by the app.
+  bidBoard: BoardBid[];
 };
 
 type JobItem = {
@@ -311,9 +313,12 @@ type PublicationCandidate = {
   bid?: string;
 };
 
+/** An open bid on yourlore.dev, as the app keeps it. */
+type BoardBid = { id: string; question: string; usd: number; market: string; url: string; expires: string };
+
 /** An open bid on yourlore.dev that the owner's memories answer, matched on this Mac (APP-274). */
 type BidMatch = {
-  bid: { id: string; question: string; usd: number; market: string; url: string; expires: string };
+  bid: BoardBid;
   /** Only memories that each answer the bid on their own, best first. */
   memories: Array<{ id: number; title: string }>;
   /** The best memory's score; `strength` is how the app should label it. */
@@ -359,6 +364,27 @@ type InboxRow = {
   /** Whether Done (hover, or E) clears it. */
   done: boolean;
   ref?: string;
+};
+
+/** What the Bids page lists from (APP-288): only what the app already read, never a request of its own. */
+type BidsInput = {
+  matches: BidMatch[];
+  board: BoardBid[];
+  tab: "matches" | "all";
+  drafting: Set<string>;
+  drafted: Set<string>;
+  answered: Set<string>;
+};
+
+/** One Bids row: amount · question · market · time left, or where the owner's answer stands · match strength (0 is none). */
+type BidRow = {
+  id: string;
+  amount: string;
+  question: string;
+  market: string;
+  left: string;
+  pill: { label: string; tint: string } | null;
+  strength: 0 | 2 | 3;
 };
 
 type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";

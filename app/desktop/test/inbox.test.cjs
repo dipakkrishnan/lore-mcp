@@ -118,3 +118,38 @@ test("a bid's page in each state: what it says, its status and its timeline", ()
   assert.deepEqual(page({ match: match({ expires: ago(HOUR) }), approved: true }).state, "approved", "an approved answer stays approved once the bid closes");
   assert.equal(inbox.bid(look({ match: match({}, 1) })).activity[1].text, "found 1 matching memory");
 });
+
+/** APP-288: one line per Bids row, as the owner reads it. @param {BidRow[]} rows */
+const lines = (rows) => rows.map((row) => [row.amount, row.question, row.market, row.pill?.label ?? row.left, `${row.strength} bars`].filter(Boolean).join(" · "));
+
+test("Bids lists the matches best first, or the whole board in its order, from what Lore already read", () => {
+  const inbox = new Inbox(NOW);
+  const strong = match({ id: "aaaaaaaaa1" });
+  const good = { ...match({ id: "aaaaaaaaa2", question: "What does a working notarization setup look like?", usd: 25, market: "unsorted", expires: new Date(NOW + 30 * HOUR).toISOString() }, 1), strength: /** @type {const} */ ("good") };
+  const unasked = { id: "aaaaaaaaa3", question: "How big should a holdout set be?", usd: 75, market: "ai-research", url: "", expires: new Date(NOW + 4 * 24 * HOUR).toISOString() };
+  const closed = { ...unasked, id: "aaaaaaaaa4", expires: ago(HOUR) };
+  const sets = { drafting: new Set(), drafted: new Set(), answered: new Set() };
+  const matches = [strong, good];
+  // The board leaves out the strong match: a look that came back short still shows it, after the board's own.
+  const board = [unasked, good.bid, closed];
+  assert.deepEqual(lines(inbox.bids({ matches, board, tab: "matches", ...sets })), [
+    "$40 · How do you stop reward hacking on long coding tasks? · Rl evals · 2 days · 3 bars",
+    "$25 · What does a working notarization setup look like? · 30 hours · 2 bars"
+  ]);
+  assert.deepEqual(lines(inbox.bids({ matches, board, tab: "all", ...sets })), [
+    "$75 · How big should a holdout set be? · Ai research · 4 days · 0 bars",
+    "$25 · What does a working notarization setup look like? · 30 hours · 2 bars",
+    "$40 · How do you stop reward hacking on long coding tasks? · Rl evals · 2 days · 3 bars"
+  ]);
+  assert.deepEqual(inbox.bids({ matches: [], board: [], tab: "all", ...sets }), [], "an empty board is no rows");
+});
+
+test("a bid the owner is answering says where the answer stands in place of its time left", () => {
+  const inbox = new Inbox(NOW);
+  const ids = ["aaaaaaaaa1", "aaaaaaaaa2", "aaaaaaaaa3", "aaaaaaaaa4"];
+  const matches = ids.map((id) => match({ id }));
+  const rows = inbox.bids({ matches, board: [], tab: "matches", drafting: new Set([ids[0], ids[1]]), drafted: new Set([ids[1], ids[2]]), answered: new Set([ids[2]]) });
+  assert.deepEqual(rows.map((row) => row.pill), [{ label: "Drafting", tint: "pending" }, { label: "Answer drafted", tint: "pending" }, { label: "Answer ready", tint: "live" }, null]);
+  assert.equal(Inbox.unmatched(matches[0].bid).memories.length, 0, "a bid nothing answers opens with no memories, so its page offers no draft");
+  assert.equal(inbox.bid(look({ match: Inbox.unmatched(matches[0].bid) })).state, "unmatched");
+});

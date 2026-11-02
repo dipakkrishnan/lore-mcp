@@ -100,10 +100,10 @@ function request(type, payload, signal) {
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch @param {InstanceType<typeof Outgoing>} outgoing */
 function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
-    const [state, bidMatches] = await Promise.all([readState(loreHome), bids.matches()]);
+    const [state, bidMatches, bidBoard] = await Promise.all([readState(loreHome), bids.matches(), bids.board()]);
     storeAddress = state.node.url;
     inboxAddress = state.node.agents ?? null;
-    return { ...state, bidMatches };
+    return { ...state, bidMatches, bidBoard };
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);

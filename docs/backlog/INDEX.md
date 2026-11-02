@@ -405,6 +405,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
+| [APP-288](./desktop-app/APP-288-give-bids-a-place-in-the-sidebar.md) | Give Bids a place in the sidebar | P1 | M | desktop-app | completed | APP-283, APP-274, APP-282 | — | APP-283 | — |
 | [XC-110](./cross-cutting/XC-110-bring-lore-cloudflare-py-to-the-90-90-coverage-floor.md) | Bring lore/cloudflare.py to the 90/90 coverage floor | P2 | S | cross-cutting | completed | XC-087, XC-096, XC-108 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | completed | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-248](./desktop-app/APP-248-split-test-app-test-cjs-so-node-test-can-run-the-desktop-unit-tests-in-parallel.md) | Split test/app.test.cjs so node --test can run the desktop unit tests in parallel | P2 | S | desktop-app | completed | XC-077, XC-072 | — | — | — |

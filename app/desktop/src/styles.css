@@ -6,7 +6,7 @@
   --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-15: 15px; --fs-20: 20px;
   --r-4: 4px; --r-6: 6px; --r-8: 8px; --r-12: 12px; --r-pill: 999px;
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-14: 56px;
-  --control: 28px; --control-lg: 36px; --nav-row: 32px; --row: 36px; --side: 228px; --icon: 16px; --header: 44px; --props: 272px; --page-col: 720px; --prop-label: 92px; --verb: 72px; --chip: 20px;
+  --control: 28px; --control-lg: 36px; --nav-row: 32px; --row: 36px; --side: 228px; --icon: 16px; --header: 44px; --props: 272px; --page-col: 720px; --prop-label: 92px; --verb: 72px; --chip: 20px; --tab: 26px; --col-market: 96px; --col-left: 104px;
   --dur: 120ms; --dur-slow: 1.6s;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --bg: #fcfcfd;
@@ -984,6 +984,18 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .irow .verb { flex-shrink: 0; min-width: var(--verb); justify-content: flex-end; color: var(--text-1); }
 .irow .done { width: var(--s-6); height: var(--s-6); visibility: hidden; }
 .irow.sel .done, .irow:hover .done { visibility: visible; }
+/* APP-288: Bids, one line each in columns (amount · question · market · time left · match), under two text tabs. */
+.page-tabs { display: flex; gap: 2px; margin-left: var(--s-1); }
+.ptab { display: inline-flex; align-items: center; gap: var(--s-2); height: var(--tab); padding: 0 var(--s-2); border-radius: var(--r-6); font-size: var(--fs-13); color: var(--text-2); transition: background var(--dur), color var(--dur); }
+.ptab:hover { color: var(--text-1); background: var(--bg-hover); }
+.ptab[aria-selected="true"] { color: var(--text-1); background: var(--bg-active); }
+.ptab .n { font-size: var(--fs-12); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.brow .amt { width: var(--s-10); margin: 0; text-align: right; color: var(--text-1); font-weight: 500; flex-shrink: 0; }
+.brow .mkt { width: var(--col-market); flex-shrink: 0; font-size: var(--fs-12); color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brow .left { width: auto; min-width: var(--col-left); }
+.brow .left .chip { height: var(--chip); border-radius: var(--r-pill); }
+.brow .signal { flex-shrink: 0; margin-right: var(--s-2); }
+@media (max-width: 820px) { .brow .mkt { display: none; } }
 .caught-up { flex: 1; display: grid; place-items: center; min-height: calc(100vh - 2 * var(--header)); font-size: var(--fs-20); font-weight: 500; color: var(--text-2); }
 
 /* A bid's page: the body in a readable column, its properties in a column beside it, its timeline at the foot. */

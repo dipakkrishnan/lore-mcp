@@ -93,6 +93,31 @@ class Inbox {
     return rows.sort((a, b) => time(b) - time(a) || (order.get(a) ?? 0) - (order.get(b) ?? 0));
   }
 
+  /** A market's slug in words, "rl-evals" as "Rl evals"; a bid with no market has none. @param {string} slug */
+  static market(slug) {
+    return slug && slug !== "unsorted" ? slug[0].toUpperCase() + slug.slice(1).replace(/-/g, " ") : "";
+  }
+
+  /** A bid on the board that nothing the owner kept answers, shaped like a match with no memories. @param {BoardBid} bid
+   * @returns {BidMatch} */
+  static unmatched(bid) {
+    return { bid, memories: [], score: 0, strength: "good" };
+  }
+
+  /** APP-288: the Bids page's rows. Matches lists what the owner's memories answer, best first; All lists the board in
+   * its own order, then any match the last look didn't list. A closed bid is on neither. @param {BidsInput} input
+   * @returns {BidRow[]} */
+  bids({ matches, board, tab, drafting, drafted, answered }) {
+    const open = (/** @type {BoardBid} */ bid) => Date.parse(bid.expires) > this.now;
+    const found = new Map(matches.filter((match) => open(match.bid)).map((match) => [match.bid.id, match]));
+    const onBoard = board.filter(open).map((bid) => found.get(bid.id) ?? Inbox.unmatched(bid));
+    const listed = tab === "matches" ? [...found.values()] : [...onBoard, ...[...found.values()].filter((match) => !onBoard.includes(match))];
+    return listed.map(({ bid, memories, strength }) => {
+      const pill = answered.has(bid.id) ? { label: "Answer ready", tint: "live" } : drafted.has(bid.id) ? { label: "Answer drafted", tint: "pending" } : drafting.has(bid.id) ? { label: "Drafting", tint: "pending" } : null;
+      return { id: bid.id, amount: Inbox.dollars(bid.usd), question: bid.question, market: Inbox.market(bid.market), left: this.left(bid.expires) ?? "", pill, strength: !memories.length ? 0 : strength === "strong" ? 3 : 2 };
+    });
+  }
+
   /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
    * matched (or not, when Lore found nothing). @param {BidLook} look @returns {BidState} */
   state({ match, drafting, draft, approved, dismissed }) {
