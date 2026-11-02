@@ -38,6 +38,10 @@ test("names a coarse agent family from the User-Agent", () => {
   for (const [userAgent, family] of FAMILIES) expect(agentFamily(userAgent), String(userAgent)).toBe(family);
 });
 
+test("the site's own config binds the relay", () => {
+  expect(env.RELAY).toBeDefined();
+});
+
 test("every family it can name is one the relay keeps", () => {
   for (const [, family] of FAMILIES) expect(contract.site_events.values, family).toContain(family);
 });
