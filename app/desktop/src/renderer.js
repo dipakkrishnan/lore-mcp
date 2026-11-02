@@ -118,6 +118,14 @@ let checkIn = null;
 /** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
  * so one that started before a "Not today" never brings the card back. */
 let loads = 0;
+/** Task news heard while a load was out, by kind, with the load it arrived during: newer than what that load read
+ * from disk, so it is laid over that load's tasks when it lands. @type {Map<string, {task: TaskRecord, during: number}>} */
+const heardTasks = new Map();
+
+/** `items` with one task's news: a finished task leaves, any other goes first. @param {TaskRecord[]} items @param {TaskRecord} news */
+const withTask = (items, news) => news.state === "done"
+  ? items.filter((item) => item.kind !== news.kind)
+  : [news, ...items.filter((item) => item.kind !== news.kind)].slice(0, 3);
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -735,7 +743,7 @@ const STEP_ICONS = {
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
-  collection: lineIcon(`<path d="M3.5 7.5L12 3l8.5 4.5L12 12z"></path><path d="M3.5 12L12 16.5 20.5 12"></path><path d="M3.5 16.5L12 21l8.5-4.5"></path>`),
+  collection: $("nav [data-view=inventory] svg").outerHTML,
   ask: lineIcon(`<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
@@ -4368,18 +4376,12 @@ function render() {
   renderAccount();
 }
 
-/** The account row at the foot of the sidebar: who is signed in, and the menu that holds Settings, help and feedback. */
+/** The workspace menu at the top of the sidebar: who is signed in and how the store stands, over Settings, help and sign-out. */
 function renderAccount() {
   const credential = auth?.credentials[0];
-  const [name, icon] = provider(credential);
-  const avatar = el("span", "avatar");
-  if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
-  const who = el("span", "who");
-  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
-  who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
-  account.replaceChildren(avatar, who);
-  account.insertAdjacentHTML("beforeend", CHEVRON);
-  accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
+  const [name] = provider(credential);
+  const store = snapshot?.node.url ? ` · Store ${nodeLabel(snapshot.node).toLowerCase()}` : "";
+  accountLine.textContent = credential ? `Signed in with ${name}${store}` : "Not signed in";
   signOutBtn.hidden = !credential;
 }
 
@@ -4414,6 +4416,10 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines), window.lore.suggestions().catch(() => suggestions)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines, suggestions] = loaded;
+    for (const [kind, heard] of heardTasks) {
+      if (heard.during < ticket) heardTasks.delete(kind);
+      else taskItems = withTask(taskItems, heard.task);
+    }
     let newest = 0;
     for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
     await unseen.load(newest).catch(() => undefined);
@@ -5885,9 +5891,8 @@ function onEvent(event) {
   else if (event.type === "task") {
     if (event.task.kind === "synthesize" && event.task.state !== "working") drop((item) => item.text.endsWith(READING));
     if (detailTask === event.task.kind) detailRecord = event.task;
-    taskItems = event.task.state === "done"
-      ? taskItems.filter((item) => item.kind !== event.task.kind)
-      : [event.task, ...taskItems.filter((item) => item.kind !== event.task.kind)].slice(0, 3);
+    heardTasks.set(event.task.kind, { task: event.task, during: loads });
+    taskItems = withTask(taskItems, event.task);
     render();
   }
   else if (event.type === "progress") {
@@ -6120,11 +6125,14 @@ newOpen.addEventListener("click", (event) => {
 /** @param {string | undefined} what */
 function startNew(what) {
   closeNewMenu();
-  if (what === "collection") void newCollection();
+  if (what === "memory") startCapture();
+  else if (what === "collection") void newCollection();
   else if (what === "automation") { show("automations"); openNewRoutine(); }
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
 newMenu.addEventListener("keydown", (event) => {
+  const lettered = /** @type {HTMLElement | null} */ (newMenu.querySelector(`[aria-keyshortcuts="${event.key.toUpperCase()}"]`));
+  if (lettered && !event.metaKey && !event.ctrlKey) { event.preventDefault(); lettered.click(); return; }
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
   const items = /** @type {HTMLElement[]} */ ([...newMenu.querySelectorAll("button")]);
@@ -6329,7 +6337,7 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew("collection"); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
@@ -6367,7 +6375,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, load, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
