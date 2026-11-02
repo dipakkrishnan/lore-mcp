@@ -93,13 +93,16 @@ floors yet; XC-108 sets them once a few weeks of numbers exist.
   main run before it, 40995303688 (XC-088, #608). The three Worker lines
   read from the job logs are identical to the local numbers above:
   `lore/node` statements 96.33% / branches 89.57%; `feedback-relay`
-  100.00% / 99.27%; `checkout` 99.51% / 98.34%. The desktop's
-  `test:coverage` step (58 s) and its summary step both succeeded with no
-  `coverage app/desktop` warning annotation on the job, which is the
-  script's only other outcome, so the line carries numbers; the same
-  commit on the same OS gave lines 92.60% / branches 89.04% locally, and
-  the job's log was still being written (the walks) when this was
-  recorded. Criterion 3:
+  100.00% / 99.27%; `checkout` 99.51% / 98.34%. The desktop line, read
+  from the job log of run 41387452465 (2026-11-02, after merging main
+  with XC-111's macos-15 job): `app/desktop` lines 92.60% (3368/3637) /
+  branches 89.06% (1270/1426), two branches more than the local run on
+  macOS 25 (89.04%, 1268/1424), a platform-conditional path or two that
+  the runner's OS takes. In that run `Node component tests` took 163 s
+  (86 s test step) against 176 s (103 s) on the latest green main run
+  before it (41265924559, #619), so the runner's day-to-day variance is
+  larger than the instrumentation cost either way. Criterion 3, on the
+  first run:
   `Node component tests` took 97 s (job) and 72 s (test step) instrumented
   against 90 s and 66 s before, +7.8% and +9.1%; `Card checkout component
   tests` 19 s against 25 s and `Feedback relay component tests` 25 s against
