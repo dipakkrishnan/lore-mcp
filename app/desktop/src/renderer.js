@@ -118,6 +118,14 @@ let checkIn = null;
 /** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
  * so one that started before a "Not today" never brings the card back. */
 let loads = 0;
+/** Task news heard while a load was out, by kind, with the load it arrived during: newer than what that load read
+ * from disk, so it is laid over that load's tasks when it lands. @type {Map<string, {task: TaskRecord, during: number}>} */
+const heardTasks = new Map();
+
+/** `items` with one task's news: a finished task leaves, any other goes first. @param {TaskRecord[]} items @param {TaskRecord} news */
+const withTask = (items, news) => news.state === "done"
+  ? items.filter((item) => item.kind !== news.kind)
+  : [news, ...items.filter((item) => item.kind !== news.kind)].slice(0, 3);
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -4402,6 +4410,10 @@ async function load() {
     const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines), window.lore.suggestions().catch(() => suggestions)]);
     if (ticket !== loads) return;
     [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines, suggestions] = loaded;
+    for (const [kind, heard] of heardTasks) {
+      if (heard.during < ticket) heardTasks.delete(kind);
+      else taskItems = withTask(taskItems, heard.task);
+    }
     let newest = 0;
     for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
     await unseen.load(newest).catch(() => undefined);
@@ -5859,9 +5871,8 @@ function onEvent(event) {
   else if (event.type === "task") {
     if (event.task.kind === "synthesize" && event.task.state !== "working") drop((item) => item.text.endsWith(READING));
     if (detailTask === event.task.kind) detailRecord = event.task;
-    taskItems = event.task.state === "done"
-      ? taskItems.filter((item) => item.kind !== event.task.kind)
-      : [event.task, ...taskItems.filter((item) => item.kind !== event.task.kind)].slice(0, 3);
+    heardTasks.set(event.task.kind, { task: event.task, during: loads });
+    taskItems = withTask(taskItems, event.task);
     render();
   }
   else if (event.type === "progress") {
@@ -6340,7 +6351,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, load, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;
