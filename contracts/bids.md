@@ -92,3 +92,63 @@ Each error is a 400 with `{error: "<plain sentence>"}` for JSON, or the
 form shown again with the message for a form post. Examples: "Write a
 question of at least 10 characters." "Bids are $5 to $1,000." "The
 callback address can't be on yourlore.dev."
+
+## Matching on the seller's Mac (APP-274)
+
+The desktop app reads `GET /bids.json` (or `LORE_BIDS_URL`) at launch and then
+every 15 minutes, give or take 20%, never on focus. That request shows the
+site this Mac's IP address and that it runs Lore, nothing else: no memory,
+match or dismissal. The app reads at most 1 MB and 200 bids, and drops a bid
+whose question is over 280 characters. `lore bids match` takes those bids on
+stdin (with the same caps, and at most 16 words searched per question) and
+prints the bids the owner's kept memories answer:
+
+```json
+[{"bid": {"id": "…", "question": "…", "usd": 40, "market": "…", "url": "…", "expires": "…"},
+  "memories": [{"id": 12, "title": "…"}], "score": 0.83}]
+```
+
+The score is the share of the question's meaningful words a memory holds,
+each weighted by how rare it is in the library (search is the library's own
+SQLite full-text index). A bid matches at 0.5 or more; the corpus in
+`tests/fixtures/bids` puts every answerable bid at 0.62+ and every other bid,
+near misses included, at 0.31 or less. Only bids that are `open` or
+`answered` and inside their week match. The app keeps the matches in its own
+data folder with the bids the owner dismissed. Every change to that file
+goes through one queue. A match counts as announced only after its
+notification is up.
+
+A stranger wrote the question, so the answer is drafted in one model call
+with **no tools**. The app reads the matched memories itself and sends their
+title and text, with the question as JSON data. The model returns only
+`{title, teaser, content, useful_if, not_useful_if}`. The app then stages the
+draft with `provenance` set to the matched ids and `"bid": "<id>"`, beside the
+drafts already waiting and replacing an earlier answer to the same bid. An
+approved piece keeps that `bid` on its row. Until the owner sends it, nothing
+about it leaves the Mac.
+
+## Sending a seller's answer (MON-056, designed, not built)
+
+`POST /b/:id/answers` stays admin-only until this lands. The seller's path
+needs no new secret, because the answer is a piece already on the seller's
+own registered store, and only the seller can put a piece there:
+
+1. The app posts `{piece_url}` with no token, after the owner approves the
+   piece and it is pushed to their store.
+2. The site finds the registry seller whose `store` address starts
+   `piece_url`; the answer's handle is that seller's registry name. A URL no
+   registered store owns is a 400.
+3. The site reads that store's free catalog the way the marketplace does
+   (`discover` over MCP, `site/src/markets.js`). The piece must be listed
+   there with `bid` equal to this bid's id; otherwise 403 "That piece isn't
+   an answer to this bid." That `bid` field is what proves the seller meant
+   it: the store's manifest carries the bid id the owner approved the piece
+   for.
+4. `preview` is the piece's teaser and sample from that catalog, and `usd`
+   the store's price; anything else in the body is ignored.
+5. One answer per bid and piece (a repeat is a 200 with the bid as it is),
+   rate-limited like placing a bid, and the bid must still be live.
+
+It needs the manifest to carry `bid` (the Python export and the store
+Worker's `discover`), and the store listed in the registry, so it is its own
+item.

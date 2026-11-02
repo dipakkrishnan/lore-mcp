@@ -8,12 +8,13 @@ const sales = require("./sales.cjs");
 const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
+const { BidWatch, BIDS_URL, nextLook, announcements: bidNews } = require("./bids.cjs");
 const { Schedule } = require("./routines.cjs");
 const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, matchBids, stageBidAnswer, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 const { OwnerRequests, ownerGates } = require("./owner.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -53,6 +54,15 @@ const appearance = new Appearance(join(app.getPath("userData"), "appearance.json
 const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
 const checkIns = new checkin.CheckIns(join(app.getPath("userData"), "check-in.json"), badge.part("checkin"));
+/** The owner's Lore. */
+const LORE_HOME = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
+/** Open bids the owner's memories answer, matched here; the board's address can point elsewhere for a test (APP-274). */
+const bids = new BidWatch({
+  file: join(app.getPath("userData"), "bid-matches.json"),
+  match: (board) => matchBids(LORE_HOME, board),
+  badge: badge.part("bids"),
+  url: process.env.LORE_BIDS_URL || BIDS_URL
+});
 /** @param {AgentEvent} event */
 function emit(event) {
   window?.webContents.send("agent:event", event);
@@ -90,10 +100,10 @@ function request(type, payload, signal) {
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch @param {InstanceType<typeof Outgoing>} outgoing */
 function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
-    const state = await readState(loreHome);
+    const [state, bidMatches] = await Promise.all([readState(loreHome), bids.matches()]);
     storeAddress = state.node.url;
     inboxAddress = state.node.agents ?? null;
-    return state;
+    return { ...state, bidMatches };
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
@@ -289,6 +299,21 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     await seenMemories.add(reading.seenIds(ids));
   });
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
+  ipcMain.handle("bids:dismiss", async (_event, id) => {
+    await bids.dismiss(String(id));
+    emit({ type: "changed" });
+  });
+  // A stranger wrote the question, so the model drafting the answer gets no tools: the app reads the matched memories,
+  // hands their text over, and stages a draft from the words it gets back, tied to the bid, waiting on the owner's card.
+  ipcMain.handle("bids:draft", async (_event, id) => {
+    const match = await bids.find(String(id));
+    if (!match) throw new Error("That bid has ended");
+    const memories = await Promise.all(match.memories.map((memory) => readMemory(loreHome, memory.id)));
+    const words = await ready().draftBid(match, memories);
+    if (!words) throw new Error("Lore couldn't draft an answer from those memories. Try again.");
+    await stageBidAnswer(loreHome, match, words);
+    emit({ type: "changed" });
+  });
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
   // its turn behind any run under way, so the owner's and the clock's never overlap.
@@ -494,7 +519,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
+  const loreHome = LORE_HOME;
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   /** The sign-ins the owner has been told of. @type {Set<string>} */
   const told = new Set();
@@ -524,9 +549,11 @@ app.whenReady().then(async () => {
   updates.start();
   await boot(loreHome, outgoing);
   watchSales(loreHome);
+  watchBids();
   watchAgents(watch);
   void newMemories.show();
   void checkIns.show();
+  void bids.show();
   void schedule.check();
   powerMonitor.on("resume", () => void schedule.check());
   app.on("activate", () => {
@@ -536,6 +563,25 @@ app.whenReady().then(async () => {
 
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
+
+/** A Mac notification for each open bid the owner's memories answer. The board is read now and then about every
+ * quarter hour, never on the owner's comings and goings, so its server can't tell when they use the app. */
+function watchBids() {
+  const look = async () => {
+    try {
+      const fresh = await bids.check();
+      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "today" }));
+      // Remembered only once the banners are up: one that failed is announced on the next look.
+      await bids.announced(fresh.map((match) => match.bid.id));
+      if (fresh.length) emit({ type: "changed" });
+    } catch (error) {
+      // Offline, or the board is down: the next look tries again.
+      console.error("Lore could not read the bids board:", error);
+    }
+    setTimeout(() => void look(), nextLook());
+  };
+  void look();
+}
 
 /** The store's address as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
 let storeAddress;
