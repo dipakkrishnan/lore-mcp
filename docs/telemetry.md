@@ -60,7 +60,9 @@ answers.
   opening, a sign-in), and Python records the rest where they happen. The
   closed list is `contracts/usage_events.json`: a name and at most one coded
   property per event. Milestones are sent once per install, `app.opened` once
-  a day, `cli.failed` each time with only the command's name. Nothing is sent
+  a day, `cli.failed` each time with only the command's name, except for the
+  store reads the app polls every minute (`node sales`, `node views`), whose
+  failures mean the store is out of reach, not a broken command (`CLI-016`). Nothing is sent
   before the notice (`telemetry_noticed`) or with telemetry off, and every
   event sent is appended to `~/.lore/usage.log`. Sending is a 2-second,
   best-effort POST that never fails a command.

@@ -79,6 +79,9 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+# Reads the app repeats every minute (CLI-016): one failing says the store is out of
+# reach, not that a command the owner ran broke, so it is never a `cli.failed`.
+POLLED_READS = {("node", "sales"), ("node", "views")}
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
@@ -889,8 +892,9 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (OSError, ValueError) as error:
         print(f"lore: {error}", file=sys.stderr)
-        command = args.command if args.command in usage.COMMANDS else "other"
-        usage.record("cli.failed", command)
+        if (args.command, getattr(args, "node_command", None)) not in POLLED_READS:
+            command = args.command if args.command in usage.COMMANDS else "other"
+            usage.record("cli.failed", command)
         return 1
     return 0
 

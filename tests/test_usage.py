@@ -166,6 +166,21 @@ class UsageTest(LoreTestCase):
             self.assertEqual(cli.main(["push"]), 1)
         self.assertEqual(self.sent[-1]["props"], {"command": "push"})
 
+    def test_a_polled_read_that_fails_is_not_a_failed_command(self) -> None:
+        usage.notice_shown()
+        down = OSError("store unreachable")
+        with (
+            captured(),
+            patch("lore.deploy.sales", side_effect=down),
+            patch("lore.deploy.views", side_effect=down),
+            patch("lore.deploy.deploy", side_effect=down),
+        ):
+            self.assertEqual(cli.main(["node", "sales", "--json"]), 1)
+            self.assertEqual(cli.main(["node", "views", "--json"]), 1)
+            self.assertEqual(self.sent, [])
+            self.assertEqual(cli.main(["node", "deploy"]), 1)
+        self.assertEqual(self.sent[-1]["props"], {"command": "node"})
+
     def test_a_terminal_says_it_once_before_anything_is_sent(self) -> None:
         with (
             patch.object(cli, "_interactive", return_value=True),
