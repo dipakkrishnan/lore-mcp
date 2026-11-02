@@ -5764,17 +5764,26 @@ function usageRow(s) {
   );
 }
 
+/** Whether the welcome screen on show has said what usage events are sent. */
+let welcomed = false;
+
 function enter() {
   const signedIn = Boolean(auth?.credentials.length);
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
   if (signedIn) {
+    welcomed = false;
     render();
     void firstRun.read().then(load).then(opened);
     return;
   }
   firstRun.reset();
+  // The welcome screen says it (APP-250), so from here on events are kept, starting with this install's first.
+  if (!welcomed && !welcome.classList.contains("provisioning")) {
+    welcomed = true;
+    void noticed().catch(() => undefined);
+  }
   // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
   loads++;
   told.clear();
@@ -5801,11 +5810,16 @@ function noticeAutomations() {
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+/** The owner has been told about usage events: remember it, then count the install if this is its first event. */
+function noticed() {
+  return window.lore.usage("noticed").then(() => window.lore.usage("app.installed"));
+}
+
+/** Someone who signed in before the welcome screen said it hears about usage events once, on Today, before any is sent. */
 function noticeUsage() {
   const setup = snapshot?.setup;
   if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
-  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => noticed().then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */
@@ -6319,6 +6333,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
   });
 }
 welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
+$("#welcome-usage").addEventListener("click", () => void window.lore.usageLog());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();
