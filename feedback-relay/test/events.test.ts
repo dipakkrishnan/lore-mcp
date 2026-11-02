@@ -49,6 +49,17 @@ describe("usage events", () => {
     ]);
   });
 
+  it("takes how far a first run got as one of its steps, nothing else", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "firstrun.step", props: { step: "link" }, at: AT },
+        { name: "firstrun.step", props: { step: "Grok Bot" }, at: AT },
+        { name: "firstrun.step", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([{ name: "firstrun.step", props: { step: "link" }, at: AT }]);
+  });
+
   it("knows every event in the shared contract", () => {
     for (const [name, prop] of Object.entries(contract.events)) {
       const props = prop ? { [prop.prop]: prop.values[0] } : {};

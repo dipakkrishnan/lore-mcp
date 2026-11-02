@@ -109,6 +109,17 @@ class UsageTest(LoreTestCase):
         self.assertFalse(usage.record("app.installed"))
         self.assertEqual(self.names(), ["app.opened"])
 
+    def test_each_first_run_step_is_sent_once_and_only_as_a_code(self) -> None:
+        usage.notice_shown()
+        for step in ("apps", "agent", "agent", "skipped"):
+            usage.record("firstrun.step", step)
+        with self.assertRaises(ValueError):
+            usage.record("firstrun.step", "Grok Bot")
+        self.assertEqual(
+            [event["props"] for event in self.sent],
+            [{"step": "apps"}, {"step": "agent"}, {"step": "skipped"}],
+        )
+
     def test_events_carry_only_coded_values(self) -> None:
         usage.notice_shown()
         with self.assertRaises(ValueError):
