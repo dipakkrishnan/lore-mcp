@@ -735,7 +735,7 @@ const STEP_ICONS = {
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
-  collection: lineIcon(`<path d="M3.5 7.5L12 3l8.5 4.5L12 12z"></path><path d="M3.5 12L12 16.5 20.5 12"></path><path d="M3.5 16.5L12 21l8.5-4.5"></path>`),
+  collection: $("nav [data-view=inventory] svg").outerHTML,
   ask: lineIcon(`<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
@@ -4368,18 +4368,12 @@ function render() {
   renderAccount();
 }
 
-/** The account row at the foot of the sidebar: who is signed in, and the menu that holds Settings, help and feedback. */
+/** The workspace menu at the top of the sidebar: who is signed in and how the store stands, over Settings, help and sign-out. */
 function renderAccount() {
   const credential = auth?.credentials[0];
-  const [name, icon] = provider(credential);
-  const avatar = el("span", "avatar");
-  if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
-  const who = el("span", "who");
-  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
-  who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
-  account.replaceChildren(avatar, who);
-  account.insertAdjacentHTML("beforeend", CHEVRON);
-  accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
+  const [name] = provider(credential);
+  const store = snapshot?.node.url ? ` · Store ${nodeLabel(snapshot.node).toLowerCase()}` : "";
+  accountLine.textContent = credential ? `Signed in with ${name}${store}` : "Not signed in";
   signOutBtn.hidden = !credential;
 }
 
@@ -6120,11 +6114,14 @@ newOpen.addEventListener("click", (event) => {
 /** @param {string | undefined} what */
 function startNew(what) {
   closeNewMenu();
-  if (what === "collection") void newCollection();
+  if (what === "memory") startCapture();
+  else if (what === "collection") void newCollection();
   else if (what === "automation") { show("automations"); openNewRoutine(); }
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
 newMenu.addEventListener("keydown", (event) => {
+  const lettered = /** @type {HTMLElement | null} */ (newMenu.querySelector(`[aria-keyshortcuts="${event.key.toUpperCase()}"]`));
+  if (lettered && !event.metaKey && !event.ctrlKey) { event.preventDefault(); lettered.click(); return; }
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
   event.preventDefault();
   const items = /** @type {HTMLElement[]} */ ([...newMenu.querySelectorAll("button")]);
@@ -6329,7 +6326,7 @@ welcomeRetry.addEventListener("click", () => {
 });
 document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
-  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); startNew("collection"); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();

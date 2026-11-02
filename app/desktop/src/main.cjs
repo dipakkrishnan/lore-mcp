@@ -493,10 +493,8 @@ function createWindow() {
     height: 760,
     minWidth: 760,
     minHeight: 620,
-    // The page paints its own cream everywhere but the sidebar, which shows the window's frosted sidebar material.
-    backgroundColor: "#00000000",
-    vibrancy: "sidebar",
-    visualEffectState: "followWindow",
+    // APP-281: one canvas. The page paints the sidebar too; the window's own colour only shows before the page loads.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1011" : "#fcfcfd",
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
