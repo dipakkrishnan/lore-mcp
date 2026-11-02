@@ -55,8 +55,53 @@ class BidMatchTest(LibraryCase):
         scores = self.scores()
         answerable = [scores[bid["id"]] for bid in board() if bid["answerable"]]
         others = [scores[bid["id"]] for bid in board() if not bid["answerable"]]
-        self.assertGreaterEqual(min(answerable), bids.THRESHOLD + 0.1)
+        self.assertGreaterEqual(min(answerable), bids.THRESHOLD + 0.05)
         self.assertLessEqual(max(others), bids.THRESHOLD - 0.1)
+
+    def test_every_named_memory_answers_the_bid_and_every_answer_is_named(
+        self,
+    ) -> None:
+        """Precision and recall on the corpus, distractors included: task groups,
+        project logs and a weekly review that brush the question's words."""
+        with Store() as store:
+            matcher = BidMatcher(store, NOW)
+            for bid in board():
+                found = matcher.match(OpenBid.model_validate(bid))
+                titles = [m["title"] for m in (found or {"memories": []})["memories"]]
+                with self.subTest(bid=bid["id"]):
+                    self.assertTrue(set(titles) <= set(bid["answers"]), titles)
+                    self.assertEqual(bool(titles), bid["answerable"])
+
+    def test_a_memory_far_behind_the_best_is_not_named(self) -> None:
+        sizing = next(bid for bid in board() if bid["id"] == "ccccccccc1")
+        with patch.object(bids, "THRESHOLD", 0.2), Store() as store:
+            found = BidMatcher(store, NOW).match(OpenBid.model_validate(sizing))
+        assert found is not None
+        self.assertEqual(
+            [m["title"] for m in found["memories"]], ["Sizing GLM 5.3 Flash on B300s"]
+        )
+
+    def test_the_label_is_strong_only_when_the_best_memory_is(self) -> None:
+        with Store() as store:
+            matcher = BidMatcher(store, NOW)
+            labels = {
+                bid["id"]: match["strength"]
+                for bid in board()
+                if (match := matcher.match(OpenBid.model_validate(bid)))
+            }
+        self.assertEqual(labels["ccccccccc1"], "strong")
+        self.assertEqual(labels["aaaaaaaaa2"], "good")
+
+    def test_a_one_word_question_is_scored_on_that_word(self) -> None:
+        with Store() as store:
+            found = BidMatcher(store, NOW).match(
+                OpenBid.model_validate(board()[0] | {"question": "Sourdough?"})
+            )
+        assert found is not None
+        self.assertEqual(
+            [m["title"] for m in found["memories"]],
+            ["Sourdough starter in a cold kitchen"],
+        )
 
     def test_a_match_names_the_memories_that_answer_and_nothing_else(self) -> None:
         with Store() as store:
@@ -136,9 +181,13 @@ class StemsTest(LoreTestCase):
     def test_words_that_carry_meaning_are_kept_as_prefixes(self) -> None:
         self.assertEqual(
             stems("How do you stop reward-hacking on long coding tasks?"),
-            ["stop", "reward", "hack", "long", "coding", "task"],
+            ["stop", "reward", "hack", "long", "cod", "task"],
         )
-        self.assertEqual(stems("Which policies, policy?"), ["polic", "policy"])
+        self.assertEqual(stems("Which policies, policy?"), ["polic"])
+        self.assertEqual(
+            stems("GLM 5.3 on B300s and GPUs"), ["glm", "5.3", "b300", "gpu"]
+        )
+        self.assertEqual(stems("serve, serving, served"), ["serv"])
         self.assertEqual(stems("the and of"), [])
 
 

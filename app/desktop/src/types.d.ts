@@ -312,8 +312,11 @@ type PublicationCandidate = {
 /** An open bid on yourlore.dev that the owner's memories answer, matched on this Mac (APP-274). */
 type BidMatch = {
   bid: { id: string; question: string; usd: number; market: string; url: string; expires: string };
+  /** Only memories that each answer the bid on their own, best first. */
   memories: Array<{ id: number; title: string }>;
+  /** The best memory's score; `strength` is how the app should label it. */
   score: number;
+  strength: "strong" | "good";
 };
 
 /** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
