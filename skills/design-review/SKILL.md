@@ -1,6 +1,6 @@
 ---
 name: design-review
-description: Hold any Lore UI change (desktop app or website) to docs/design-principles.md, Lore's Linear-standard design rules. Use before writing or reviewing UI, when the user says "design review", "does this match Linear", "check the UX", or when a backlog item touches app/desktop/src or site/.
+description: Hold any Lore UI change (desktop app or website) to docs/design-principles.md, Lore's Linear-standard design rules. Use when writing or reviewing UI, when the user says "design review", "does this match Linear", "check the UX", or when a backlog item touches app/desktop/src or site/.
 ---
 
 # Design review
