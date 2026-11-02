@@ -1,6 +1,7 @@
 {
   // yourlore.dev — static download page served as Worker assets, plus the
-  // marketplace page rendered by src/worker.js from the lore-marketplace list.
+  // marketplace page rendered by src/worker.js from the lore-marketplace list,
+  // and the bid book (contracts/bids.md).
   // Deploy: npx wrangler deploy (from this directory)
   "name": "yourlore-site",
   "compatibility_date": "2026-09-01",
@@ -9,10 +10,24 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/marketplace", "/marketplace/*", "/marketplace.json"]
+    "run_worker_first": ["/marketplace", "/marketplace/*", "/marketplace.json", "/bids", "/bids/", "/bids.json", "/b/*"]
   },
   "routes": [
     { "pattern": "yourlore.dev", "custom_domain": true },
     { "pattern": "www.yourlore.dev", "custom_domain": true }
+  ],
+  // The only writer of bids. A SQLite Durable Object needs no account-side
+  // resource; the migration is all it takes. BIDS_ADMIN_TOKEN is a secret
+  // (see README.md), never a var.
+  "durable_objects": {
+    "bindings": [{ "class_name": "BidBook", "name": "BIDS" }]
+  },
+  "migrations": [{ "new_sqlite_classes": ["BidBook"], "tag": "v1" }],
+  // Cheap pre-filters on POST /bids: BID_RATE_LIMIT per client, BID_GLOBAL_RATE_LIMIT
+  // on one constant key. Both count per Cloudflare location, so the hard bound is
+  // BidBook's own hourly cap. `period` accepts only 10 or 60 seconds.
+  "ratelimits": [
+    { "name": "BID_RATE_LIMIT", "namespace_id": "2001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "BID_GLOBAL_RATE_LIMIT", "namespace_id": "2002", "simple": { "limit": 60, "period": 60 } }
   ]
 }

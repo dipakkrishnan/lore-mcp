@@ -17,7 +17,7 @@ CREATE TABLE bids (
   question TEXT NOT NULL,       -- 10..280 chars, trimmed
   usd_cents INTEGER NOT NULL,   -- 500..100000
   market TEXT NOT NULL,         -- a registry market slug, or "unsorted"
-  email TEXT,                   -- optional; never public
+  email TEXT,                   -- optional; never public; kept for MON-053, not yet used or asked for on the form
   callback_url TEXT,            -- optional https URL; never public
   created TEXT NOT NULL,        -- ISO 8601 UTC
   expires TEXT NOT NULL         -- created + 7 days
@@ -34,7 +34,9 @@ CREATE TABLE bid_events (       -- append-only; nothing is updated in place
 
 **Status** is computed from the events: `removed` wins, then `filled`, then
 `expired` (when `now >= expires` and the bid isn't filled), then `answered`
-(if any answer exists), else `open`.
+(if any answer exists), else `open`. When a bid's week runs out, the book
+appends its `expired` event (at `expires`) the next time anything reads it,
+so the timeline records the end without a timer.
 
 ## Public shape
 
@@ -57,17 +59,28 @@ CREATE TABLE bid_events (       -- append-only; nothing is updated in place
 }
 ```
 
+Each event is `{type, at}`. An `answered` event also carries `handle`, and a
+`filled` event carries `rail` and `proof`, so the timeline can say who
+answered and link the proof (XC-115).
+
 ## Routes (yourlore.dev)
 
 | Route | What it does |
 |---|---|
-| `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post gets a 303 to `/b/:id`. JSON gets a 201 with `{id, url, status_url, expires}`, where `status_url` is `/b/:id.json`. Needs no account. Rate-limited per client and globally. No IP is stored. `usd` is whole dollars, 5–1000. |
+| `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post gets a 303 to `/b/:id`. JSON gets a 201 with `{id, url, status_url, expires}`, where `status_url` is `/b/:id.json`. Needs no account. Rate-limited per client and globally (a 429 with a plain sentence), and `BidBook` refuses more than 100 new bids an hour, because the rate-limit bindings count per Cloudflare location. No IP is stored. `usd` is whole dollars, 5–1000. |
 | `GET /bids` | The board (XC-114). |
-| `GET /bids.json` | `{bids: [public shape…]}` for bids that are open or answered, newest first. |
+| `GET /bids.json` | `{bids: [public shape…], walked_away}` for bids that are open or answered, newest first. `walked_away` counts bids that were answered and then ended unfilled (MON-051). |
 | `GET /b/:id` | The bid's page (XC-115). |
 | `GET /b/:id.json` | The bid's public shape. Unknown and removed ids get a 404. |
 | `POST /b/:id/answers` | Add an answer: `{handle, piece_url, preview, usd}`. Needs `Authorization: Bearer $BIDS_ADMIN_TOKEN` in v1, because the owner adds answers by hand during the test (MON-055). The app path (APP-274) replaces this later. |
 | `DELETE /b/:id` | Appends `removed` (spam). Needs the admin token. |
+
+**Callbacks.** When an answer is added to a bid that has a `callback_url`,
+the site POSTs the bid's public shape (JSON) there, once per new answer,
+after replying to the answer route. One attempt with a 5-second timeout and
+no redirects; a failure is logged and nothing else. Only `https` addresses
+outside `yourlore.dev` and its subdomains are accepted, so a callback can't
+loop back into the site.
 
 **No route sets `filled`.** Only the payment rail does that, through MON-054:
 checkout's webhook over a service binding, or a Base lookup.
@@ -76,4 +89,5 @@ checkout's webhook over a service binding, or a Base lookup.
 
 Each error is a 400 with `{error: "<plain sentence>"}` for JSON, or the
 form shown again with the message for a form post. Examples: "Write a
-question of at least 10 characters." "Bids are $5 to $1,000."
+question of at least 10 characters." "Bids are $5 to $1,000." "The
+callback address can't be on yourlore.dev."
