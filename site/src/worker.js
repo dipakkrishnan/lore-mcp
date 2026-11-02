@@ -2,9 +2,9 @@
 // listed in it, drawn as plain pages people and browsing agents can read without a script.
 // The registry stays in the lore-marketplace repo and each piece's words come from its
 // own store; this only draws them. /bids and /b/:id are the bid book (src/bid-routes.js).
-// Every other path is the static site.
+// / is the home page, drawn around the live bids (src/home.js); /download hands out the app.
 import { BidDesk, isBidPath } from "./bid-routes.js";
-import { clip, date, escape, money, page, plural } from "./layout.js";
+import { clip, date, DOWNLOAD, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
 
 export { BidBook } from "./bids.js";
@@ -102,6 +102,7 @@ ${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "mar
     title: "Lore markets",
     description: "Browse markets of firsthand experience. Read free samples; every payment goes straight to the person who lived it.",
     canonical: HOME,
+    section: "markets",
     body: `${head}${exchange ? tape(exchange) : ""}${body}${exchange ? stores(exchange) : ""}`,
     data
   });
@@ -115,6 +116,7 @@ export function marketPage(exchange, id) {
       title: "Market not found · Lore",
       description: "This market isn't listed.",
       canonical: HOME,
+      section: "markets",
       body: `<p class="crumb"><a href="/marketplace">Markets</a></p><h1>Not listed</h1><p class="lede">${exchange ? "No market by that name has a listing." : "The markets can't be loaded right now. Try again in a minute."}</p><p><a class="go" href="/marketplace">All markets →</a></p>`
     });
   }
@@ -127,6 +129,7 @@ export function marketPage(exchange, id) {
     title: `${m.name} · Lore markets`,
     description: `${plural(m.rows.length, "firsthand piece")} on ${m.name.toLowerCase()}, from ${plural(people.length, "seller")}. Samples are free.`,
     canonical: `${HOME}/${m.id}`,
+    section: "markets",
     body: `<p class="crumb"><a href="/marketplace">Markets</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
 <ul class="stats"><li><b>${m.rows.length}</b>${m.rows.length === 1 ? "piece" : "pieces"}</li><li><b>${people.length}</b>${people.length === 1 ? "seller" : "sellers"}</li><li><b>${money(Math.min(...m.rows.map((r) => r.price)))}</b>lowest price</li></ul>
 <ul class="offers">${m.rows.map(item).join("")}</ul>${nearby.length ? `<h2 class="part">More in ${escape(m.tab)}</h2><ul class="related">${nearby.map((o) => `<li><a href="/marketplace/${o.id}">${escape(o.name)} · ${o.rows.length}</a></li>`).join("")}</ul>` : ""}`,
@@ -147,14 +150,29 @@ async function registry() {
   }
 }
 
+const NOT_FOUND = page({
+  title: "Not found · Lore",
+  description: "Nothing lives at this address.",
+  canonical: "https://yourlore.dev/",
+  body: `<h1>Not found</h1><p class="lede">Nothing lives at this address.</p><p><a class="go" href="/">Go to Lore</a></p>`
+});
+
+/** A static file, or the site's own not-found page. */
+async function asset(request, env) {
+  const found = await env.ASSETS.fetch(request);
+  return found.status === 404 ? html(NOT_FOUND, 404) : found;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/") return new BidDesk(request, env, ctx, registry).home();
+    if (url.pathname === "/download") return Response.redirect(DOWNLOAD, 302);
     if (isBidPath(url.pathname)) return new BidDesk(request, env, ctx, registry).respond();
     const json = url.pathname === "/marketplace.json";
     const stats = url.pathname === "/marketplace/stats.json";
     const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
-    if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
+    if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return asset(request, env);
     let list;
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });

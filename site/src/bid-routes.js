@@ -5,7 +5,8 @@ import { tellBuyer } from "./bid-callback.js";
 import { readAnswer, readBid } from "./bid-input.js";
 import { bidPage, missingBidPage } from "./bid-pages.js";
 import { publicBid } from "./bids.js";
-import { Exchange, registryMarkets } from "./markets.js";
+import { homePage } from "./home.js";
+import { registryMarkets } from "./markets.js";
 
 const BODY_MAX = 16_384;
 const BID_PATH = /^\/b\/([^/.]+)(\.json|\/answers)?\/?$/;
@@ -14,12 +15,12 @@ const PRIVATE = { "cache-control": "no-store" };
 const PUBLIC = { ...PRIVATE, "access-control-allow-origin": "*" };
 
 const json = (data, status = 200, headers = PRIVATE) => Response.json(data, { status, headers });
-const html = (body, status = 200) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...PRIVATE } });
+const html = (body, status = 200, cache = "no-store") => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": cache } });
 const refuse = (allow) => new Response(null, { status: 405, headers: { allow } });
 
 export const isBidPath = (path) => ["/bids", "/bids/", "/bids.json", "/bids/stats.json"].includes(path) || path.startsWith("/b/");
 
-/** One request to a bid route. `ctx` runs buyer callbacks after the reply; `registry` loads the marketplace list, or null when it can't. */
+/** One request to a bid route, or to the home page, which is drawn around the live bids. `ctx` runs buyer callbacks after the reply; `registry` loads the marketplace list, or null when it can't. */
 export class BidDesk {
   constructor(request, env, ctx, registry) {
     this.request = request;
@@ -37,7 +38,7 @@ export class BidDesk {
     if (pathname === "/bids/stats.json") return method === "GET" ? this.stats() : refuse("GET");
     if (pathname === "/bids" || pathname === "/bids/") return method === "GET" ? this.board() : method === "POST" ? this.place() : refuse("GET, POST");
     const [, id, rest] = pathname.match(BID_PATH) ?? [];
-    if (!id || !ID.test(id)) return rest === ".json" ? json({ error: "No bid by that id." }, 404) : html(missingBidPage(this.origin), 404);
+    if (!id || !ID.test(id)) return rest === ".json" ? json({ error: "No bid by that id." }, 404) : html(missingBidPage(), 404);
     if (rest === ".json") return method === "GET" ? this.one(id) : refuse("GET");
     if (rest === "/answers") return method === "POST" ? this.answer(id) : refuse("POST");
     return method === "GET" ? this.page(id) : method === "DELETE" ? this.remove(id) : refuse("GET, DELETE");
@@ -51,20 +52,25 @@ export class BidDesk {
     return (await this.book.live()).map((found) => publicBid(found, this.origin));
   }
 
-  /** What the board draws: live bids, the ticker's events, the registry's markets, and the exchange for asking prices. */
+  /** Live bids and the registry's markets; with the book unreachable, no bids rather than an error page. */
   async screen() {
-    const list = await this.registry();
-    const [bids, events, exchange] = await Promise.all([this.live(), this.book.tape(), list ? Exchange.load(list) : null]);
-    return { bids, events, exchange, markets: registryMarkets(list) };
+    const [bids, markets] = await Promise.all([this.live().catch(() => []), this.markets()]);
+    return { bids, markets };
   }
 
   async board(error, values, status = 200) {
-    return html(boardPage({ ...(await this.screen()), origin: this.origin, error, values }), status);
+    const market = new URL(this.request.url).searchParams.get("market") ?? "";
+    return html(boardPage({ ...(await this.screen()), market, error, values }), status);
   }
 
   async stats() {
-    const { bids, events, markets, exchange } = await this.screen();
-    return json(boardStats(bids, events, markets, exchange), 200, PUBLIC);
+    const { bids, markets } = await this.screen();
+    return json(boardStats(bids, markets, new URL(this.request.url).searchParams.get("market") ?? ""), 200, PUBLIC);
+  }
+
+  /** The home page, drawn around the live bids. */
+  async home() {
+    return html(homePage(await this.screen()), 200, "public, max-age=60");
   }
 
   async list() {
@@ -79,7 +85,7 @@ export class BidDesk {
 
   async page(id) {
     const [found, markets] = await Promise.all([this.book.find(id), this.markets()]);
-    return found ? html(bidPage(publicBid(found, this.origin), { markets, origin: this.origin })) : html(missingBidPage(this.origin), 404);
+    return found ? html(bidPage(publicBid(found, this.origin), { markets })) : html(missingBidPage(), 404);
   }
 
   async place() {

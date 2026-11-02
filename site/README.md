@@ -1,11 +1,15 @@
 # yourlore.dev
 
-Static download page for the Lore desktop app, served as Cloudflare Worker
-assets with the `yourlore.dev` and `www.yourlore.dev` custom domains bound.
-`/marketplace` is rendered by `src/worker.js` from the
+The Lore website, a Cloudflare Worker with the `yourlore.dev` and `www.yourlore.dev`
+custom domains bound. `/` is the home page (`src/home.js`), drawn around the live bids;
+`/download` sends the latest Mac release. `/marketplace` is rendered by `src/worker.js` from the
 [lore-marketplace](https://github.com/dipakkrishnan/lore-marketplace) list,
 refreshed within about ten minutes of a change to the list, and
-`/marketplace.json` serves the list itself at a short, stable address; every other path is the static site.
+`/marketplace.json` serves the list itself at a short, stable address. `public/` holds only
+static files (the icon); any other path gets the site's not-found page.
+
+The home page shows only real bids. With none open it falls back to `FEATURED` in
+`src/home.js`, a list the owner edits by hand, and with that empty it leaves the block out.
 
 `/bids`, `/bids.json` and `/b/:id` are the bid book ([contracts/bids.md](../contracts/bids.md)),
 kept in the `BidBook` SQLite Durable Object (binding `BIDS`).
