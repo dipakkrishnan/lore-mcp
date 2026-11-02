@@ -115,6 +115,20 @@ export class BidBook extends DurableObject {
     return this.#meta("walked_away") ?? 0;
   }
 
+  /** The newest bids, answers and fills, for the ticker. Public fields only; a removed bid leaves it. */
+  tape(limit = 8, now = Date.now()) {
+    this.#expire(now);
+    return this.sql
+      .exec(
+        `SELECT e.seq, e.type, e.at, e.data, b.id, b.question, b.usd_cents, b.market FROM bid_events e JOIN bids b ON b.id = e.bid_id
+         WHERE e.type IN ('opened', 'answered', 'filled') AND NOT EXISTS (SELECT 1 FROM bid_events r WHERE r.bid_id = b.id AND r.type = 'removed')
+         ORDER BY e.seq DESC LIMIT ?`,
+        limit
+      )
+      .toArray()
+      .map(({ data, ...event }) => ({ ...event, data: data ? JSON.parse(data) : null }));
+  }
+
   /**
    * Adds a seller's answer. Returns the bid with the buyer's callback address, which the caller
    * uses to tell the buyer and never shows; or why it couldn't: "missing" or "ended".

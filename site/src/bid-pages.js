@@ -37,26 +37,8 @@ export function bidForm(markets, { error = "", values = {} } = {}) {
 <button class="go" type="submit">Place a bid</button><p class="note">${PROMISE} Answers show on the bid's own page.</p></form>`;
 }
 
-const agentsPanel = (origin, json) =>
+export const agentsPanel = (origin, json) =>
   `<p>${json ? "This bid, as JSON:" : "Live bids, as JSON:"}</p><code class="endpoint">${escape(`${origin}${json ?? "/bids.json"}`)}</code><p>Place a bid with one <code>POST /bids</code>: <code>question</code>, <code>usd</code> in whole dollars, and optionally <code>market</code> and a <code>callback_url</code> that gets a POST when someone answers. You get back an id and an address to check.</p>`;
-
-const row = (bid, markets, now) =>
-  `<li><a href="/b/${bid.id}"><b>${escape(bid.question)}</b><span>${escape(marketName(markets, bid.market))} · ${age(bid.created, now)} · ${plural(bid.answers.length, "answer")}</span><em>${money(bid.usd)}</em></a></li>`;
-
-/** /bids: the form and every live bid. */
-export function bidsPage({ bids, markets, origin, error, values, now = Date.now() }) {
-  const list = bids.length ? `<ul class="stores">${bids.map((b) => row(b, markets, now)).join("")}</ul>` : `<p class="empty">No live bids yet. Be the first.</p>`;
-  return page({
-    title: "Bids · Lore",
-    description: "Ask for firsthand experience nobody sells yet, and say what you'd pay.",
-    canonical: `${SITE}/bids`,
-    section: "bids",
-    alternate: "/bids.json",
-    agents: agentsPanel(origin),
-    body: `<header class="head"><div><h1>Bids</h1><p class="lede">Ask for firsthand experience nobody sells yet, and say what you'd pay. People who know it answer with a piece you can buy.</p></div></header>
-${bidForm(markets, { error, values })}<h2 class="part">Live bids</h2>${list}`
-  });
-}
 
 function event(e) {
   const label = {
@@ -86,7 +68,7 @@ export function bidPage(bid, { markets, origin, now = Date.now() }) {
     agents: agentsPanel(origin, `/b/${bid.id}.json`),
     data: { "@context": "https://schema.org", "@type": "Question", name: bid.question, dateCreated: bid.created, answerCount: bid.answers.length, url: `${SITE}/b/${bid.id}` },
     body: `<p class="crumb"><a href="/bids">Bids</a> / ${marketLink}</p><h1>${escape(bid.question)}</h1>
-<ul class="stats"><li><b>${money(bid.usd)}</b>offered</li><li><b>${STATUS[bid.status]}</b>${left ? `${left} left` : ""}</li><li><b>${bid.answers.length}</b>${bid.answers.length === 1 ? "answer" : "answers"}</li></ul>
+<ul class="stats"><li><b>${money(bid.usd)}</b>offered</li>${left ? `<li><b>${left}</b>left</li>` : `<li><b>${STATUS[bid.status]}</b></li>`}<li><b>${bid.answers.length}</b>${bid.answers.length === 1 ? "answer" : "answers"}</li></ul>
 <p class="note">The buyer pays only if they accept an answer. If nobody answers in 7 days, the bid ends.</p>
 <h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${bid.answers.map(answer).join("")}</ul>` : `<p class="empty">No answers yet.</p>`}
 <h2 class="part">History</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>`

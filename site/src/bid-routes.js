@@ -1,10 +1,11 @@
 // The bid routes in contracts/bids.md. Anyone can place and read; adding answers and taking a
 // bid down need the owner's token. Nothing here can mark a bid filled.
+import { boardPage, boardStats } from "./bid-board.js";
 import { tellBuyer } from "./bid-callback.js";
 import { readAnswer, readBid } from "./bid-input.js";
-import { bidPage, bidsPage, missingBidPage } from "./bid-pages.js";
+import { bidPage, missingBidPage } from "./bid-pages.js";
 import { publicBid } from "./bids.js";
-import { registryMarkets } from "./markets.js";
+import { Exchange, registryMarkets } from "./markets.js";
 
 const BODY_MAX = 16_384;
 const BID_PATH = /^\/b\/([^/.]+)(\.json|\/answers)?\/?$/;
@@ -16,7 +17,7 @@ const json = (data, status = 200, headers = PRIVATE) => Response.json(data, { st
 const html = (body, status = 200) => new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...PRIVATE } });
 const refuse = (allow) => new Response(null, { status: 405, headers: { allow } });
 
-export const isBidPath = (path) => path === "/bids" || path === "/bids/" || path === "/bids.json" || path.startsWith("/b/");
+export const isBidPath = (path) => ["/bids", "/bids/", "/bids.json", "/bids/stats.json"].includes(path) || path.startsWith("/b/");
 
 /** One request to a bid route. `ctx` runs buyer callbacks after the reply; `registry` loads the marketplace list, or null when it can't. */
 export class BidDesk {
@@ -33,6 +34,7 @@ export class BidDesk {
     const { pathname } = new URL(this.request.url);
     const method = this.request.method;
     if (pathname === "/bids.json") return method === "GET" ? this.list() : refuse("GET");
+    if (pathname === "/bids/stats.json") return method === "GET" ? this.stats() : refuse("GET");
     if (pathname === "/bids" || pathname === "/bids/") return method === "GET" ? this.board() : method === "POST" ? this.place() : refuse("GET, POST");
     const [, id, rest] = pathname.match(BID_PATH) ?? [];
     if (!id || !ID.test(id)) return rest === ".json" ? json({ error: "No bid by that id." }, 404) : html(missingBidPage(this.origin), 404);
@@ -49,9 +51,20 @@ export class BidDesk {
     return (await this.book.live()).map((found) => publicBid(found, this.origin));
   }
 
+  /** What the board draws: live bids, the ticker's events, the registry's markets, and the exchange for asking prices. */
+  async screen() {
+    const list = await this.registry();
+    const [bids, events, exchange] = await Promise.all([this.live(), this.book.tape(), list ? Exchange.load(list) : null]);
+    return { bids, events, exchange, markets: registryMarkets(list) };
+  }
+
   async board(error, values, status = 200) {
-    const [bids, markets] = await Promise.all([this.live(), this.markets()]);
-    return html(bidsPage({ bids, markets, origin: this.origin, error, values }), status);
+    return html(boardPage({ ...(await this.screen()), origin: this.origin, error, values }), status);
+  }
+
+  async stats() {
+    const { bids, events, markets, exchange } = await this.screen();
+    return json(boardStats(bids, events, markets, exchange), 200, PUBLIC);
   }
 
   async list() {

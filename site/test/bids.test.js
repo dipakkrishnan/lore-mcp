@@ -1,6 +1,7 @@
 import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { board } from "../src/bid-board.js";
 import { callbackAllowed } from "../src/bid-callback.js";
 import { readAnswer, readBid } from "../src/bid-input.js";
 import { BidBook, HOURLY_CAP, LIFETIME_MS, statusOf } from "../src/bids.js";
@@ -66,7 +67,7 @@ describe("placing a bid", () => {
     expect(html).toContain(`<link rel="alternate" type="application/json" href="/b/${id}.json">`);
     expect(html).toContain("<b>$20</b>offered");
     expect(html).toContain('<a href="/marketplace/rl-evals">RL evals</a>');
-    expect(html).toContain("7 days left");
+    expect(html).toContain("<b>7 days</b>left");
   });
 
   test("the /bids page carries a form that posts without a script", async () => {
@@ -354,5 +355,61 @@ describe("filled", () => {
     expect(bid.events.map((e) => e.type)).not.toContain("filled");
     const methods = Object.getOwnPropertyNames(BidBook.prototype);
     expect(methods.filter((m) => /fill/i.test(m))).toEqual([]);
+  });
+});
+
+describe("the board", () => {
+  const markets = [
+    { id: "rl-evals", name: "RL evals", tab: "AI" },
+    { id: "diving", name: "Diving", tab: "Travel" }
+  ];
+  const bid = (id, market, usd, answers = 0) => ({ id, market, usd, question: `Question ${id} is long enough?`, created: "2026-10-31T22:10:00Z", answers: Array(answers).fill({}) });
+
+  test("draws a column per market, bids by amount, the richest market first and unsorted last", () => {
+    const exchange = { market: (id) => (id === "rl-evals" ? { rows: [{ price: 3 }, { price: 1 }] } : undefined) };
+    const { html, key } = board([bid("a", "unsorted", 900), bid("b", "rl-evals", 10), bid("c", "rl-evals", 40, 1), bid("d", "diving", 20)], markets, exchange);
+    const order = [...html.matchAll(/href="\/b\/(\w)"/g)].map((m) => m[1]);
+    expect(order).toEqual(["c", "b", "d", "a"]);
+    expect(key).toBe("rl-evals@$1|c:1|b:0|diving@|d:0|unsorted@|a:0");
+    expect(html).toContain("<span>Top bid <b>$40</b></span><span>Lowest ask <b>$1</b></span>");
+    expect(html).toContain("<span>Top bid <b>$20</b></span><span>No pieces yet</span>");
+    expect(html).toContain('<a href="/marketplace/rl-evals">RL evals</a>');
+    expect(html).not.toContain('href="/marketplace/diving"');
+    expect(html).toContain(">Unsorted</h3>");
+  });
+
+  test("every bid is a link whose text is its question, with its amount beside it", async () => {
+    const id = await placed();
+    const html = await (await call("/bids")).text();
+    expect(html).toContain(`<a class="q" href="/b/${id}">${QUESTION}</a>`);
+    expect(html).toMatch(new RegExp(`href="/b/${id}">[^<]+</a><span class="who">just now · 0 answers</span></span><span class="pill">\\$20</span>`));
+    expect(html).toContain('data-poll="/bids/stats.json"');
+  });
+
+  test("the poll carries the counts, the ticker and the board, each keyed to move on real news", async () => {
+    const before = await (await call("/bids/stats.json")).json();
+    expect(before).toMatchObject({ bids: 0, offered: 0, markets: 0, tape: "", board_key: "" });
+    expect(before.board).toContain("No live bids yet.");
+    const id = await placed();
+    const placedNow = await (await call("/bids/stats.json")).json();
+    expect(placedNow).toMatchObject({ bids: 1, offered: 20, markets: 1 });
+    expect(placedNow.tape).toContain(`<a href="/b/${id}"><time>just now</time>New bid · $20 · RL evals: How do you stop reward hacking on long coding t…</a>`);
+    expect(placedNow.board).toContain(`href="/b/${id}"`);
+    await answer(id);
+    const answered = await (await call("/bids/stats.json")).json();
+    expect(answered.tape).toContain("Answered · $20 · @dipak · RL evals");
+    expect(answered.tape_key).not.toBe(placedNow.tape_key);
+    expect(answered.board_key).toBe(`rl-evals@|${id}:1`);
+    await call(`/b/${id}`, { method: "DELETE", headers: ADMIN });
+    const emptied = await (await call("/bids/stats.json")).json();
+    expect(emptied).toMatchObject({ bids: 0, tape: "", board_key: "" });
+    expect(emptied.board).toContain("No live bids yet.");
+  });
+
+  test("a form mistake comes back with the sheet open", async () => {
+    const html = await (await placeForm({ usd: "2" })).text();
+    expect(html).toContain('<details class="sheet" open><summary class="go">Place a bid</summary>');
+    expect(html).toContain("Bids are $5 to $1,000.");
+    expect(await (await call("/bids")).text()).toContain('<details class="sheet"><summary');
   });
 });
