@@ -128,6 +128,8 @@ class PublicationKind(str, Enum):
 # who the piece is and isn't for.
 SAMPLE_LIMIT = 800
 FIT_LIMIT = 200
+# A bid's id on yourlore.dev (contracts/bids.md), or nothing.
+BID_ID = r"^([a-z0-9]{10})?$"
 # Listed in the manifest only when the owner wrote them, so older readers see
 # the same entry shape as before.
 FREE_EXTRAS = ("sample", "useful_if", "not_useful_if")
@@ -151,6 +153,8 @@ class PublicationInput(BaseModel):
     useful_if: str = Field(default="", max_length=FIT_LIMIT)
     not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
     provenance: list[StrictInt] = Field(min_length=1)
+    # The bid this piece answers (APP-274), or empty for a piece drafted on its own.
+    bid: str = Field(default="", pattern=BID_ID)
 
     @model_validator(mode="after")
     def sample_is_not_the_piece(self) -> "PublicationInput":
@@ -206,6 +210,7 @@ class Publication(BaseModel):
     useful_if: str = ""
     not_useful_if: str = ""
     provenance: list[int]
+    bid: str = ""
     active: int
     created_at: str
     updated_at: str
@@ -536,6 +541,7 @@ class Store:
                 useful_if TEXT NOT NULL DEFAULT '',
                 not_useful_if TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
+                bid TEXT NOT NULL DEFAULT '',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -667,6 +673,7 @@ class Store:
             "sample",
             "useful_if",
             "not_useful_if",
+            "bid",
         ):
             if column not in columns:
                 self.db.execute(
@@ -873,8 +880,13 @@ class Store:
         status: str | None = None,
         limit: int = 20,
         source: str | None = None,
+        loose: bool = False,
     ) -> list[Memory]:
-        """Search memory text, optionally constrained by retention status and source."""
+        """Search memory text, optionally constrained by retention status and source.
+
+        Every term must match, unless `loose`: then any term may, each as a word prefix,
+        so a long question still finds the memories that share some of its words.
+        """
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if status is not None and status not in STATUSES:
@@ -887,7 +899,10 @@ class Store:
             terms = re.findall(r"[\w-]+", query, re.UNICODE)
             if not terms:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            match = (" OR " if loose else " AND ").join(
+                f'"{term.replace(chr(34), "")}"' + ("*" if loose else "")
+                for term in terms
+            )
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
@@ -899,6 +914,18 @@ class Store:
         args.extend(value for value in (status, source) if value)
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
+
+    def holding(self, prefixes: list[str], status: str = "private") -> dict[str, int]:
+        """How many memories with `status` hold a word starting with each prefix."""
+        counts = {}
+        for prefix in prefixes:
+            row = self.db.execute(
+                "SELECT count(*) FROM memories_fts f JOIN memories m ON m.id=f.rowid "
+                "WHERE memories_fts MATCH ? AND m.status=?",
+                (f'"{prefix.replace(chr(34), "")}"*', status),
+            ).fetchone()
+            counts[prefix] = row[0]
+        return counts
 
     def get(self, memory_id: int) -> Memory | None:
         """Return one memory by id, or None."""
@@ -1219,6 +1246,7 @@ class Store:
         useful_if: str = "",
         not_useful_if: str = "",
         provenance: list[int] | None = None,
+        bid: str = "",
     ) -> int:
         """Create an active publication and return its id.
 
@@ -1237,6 +1265,7 @@ class Store:
                 "useful_if": useful_if,
                 "not_useful_if": not_useful_if,
                 "provenance": provenance,
+                "bid": bid,
             }
         )
         missing = self.missing_memories(publication.provenance)
@@ -1246,8 +1275,8 @@ class Store:
             )
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,sample,useful_if,not_useful_if,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)""",
+            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,sample,useful_if,not_useful_if,provenance,bid,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)""",
             (
                 new_public_id(),
                 publication.title,
@@ -1259,6 +1288,7 @@ class Store:
                 publication.useful_if,
                 publication.not_useful_if,
                 json.dumps(publication.provenance),
+                publication.bid,
                 now,
                 now,
             ),

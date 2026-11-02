@@ -1,18 +1,20 @@
-/** The two Stripe calls checkout needs, as raw form-encoded requests made as the seller's connected account. */
+/** The Stripe calls checkout needs, as raw form-encoded requests: a sale's are made as the seller's
+ * connected account, and saving a bidder's card is made on Lore's platform account. */
 
 /** What Lore keeps from a sale, in cents. Stripe rejects a zero fee, so none is sent until this is raised. */
 export const APPLICATION_FEE_CENTS = 0;
 
 export class StripeError extends Error {
-  constructor(readonly status: number, reason = "") {
+  constructor(readonly status: number, reason = "", readonly code = "") {
     super(`Stripe answered ${status}${reason ? `: ${reason}` : ""}`);
   }
 }
 
 /** Stripe's own reason for refusing, kept in the Worker's logs so a 502 to the app can be explained. */
 async function refused(response: Response, path: string): Promise<StripeError> {
-  const body = await response.json<{ error?: { code?: string; message?: string } }>().catch(() => ({ error: undefined }));
-  const error = new StripeError(response.status, [body.error?.code, body.error?.message].filter(Boolean).join(" — "));
+  type Body = { error?: { code?: string; decline_code?: string; message?: string } };
+  const body = await response.json<Body>().catch((): Body => ({ error: undefined }));
+  const error = new StripeError(response.status, [body.error?.code, body.error?.message].filter(Boolean).join(" — "), body.error?.code ?? "");
   console.error(`${path}: ${error.message}`);
   return error;
 }
@@ -28,12 +30,12 @@ export type Session = {
   metadata: Record<string, string>;
 };
 
-async function call(env: Env, account: string, path: string, body?: URLSearchParams): Promise<Session> {
-  const response = await fetch(`${env.STRIPE_API}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`, "Stripe-Account": account },
-    body
-  });
+/** One v1 call, as `account` or, when it is null, as Lore's platform; a key makes a retried POST one request. */
+async function call<T = Session>(env: Env, account: string | null, path: string, body?: URLSearchParams, idempotency?: string): Promise<T> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${env.STRIPE_SECRET_KEY}` };
+  if (account) headers["Stripe-Account"] = account;
+  if (idempotency) headers["Idempotency-Key"] = idempotency;
+  const response = await fetch(`${env.STRIPE_API}${path}`, { method: body ? "POST" : "GET", headers, body });
   if (!response.ok) throw await refused(response, path);
   return response.json();
 }
@@ -61,6 +63,77 @@ export function createSession(env: Env, sale: Sale): Promise<Session> {
 
 export function retrieveSession(env: Env, account: string, id: string): Promise<Session> {
   return call(env, account, `/v1/checkout/sessions/${id}`);
+}
+
+export type Intent = { id: string; status: string; amount_received: number; currency?: string; latest_charge: string | null; metadata: Record<string, string> };
+
+/** A bid's direct charge, read like a Checkout Session so /verify answers the same for both. */
+export async function retrieveIntent(env: Env, account: string, id: string): Promise<Session> {
+  const found = await call<Intent>(env, account, `/v1/payment_intents/${id}`);
+  return { id, url: null, payment_status: found.status === "succeeded" ? "paid" : "unpaid", payment_intent: found.id, amount_total: found.amount_received, metadata: found.metadata };
+}
+
+/** A bid's buyer, on Lore's platform: Stripe keeps their card here until an answer is accepted. */
+export async function createCustomer(env: Env, bid: string): Promise<string> {
+  return (await call<{ id: string }>(env, null, "/v1/customers", new URLSearchParams({ "metadata[lore_bid]": bid }), `bid-${bid}-customer`)).id;
+}
+
+/** Stripe's page for saving a card, charged later and off session; nothing is charged here. */
+export function createSetupSession(env: Env, setup: { bid: string; customer: string; question: string; returnUrl: string }): Promise<Session> {
+  return call(
+    env,
+    null,
+    "/v1/checkout/sessions",
+    new URLSearchParams({
+      mode: "setup",
+      currency: "usd",
+      customer: setup.customer,
+      "metadata[lore_bid]": setup.bid,
+      "setup_intent_data[metadata][lore_bid]": setup.bid,
+      "setup_intent_data[description]": setup.question.slice(0, 250),
+      success_url: setup.returnUrl,
+      cancel_url: setup.returnUrl
+    })
+  );
+}
+
+export type SavedCard = { status: string; customer: string | null; payment_method: string | null; metadata: Record<string, string> };
+
+export function retrieveSetup(env: Env, id: string): Promise<SavedCard> {
+  return call<SavedCard>(env, null, `/v1/setup_intents/${id}`);
+}
+
+export type BidCharge = { attempt: string; account: string; customer: string; paymentMethod: string; cents: number; bid: string; origin: string; piece: string; question: string };
+
+/**
+ * The accepted answer's payment, as a direct charge on the seller's account: the platform's saved
+ * card is cloned onto that account and charged there, off session, so the money never touches
+ * Lore. Both requests carry keys built from the attempt, so a retried alarm charges once.
+ */
+export async function chargeBid(env: Env, charge: BidCharge): Promise<Intent> {
+  const cloned = await call<{ id: string }>(
+    env,
+    charge.account,
+    "/v1/payment_methods",
+    new URLSearchParams({ customer: charge.customer, payment_method: charge.paymentMethod }),
+    `${charge.attempt}-card`
+  );
+  const fields: Record<string, string> = {
+    amount: String(charge.cents),
+    currency: "usd",
+    payment_method: cloned.id,
+    confirm: "true",
+    off_session: "true",
+    "automatic_payment_methods[enabled]": "true",
+    "automatic_payment_methods[allow_redirects]": "never",
+    description: charge.question.slice(0, 250),
+    "metadata[lore_bid]": charge.bid,
+    "metadata[lore_attempt]": charge.attempt,
+    "metadata[origin]": charge.origin,
+    "metadata[piece]": charge.piece
+  };
+  if (APPLICATION_FEE_CENTS > 0) fields.application_fee_amount = String(APPLICATION_FEE_CENTS);
+  return call<Intent>(env, charge.account, "/v1/payment_intents", new URLSearchParams(fields), charge.attempt);
 }
 
 /** The v2 Accounts API is versioned per request; this is the version Lore's platform account was opened on. */

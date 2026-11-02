@@ -14,6 +14,7 @@ export type BridgeArgs = {
   network: string;
   maxUsd: number;
   maxPaymentValue: bigint;
+  bids: string;
 };
 
 export function parseBridgeArgs(args: string[]): BridgeArgs {
@@ -22,12 +23,13 @@ export function parseBridgeArgs(args: string[]): BridgeArgs {
     options: {
       node: { type: "string" },
       network: { type: "string", default: "eip155:84532" },
-      "max-usd": { type: "string", default: "1" }
+      "max-usd": { type: "string", default: "1" },
+      bids: { type: "string", default: "https://yourlore.dev" }
     }
   });
   if (!values.node) {
     throw new UsageError(
-      "usage: x402-mcp-bridge --node https://<host>/mcp [--network eip155:84532] [--max-usd 1]"
+      "usage: x402-mcp-bridge --node https://<host>/mcp [--network eip155:84532] [--max-usd 1] [--bids https://yourlore.dev]"
     );
   }
   const maxUsd = Number(values["max-usd"]);
@@ -39,7 +41,8 @@ export function parseBridgeArgs(args: string[]): BridgeArgs {
     network: values.network,
     maxUsd,
     // USDC has 6 decimals.
-    maxPaymentValue: BigInt(Math.round(maxUsd * 1e6))
+    maxPaymentValue: BigInt(Math.round(maxUsd * 1e6)),
+    bids: values.bids
   };
 }
 

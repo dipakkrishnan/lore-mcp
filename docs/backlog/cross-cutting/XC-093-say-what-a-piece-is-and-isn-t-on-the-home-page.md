@@ -4,13 +4,13 @@ title: Say what a piece is, and isn't, on the home page
 priority: P0
 effort: S
 component: cross-cutting
-status: ideation
-related: [MON-052, XC-094, XC-091, XC-070, APP-118]
+status: in-review
+related: [MON-051, XC-114, MON-052, XC-094, XC-091, XC-070, APP-118, APP-280, XC-122]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-02
 ---
 
 ## Problem
@@ -30,13 +30,22 @@ download block with next steps. Replace the made-up window cards with plainer ex
 
 ## Acceptance criteria
 
-- [ ] The first screen says what Lore keeps, that it's private, and that selling is optional and approved.
-- [ ] The page shows one real piece with its free sample and price.
-- [ ] A can't-sell list names facts about you and raw chats as never sold.
-- [ ] The FAQ answers "is this selling my data" and "is Lore an AI assistant".
-- [ ] A non-technical reader and a developer each explain Lore back in one sentence after 30 seconds.
-- [ ] No horizontal scroll at phone width; light and dark both work.
+- [x] The first screen says what Lore keeps, that it's private, and that selling is optional and approved.
+- [x] The page shows one real piece with its free sample and price.
+- [x] A never-does list: sell without approval, show your memories, hold your money.
+- [x] Live bids as rows; with none open, only the owner's FEATURED list or nothing.
+- [x] A non-technical reader and a developer each explain Lore back after a skim (three simulated readers, PR body).
+- [x] No horizontal scroll at phone width; light and dark both work.
 
 ## Notes
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+- Oct 31: the home page's real example can be live bids. Show the top three open bids from XC-114 above the what-is and what-isn't list (mock in the bids proposal, https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi).
+- Nov 1 rework (replaces PR #621): the Worker draws `/` from `src/home.js` around the live
+  bids in the BidBook; `public/index.html` is gone. Order: hero (memory across your AIs, then
+  bids) → one memory, every AI (illustrative) → open bids → how a bid gets answered, with
+  Dipak's Bonaire piece end to end → who it's for → what Lore never does → download. One nav on
+  every page (Bids · Markets · Open source · Download), one "For agents" link to `/llms.txt`.
+  The board is rows with market tabs; bid pages get "Answer with Lore" (APP-280 for the deep
+  link) and Share. FAQ dropped: its answers now live in the never-does list and the steps.

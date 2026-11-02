@@ -322,7 +322,8 @@ const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 /** Cards can't charge less, so a store priced below this offers no card checkout. */
 const CARD_MINIMUM_USD = 0.5;
 const STRIPE_ACCOUNT = /^acct_[A-Za-z0-9]+$/;
-const SESSION = /^cs_[A-Za-z0-9_]+$/;
+/** A Checkout Session, or a bid's direct charge (MON-054); checkout verifies either. */
+const SESSION = /^(cs|pi)_[A-Za-z0-9_]+$/;
 const PUBLIC = { "cache-control": "public, max-age=60" };
 const PRIVATE = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
 const html = (body: string | null, status: number, cache: Record<string, string>) =>

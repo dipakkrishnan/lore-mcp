@@ -136,8 +136,13 @@ test("parseBridgeArgs applies the defaults", () => {
     node: "https://n/mcp",
     network,
     maxUsd: 1,
-    maxPaymentValue: 1000000n
+    maxPaymentValue: 1000000n,
+    bids: "https://yourlore.dev"
   });
+});
+
+test("parseBridgeArgs takes the bids site from --bids", () => {
+  assert.equal(parseBridgeArgs(["--node", "u", "--bids", "https://b.example"]).bids, "https://b.example");
 });
 
 test("parseBridgeArgs requires --node", () => {
