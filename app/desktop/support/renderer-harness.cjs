@@ -26,6 +26,10 @@ const vm = require("node:vm");
 const { JSDOM } = require("jsdom");
 
 const SRC = join(__dirname, "..", "src");
+/** Every window a load() has opened. pretendToBeVisual keeps a timer running in each, so a test file's process would sit
+ * out the event loop for about ten seconds after its last test; they are closed once the file's tests are done. */
+const opened = new Set();
+let closing = false;
 /** @param {string} name */
 const read = (name) => readFileSync(join(SRC, name), "utf8");
 
@@ -232,6 +236,11 @@ function load({ dark = false, focused = true, answers = {} } = {}) {
   const started = performance.now();
   const dom = new JSDOM(read("index.html"), { url: "http://lore.local/index.html", runScripts: "outside-only", pretendToBeVisual: true });
   const { window } = dom;
+  opened.add(window);
+  if (!closing && process.env.NODE_TEST_CONTEXT) {
+    closing = true;
+    require("node:test").after(() => { for (const open of opened) open.close(); opened.clear(); });
+  }
   window.__harness = { dark, focused };
   stubPlatform(window);
   const context = dom.getInternalVMContext();
