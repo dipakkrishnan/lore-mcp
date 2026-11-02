@@ -134,9 +134,9 @@ const foot = (store: Store) =>
     ? `<footer class="foot">Questions, or want a refund? Email the seller at <a href="mailto:${escape(store.support)}">${escape(store.support)}</a>.</footer>`
     : "";
 
-function page(title: string, description: string, canonical: string, body: string, data: unknown): string {
+function page(title: string, description: string, canonical: string, body: string, data: unknown, twin = ""): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escape(title)}</title><meta name="description" content="${escape(description)}"><link rel="canonical" href="${escape(canonical)}">
+<title>${escape(title)}</title><meta name="description" content="${escape(description)}"><link rel="canonical" href="${escape(canonical)}">${twin ? `<link rel="alternate" type="application/json" href="${escape(twin)}">` : ""}
 <meta property="og:title" content="${escape(title)}"><meta property="og:description" content="${escape(description)}">
 <meta property="og:url" content="${escape(canonical)}"><meta property="og:site_name" content="Lore"><meta name="twitter:card" content="summary">
 <style>${STYLE}</style><script type="application/ld+json">${jsonLd(data)}</script></head>
@@ -316,7 +316,7 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<ul 
 ${fit(piece)}${sample(piece)}${buy(piece, store, left)}
 ${agentsNote(store, piece.id)}`;
   const description = clip(piece.sample || (piece.useful_if && `Useful if ${piece.useful_if}`) || `A firsthand piece by ${name}, for sale on Lore.`, 200);
-  return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data);
+  return page(`${piece.teaser} · ${name}`, description, `${store.origin}/p/${piece.id}`, body + foot(store), data, `${store.origin}/p/${piece.id}.json`);
 }
 
 /** A collection's page: its pieces' teasers, its one price, and what they'd cost one by one. A piece sold
@@ -345,7 +345,7 @@ ${notice(store)}${problem ? `<p class="notice">${escape(problem)}</p>` : ""}<h1 
 <div class="meta"><span>Collection</span><span>${count(entries.length)}</span><span>Worth ${money(soldAlone(set) * single)} separately</span><span>By ${escape(name)}</span></div>
 <ul class="cards">${cards}</ul>${buy(set, store, 0, "this collection")}
 ${agentsNote(store, set.id, set)}`;
-  return page(`${set.title} · ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data);
+  return page(`${set.title} · ${name}`, `A collection of ${count(entries.length)} by ${name}, for sale on Lore.`, url, body + foot(store), data, `${url}.json`);
 }
 
 /** The paid piece, for the buyer holding its receipt. Never cached: the address alone unlocks it. */

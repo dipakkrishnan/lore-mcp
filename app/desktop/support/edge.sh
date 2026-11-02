@@ -10,6 +10,8 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
+# Nor does a walk read the real bids board (APP-274): the look fails at once and the walk sees no matches.
+export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 # APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
@@ -167,7 +169,8 @@ if [[ "$scenario" == "obsidian" ]]; then
 fi
 if [[ "$scenario" == "schedule" ]]; then
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
-  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
+  # hours from now, so the walk never runs across it.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
@@ -176,7 +179,13 @@ if [[ "$scenario" == "schedule" ]]; then
   (cd "$repo_root" && uv run python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
-automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
+# Only the reading is owed: it is two days old, and Lore's other routines are paused, so neither a weekly one's
+# Sunday nor any hour the walk starts just short of is owed too (XC-123; tests/test_automation.py pins the clock).
+routines = automation.Routines()
+for routine in routines.list():
+    if routine['id'] != 'synthesis':
+        routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "automations" ]]; then
@@ -256,6 +265,19 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
 fi
+# A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
+# never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
+mkdir -p "$root/pyhooks"
+cat > "$root/pyhooks/sitecustomize.py" <<'PY'
+import faulthandler, os, signal, sys
+def _dump(signum, frame):
+    with open(os.environ["LORE_CLI_STACK"], "a") as f:
+        f.write(f"\n=== pid {os.getpid()} argv {sys.argv} got signal {signum}\n")
+        faulthandler.dump_traceback(f, all_threads=True)
+    os._exit(143)
+signal.signal(signal.SIGTERM, _dump)
+PY
+export PYTHONPATH="$root/pyhooks${PYTHONPATH:+:$PYTHONPATH}" LORE_CLI_STACK="$root/cli-stack.log"
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
@@ -263,7 +285,9 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
 [[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
-"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
+# Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
+# beside the walk log and printed when the walk fails (XC-111).
+"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
 timed_out=""
@@ -287,5 +311,9 @@ if [[ "$code" != 0 ]]; then
   echo "--- $root/walk.log"
   cat "$root/walk.log"
   if [[ -s "$root/hang.txt" ]]; then echo "--- $root/hang.txt (first 120 lines)"; head -n 120 "$root/hang.txt"; fi
+  # What the app and the walk's stand-in servers said, so a connect that failed can be read from CI alone.
+  for said in app granola agent cli-stack; do
+    if [[ -s "$root/$said.log" ]]; then echo "--- $root/$said.log (last 80 lines)"; tail -n 80 "$root/$said.log"; fi
+  done
 fi
 exit "$code"

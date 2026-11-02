@@ -20,6 +20,7 @@ from pydantic import (
     Field,
     StrictInt,
     TypeAdapter,
+    ValidationError,
     field_validator,
 )
 
@@ -79,6 +80,9 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+# Reads the app repeats every minute (CLI-016): one failing says the store is out of
+# reach, not that a command the owner ran broke, so it is never a `cli.failed`.
+POLLED_READS = {("node", "sales"), ("node", "views")}
 STRIPE_ACCOUNT_ID = re.compile(r"acct_[A-Za-z0-9]+")
 
 PUBLICATION_CANDIDATES: TypeAdapter[list[PublicationInput]] = TypeAdapter(
@@ -428,6 +432,12 @@ def parser() -> argparse.ArgumentParser:
 
     commands.add_parser("status", help="show source and review status")
     commands.add_parser("desktop-state", help="print the desktop app state as JSON")
+    bids = commands.add_parser("bids", help="open bids your memories can answer")
+    bids_commands = bids.add_subparsers(dest="bids_command", required=True)
+    bids_commands.add_parser(
+        "match",
+        help="read /bids.json on stdin; print the bids your kept memories answer",
+    )
     commands.add_parser("help", help="show the Lore workflow manual")
     price = commands.add_parser("price", help="show or set the per-publication price")
     price.add_argument(
@@ -781,6 +791,8 @@ def main(argv: list[str] | None = None) -> int:
 
             print(json.dumps(build(), separators=(",", ":"), allow_nan=False))
             return 0
+        if args.command == "bids":
+            return bids_match()
         if args.command == "help":
             return manual()
         if args.command == "price":
@@ -889,8 +901,9 @@ def main(argv: list[str] | None = None) -> int:
         return 130
     except (OSError, ValueError) as error:
         print(f"lore: {error}", file=sys.stderr)
-        command = args.command if args.command in usage.COMMANDS else "other"
-        usage.record("cli.failed", command)
+        if (args.command, getattr(args, "node_command", None)) not in POLLED_READS:
+            command = args.command if args.command in usage.COMMANDS else "other"
+            usage.record("cli.failed", command)
         return 1
     return 0
 
@@ -1348,7 +1361,8 @@ def capture_apply(file: str) -> int:
     """Validate and save memories the owner corrected in an attended agent session."""
     text = sys.stdin.read() if file == "-" else Path(file).read_text(encoding="utf-8")
     results = capture_module.save(json.loads(text))
-    usage.record("memory.saved")
+    if any(result["status"] != "unchanged" for result in results):
+        usage.record("memory.saved", "capture")
     print(json.dumps(results, indent=2))
     return 0
 
@@ -1424,6 +1438,24 @@ def search(
         return 0
     for memory in memories:
         memory_card(memory)
+    return 0
+
+
+def bids_match() -> int:
+    """Match the board's open bids to the owner's memories, here, and print the strong ones (APP-274)."""
+    from .bids import BIDS_AT_MOST, BOARD_BYTES, BidMatcher, OpenBid
+
+    board = sys.stdin.read(BOARD_BYTES + 1)
+    if len(board) > BOARD_BYTES:
+        raise ValueError("the bids board is too big to read")
+    bids: list[OpenBid] = []
+    for bid in json.loads(board).get("bids", [])[:BIDS_AT_MOST]:
+        try:
+            bids.append(OpenBid.model_validate(bid))
+        except ValidationError:
+            continue  # one bid the board shows oddly never hides the rest
+    with Store() as store:
+        print(json.dumps(BidMatcher(store).matches(bids)))
     return 0
 
 
@@ -2189,6 +2221,7 @@ def publication_draft(file: str) -> int:
             "every draft repeats a piece already for sale; draft something new"
         )
     _stage(candidates)
+    usage.record("piece.drafted")
     success(
         f"Drafted {len(candidates)} candidate{'s' if len(candidates) != 1 else ''} "
         "for the owner to approve"
@@ -2215,7 +2248,7 @@ def publication_decide() -> int:
             break
     else:
         raise ValueError("that candidate is not drafted; nothing saved")
-    for field in ("kind", "provenance"):
+    for field in ("kind", "provenance", "bid"):
         if getattr(decision.candidate, field) != getattr(original, field):
             raise ValueError("only a draft's wording can be edited")
     if decision.approve:

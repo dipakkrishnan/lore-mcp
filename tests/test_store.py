@@ -413,6 +413,32 @@ class ArrivalTest(LoreTestCase):
         self.assertEqual(arrivals["First"], first)
         self.assertGreater(arrivals["Again"], second)
 
+    def test_a_database_from_before_bids_gains_the_column_and_keeps_its_pieces(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Evidence")
+        with Store() as store:
+            store.add_publication(
+                title="Old", content="c", topic="t", teaser="q?", provenance=[memory]
+            )
+            store.db.execute("ALTER TABLE publications DROP COLUMN bid")
+            store.db.commit()
+        with Store() as store:
+            [old] = store.list_publications()
+            self.assertEqual(old.bid, "")
+            store.add_publication(
+                title="New",
+                content="c",
+                topic="t",
+                teaser="q?",
+                provenance=[memory],
+                bid="k3v9q2m7xa",
+            )
+            self.assertEqual(
+                {p.title: p.bid for p in store.list_publications()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+            )
+
     def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
         titles = [f"Memory {n}" for n in range(1, 8)]
         for title in titles:
@@ -655,6 +681,18 @@ class SearchTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.search('lesson" OR "'), [])
             self.assertEqual(len(store.search('"lesson"')), 1)
+
+    def test_a_loose_search_finds_any_word_by_its_prefix(self) -> None:
+        self.seed_memory("Reward hacking")
+        self.seed_memory("Sourdough")
+        with Store() as store:
+            self.assertEqual(store.search("rewards hack", status="private"), [])
+            found = store.search("reward hack", status="private", loose=True)
+            self.assertEqual([m.title for m in found], ["Reward hacking"])
+            self.assertEqual(
+                store.holding(["deploy", "sourdough", "nothing"]),
+                {"deploy": 2, "sourdough": 1, "nothing": 0},
+            )
 
     def test_search_rejects_a_negative_limit_and_an_unknown_status(self) -> None:
         with Store() as store:

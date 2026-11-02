@@ -103,6 +103,7 @@ class MainDispatchTest(LoreTestCase):
             (["capture", "apply", "-"], "capture_apply", ("-",)),
             (["status"], "status", ()),
             (["help"], "manual", ()),
+            (["bids", "match"], "bids_match", ()),
             (["price", "2"], "price", (2.0,)),
             (["price"], "price", (None,)),
             (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
@@ -1900,7 +1901,9 @@ class PublicationApplyTest(LoreTestCase):
         return self.lore_home / "publish-candidates.json"
 
     def test_drafting_validates_then_stages_for_approval(self) -> None:
-        staged = self.drafted({"title": "First"}, {"title": "Second"})
+        with patch.object(cli.usage, "record") as record:
+            staged = self.drafted({"title": "First"}, {"title": "Second"})
+        record.assert_called_once_with("piece.drafted")
         self.assertEqual([c["title"] for c in staged], ["First", "Second"])
         with captured() as out:
             self.assertEqual(cli.publication_candidates(), 0)
@@ -1956,6 +1959,18 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
+
+    def test_an_answer_to_a_bid_keeps_the_bid_from_draft_to_piece(self) -> None:
+        (drafted,) = self.drafted({"bid": "k3v9q2m7xa"})
+        self.assertEqual(drafted["bid"], "k3v9q2m7xa")
+        with desktop_stdin(json.dumps({"candidate": drafted, "approve": True})):
+            with captured():
+                self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            [piece] = store.list_publications()
+        self.assertEqual(piece.bid, "k3v9q2m7xa")
+        with self.assertRaisesRegex(ValueError, "bid"):
+            cli.publication_draft(self.candidates({"bid": "not a bid"}))
 
     def test_the_desktop_app_pushes_each_approved_card_immediately(self) -> None:
         # MON-013, mirroring MON-004's granularity: the desktop app calls
@@ -2015,6 +2030,7 @@ class PublicationApplyTest(LoreTestCase):
         for field, value in (
             ("kind", "content"),
             ("provenance", [self.seed_memory("other evidence")]),
+            ("bid", "k3v9q2m7xa"),
         ):
             with self.subTest(field=field):
                 payload = {

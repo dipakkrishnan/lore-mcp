@@ -101,6 +101,8 @@ type Snapshot = {
   // Optional on purpose: an installed CLI older than this app has no `jobs` in
   // its snapshot, and Today must render without it rather than throw.
   jobs?: { items: JobItem[] };
+  // Open bids the owner's memories answer, best first (APP-274). Added by the app, not the CLI.
+  bidMatches: BidMatch[];
 };
 
 type JobItem = {
@@ -222,6 +224,8 @@ type CheckIn = { questions: Array<{ question: string; memory: number; title: str
 /** The apps a personal agent can be (CAP-036). */
 /** Where the first-run chat stands (APP-215), and the agent it is waiting on. */
 type FirstRunState = { state: "started" | "skipped" | "done"; source?: string };
+/** How far a new owner got through the first-run chat, as a usage event (contracts/usage_events.json). */
+type FirstRunStep = "apps" | "agent" | "store" | "link" | "saved" | "skipped";
 
 /** How Lore is drawn: as the Mac is set, or always light or dark (APP-225). */
 type AppearanceChoice = "system" | "light" | "dark";
@@ -301,7 +305,22 @@ type PublicationCandidate = {
   kind: "claim" | "content";
   topic: string;
   provenance: number[];
+  // The bid this draft answers (APP-274); absent on a piece drafted on its own.
+  bid?: string;
 };
+
+/** An open bid on yourlore.dev that the owner's memories answer, matched on this Mac (APP-274). */
+type BidMatch = {
+  bid: { id: string; question: string; usd: number; market: string; url: string; expires: string };
+  /** Only memories that each answer the bid on their own, best first. */
+  memories: Array<{ id: number; title: string }>;
+  /** The best memory's score; `strength` is how the app should label it. */
+  score: number;
+  strength: "strong" | "good";
+};
+
+/** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
+type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
 
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
 type PublicationExtras = {
@@ -388,9 +407,10 @@ interface Window {
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
-    usage(name: "noticed" | "app.opened"): Promise<void>;
+    usage(name: "noticed" | "app.installed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
     usageLog(): Promise<string>;
+    usage(name: "firstrun.step", step: FirstRunStep): Promise<void>;
     sales(): Promise<Sale[]>;
     views(): Promise<Record<string, number>>;
     reportFeedback(input: { title: string; email: string; description: string }): Promise<FeedbackReceipt>;
@@ -445,6 +465,8 @@ interface Window {
     addRoutine(text: string, when: RoutineTime, title?: string): Promise<Routine>;
     editRoutine(id: string, text: string, title?: string): Promise<Routine>;
     dismissCheckIn(): Promise<void>;
+    draftBid(id: string): Promise<void>;
+    dismissBid(id: string): Promise<void>;
     openPrivacySettings(): Promise<void>;
     pathFor(file: File): string;
     onAgentEvent(listener: (event: AgentEvent) => void): () => void;
@@ -532,6 +554,7 @@ type LoreAgentInstance = {
   dispose(): void;
   synthesize(reading: Reading): void;
   checkIn(job: CheckInJob): void;
+  draftBid(match: BidMatch, memories: Memory[]): Promise<BidDraft | null>;
   settled(): Promise<void>;
 };
 

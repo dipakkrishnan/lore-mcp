@@ -4,13 +4,13 @@ title: Open the usage gate at the welcome screen again so first runs are measure
 priority: P0
 effort: XS
 component: desktop-app
-status: ideation
+status: in-review
 related: [XC-090, XC-092, APP-058, APP-199]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 ## Problem
