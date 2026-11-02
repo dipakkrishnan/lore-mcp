@@ -60,7 +60,7 @@ seller's account at charge time, so Lore still holds no money.
 - Buying an answer's piece through its ordinary piece checkout doesn't fill the bid; only the
   bid's own charge does.
 - Deploy needs a platform webhook endpoint (`checkout.session.completed`) and its secret
-  `STRIPE_PLATFORM_WEBHOOK_SECRET`, `payment_intent.succeeded` added to the Connect endpoint,
+  `STRIPE_PLATFORM_WEBHOOK_SECRET`, `payment_intent.succeeded`, `.payment_failed` and `.canceled` added to the Connect endpoint,
   and both Workers deployed (they bind to each other's entrypoints).
 - Open risks: cloning a platform PaymentMethod onto a connected account needs Stripe's
   sign-off for the platform; an off-session charge can still ask for bank confirmation (SCA),

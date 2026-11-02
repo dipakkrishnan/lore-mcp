@@ -62,9 +62,12 @@ takes the key and `{"ok":false}` (502) when it doesn't.
 
 Two live webhook endpoints point at `https://checkout.yourlore.dev/webhooks`:
 
-- a **Connect** endpoint for `checkout.session.completed`,
-  `checkout.session.async_payment_succeeded` and `payment_intent.succeeded`
-  (a bid's direct charge settling on the seller's account);
+- a **Connect** endpoint, signed with `STRIPE_WEBHOOK_SECRET`, subscribed to
+  `checkout.session.completed` and `checkout.session.async_payment_succeeded`
+  (piece sales), and `payment_intent.succeeded`, `payment_intent.payment_failed`
+  and `payment_intent.canceled` (a bid's direct charge settling or failing on
+  the seller's account; without the last two a late failure leaves the bid
+  "paying");
 - a **platform** ("Your account") endpoint for `checkout.session.completed`
   (a bid buyer's card saved), signed with `STRIPE_PLATFORM_WEBHOOK_SECRET`.
 

@@ -85,7 +85,9 @@ timeline records the end without a timer.
   `max(decline + 2 days, expires)`, counted as walked away.
 - *Filled.* Only `BidBook.paid`, reached only through the site's `BidRail`
   service entrypoint, which only checkout's Stripe webhook calls, after
-  `payment_intent.succeeded` on the seller's account tied to the answer's store.
+  `payment_intent.succeeded` on the seller's account. The check is against what
+  the book recorded when the charge was made (its PaymentIntent and account),
+  never the account's current store binding, which the seller can change.
   It fills only for the exact PaymentIntent recorded for the latest accepted
   answer, on the seller account it was created on, in `usd`, for exactly the
   bid amount. A retry for the same charge answers `filled` again and appends

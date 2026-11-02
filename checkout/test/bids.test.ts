@@ -165,9 +165,21 @@ describe("a bid's settled charge", () => {
     expect(sent.filter((s) => s.url.endsWith("/paid")).map((s) => s.body.get("session_id"))).toEqual(["pi_bid", "pi_bid"]);
   });
 
-  it("fills nothing for a charge on an account tied to another store, or one Lore didn't make", async () => {
-    stripe({ boundTo: "https://someone-else.test" });
-    expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "not a Lore bid charge" });
+  it("fills a real charge even when the seller rebinds the account between the charge and Stripe's report", async () => {
+    const sent = stripe({ boundTo: "https://someone-else.test", noticeStatus: 404 });
+    expect(await (await deliver(bidPaid(), CONNECT_SECRET)).json()).toEqual({ outcome: "bid filled" });
+    expect(await rail().told()).toEqual([{ paid: [BID, { payment_intent: "pi_bid", charge: "ch_bid", amount_cents: 2000, currency: "usd", account: ACCOUNT }] }]);
+    // Nothing reads the current binding to decide this; the bid book checks the charge-time record.
+    expect(sent.filter((s) => s.url.includes("/v2/core/accounts"))).toEqual([]);
+  });
+
+  it("asks Stripe again only when the seller's store couldn't answer", async () => {
+    stripe({ noticeStatus: 503 });
+    expect((await deliver(bidPaid(), CONNECT_SECRET)).status).toBe(502);
+  });
+
+  it("fills nothing for an event Lore didn't make", async () => {
+    stripe();
     expect(await (await deliver(bidPaid({ metadata: {} }), CONNECT_SECRET)).json()).toEqual({ outcome: "ignored" });
     expect(await (await deliver(bidPaid({ latest_charge: null }), CONNECT_SECRET)).json()).toEqual({ outcome: "not a Lore bid charge" });
     expect(await rail().told()).toEqual([]);

@@ -71,19 +71,23 @@ async function cardSaved(env: Env, bid: string, setupIntent: string): Promise<Re
   }
 }
 
-/** The bid charge an event names, when it is one Lore made on an account tied to the store it paid. */
-async function bidCharge(env: Env, event: Event) {
+/**
+ * The bid charge an event names. Whether it is that bid's charge is the bid book's call, against the
+ * PaymentIntent and account it recorded when the charge was made; the account's current store
+ * binding is checked when charging, never here, since a seller may rebind before Stripe reports.
+ */
+function bidCharge(event: Event) {
   const intent = event.data.object;
   const account = event.account ?? "";
   const { lore_bid: bid = "", origin = "", piece = "" } = intent.metadata ?? {};
   if (!ACCOUNT.test(account) || !BID.test(bid) || !PIECE.test(piece) || !intent.id?.startsWith("pi_")) return null;
-  return (await boundStore(env, account)) === origin ? { intent, account, bid, origin, piece, id: intent.id } : null;
+  return { intent, account, bid, origin, piece, id: intent.id };
 }
 
 /** A bid's direct charge settled: the bid book fills it if it is that bid's charge, and only then is the seller's store told. */
 async function bidPaid(env: Env, event: Event): Promise<Response> {
   try {
-    const found = await bidCharge(env, event);
+    const found = bidCharge(event);
     if (!found?.intent.latest_charge) return reply(200, "not a Lore bid charge");
     const verdict = await rail(env).paid(found.bid, {
       payment_intent: found.id,
@@ -96,8 +100,10 @@ async function bidPaid(env: Env, event: Event): Promise<Response> {
     if (verdict === "pending") return reply(503, "bid book not ready");
     if (verdict !== "filled") return reply(200, "not this bid's charge");
     const notice = await fetch(`${found.origin}/p/${found.piece}/paid`, { method: "POST", body: new URLSearchParams({ session_id: found.id }) });
-    // A retry fills nothing twice: the book answers "filled" again for the same charge, and the store keeps a sale once.
-    return notice.ok ? reply(200, "bid filled") : reply(502, "store refused");
+    // A retry fills nothing twice: the book answers "filled" again for the same charge, and the store
+    // keeps a sale once. Only a store that couldn't answer gets it again; one that judged it (say, after
+    // the seller rebound the account) has had its say, and the bid is filled either way.
+    return notice.status >= 500 ? reply(502, "store refused") : reply(200, "bid filled");
   } catch {
     return reply(502, "unreachable");
   }
@@ -106,7 +112,7 @@ async function bidPaid(env: Env, event: Event): Promise<Response> {
 /** A bid's charge failed or was canceled after checkout sent it: a decline the buyer sees and can fix. */
 async function bidFailed(env: Env, event: Event): Promise<Response> {
   try {
-    const found = await bidCharge(env, event);
+    const found = bidCharge(event);
     if (!found) return reply(200, "not a Lore bid charge");
     const bank = found.intent.last_payment_error?.code === "authentication_required";
     const message = event.type === "payment_intent.canceled" ? "Your card couldn't be charged." : bank ? "Your bank wants to confirm this payment." : "Your card was declined.";
