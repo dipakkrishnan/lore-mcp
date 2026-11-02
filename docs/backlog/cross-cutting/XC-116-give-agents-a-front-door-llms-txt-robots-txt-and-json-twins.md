@@ -4,7 +4,7 @@ title: Give agents a front door: llms.txt, robots.txt and JSON twins
 priority: P0
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-117, XC-120, MON-051, XC-074]
 blockers: []
 dependencies: []
@@ -36,11 +36,32 @@ and then visit each seller's store.
 
 ## Acceptance criteria
 
-- [ ] `/llms.txt` and `/robots.txt` return text, not the home page.
-- [ ] `/marketplace.jsonl` lists every listed piece and open bid with the fields above. A test compares it to the HTML marketplace.
-- [ ] Every human page links a JSON twin.
+- [x] `/llms.txt` and `/robots.txt` return text, not the home page.
+- [x] `/marketplace.jsonl` lists every listed piece and open bid with the fields above. A test compares it to the HTML marketplace.
+- [x] Every human page links a JSON twin.
 
 ## Notes
 
 Oct 31 call: build on primitives agents already use well (browsers, HTML, MCP). Don't build
 the architecture around A2A agent cards until it's clear which one wins.
+
+Built Oct 31 in `site/src/agents.js`, from the same `Exchange` the marketplace pages render.
+The test reads the piece URLs out of the marketplace page's own structured data and requires
+`/marketplace.jsonl` to match them exactly, so the two can't drift.
+
+- **Pages with a twin:** the marketplace (`/marketplace.json`, plus `/marketplace.jsonl`), each
+  market (`/marketplace/<market>.json`), and each store's piece and collection page
+  (`/p/<id>.json`, which the store already served for checkout). Bid pages are XC-115's and
+  link their own twin when they land. The home page is the static download page and has no
+  data of its own. A store's front page has no JSON twin; its machine form is `discover`
+  over MCP.
+- **Bids:** `openBids` reads the contract's own `GET /bids.json` through this Worker, only
+  when the `BIDS` binding exists, and keeps only named public fields. Until MON-051 lands it
+  emits nothing, and `/llms.txt` says nothing about bids.
+- **Not included:** times sold. Stores don't publish it in `discover`, and nothing else on
+  the site knows it yet.
+- **Sitemap:** piece pages live on sellers' stores, on other hosts. Crawlers that only accept
+  same-host URLs skip those lines and keep the rest.
+- **Forms for writes:** the only write is a bid, and its plain HTML form is MON-051's `/bids`.
+- Live after `cd site && npx wrangler deploy`, and the piece-page twin link after each store
+  redeploys.

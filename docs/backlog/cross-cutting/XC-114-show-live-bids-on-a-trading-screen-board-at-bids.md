@@ -4,7 +4,7 @@ title: Show live bids on a trading-screen board at /bids
 priority: P0
 effort: M
 component: cross-cutting
-status: ready
+status: in-progress
 related: [MON-051, XC-115, XC-119, XC-093, XC-074]
 blockers: []
 dependencies: [MON-051]
@@ -33,12 +33,21 @@ A Kalshi-style board at `yourlore.dev/bids`, built from the marketplace's existi
 
 ## Acceptance criteria
 
-- [ ] `/bids` lists open bids grouped by market, sorted by amount, with a live ticker that updates without a reload.
-- [ ] Placing a bid from the page's form (no JavaScript required) adds it to the board within one poll.
-- [ ] The page reads correctly to a browser agent: every bid is a link with its question as the text and its amount next to it.
+- [x] `/bids` lists open bids grouped by market, sorted by amount, with a live ticker that updates without a reload.
+- [x] Placing a bid from the page's form (no JavaScript required) adds it to the board within one poll.
+- [x] The page reads correctly to a browser agent: every bid is a link with its question as the text and its amount next to it.
 - [ ] The home page shows the top three open bids.
 
 ## Notes
+
+- Oct 31 build (stacked on MON-051): `site/src/bid-board.js`. The ticker and the columns follow
+  `/bids/stats.json` on the marketplace's own poll: the page script now redraws any `[data-live]`
+  list from the page's `[data-poll]` address, so the Latest strip and the board share one
+  mechanism. Every bid is an `<a>` whose text is its question; the amount sits beside it. The
+  place-a-bid sheet is a `<details>`, so it opens with JavaScript off. Fills join the ticker
+  once MON-054 writes them.
+- The home page's top three bids is left for XC-093, which owns the home page; that is the one
+  open criterion here.
 
 Oct 31 product call: a live trading screen first, with question-and-answers depth on each bid's
 own page (XC-115). Not posting bids on X.
