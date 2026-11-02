@@ -4,7 +4,7 @@ Cloudflare's API with wrangler's sign-in (XC-087). Nothing reaches the network."
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 import hermetic  # noqa: F401  (no test may reach a real Cloudflare account)
 from fixtures.cloudflare import ADA, LAB, FakeCloudflare
@@ -44,6 +44,71 @@ class CloudflareTest(unittest.TestCase):
         fake = FakeCloudflare(subdomain=None, taken=("ada-lore",))
         self.assertEqual(self._with(fake).register(ADA["id"], "ada-lore"), "ada-lore-2")
         self.assertEqual(fake.made(), ["ada-lore", "ada-lore-2"])
+
+    # XC-110: the refusal and retry paths, so lore/cloudflare.py meets the floor.
+
+    def test_a_refusal_that_is_not_json_is_still_a_refusal(self) -> None:
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(FakeCloudflare(garbled=True)).accounts()
+        self.assertEqual(refused.exception.codes, set())
+        self.assertIn("(502)", str(refused.exception))
+
+    def test_a_second_page_of_accounts_is_read_too(self) -> None:
+        fake = FakeCloudflare([ADA, LAB], per_page=1)
+        found = self._with(fake).accounts()
+        self.assertEqual([account.id for account in found], [ADA["id"], LAB["id"]])
+        self.assertEqual(
+            [path for _, path, _ in fake.calls],
+            ["/accounts?per_page=50&page=1", "/accounts?per_page=50&page=2"],
+        )
+
+    def test_a_subdomain_refusal_other_than_none_yet_is_raised(self) -> None:
+        fake = FakeCloudflare(refused=(10000, "Authentication error"))
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(fake).subdomain(ADA["id"])
+        self.assertEqual(refused.exception.codes, {10000})
+
+    def test_a_register_refusal_other_than_taken_is_raised_not_retried(self) -> None:
+        fake = FakeCloudflare(refused=(10000, "Authentication error"))
+        with self.assertRaises(CloudflareError) as refused:
+            self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(refused.exception.codes, {10000})
+        self.assertEqual(fake.made(), ["ada-lore"])
+
+    def test_a_name_cloudflare_reports_late_is_waited_for(self) -> None:
+        fake = FakeCloudflare(subdomain=None, late=1)
+        with patch("lore.cloudflare.time.sleep") as sleep:
+            made = self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(made, "ada-lore")
+        self.assertEqual(sleep.call_args_list, [call(2)])
+        self.assertEqual([method for method, _, _ in fake.calls], ["PUT", "GET", "GET"])
+
+    def test_a_name_never_reported_is_still_the_one_made(self) -> None:
+        fake = FakeCloudflare(subdomain=None, late=99)
+        with patch("lore.cloudflare.time.sleep") as sleep:
+            made = self._with(fake).register(ADA["id"], "ada-lore", waits=2)
+        self.assertEqual(made, "ada-lore")
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_every_name_taken_is_a_refusal_naming_it(self) -> None:
+        fake = FakeCloudflare(
+            subdomain=None,
+            taken=(
+                "ada-lore",
+                "ada-lore-2",
+                "ada-lore-3",
+                "ada-lore-4",
+                "ada-lore-abc123",
+            ),
+        )
+        with (
+            patch("lore.cloudflare.secrets.token_hex", return_value="abc123"),
+            self.assertRaises(CloudflareError) as refused,
+        ):
+            self._with(fake).register(ADA["id"], "ada-lore")
+        self.assertEqual(refused.exception.codes, {10031})
+        self.assertIn("every name tried was taken", str(refused.exception))
+        self.assertEqual(len(fake.made()), 5)
 
     def test_an_unverified_email_is_told_apart(self) -> None:
         with self.assertRaises(CloudflareError) as refused:
