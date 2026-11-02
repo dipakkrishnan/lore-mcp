@@ -1,6 +1,7 @@
 {
   "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else.",
   "events": {
+    "app.installed": null,
     "app.opened": null,
     "signin.completed": null,
     "source.connected": {

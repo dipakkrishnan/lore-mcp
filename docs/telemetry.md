@@ -29,7 +29,7 @@ a row in this table needed it — nothing is collected "just in case."
 
 | Question | Metric | Plane | Supplied by |
 |---|---|---|---|
-| Do installs reach first value? | Funnel conversion across setup → capture → publish → store | desktop | `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
+| Do installs reach first value? | Funnel conversion across install → setup → capture → publish → store | desktop | `app.installed` (an install's first event, sent once the welcome screen has said what is sent: `APP-250`), `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
 | Do people come back? | Distinct days with an `app.opened` per install | desktop | `app.opened` |
 | Which operations fail for real users? | Failure rate by CLI command | desktop | `cli.failed` with a coded command + outcome |
 | Is a deployed node serving? | Request rate, error rate, p50/p95 latency by tool | node (owner) | Workers' automatic request tracing, `observability.traces` in `wrangler.jsonc` |

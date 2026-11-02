@@ -24,7 +24,7 @@ if (!app.requestSingleInstanceLock()) app.exit();
 process.env.LORE_APP_VERSION = app.getVersion();
 const TASKS = new Set(["capture", "setup", "publish", "deploy", "evening"]);
 /** What the renderer may report: that the usage notice was on screen, and that the app opened. */
-const USAGE = new Set(["noticed", "app.opened"]);
+const USAGE = new Set(["noticed", "app.installed", "app.opened"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
 
 /** @type {LoreAgentInstance | undefined} */

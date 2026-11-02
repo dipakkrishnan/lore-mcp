@@ -96,6 +96,19 @@ class UsageTest(LoreTestCase):
             ],
         )
 
+    def test_an_install_is_counted_by_its_first_event_only(self) -> None:
+        self.assertFalse(usage.record("app.installed"))
+        usage.notice_shown()
+        self.assertTrue(usage.record("app.installed"))
+        self.assertFalse(usage.record("app.installed"))
+        self.assertEqual(self.names(), ["app.installed"])
+
+    def test_an_install_already_measured_is_never_counted_as_new(self) -> None:
+        usage.notice_shown()
+        usage.record("app.opened")
+        self.assertFalse(usage.record("app.installed"))
+        self.assertEqual(self.names(), ["app.opened"])
+
     def test_events_carry_only_coded_values(self) -> None:
         usage.notice_shown()
         with self.assertRaises(ValueError):

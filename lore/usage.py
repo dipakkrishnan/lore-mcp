@@ -1,7 +1,8 @@
 """Anonymous usage events (APP-058): where installs get to, never what is in them.
 
 Each event is a closed name with at most one coded property, sent with the
-install's random id and the app version. A milestone is sent once per install
+install's random id and the app version. `app.installed` is only ever an install's
+first event, so each install is counted once. A milestone is sent once per install
 (so nothing reveals how much someone has written), `app.opened` once a day,
 and `cli.failed` and `store.failed` each time. Nothing is sent until the owner has seen the
 notice, and nothing at all with telemetry off. Every event sent is also
@@ -78,6 +79,7 @@ STORE_FAILURES = (
 )
 # name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
+    "app.installed": ("first", None),
     "app.opened": ("daily", None),
     "signin.completed": ("once", None),
     "source.connected": ("once", ("connector", CONNECTORS)),
@@ -125,6 +127,8 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
         sent = store.setting(SENT_SETTING, {})
         sent = sent if isinstance(sent, dict) else {}
         if frequency == "once" and key in sent:
+            return False
+        if frequency == "first" and sent:
             return False
         if frequency == "daily" and sent.get(key) == today:
             return False
