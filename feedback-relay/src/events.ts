@@ -7,10 +7,11 @@ import contract from "../../contracts/usage_events.json";
  * stored, so an old or altered copy of Lore can't widen what is collected.
  */
 
-const EVENTS = contract.events as Record<string, { prop: string; values: string[] } | null>;
+const EVENTS = contract.events as Record<string, { prop: string; values: string[]; optional?: boolean } | null>;
 const INSTALL_ID = /^[0-9a-f]{32}$/;
 const VERSION = /^[0-9A-Za-z.+-]{1,32}$/;
 const AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const SITE_ID = "00000000000000000000000000005173";
 export const MAX_EVENTS = 20;
 
 export type Event = { name: string; props: Record<string, string>; at: string };
@@ -22,7 +23,7 @@ function event(value: unknown): Event | null {
   if (typeof name !== "string" || !Object.hasOwn(EVENTS, name) || typeof at !== "string" || !AT.test(at)) return null;
   const allowed = EVENTS[name];
   const given = typeof props === "object" && props !== null ? Object.entries(props) : [];
-  if (!allowed) return given.length ? null : { name, props: {}, at };
+  if (!allowed || (allowed.optional && !given.length)) return given.length ? null : { name, props: {}, at };
   if (given.length !== 1) return null;
   const [[key, coded]] = given;
   return key === allowed.prop && typeof coded === "string" && allowed.values.includes(coded) ? { name, props: { [key]: coded }, at } : null;
@@ -36,6 +37,16 @@ export function parseBatch(value: unknown): Batch | null {
   if (typeof version !== "string" || !VERSION.test(version)) return null;
   if (!Array.isArray(events) || events.length > MAX_EVENTS) return null;
   return { install_id, version, events: events.map(event).filter((e): e is Event => e !== null) };
+}
+
+/**
+ * One agent-demand count from yourlore.dev (XC-120), as a batch under the one fixed site id, or null
+ * when the name or family isn't on the list. Only the site's binding reaches this, never /events.
+ */
+export function siteBatch(name: string, agent: string, at = new Date()): Batch | null {
+  const { names, prop, values } = contract.site_events;
+  if (!names.includes(name) || !values.includes(agent)) return null;
+  return { install_id: SITE_ID, version: "site", events: [{ name, props: { [prop]: agent }, at: `${at.toISOString().slice(0, 19)}Z` }] };
 }
 
 /** Pass the checked events to PostHog's batch endpoint; a missing key means none are kept. */

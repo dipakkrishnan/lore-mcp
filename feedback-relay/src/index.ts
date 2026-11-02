@@ -1,4 +1,5 @@
-import { forward, parseBatch } from "./events.js";
+import { WorkerEntrypoint } from "cloudflare:workers";
+import { forward, parseBatch, siteBatch } from "./events.js";
 import { createIssue } from "./issue.js";
 import { allow } from "./limit.js";
 import { LIMITS, ReportError, parseReport } from "./report.js";
@@ -6,6 +7,18 @@ import { LIMITS, ReportError, parseReport } from "./report.js";
 // Re-exported from the entry module because that is where the runtime looks
 // for a Durable Object class named in wrangler.jsonc.
 export { FeedbackQuota } from "./quota.js";
+
+/**
+ * yourlore.dev's agent-demand counts (XC-120). Reachable only through a service binding, so no
+ * one else can add to the count, and it takes two codes rather than a request, so no visitor's
+ * IP or headers ever reach the relay.
+ */
+export class SiteEvents extends WorkerEntrypoint<Env> {
+  async count(name: string, agent: string): Promise<void> {
+    const batch = siteBatch(name, agent);
+    if (batch) await forward(this.env, batch);
+  }
+}
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
