@@ -53,14 +53,16 @@ class Inbox {
   rows(input) {
     /** @type {InboxRow[]} */
     const rows = [];
-    /** @param {Omit<InboxRow, "tail" | "at" | "done" | "title" | "lead"> & Partial<InboxRow>} row */
-    const add = (row) => rows.push({ lead: "", title: "", tail: "", at: null, done: false, ...row });
+    /** @param {Omit<InboxRow, "tail" | "at" | "done" | "title" | "lead" | "amount"> & Partial<InboxRow>} row */
+    const add = (row) => rows.push({ amount: "", lead: "", title: "", tail: "", at: null, done: false, ...row });
     for (const match of input.bids.filter((each) => Date.parse(each.bid.expires) > this.now)) {
       const id = match.bid.id;
       const drafted = input.drafts.some((draft) => draft.bid === id);
       const ready = input.answered.has(id);
-      const lead = ready ? "Your answer is ready:" : drafted ? "Your answer is drafted:" : input.drafting.has(id) ? "Lore is drafting your answer:" : `A ${Inbox.dollars(match.bid.usd)} bid matches what you know:`;
-      add({ key: `bid:${id}`, kind: "bid", glyph: "bid", lead, title: `“${match.bid.question}”`, at: Inbox.posted(match.bid), verb: ready ? "View" : drafted ? "Review" : "Answer", done: true, ref: id });
+      const count = match.memories.length;
+      const answer = count > 1 ? `${count} of your memories answer this` : count ? "1 of your memories answers this" : "";
+      const tail = ready ? "Your answer is ready" : drafted ? "Your answer is drafted" : input.drafting.has(id) ? "Lore is drafting your answer" : answer;
+      add({ key: `bid:${id}`, kind: "bid", glyph: "bid", amount: Inbox.dollars(match.bid.usd), title: match.bid.question, tail: tail && `· ${tail}`, at: Inbox.posted(match.bid), verb: ready ? "View" : drafted ? "Review" : "Answer", done: true, ref: id });
     }
     for (const draft of input.drafts.filter((each) => !each.bid)) add({ key: `draft:${draft.title}`, kind: "draft", glyph: "draft", lead: "Draft ready:", title: `“${draft.title}”`, verb: "Review", ref: draft.title });
     if (input.updates) add({ key: "updates", kind: "draft", glyph: "draft", lead: "Ready to approve:", title: `new free parts for ${Inbox.plural(input.updates, "piece")} on sale`, verb: "Review" });
@@ -83,7 +85,7 @@ class Inbox {
     for (const each of input.suggestions) add({ key: `suggestion:${each.at}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.at });
     for (const sale of input.sales) {
       const free = sale.network === "free";
-      add({ key: `sale:${sale.tx}`, kind: "sale", glyph: "sold", lead: free ? "Someone read a free copy of" : "Sold", title: `“${sale.title}”`, tail: free ? "" : `· ${Inbox.dollars(sale.price_usd)}`, at: sale.sold_at, verb: "View", done: true, ref: sale.tx });
+      add({ key: `sale:${sale.tx}`, kind: "sale", glyph: free ? "sold" : "bid", amount: free ? "" : `+${Inbox.dollars(sale.price_usd)}`, lead: free ? "Someone read a free copy of" : "Sold", title: `“${sale.title}”`, at: sale.sold_at, verb: "View", done: true, ref: sale.tx });
     }
     if (input.help) add({ key: "help", kind: "help", glyph: "help", lead: "New to Lore?", title: "See how it works", verb: "Read", done: true });
     const order = new Map(rows.map((row, index) => [row, index]));
@@ -112,16 +114,18 @@ class Inbox {
     const pays = Inbox.dollars(bid.usd);
     const closed = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(Date.parse(bid.expires));
     const status = { matched: "Open", unmatched: "Open", drafting: "Drafting", drafted: "Answer drafted", approved: "Answer ready", expired: "Closed", dismissed: "Dismissed" }[state];
-    const lede = left ? `A buyer will pay ${pays} for a first-hand answer. Closes in ${left}.` : `A buyer offered ${pays} for a first-hand answer. It closed ${closed}.`;
-    /** @type {Array<{who: "buyer" | "lore" | "you", text: string, at?: string, live?: boolean}>} */
-    const activity = [{ who: "buyer", text: `Bid posted for ${pays}`, at: Inbox.posted(bid) }];
-    activity.push({ who: "lore", text: count ? `Lore found ${Inbox.plural(count, "matching memory", "matching memories")}` : "Lore found nothing you know that answers it" });
+    const offered = `A buyer offered ${pays} for a first-hand answer.`;
+    const lede = state === "dismissed" ? `${offered} You dismissed it.` : left ? `A buyer will pay ${pays} for a first-hand answer. Closes in ${left}.` : `${offered} It closed ${closed}.`;
+    /** Who did it, in bold, then what they did; `glyph` names its icon, "lore" being Lore's own mark.
+     * @type {Array<{actor: string, glyph: string, text: string, at?: string, live?: boolean}>} */
+    const activity = [{ actor: "The buyer", glyph: "bid", text: `posted this bid for ${pays}`, at: Inbox.posted(bid) }];
+    activity.push({ actor: "Lore", glyph: "lore", text: count ? `found ${Inbox.plural(count, "matching memory", "matching memories")}` : "found nothing you know that answers it" });
     const from = Inbox.plural(count, "memory", "memories");
-    if (state === "drafting") activity.push({ who: "lore", text: `Drafting from ${from}…`, live: true });
-    if (state === "drafted" || state === "approved" || (state !== "dismissed" && look.draft)) activity.push({ who: "lore", text: `Drafted from ${from}` });
-    if (state === "approved") activity.push({ who: "you", text: "Approved" });
-    if (state === "dismissed") activity.push({ who: "you", text: "Dismissed" });
-    if (state === "expired") activity.push({ who: "buyer", text: "Bid closed", at: bid.expires });
+    if (state === "drafting") activity.push({ actor: "Lore", glyph: "lore", text: `is drafting from ${from}…`, live: true });
+    if (state === "drafted" || state === "approved" || (state !== "dismissed" && look.draft)) activity.push({ actor: "Lore", glyph: "draft", text: `drafted the answer from ${from}` });
+    if (state === "approved") activity.push({ actor: "You", glyph: "check", text: "approved the answer" });
+    if (state === "dismissed") activity.push({ actor: "You", glyph: "person", text: "dismissed this bid" });
+    if (state === "expired") activity.push({ actor: "The bid", glyph: "working", text: "closed", at: bid.expires });
     return { state, status, lede, left, activity };
   }
 }

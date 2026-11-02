@@ -349,6 +349,8 @@ type InboxRow = {
   key: string;
   kind: "bid" | "draft" | "step" | "problem" | "checkin" | "task" | "reading" | "memories" | "suggestion" | "sale" | "help";
   glyph: string;
+  /** Money the row is about, shown first: a bid's "$40", a sale's "+$8". */
+  amount: string;
   lead: string;
   title: string;
   tail: string;

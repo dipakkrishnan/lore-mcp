@@ -1210,7 +1210,7 @@ class InboxView {
       node.dataset.key = row.key;
       node.classList.toggle("sel", row.key === this.selected);
       const text = el("span", "say");
-      const words = [row.lead && el("span", "sub", row.lead), row.title, row.tail && el("span", "sub", row.tail)].filter(Boolean);
+      const words = [row.amount && el("b", "amt", row.amount), row.lead && el("span", "sub", row.lead), row.title, row.tail && el("span", "sub", row.tail)].filter(Boolean);
       text.append(...words.flatMap((word, at) => (at ? [" ", word] : [word])));
       text.title = text.textContent ?? "";
       if (row.kind === "reading") text.classList.add("shimmer");
@@ -1273,6 +1273,9 @@ const inbox = new InboxView();
 /** A bid's own page (APP-283): the question, what Lore found that answers it, the answer once drafted, and its
  * timeline, with its properties in a column beside it. */
 class BidPage {
+  /** The Status pill's tint by where the bid stands: open is money waiting, an answer under way is amber, ready is done. */
+  static TINTS = { matched: "live", unmatched: "", drafting: "pending", drafted: "pending", approved: "live", expired: "", dismissed: "" };
+
   /** The bid open now. */
   id = "";
   /** The bid as last seen, so a page stays readable once its bid is dismissed or ends. @type {BidMatch | null} */
@@ -1361,7 +1364,7 @@ class BidPage {
         node.type = "button";
         const kept = el("span", "m");
         kept.append(glyph("lock", "glyph"), "Not sent to buyer");
-        node.append(glyph("memory"), el("span", "say", memory.title), kept);
+        node.append(provenance(s.library.items.find((item) => item.id === memory.id)?.sources).marks, el("span", "say", memory.title), kept);
         node.addEventListener("click", () => openMemory(memory.id));
         rows.append(node);
       }
@@ -1411,8 +1414,8 @@ class BidPage {
       text.addEventListener("input", () => fit(text));
       const foot = el("div", "answer-foot");
       const note = el("span", "note");
-      note.append(glyph("lock", "glyph"), `The buyer gets this answer only. Your ${from} aren't part of it.`);
-      const approve = button("Approve", "primary", () => {
+      note.append(glyph("lock", "glyph"), `The buyer gets this answer only. ${match.memories.length === 1 ? "Your memory isn't" : `Your ${from} aren't`} part of it.`);
+      const approve = button(`Approve · ${Inbox.dollars(match.bid.usd)}`, "primary", () => {
         approve.disabled = true;
         void this.approve(current, text.value.trim() || current.content);
       });
@@ -1435,12 +1438,16 @@ class BidPage {
       item.append(el("dt", "", label), dd);
       list.append(item);
     };
-    prop("Status", chip(page.status, page.state === "approved" ? "live" : ""));
+    prop("Status", chip(page.status, BidPage.TINTS[page.state]));
     prop("Pays", el("b", "", Inbox.dollars(match.bid.usd)));
     prop("Buyer", "Kept private");
     if (match.bid.market && match.bid.market !== "unsorted") prop("Market", match.bid.market[0].toUpperCase() + match.bid.market.slice(1).replace(/-/g, " "));
-    prop("Time left", page.left ?? "—");
-    prop("Match", match.strength === "strong" ? "Strong" : "Good");
+    if (page.state !== "expired" && page.state !== "dismissed") {
+      prop("Time left", page.left ?? "—");
+      const strength = el("span", "strength");
+      strength.append(signal(match.strength === "strong" ? 3 : 2), match.strength === "strong" ? "Strong" : "Good");
+      prop("Match", strength);
+    }
     prop("Payment", "Card, straight to you");
     side.append(list);
     return side;
@@ -1452,9 +1459,14 @@ class BidPage {
     const age = new Inbox();
     for (const entry of activity) {
       const node = el("div", "ev");
-      const icon = entry.who === "lore" ? mark("glyph lore") : glyph(entry.who === "you" ? "person" : "bid");
+      const icon = entry.glyph === "lore" ? mark("glyph lore") : glyph(entry.glyph);
       const text = el("span", "tx");
-      text.append(entry.live ? el("span", "shimmer", entry.text) : entry.text);
+      const said = [el("b", "", entry.actor), ` ${entry.text}`];
+      if (entry.live) {
+        const live = el("span", "shimmer");
+        live.append(...said);
+        text.append(live);
+      } else text.append(...said);
       if (entry.at) text.append(el("span", "when", ` · ${age.age(entry.at)}`));
       node.append(icon, text);
       list.append(node);
@@ -1464,6 +1476,14 @@ class BidPage {
 }
 
 const bidPage = new BidPage();
+
+/** Three bars, `level` of them lit, the way a signal reads. @param {number} level */
+function signal(level) {
+  const node = el("span", "signal");
+  node.setAttribute("aria-hidden", "true");
+  node.innerHTML = `<svg viewBox="0 0 12 12">${[0, 1, 2].map((at) => `<rect x="${1 + at * 4}" y="${8 - at * 3}" width="2" height="${3 + at * 3}" rx="0.5"${at < level ? ' class="on"' : ""}></rect>`).join("")}</svg>`;
+  return node;
+}
 
 /** @param {Snapshot} s */
 function renderBid(s) {
