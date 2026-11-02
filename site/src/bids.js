@@ -1,9 +1,14 @@
 // The bid book (contracts/bids.md): one SQLite Durable Object, the only writer of bids.
-// Events are appended, never edited, and a bid's status is read from them. No method here
-// can fill a bid; only the payment rail does that (MON-054).
+// Events are appended, never edited, and a bid's status is read from them. Only the payment
+// rail fills a bid (MON-054): checkout calls `paid` over the BidRail service binding, and no
+// route reaches it. A carded bid is charged when its buyer accepts an answer, or on its own
+// two days after the first answer; the alarm sends each charge to checkout once.
 import { DurableObject } from "cloudflare:workers";
 
 export const LIFETIME_MS = 7 * 86_400_000;
+/** How long after the first answer a carded bid accepts it on its own, and how long a declined card has to be replaced. */
+export const ACCEPT_MS = 2 * 86_400_000;
+const RETRY_MS = 60_000;
 /** The real bound on new bids: the rate-limit bindings count per location, this counts once. */
 export const HOURLY_CAP = 100;
 const LIVE_SHOWN = 200;
@@ -20,25 +25,68 @@ CREATE TABLE IF NOT EXISTS bid_events (
 CREATE INDEX IF NOT EXISTS bid_events_by_bid ON bid_events (bid_id, seq);
 CREATE INDEX IF NOT EXISTS bids_by_created ON bids (created);
 CREATE INDEX IF NOT EXISTS bids_by_expires ON bids (expires);
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value);`;
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value);
+CREATE TABLE IF NOT EXISTS buyers (
+  bid_id TEXT PRIMARY KEY, key_hash TEXT NOT NULL, customer TEXT, payment_method TEXT);`;
+// Carded bids that have an answer and no accepted event yet: the ones the clock may accept.
+const WAITING = `FROM bids b JOIN buyers k ON k.bid_id = b.id WHERE k.payment_method IS NOT NULL AND ${UNENDED}
+  AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')
+  AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'accepted')`;
+const FIRST_ANSWER = `(SELECT MIN(e.at) FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')`;
 
 // The public columns. email and callback_url are never selected for a reader.
 const PUBLIC = "id, question, usd_cents, market, created, expires";
 
 export const iso = (time) => new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z");
 
-/** removed wins, then filled, then expired (by event or by the clock), then answered, else open. */
+/** The latest accepted event when its charge is still out: not followed by a decline. */
+export function paying(events) {
+  const last = events.findLast((e) => e.type === "accepted" || e.type === "declined");
+  return last?.type === "accepted" ? last : null;
+}
+
+/** The latest decline when no charge or new card has come since. */
+export const declined = (events) => {
+  const last = events.findLast((e) => ["accepted", "declined", "card_updated"].includes(e.type));
+  return last?.type === "declined" ? last : null;
+};
+
+/**
+ * removed wins, then filled, then paying (accepted, charge out), then expired (by event, or by the
+ * clock unless an accepted charge holds it), then pending (card not yet saved), answered, else open.
+ */
 export function statusOf(bid, events, now = Date.now()) {
   const has = (type) => events.some((e) => e.type === type);
   if (has("removed")) return "removed";
   if (has("filled")) return "filled";
-  if (has("expired") || now >= Date.parse(bid.expires)) return "expired";
+  if (paying(events)) return "paying";
+  if (has("expired") || (!has("accepted") && now >= Date.parse(bid.expires))) return "expired";
+  if (!has("opened")) return "pending";
   if (has("answered")) return "answered";
   return "open";
 }
 
 const timeline = ({ type, at, data }) =>
-  type === "answered" ? { type, at, handle: data.handle } : type === "filled" ? { type, at, rail: data.rail, proof: data.proof } : { type, at };
+  type === "answered"
+    ? { type, at, handle: data.handle }
+    : type === "filled"
+      ? { type, at, rail: data.rail, proof: data.proof }
+      : type === "accepted"
+        ? { type, at, answer: data.answer, auto: data.auto }
+        : { type, at };
+
+/** For the buyer of a filled bid only: the answer's piece, opened by its payment, as a card receipt opens a piece. */
+export function receiptUrl({ events }) {
+  const filled = events.find((e) => e.type === "filled");
+  const answer = filled && events.filter((e) => e.type === "answered")[filled.data.answer];
+  return answer && filled.data.payment_intent ? `${answer.data.piece_url}?session_id=${filled.data.payment_intent}` : null;
+}
+
+/** When a carded bid with answers accepts the first one on its own: two days after it, but never after the bid's week. */
+export const autoAcceptAt = (bid, events) => {
+  const first = events.find((e) => e.type === "answered");
+  return first ? Math.min(Date.parse(first.at) + ACCEPT_MS, Date.parse(bid.expires)) : null;
+};
 
 /** The shape every reader sees (contracts/bids.md, "Public shape"). */
 export function publicBid({ bid, events }, origin, now = Date.now()) {
@@ -49,6 +97,7 @@ export function publicBid({ bid, events }, origin, now = Date.now()) {
     usd: bid.usd_cents / 100,
     market: bid.market,
     status: statusOf(bid, events, now),
+    card: Boolean(bid.card),
     created: bid.created,
     expires: bid.expires,
     answers: events
@@ -58,16 +107,20 @@ export function publicBid({ bid, events }, origin, now = Date.now()) {
   };
 }
 
-function randomId() {
+function randomId(length = ID_LENGTH) {
   let id = "";
-  while (id.length < ID_LENGTH) {
-    for (const byte of crypto.getRandomValues(new Uint8Array(ID_LENGTH))) {
+  while (id.length < length) {
+    for (const byte of crypto.getRandomValues(new Uint8Array(length))) {
       // 252 is the largest multiple of 36 under 256, so every character is equally likely.
-      if (byte < 252 && id.length < ID_LENGTH) id += ALPHABET[byte % 36];
+      if (byte < 252 && id.length < length) id += ALPHABET[byte % 36];
     }
   }
   return id;
 }
+
+const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+const digest = async (text) => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
+const same = (a, b) => a.length === b.length && crypto.subtle.timingSafeEqual(new TextEncoder().encode(a), new TextEncoder().encode(b));
 
 export class BidBook extends DurableObject {
   constructor(ctx, env) {
@@ -76,8 +129,12 @@ export class BidBook extends DurableObject {
     this.sql.exec(SCHEMA);
   }
 
-  /** Opens a bid from already-checked fields, or returns null when the hour's cap is spent. */
-  place({ question, usd_cents, market, email = null, callback_url = null }, now = Date.now()) {
+  /**
+   * Places a bid from already-checked fields, or returns null when the hour's cap is spent. A bid
+   * without a card opens at once. A bid with one waits, unlisted, until checkout says the card is
+   * saved; `key` is the buyer's secret for accepting, kept here only as a hash.
+   */
+  async place({ question, usd_cents, market, email = null, callback_url = null }, { card = false, now = Date.now() } = {}) {
     const lastHour = this.sql.exec("SELECT COUNT(*) AS n FROM bids WHERE created > ?", iso(now - 3_600_000)).one().n;
     if (lastHour >= HOURLY_CAP) return null;
     const created = iso(now);
@@ -85,8 +142,98 @@ export class BidBook extends DurableObject {
     let id = randomId();
     while (this.sql.exec("SELECT 1 FROM bids WHERE id = ?", id).toArray().length) id = randomId();
     this.sql.exec("INSERT INTO bids VALUES (?, ?, ?, ?, ?, ?, ?, ?)", id, question, usd_cents, market, email, callback_url, created, expires);
-    this.#append(id, "opened", created);
+    if (!card) {
+      this.#append(id, "opened", created, { card: false });
+      return { found: this.#read(id) };
+    }
+    const key = randomId(32);
+    this.sql.exec("INSERT INTO buyers (bid_id, key_hash) VALUES (?, ?)", id, await digest(key));
+    return { found: this.#read(id), key };
+  }
+
+  /** The bid and its saved card's ids, for the buyer holding its key; null for anyone else. */
+  async buyer(id, key, now = Date.now()) {
+    const found = this.find(id, now);
+    const row = found && this.#buyer(id);
+    return row && typeof key === "string" && (await same(await digest(key), row.key_hash)) ? { found, customer: row.customer } : null;
+  }
+
+  /** The buyer accepts answer `answer` (its index). Returns the bid, or why not: "missing", "card", "state". */
+  async accept(id, key, answer, now = Date.now()) {
+    const mine = await this.buyer(id, key, now);
+    if (!mine) return "missing";
+    const { bid, events } = mine.found;
+    if (!this.#buyer(id).payment_method) return "card";
+    const answers = events.filter((e) => e.type === "answered");
+    if (statusOf(bid, events, now) !== "answered" || !Number.isInteger(answer) || !answers[answer]) return "state";
+    this.#append(id, "accepted", iso(now), { answer, auto: false });
+    await this.#schedule(now);
     return this.#read(id);
+  }
+
+  /**
+   * Checkout saw Stripe save the buyer's card (a webhook, over BidRail). Opens a waiting bid; on a
+   * bid whose charge was declined, records the new card and tries the same answer again.
+   */
+  async cardSaved(id, { customer, payment_method }, now = Date.now()) {
+    const found = this.find(id, now);
+    const row = found && this.#buyer(id);
+    if (!row || row.payment_method === payment_method) return false;
+    const status = statusOf(found.bid, found.events, now);
+    if (!["pending", "open", "answered"].includes(status)) return false;
+    this.sql.exec("UPDATE buyers SET customer = ?, payment_method = ? WHERE bid_id = ?", customer, payment_method, id);
+    if (status === "pending") this.#append(id, "opened", iso(now), { card: true });
+    else this.#append(id, "card_updated", iso(now));
+    const refused = declined(found.events);
+    if (refused) this.#append(id, "accepted", iso(now), { answer: refused.data.answer, auto: false });
+    await this.#schedule(now);
+    return true;
+  }
+
+  /**
+   * The payment rail's word that an accepted charge settled (checkout's Stripe webhook, over
+   * BidRail). Appends `filled` once; a retried webhook changes nothing. Nothing else calls this.
+   */
+  paid(id, { payment_intent, charge, amount_cents }, now = Date.now()) {
+    const found = this.#read(id);
+    if (!found || found.events.some((e) => e.type === "filled" || e.type === "removed")) return false;
+    const accepted = found.events.findLast((e) => e.type === "accepted");
+    if (!accepted || !(amount_cents >= found.bid.usd_cents)) return false;
+    this.#append(id, "filled", iso(now), { rail: "card", proof: charge, payment_intent, answer: accepted.data.answer });
+    return true;
+  }
+
+  /** Accepts what the clock says is due, then sends each charge not yet sent. */
+  async alarm() {
+    const now = Date.now();
+    this.#expire(now);
+    let retry = false;
+    for (const { id, seq, answer } of this.#unsent()) {
+      const row = this.#buyer(id);
+      const found = this.#read(id);
+      const piece = found.events.filter((e) => e.type === "answered")[answer];
+      try {
+        const result = await this.env.CHECKOUT.charge({
+          bid: id,
+          attempt: `bid-${id}-${seq}`,
+          customer: row.customer,
+          payment_method: row.payment_method,
+          piece_url: piece.data.piece_url,
+          usd_cents: found.bid.usd_cents,
+          question: found.bid.question
+        });
+        // Checkout says to try again when Stripe couldn't be reached; the same attempt id keeps it one charge.
+        if (result.retry) retry = true;
+        else {
+          if (!result.ok) this.#append(id, "declined", iso(Date.now()), { answer, reason: result.reason, message: result.message });
+          this.#setMeta(`sent:${seq}`, 1);
+        }
+      } catch (error) {
+        console.error(`bid ${id}: charge not sent: ${error.message}`);
+        retry = true;
+      }
+    }
+    await this.#schedule(now, retry);
   }
 
   /** A bid and its events, or null when there is none or it was removed. */
@@ -96,12 +243,15 @@ export class BidBook extends DurableObject {
     return found && statusOf(found.bid, found.events, now) !== "removed" ? found : null;
   }
 
-  /** Open and answered bids, newest first. */
+  /** Open and answered bids, carded ones first, then newest first. A bid still waiting on its card isn't listed. */
   live(now = Date.now()) {
     this.#expire(now);
     const ids = this.sql
       .exec(
-        `SELECT id FROM bids b WHERE expires > ? AND ${UNENDED} ORDER BY created DESC, rowid DESC LIMIT ?`,
+        `SELECT id FROM bids b WHERE expires > ? AND ${UNENDED}
+          AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'opened')
+          AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'accepted')
+          ORDER BY EXISTS (SELECT 1 FROM buyers k WHERE k.bid_id = b.id AND k.payment_method IS NOT NULL) DESC, created DESC, rowid DESC LIMIT ?`,
         iso(now),
         LIVE_SHOWN
       )
@@ -115,11 +265,12 @@ export class BidBook extends DurableObject {
     return this.#meta("walked_away") ?? 0;
   }
 
-  answer(id, { handle, piece_url, preview, usd_cents }, now = Date.now()) {
+  async answer(id, { handle, piece_url, preview, usd_cents }, now = Date.now()) {
     const found = this.find(id, now);
     if (!found) return "missing";
     if (!["open", "answered"].includes(statusOf(found.bid, found.events, now))) return "ended";
     this.#append(id, "answered", iso(now), { handle, piece_url, preview, usd_cents });
+    await this.#schedule(now);
     const { callback_url } = this.sql.exec("SELECT callback_url FROM bids WHERE id = ?", id).one();
     return { found: this.#read(id), callback: callback_url };
   }
@@ -132,13 +283,38 @@ export class BidBook extends DurableObject {
   }
 
   #read(id) {
-    const bid = this.sql.exec(`SELECT ${PUBLIC} FROM bids WHERE id = ?`, id).toArray()[0];
+    const bid = this.sql.exec(`SELECT ${PUBLIC}, (SELECT payment_method FROM buyers WHERE bid_id = id) IS NOT NULL AS card FROM bids WHERE id = ?`, id).toArray()[0];
     if (!bid) return null;
     const events = this.sql
       .exec("SELECT type, at, data FROM bid_events WHERE bid_id = ? ORDER BY seq", id)
       .toArray()
       .map(({ type, at, data }) => ({ type, at, data: data ? JSON.parse(data) : null }));
     return { bid: { ...bid }, events };
+  }
+
+  #buyer(id) {
+    return this.sql.exec("SELECT key_hash, customer, payment_method FROM buyers WHERE bid_id = ?", id).toArray()[0] ?? null;
+  }
+
+  /** Accepted events whose charge hasn't gone to checkout yet. */
+  #unsent() {
+    return this.sql
+      .exec(
+        `SELECT a.bid_id AS id, a.seq, a.data FROM bid_events a WHERE a.type = 'accepted'
+          AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = a.bid_id AND e.seq > a.seq AND e.type IN ('declined', 'filled', 'removed'))
+          AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'sent:' || a.seq)`
+      )
+      .toArray()
+      .map(({ id, seq, data }) => ({ id, seq, answer: JSON.parse(data).answer }));
+  }
+
+  /** The alarm goes off at the next automatic accept, or now when a charge is waiting to go out. */
+  async #schedule(now, retry = false) {
+    const due = this.#unsent().length ? (retry ? now + RETRY_MS : now) : null;
+    const next = this.sql.exec(`SELECT MIN(MIN(julianday(${FIRST_ANSWER}) + 2, julianday(b.expires))) AS day ${WAITING}`).one().day;
+    const auto = next === null ? null : Math.round((next - 2440587.5) * 86_400_000);
+    const at = [due, auto].filter((time) => time !== null);
+    if (at.length) await this.ctx.storage.setAlarm(Math.max(Math.min(...at), now));
   }
 
   #append(id, type, at, data = null) {
@@ -158,13 +334,38 @@ export class BidBook extends DurableObject {
    * records it. The cursor keeps each read's work to the bids that just ended, not the whole history.
    */
   #expire(now) {
+    this.#acceptDue(now);
+    this.#endDeclined(now);
     const since = this.#meta("swept") ?? "";
     const until = iso(now);
     if (until <= since) return;
-    const ending = `FROM bids b WHERE expires > ? AND expires <= ? AND ${UNENDED}`;
+    // A bid with an accepted answer ends through its payment, not the clock.
+    const ending = `FROM bids b WHERE expires > ? AND expires <= ? AND ${UNENDED}
+      AND NOT EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'accepted')`;
     const walked = this.sql.exec(`SELECT COUNT(*) AS n ${ending} AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'answered')`, since, until).one().n;
     this.sql.exec(`INSERT INTO bid_events (bid_id, type, at, data) SELECT id, 'expired', expires, NULL ${ending} ORDER BY expires`, since, until);
     this.#setMeta("swept", until);
     if (walked) this.#setMeta("walked_away", (this.#meta("walked_away") ?? 0) + walked);
+  }
+
+  /** Accepts the first answer of each carded bid whose two days (or week) are up; the alarm sends the charge. */
+  #acceptDue(now) {
+    const due = this.sql.exec(`SELECT b.id ${WAITING} AND MIN(julianday(${FIRST_ANSWER}) + 2, julianday(b.expires)) <= julianday(?)`, iso(now)).toArray();
+    for (const { id } of due) this.#append(id, "accepted", iso(now), { answer: 0, auto: true });
+    if (due.length) this.ctx.storage.setAlarm(now);
+  }
+
+  /** A declined card not replaced within two days, once the bid's week is over, ends the bid unfilled. */
+  #endDeclined(now) {
+    const held = this.sql
+      .exec(`SELECT id FROM bids b WHERE ${UNENDED} AND EXISTS (SELECT 1 FROM bid_events e WHERE e.bid_id = b.id AND e.type = 'declined')`)
+      .toArray();
+    for (const { id } of held) {
+      const { bid, events } = this.#read(id);
+      const refused = declined(events);
+      if (!refused || now < Math.max(Date.parse(refused.at) + ACCEPT_MS, Date.parse(bid.expires))) continue;
+      this.#append(id, "expired", iso(now));
+      this.#setMeta("walked_away", (this.#meta("walked_away") ?? 0) + 1);
+    }
   }
 }

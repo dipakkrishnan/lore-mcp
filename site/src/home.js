@@ -47,8 +47,8 @@ const NEVER = [
   ["Hold your money.", "The buyer pays you directly, by card."]
 ];
 
-/** For buyers, true to MON-051 v1: no card is taken to ask; a buyer pays only to read an answer they pick. */
-const ASK = "Ask something only someone who has done it can answer. No card needed to ask; you pay only for an answer you choose to buy.";
+/** For buyers, true to MON-054: the card is saved when they ask and charged only for the answer they accept. */
+const ASK = "Ask something only someone who has done it can answer. Your card is saved when you ask and charged only for the answer you accept.";
 
 const STYLE = `
 .hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:var(--s12);align-items:start;padding:var(--s12) 0 var(--s8)}

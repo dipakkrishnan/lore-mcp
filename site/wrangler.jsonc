@@ -26,6 +26,10 @@
     "bindings": [{ "class_name": "BidBook", "name": "BIDS" }]
   },
   "migrations": [{ "new_sqlite_classes": ["BidBook"], "tag": "v1" }],
+  // Lore's card checkout (MON-054): saves a buyer's card when a bid is placed and charges it,
+  // as the seller's own direct charge, when an answer is accepted. RPC only; checkout calls
+  // back into this Worker's BidRail entrypoint with what Stripe confirmed.
+  "services": [{ "binding": "CHECKOUT", "service": "lore-checkout", "entrypoint": "BidCards" }],
   // Cheap pre-filters on POST /bids: BID_RATE_LIMIT per client, BID_GLOBAL_RATE_LIMIT
   // on one constant key. Both count per Cloudflare location, so the hard bound is
   // BidBook's own hourly cap. `period` accepts only 10 or 60 seconds.

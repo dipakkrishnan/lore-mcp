@@ -5,14 +5,15 @@ import { answered, bidForm, marketName, SITE, timeLeft } from "./bid-pages.js";
 import { escape, money, page, plural } from "./layout.js";
 
 const mark = (bid) => `${bid.id}:${bid.answers.length}`;
-const biggestFirst = (bids) => [...bids].sort((a, b) => b.usd - a.usd || b.created.localeCompare(a.created));
+/** Bids with a card behind them first (MON-054), then the biggest. */
+const biggestFirst = (bids) => [...bids].sort((a, b) => b.card - a.card || b.usd - a.usd || b.created.localeCompare(a.created));
 
 /** One bid as a row. A bid with no market shows none, rather than a made-up "Unsorted". */
 export function bidRow(bid, markets, now = Date.now()) {
   const market = bid.market === "unsorted" ? "" : marketName(markets, bid.market);
   const left = timeLeft(bid, now);
   const count = answered(bid, now);
-  return `<li data-k="${mark(bid)}"><a class="line" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${market ? `<span class="mk">${escape(market)}</span>` : ""}<span>${left ? `${left} left` : "Ended"}</span>${count ? `<span>${count}</span>` : ""}</span></a></li>`;
+  return `<li data-k="${mark(bid)}"><a class="line" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${market ? `<span class="mk">${escape(market)}</span>` : ""}<span>${left ? `${left} left` : "Ended"}</span>${count ? `<span>${count}</span>` : ""}${bid.card ? "" : "<span>No card on file</span>"}</span></a></li>`;
 }
 
 /** The rows for one market (or all), and a key that moves when a bid or an answer does. */
@@ -48,7 +49,7 @@ export function boardPage({ bids, markets, market = "", ask = false, error, valu
     canonical: `${SITE}/bids`,
     section: "bids",
     alternate: "/bids.json",
-    body: `<header class="head"><div><h1>Bids</h1><p class="lede">Ask something only someone who has done it can answer. No card needed to ask: you read a free preview of each answer, and pay only for one you choose to buy.</p>
+    body: `<header class="head"><div><h1>Bids</h1><p class="lede">Ask something only someone who has done it can answer. Your card is saved when you ask and charged only for the answer you accept, paid straight to its author.</p>
 <p class="meta">${plural(stats.bids, "open bid")} · ${money(stats.offered)} offered</p></div>
 <details class="sheet" id="ask"${error || ask ? " open" : ""}><summary class="go">Place a bid</summary>${bidForm(markets, { error, values })}</details></header>
 ${tabs(bids, markets, current)}
