@@ -10,6 +10,8 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
+# Nor does a walk read the real bids board (APP-274): the look fails at once and the walk sees no matches.
+export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 # APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.

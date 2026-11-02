@@ -466,7 +466,7 @@ const LAYOUT = String.raw`(() => {
   }
   // (b) a label meant for one line, on two: its text, taken whole, on more than one line. A memory's title in its own
   // sheet, and a batch's title, are allowed to run on.
-  const ONE_LINE = ".btn, button.choice, .chip, .status-pill, .pill, .shelf, .shelf-count, nav button, h1, h2, h3, legend, .eyebrow, .t b, .update, .search span, .form-label, .form-value, .new-mark, .routine-act, .agent-link-word, .account-trigger b, .account-menu button, .palette-keys span, .back, kbd, .agent-wait, .quiet-hint";
+  const ONE_LINE = ".btn, button.choice, .chip, .status-pill, .pill, .shelf, .shelf-count, nav button, h1, h2, h3, legend, .eyebrow, .t b, .update, .ws, .form-label, .form-value, .new-mark, .routine-act, .agent-link-word, .new-menu button, .account-menu button, .palette-keys span, .back, kbd, .agent-wait, .quiet-hint";
   for (const node of nodes) {
     if (!node.matches(ONE_LINE) || node.matches(".sheet-head .t b, .batch-head .t b") || node.closest("[data-wraps], .md")) continue;
     const style = css(node);
@@ -620,8 +620,8 @@ const NARROW = new Set(["today", "store", "connectors", "automations", "settings
 const NARROW_WIDTH = 900;
 /** The page's background token, light or dark. */
 const BG = `getComputedStyle(document.documentElement).getPropertyValue("--bg").trim()`;
-const LIGHT_BG = "#f7f3ea";
-const DARK_BG = "#141613";
+const LIGHT_BG = "#fcfcfd";
+const DARK_BG = "#0f1011";
 check("the desktop key is this walk's own", ATTENDED_KEYS.startsWith(join(S, "account") + "/"), ATTENDED_KEYS);
 
 /** The walk runs once, in the first window; one opened later (a notification after the window closed) is driven by it. */
@@ -1316,7 +1316,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("an owner with memories is not offered How it works", await js(`${todayShown} && document.querySelector("#content .how-it-works") === null`));
         await js(`document.querySelector("#account").click()`);
         const menu =await js(`[...document.querySelectorAll("#account-menu button:not([hidden]), #account-menu p")].map((b) => b.textContent).join("|")`);
-        check("the account row opens a menu: who is signed in, then Settings, Help & FAQ, feedback when it can be sent, Dark mode and Sign out", /^Signed in with Claude\|Settings⌘,\|Help & FAQ\|(Report feedback\|)?Dark mode\|Sign out$/.test(menu), menu);
+        check("Lore's workspace menu opens: who is signed in, then Settings, Help & FAQ, feedback when it can be sent, Dark mode and Sign out", /^Signed in with Claude( · Store \w[\w ]*)?\|Settings⌘,\|Help & FAQ\|(Report feedback\|)?Dark mode\|Sign out$/.test(menu), menu);
         check("…each item with its icon", await js(`[...document.querySelectorAll("#account-menu button:not([hidden])")].every((b) => b.querySelector(":scope > svg"))`));
         check("…with focus on its first item, and the row saying it is open", await js(`document.activeElement === document.querySelector("#account-menu [data-view=settings]") && document.querySelector("#account").getAttribute("aria-expanded") === "true"`));
         await shot("account-menu");
@@ -1483,7 +1483,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // APP-126: a downloaded update shows one button by the Lore name, and nothing before it is ready.
         check("no update button until one is ready", await js(`document.querySelector("#update").hidden`));
         await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "ready" } })`);
-        check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".brand") !== null && b.getBoundingClientRect().height === 24; })()`));
+        check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".ws-row") !== null && b.getBoundingClientRect().height === 24; })()`));
         await shot("update-ready");
         const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
         check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
@@ -2444,7 +2444,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const fixing = await press();
         check("…Fix it opens the store's thread with one prompt", await waitFor(`document.querySelector("#title").textContent === "Open your store"`) && fixing.length === 1 && fixing[0].task === "deploy" && /isn't responding/.test(fixing[0].text), JSON.stringify(fixing));
         await back();
-        check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#account").textContent.includes("Offline")`), await js(today));
+        check("…while the repair runs, Today offers no next step, though the store still isn't answering", await waitFor(`${steps}.length === 0 && document.querySelector("#account-line").textContent.includes("offline")`), await js(today));
         const repair = `[...document.querySelectorAll("#content .section")].find((s) => s.querySelector("h2")?.textContent === "Unfinished")?.querySelector(".task-link")`;
         check("…the repair is listed under Unfinished, working", await waitFor(`(${repair}?.textContent ?? "") === "Open your storeWorkingWorking"`), await js(`${repair}?.textContent ?? "none"`));
         const listed = prompts.length;
@@ -3003,7 +3003,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const fold = `document.querySelector("#log .line.steps")`;
         check("finished steps fold into one line: how many, and how long", /^3 steps · \d+(\.\d)?s$/.test(await js(`${fold}.querySelector(".steps-sum").textContent`)) && await js(`getComputedStyle(${fold}.querySelector(".steps-fold")).visibility === "hidden" && ${fold}.querySelector(".steps-sum").getAttribute("aria-expanded") === "false"`), await js(`${fold}.textContent`));
         await js(`${fold}.querySelector(".steps-sum").click()`);
-        check("…which opens on click, over 200ms", await js(`${fold}.classList.contains("open") && ${fold}.querySelector(".steps-sum").getAttribute("aria-expanded") === "true" && getComputedStyle(${fold}.querySelector(".steps-fold")).transitionDuration.startsWith("0.2s")`), await js(`getComputedStyle(${fold}.querySelector(".steps-fold")).transitionDuration`));
+        check("…which opens on click, over the app's one duration", await js(`${fold}.classList.contains("open") && ${fold}.querySelector(".steps-sum").getAttribute("aria-expanded") === "true" && getComputedStyle(${fold}.querySelector(".steps-fold")).transitionDuration.startsWith("0.12s")`), await js(`getComputedStyle(${fold}.querySelector(".steps-fold")).transitionDuration`));
         await js(`${fold}.scrollIntoView({ block: "center" })`);
         await shot("steps-open");
         await js(`window.__lore.event({ type: "live", task: "capture", text: "Checking again", status: true })`);

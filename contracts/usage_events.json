@@ -1,5 +1,5 @@
 {
-  "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else.",
+  "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else. An `optional` property may also be left out, as copies of Lore from before it was added send the event bare.",
   "events": {
     "app.installed": null,
     "app.opened": null,
@@ -36,7 +36,28 @@
         "agents"
       ]
     },
-    "memory.saved": null,
+    "memory.saved": {
+      "prop": "via",
+      "values": [
+        "capture",
+        "agent",
+        "connector",
+        "synthesis"
+      ],
+      "optional": true
+    },
+    "agent.connected": {
+      "prop": "agent",
+      "values": [
+        "grok",
+        "muse",
+        "chatgpt",
+        "claude",
+        "instinct",
+        "other"
+      ]
+    },
+    "piece.drafted": null,
     "piece.approved": null,
     "store.attempted": null,
     "store.online": null,

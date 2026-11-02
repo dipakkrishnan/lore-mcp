@@ -144,6 +144,10 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} id @param {string} text @param {string} [title] */
   editRoutine: (id, text, title) => ipcRenderer.invoke("routines:edit", id, text, title),
   dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
+  /** @param {string} id */
+  draftBid: (id) => ipcRenderer.invoke("bids:draft", id),
+  /** @param {string} id */
+  dismissBid: (id) => ipcRenderer.invoke("bids:dismiss", id),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),
