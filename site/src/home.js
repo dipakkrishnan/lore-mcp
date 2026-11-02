@@ -14,7 +14,7 @@ export const FEATURED = [];
 
 export const HERO = {
   title: "Teach one AI. Your other AIs can read it.",
-  lede: "Lore is one private memory for Claude, ChatGPT and the other AIs you use, kept on your Mac. And when someone puts a price on a question you've lived through, Lore drafts the answer and you get paid."
+  lede: "Lore is one private memory for Claude, ChatGPT and the other AIs you use, kept on your Mac. Because it knows what you've lived through, when someone puts a price on a question you can answer, Lore drafts the answer and you get paid."
 };
 
 const TRUST = "Free · Open source · Notarized by Apple · Nothing you've taught it is shared until you approve it";
@@ -105,7 +105,7 @@ function demand(bids, featured, now) {
   if (!shown.length) {
     return `<aside class="demand" aria-labelledby="ask-title"><h2 id="ask-title">Bids</h2><p>A bid is a question with a price on it. None are open right now.</p><p>${escape(ASK)}</p>${ask}</aside>`;
   }
-  return `<aside class="demand" aria-labelledby="bids-title"><h2 id="bids-title">${bids.length ? "People are paying to learn" : "Recent bids"}<a href="/bids">All bids →</a></h2>
+  return `<aside class="demand" aria-labelledby="bids-title"><h2 id="bids-title">${bids.length ? "Questions people will pay you to answer" : "Recent bids"}<a href="/bids">All bids →</a></h2>
 <ul class="list">${shown.map((b) => miniRow(b, now)).join("")}</ul><p>${escape(ASK)}</p>${ask}</aside>`;
 }
 
