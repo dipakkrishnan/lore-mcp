@@ -78,7 +78,7 @@ Test infrastructure that exists today:
 | Node/Worker component | `lore/node/test/*.test.ts` | vitest against a mocked facilitator: `paid-path`, `price`, `storefront`, `wallet`, `network`, `answer*`, `mcp-contract`; `vitest.eval.config.ts` for evals |
 | Worker integration | `worker-smoke` CI job | seeds a local D1 `publications` table, runs `npm run dev` + `npm run smoke` |
 | Agent behavior | `evals/` | `run.py`, `buyer.py`, `integration.py`, `task.json`, `buyer_task.json` |
-| CI | `.github/workflows/tests.yml` | jobs: python-lint, python-unit, python-types, bridge-check, desktop-check (macos-14: check, test, package), node-lint, node-compiler, node-component, worker-smoke. Also `deploy-qa.yml`, `pr-title.yml` |
+| CI | `.github/workflows/tests.yml` | jobs: python-lint, python-unit, python-types, bridge-check, desktop-check (macos-15: check, test, package), node-lint, node-compiler, node-component, worker-smoke. Also `deploy-qa.yml`, `pr-title.yml` |
 
 Known coverage gaps mapped to the stories:
 
