@@ -2,8 +2,8 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import contract from "../../contracts/usage_events.json";
-import { MAX_EVENTS, forward, parseBatch } from "../src/events";
-import worker from "../src/index";
+import { MAX_EVENTS, forward, parseBatch, siteBatch } from "../src/events";
+import worker, { SiteEvents } from "../src/index";
 
 const fetchWorker = ((input: RequestInfo | URL, init?: RequestInit) => exports.default.fetch(input, init)) as typeof fetch;
 const AT = "2026-10-09T12:00:00Z";
@@ -54,6 +54,37 @@ describe("usage events", () => {
       const props = prop ? { [prop.prop]: prop.values[0] } : {};
       expect(parseBatch(batch([{ name, props, at: AT }]))?.events).toHaveLength(1);
     }
+  });
+
+  it("takes the site's agent counts as two codes under one site id, never a raw User-Agent", () => {
+    for (const name of contract.site_events.names) expect(siteBatch(name, "claudebot")).not.toBeNull();
+    expect(siteBatch("agent.catalog", "gptbot", new Date(AT))).toEqual({
+      install_id: "00000000000000000000000000005173",
+      version: "site",
+      events: [{ name: "agent.catalog", props: { agent: "gptbot" }, at: AT }]
+    });
+    expect(siteBatch("agent.catalog", "Mozilla/5.0 (Macintosh)")).toBeNull();
+    expect(siteBatch("store.opened", "gptbot")).toBeNull();
+  });
+
+  it("never takes a site count over the public /events route", () => {
+    expect(parseBatch(batch([{ name: "agent.catalog", props: { agent: "gptbot" }, at: AT }], { version: "site" }))?.events).toEqual([]);
+  });
+
+  it("forwards a site count through the binding-only entrypoint with no person profile and no IP", async () => {
+    const sent = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+    await new SiteEvents(createExecutionContext(), { ...env, POSTHOG_KEY: "phc_test" }).count("agent.llms", "curl");
+    await new SiteEvents(createExecutionContext(), { ...env, POSTHOG_KEY: "phc_test" }).count("agent.llms", "203.0.113.9");
+    expect(sent).toHaveBeenCalledTimes(1);
+    const { batch: sentBatch } = JSON.parse(sent.mock.calls[0][1]!.body as string) as { batch: Record<string, unknown>[] };
+    expect(sentBatch).toEqual([
+      {
+        event: "agent.llms",
+        distinct_id: "00000000000000000000000000005173",
+        timestamp: expect.stringMatching(/Z$/) as unknown,
+        properties: { agent: "curl", app_version: "site", $process_person_profile: false, $ip: null }
+      }
+    ]);
   });
 
   it("passes events to PostHog as an install id with no person profile", async () => {
