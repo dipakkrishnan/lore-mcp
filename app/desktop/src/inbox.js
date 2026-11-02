@@ -1,0 +1,129 @@
+// APP-283: what the Inbox lists and where a bid stands, worked out from plain data. Its own script, loaded before
+// renderer.js, which draws each row and gives it its action; test/inbox.test.cjs runs it without a window.
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 24 * HOUR_MS;
+/** contracts/bids.md: a bid closes a week after it opens, and the board doesn't carry when it opened. */
+const BID_WEEK_MS = 7 * DAY_MS;
+
+class Inbox {
+  /** @param {number} [now] */
+  constructor(now = Date.now()) {
+    this.now = now;
+  }
+
+  /** @param {number} usd */
+  static dollars(usd) {
+    return `$${Number.isInteger(usd) ? usd : usd.toFixed(2)}`;
+  }
+
+  /** @param {number} count @param {string} noun @param {string} [many] */
+  static plural(count, noun, many = noun.replace(/([^aeiou])y$/, "$1ie") + "s") {
+    return `${count} ${count === 1 ? noun : many}`;
+  }
+
+  /** How long ago, the way an inbox says it: "now", "12m", "3h", "2d", then the date. @param {string | null | undefined} iso */
+  age(iso) {
+    const at = iso ? Date.parse(iso) : NaN;
+    if (Number.isNaN(at)) return "";
+    const ms = Math.max(0, this.now - at);
+    if (ms < 60_000) return "now";
+    if (ms < HOUR_MS) return `${Math.floor(ms / 60_000)}m`;
+    if (ms < DAY_MS) return `${Math.floor(ms / HOUR_MS)}h`;
+    if (ms < BID_WEEK_MS) return `${Math.floor(ms / DAY_MS)}d`;
+    return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(at);
+  }
+
+  /** What is left of a bid's week, or null once it closed. @param {string} expires */
+  left(expires) {
+    const ms = Date.parse(expires) - this.now;
+    if (!(ms > 0)) return null;
+    if (ms >= 2 * DAY_MS) return Inbox.plural(Math.floor(ms / DAY_MS), "day");
+    if (ms >= HOUR_MS) return Inbox.plural(Math.floor(ms / HOUR_MS), "hour");
+    return "under an hour";
+  }
+
+  /** When a bid opened: its week back from when it closes. @param {BidMatch["bid"]} bid */
+  static posted(bid) {
+    return new Date(Date.parse(bid.expires) - BID_WEEK_MS).toISOString();
+  }
+
+  /** Every row, newest first; rows with no time of their own (a draft, a next step) stand at the top, in the order given.
+   * @param {InboxInput} input @returns {InboxRow[]} */
+  rows(input) {
+    /** @type {InboxRow[]} */
+    const rows = [];
+    /** @param {Omit<InboxRow, "tail" | "at" | "done" | "title" | "lead"> & Partial<InboxRow>} row */
+    const add = (row) => rows.push({ lead: "", title: "", tail: "", at: null, done: false, ...row });
+    for (const match of input.bids.filter((each) => Date.parse(each.bid.expires) > this.now)) {
+      const id = match.bid.id;
+      const drafted = input.drafts.some((draft) => draft.bid === id);
+      const ready = input.answered.has(id);
+      const lead = ready ? "Your answer is ready:" : drafted ? "Your answer is drafted:" : input.drafting.has(id) ? "Lore is drafting your answer:" : `A ${Inbox.dollars(match.bid.usd)} bid matches what you know:`;
+      add({ key: `bid:${id}`, kind: "bid", glyph: "bid", lead, title: `“${match.bid.question}”`, at: Inbox.posted(match.bid), verb: ready ? "View" : drafted ? "Review" : "Answer", done: true, ref: id });
+    }
+    for (const draft of input.drafts.filter((each) => !each.bid)) add({ key: `draft:${draft.title}`, kind: "draft", glyph: "draft", lead: "Draft ready:", title: `“${draft.title}”`, verb: "Review", ref: draft.title });
+    if (input.updates) add({ key: "updates", kind: "draft", glyph: "draft", lead: "Ready to approve:", title: `new free parts for ${Inbox.plural(input.updates, "piece")} on sale`, verb: "Review" });
+    if (input.offer) add({ key: "offer", kind: "step", glyph: "store", title: input.offer.label, verb: input.offer.action });
+    for (const problem of input.problems) add({ key: `problem:${problem.key}`, kind: "problem", glyph: "alert", title: problem.name, tail: problem.says, verb: problem.verb, ref: problem.key });
+    if (input.step) add({ key: `step:${input.step.label}`, kind: "step", glyph: input.step.mark, title: input.step.label, tail: input.step.what ? `· ${input.step.what}` : "", verb: input.step.action });
+    if (input.checkIn) {
+      const count = input.checkIn.questions.length;
+      add({ key: "checkin", kind: "checkin", glyph: "ask", lead: "Check-in:", tail: `${Inbox.plural(count, "question")} about today`, at: input.checkIn.at, verb: "Answer", done: true });
+    }
+    for (const task of input.tasks) add({ key: `task:${task.kind}`, kind: "task", glyph: "unfinished", title: task.title, tail: `· ${task.state === "working" ? "Working" : task.phase || "Waiting for you"}`, at: task.updatedAt, verb: "Open", ref: task.kind });
+    if (input.reading) add({ key: "reading", kind: "reading", glyph: "working", title: `${input.reading.phase}…`, at: input.reading.updatedAt, verb: "View" });
+    for (const group of input.ready) {
+      const what = group.memories ? Inbox.plural(group.memories, "new memory", "new memories") : Inbox.plural(group.saves, "save");
+      const tail = !group.memories ? " · already in your memories" : group.selling ? ` · ${group.selling} worth selling` : "";
+      // Who brought them in, or what the routine that wrote them was asked, in its own words.
+      const said = group.from ? { title: what, tail: `from ${group.from}${tail}` } : { title: group.title, tail: `· ${what}${tail}` };
+      add({ key: `ready:${group.key}`, kind: "memories", glyph: "memory", ...said, at: group.at, verb: group.memories ? "Review" : "View", done: true, ref: group.key });
+    }
+    for (const each of input.suggestions) add({ key: `suggestion:${each.at}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.at });
+    for (const sale of input.sales) {
+      const free = sale.network === "free";
+      add({ key: `sale:${sale.tx}`, kind: "sale", glyph: "sold", lead: free ? "Someone read a free copy of" : "Sold", title: `“${sale.title}”`, tail: free ? "" : `· ${Inbox.dollars(sale.price_usd)}`, at: sale.sold_at, verb: "View", done: true, ref: sale.tx });
+    }
+    if (input.help) add({ key: "help", kind: "help", glyph: "help", lead: "New to Lore?", title: "See how it works", verb: "Read", done: true });
+    const order = new Map(rows.map((row, index) => [row, index]));
+    const time = (/** @type {InboxRow} */ row) => (row.at ? Date.parse(row.at) : Infinity);
+    return rows.sort((a, b) => time(b) - time(a) || (order.get(a) ?? 0) - (order.get(b) ?? 0));
+  }
+
+  /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
+   * matched (or not, when Lore found nothing). @param {BidLook} look @returns {BidState} */
+  state({ match, drafting, draft, approved, dismissed }) {
+    if (dismissed) return "dismissed";
+    if (approved) return "approved";
+    if (!(Date.parse(match.bid.expires) > this.now)) return "expired";
+    if (draft) return "drafted";
+    if (drafting) return "drafting";
+    return match.memories.length ? "matched" : "unmatched";
+  }
+
+  /** The bid's page, in words: its status, what it says under the question, and its timeline, newest last.
+   * @param {BidLook} look */
+  bid(look) {
+    const { bid, memories } = look.match;
+    const state = this.state(look);
+    const count = memories.length;
+    const left = this.left(bid.expires);
+    const pays = Inbox.dollars(bid.usd);
+    const closed = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(Date.parse(bid.expires));
+    const status = { matched: "Open", unmatched: "Open", drafting: "Drafting", drafted: "Answer drafted", approved: "Answer ready", expired: "Closed", dismissed: "Dismissed" }[state];
+    const lede = left ? `A buyer will pay ${pays} for a first-hand answer. Closes in ${left}.` : `A buyer offered ${pays} for a first-hand answer. It closed ${closed}.`;
+    /** @type {Array<{who: "buyer" | "lore" | "you", text: string, at?: string, live?: boolean}>} */
+    const activity = [{ who: "buyer", text: `Bid posted for ${pays}`, at: Inbox.posted(bid) }];
+    activity.push({ who: "lore", text: count ? `Lore found ${Inbox.plural(count, "matching memory", "matching memories")}` : "Lore found nothing you know that answers it" });
+    const from = Inbox.plural(count, "memory", "memories");
+    if (state === "drafting") activity.push({ who: "lore", text: `Drafting from ${from}…`, live: true });
+    if (state === "drafted" || state === "approved" || (state !== "dismissed" && look.draft)) activity.push({ who: "lore", text: `Drafted from ${from}` });
+    if (state === "approved") activity.push({ who: "you", text: "Approved" });
+    if (state === "dismissed") activity.push({ who: "you", text: "Dismissed" });
+    if (state === "expired") activity.push({ who: "buyer", text: "Bid closed", at: bid.expires });
+    return { state, status, lede, left, activity };
+  }
+}
+
+if (typeof module === "object") module.exports = { Inbox };
