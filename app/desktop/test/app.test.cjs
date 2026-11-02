@@ -464,7 +464,17 @@ test("APP-225: every colour in the stylesheet is a token, so dark covers the who
   const outside = css.replace(/:root \{[^}]*\}/g, "").replace(/--mark-tile: #[0-9a-f]+;/, "").replace(/mask-image: [^;]*;/g, "");
   assert.deepEqual(outside.match(/#[0-9a-fA-F]{3,8}\b|rgba?\(\d/g), null);
   const dark = css.match(/@media \(prefers-color-scheme: dark\) \{\s*:root \{([^}]*)\}/)?.[1] ?? "";
-  for (const token of ["--bg", "--surface", "--ink", "--muted", "--line", "--accent", "--accent-soft", "--accent-ink", "--hover", "--attention-ink"]) assert.match(dark, new RegExp(`${token}:`), token);
+  for (const token of ["--bg", "--bg-side", "--bg-hover", "--bg-active", "--bg-raised", "--line", "--line-strong", "--text-1", "--text-2", "--text-3", "--accent", "--accent-text", "--accent-soft", "--red"]) assert.match(dark, new RegExp(`${token}:`), token);
+});
+
+test("APP-281: type, radii and timing come from tokens, and the app has no serif", async () => {
+  const css = await readFile(join(__dirname, "../src/styles.css"), "utf8");
+  const rules = css.replace(/:root \{[^}]*\}/g, "");
+  assert.deepEqual(rules.match(/font-size:(?!\s*(?:var\(--fs-\d+\)|inherit)\s*[;}])[^;}]+/g), null);
+  assert.deepEqual(rules.match(/font:[^;]*\d+px/g), null);
+  assert.deepEqual(rules.match(/border-radius:(?!(?:\s*(?:var\(--r-[\w-]+\)|0|inherit))+\s*[;}])[^;}]+/g), null);
+  assert.deepEqual(rules.match(/(?:transition|animation):[^;]*\b\d*\.?\d+m?s\b/g), null);
+  assert.doesNotMatch(css, /serif\b(?<!sans-serif\b)|Georgia/);
 });
 
 test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {

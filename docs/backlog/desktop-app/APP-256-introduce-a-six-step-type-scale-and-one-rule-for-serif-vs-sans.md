@@ -4,13 +4,13 @@ title: Introduce a six-step type scale and one rule for serif vs sans
 priority: P1
 effort: M
 component: desktop-app
-status: ideation
+status: obsolete
 related: [APP-255, APP-258, APP-261]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-02
 ---
 
 ## Problem
@@ -33,3 +33,5 @@ Add `--text-xs/sm/base/md/lg/xl/display` (12/13/14/16/18/22/28) and three line-h
 Mechanical. Do it in one PR so nothing ends up half-migrated.
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+Nov 2: obsolete. APP-281 replaced it with the design principles' five sizes and no serif in the app.

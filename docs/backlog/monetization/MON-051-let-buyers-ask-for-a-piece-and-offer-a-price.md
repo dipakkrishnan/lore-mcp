@@ -4,7 +4,7 @@ title: Let buyers bid for a piece nobody sells yet
 priority: P0
 effort: M
 component: monetization
-status: ready
+status: in-progress
 related: [XC-114, XC-115, XC-116, XC-117, MON-053, MON-054, MON-055, XC-093, XC-074, MON-046]
 blockers: []
 dependencies: []
@@ -43,13 +43,21 @@ https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi (v2, Oct 31).
 
 ## Acceptance criteria
 
-- [ ] A person or an agent places a bid with one form post or one `POST /bids`, with no account, and gets back an id and a status URL.
+- [x] A person or an agent places a bid with one form post or one `POST /bids`, with no account, and gets back an id and a status URL.
 - [ ] A seller's answer to a bid becomes a listed piece at the bid amount in the bid's market.
 - [ ] Buying that piece through the existing checkout moves the bid to `filled` (see MON-054). Nothing else can set `filled`.
-- [ ] An unanswered bid expires after 7 days, and no money ever moves through Lore.
-- [ ] Walked-away bids (answered, never bought) are counted.
+- [x] An unanswered bid expires after 7 days, and no money ever moves through Lore.
+- [x] Walked-away bids (answered, never bought) are counted.
 
 ## Notes
+
+- Oct 31 build (PR for MON-051): the bid book lives on the site Worker, not the relay registry,
+  per contracts/bids.md: `BidBook` SQLite Durable Object in `site/src/bids.js`, routes in
+  `site/src/bid-routes.js`. Placing, the 7-day end, the walked-away count (`walked_away` in
+  `/bids.json`) and buyer callbacks on each new answer are done. No route can set `filled`.
+  Left open on purpose: answers become listed pieces through the owner by hand (MON-055) and
+  later the app (APP-274); `filled` comes only from the rail (MON-054). This stays
+  `in-progress` until those land.
 
 - From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
 - Oct 31: reshaped from an "Ask for a piece" form into bids, after the Oct 30–31 proposal. The
