@@ -65,7 +65,7 @@ describe("placing a bid", () => {
     expect(html).toContain(`<title>${QUESTION}</title>`);
     expect(html).toContain(`<h1>${QUESTION}</h1>`);
     expect(html).toContain(`<link rel="alternate" type="application/json" href="/b/${id}.json">`);
-    expect(html).toContain('<ul class="props"><li><b>$20</b> offered</li><li><a href="/bids?market=rl-evals">RL evals</a></li><li>7 days left</li><li>0 answers</li></ul>');
+    expect(html).toContain('<ul class="props"><li><b>$20</b> offered</li><li><a href="/bids?market=rl-evals">RL evals</a></li><li>7 days left</li><li>New</li></ul>');
   });
 
   test("an open bid's page offers a way to answer it and a way to pass it on, and no API spec", async () => {
@@ -84,7 +84,7 @@ describe("placing a bid", () => {
     const html = await (await call("/bids")).text();
     expect(html).toMatch(/<form class="bid-form" method="post" action="\/bids">/);
     expect(html).toContain('<option value="rl-evals">RL evals</option>');
-    expect(html).toContain("You read a free preview of each answer and pay only for the one you want. If nobody answers in 7 days, the bid ends.");
+    expect(html).toContain("No card needed to ask. You read a free preview of each answer and pay only for one you choose to buy. If nobody answers in 7 days, the bid ends.");
     expect(html).not.toContain('name="email"');
   });
 
@@ -381,6 +381,7 @@ describe("the board", () => {
     expect([...html.matchAll(/href="\/b\/(\w)"/g)].map((m) => m[1])).toEqual(["a", "c", "d", "b"]);
     expect(key).toBe("a:0|c:1|d:0|b:0");
     expect(html).toContain('<a class="line" href="/b/c"><span class="amt">$40</span><span class="q">Question c is long enough?</span><span class="side"><span class="mk">RL evals</span><span>7 days left</span><span>1 answer</span></span></a>');
+    expect(html).toContain('<a class="line" href="/b/b"><span class="amt">$10</span><span class="q">Question b is long enough?</span><span class="side"><span class="mk">RL evals</span><span>7 days left</span><span>New</span></span></a>');
     expect(html).not.toMatch(/Unsorted|Lowest ask|Top bid/);
   });
 
@@ -418,10 +419,16 @@ describe("the board", () => {
     expect(emptied).toMatchObject({ bids: 0, board_key: "" });
   });
 
+  test("?ask opens the place-a-bid form, which says no card is needed", async () => {
+    const html = await (await call("/bids?ask")).text();
+    expect(html).toContain('<details class="sheet" id="ask" open>');
+    expect(html).toContain("No card needed to ask.");
+  });
+
   test("a form mistake comes back with the sheet open", async () => {
     const html = await (await placeForm({ usd: "2" })).text();
-    expect(html).toContain('<details class="sheet" open><summary class="go">Place a bid</summary>');
+    expect(html).toContain('<details class="sheet" id="ask" open><summary class="go">Place a bid</summary>');
     expect(html).toContain("Bids are $5 to $1,000.");
-    expect(await (await call("/bids")).text()).toContain('<details class="sheet"><summary');
+    expect(await (await call("/bids")).text()).toContain('<details class="sheet" id="ask"><summary');
   });
 });

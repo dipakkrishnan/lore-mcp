@@ -1,19 +1,20 @@
-// yourlore.dev/: what Lore does for you even if you never sell, then the live bids that show
-// people pay for what you know, one real piece end to end, who it's for, what Lore never does,
-// and one download. Only real records are drawn as bids; with none open, the owner's FEATURED
-// list stands in, and with that empty the block is left out. Anything illustrative says so.
-import { bidRow } from "./bid-board.js";
-import { escape, page } from "./layout.js";
+// yourlore.dev/: the first screen holds both values side by side: what Lore does for you even
+// if you never sell (left), and the live bids that show people pay for what you know (right).
+// Below: one memory across your AIs, one real piece end to end, who it's for, what Lore never
+// does, and one download. Only real records are drawn as bids; with none open, the owner's
+// FEATURED list stands in, and with that empty no bid is drawn. Anything illustrative says so.
+import { answered, timeLeft } from "./bid-pages.js";
+import { escape, money, page } from "./layout.js";
 
 const SITE = "https://yourlore.dev";
-const SHOWN = 5;
+const SHOWN = 4;
 
 /** Real bids the owner pins for when none are open: { id, question, usd, market, expires, answers: [] }. Edit by hand. */
 export const FEATURED = [];
 
 export const HERO = {
   title: "Teach one AI. Your other AIs can read it.",
-  lede: "Lore is one private memory for Claude, ChatGPT and the other AIs you use, kept on your Mac. And when someone puts a price on a question you've lived through, Lore drafts the answer from what you know. You approve it, and they pay you."
+  lede: "Lore is one private memory for Claude, ChatGPT and the other AIs you use, kept on your Mac. And when someone puts a price on a question you've lived through, Lore drafts the answer and you get paid."
 };
 
 const TRUST = "Free · Open source · Notarized by Apple · Nothing you've taught it is shared until you approve it";
@@ -46,8 +47,19 @@ const NEVER = [
   ["Hold your money.", "The buyer pays you directly, by card."]
 ];
 
+/** For buyers, true to MON-051 v1: no card is taken to ask; a buyer pays only to read an answer they pick. */
+const ASK = "Ask something only someone who has done it can answer. No card needed to ask; you pay only for an answer you choose to buy.";
+
 const STYLE = `
-.hero{padding:var(--s12) 0 var(--s8);max-width:760px}
+.hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:var(--s12);align-items:start;padding:var(--s12) 0 var(--s8)}
+.demand{padding-top:var(--s2)}
+.demand>h2{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s4);font:600 var(--t13)/1.4 var(--sans);margin:0 0 var(--s2)}
+.demand>h2 a{font-weight:400;color:var(--muted)}.demand>h2 a:hover{color:var(--ink)}
+.demand>p{margin:var(--s3) 0 0;font-size:var(--t13);color:var(--muted)}
+.mini{grid-template-columns:52px minmax(0,1fr) auto}
+.demand .ask{margin-top:var(--s3)}
+@media (max-width:860px){.hero{grid-template-columns:1fr;gap:var(--s8)}}
+@media (max-width:640px){.mini{grid-template-columns:52px minmax(0,1fr)}}
 .hero h1{font:500 var(--t-display)/1.08 var(--display);letter-spacing:-.02em;margin:0 0 var(--s4);text-wrap:balance}
 .hero .lede{font-size:var(--t15);max-width:36em;text-wrap:pretty}
 .cta{display:flex;flex-direction:column;align-items:flex-start;gap:var(--s3);margin-top:var(--s6)}
@@ -79,12 +91,22 @@ const STYLE = `
 
 const download = `<a class="go" href="/download">Download for Mac</a>`;
 
-function bidsBlock(bids, featured, markets, now) {
+/** One bid, compact for the hero: amount, question, time left (and answers, once there are any). */
+function miniRow(bid, now) {
+  const left = timeLeft(bid, now);
+  const meta = [left ? `${left} left` : "Ended", answered(bid, now)].filter(Boolean).join(" · ");
+  return `<li><a class="line mini" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${meta}</span></a></li>`;
+}
+
+/** The hero's right column: what people are paying to learn right now, and a way to ask. */
+function demand(bids, featured, now) {
   const shown = (bids.length ? [...bids].sort((a, b) => b.usd - a.usd) : featured).slice(0, SHOWN);
-  if (!shown.length) return "";
-  return `<section class="block" aria-labelledby="bids-title"><h2 id="bids-title">${bids.length ? "Open bids" : "Recent bids"}<a href="/bids">All bids</a></h2>
-<p>A bid is a question with a price on it. If your Lore already knows the answer, answering costs you one approval.</p>
-<ul class="list">${shown.map((b) => bidRow(b, markets, now)).join("")}</ul></section>`;
+  const ask = `<a class="quiet ask" href="/bids?ask#ask">Ask a question</a>`;
+  if (!shown.length) {
+    return `<aside class="demand" aria-labelledby="ask-title"><h2 id="ask-title">Bids</h2><p>A bid is a question with a price on it. None are open right now.</p><p>${escape(ASK)}</p>${ask}</aside>`;
+  }
+  return `<aside class="demand" aria-labelledby="bids-title"><h2 id="bids-title">${bids.length ? "People are paying to learn" : "Recent bids"}<a href="/bids">All bids →</a></h2>
+<ul class="list">${shown.map((b) => miniRow(b, now)).join("")}</ul><p>${escape(ASK)}</p>${ask}</aside>`;
 }
 
 const recallBlock = () => `<section class="block" aria-labelledby="recall-title"><h2 id="recall-title">One memory, every AI</h2>
@@ -108,17 +130,17 @@ const peopleBlock = () => `<section class="block" aria-labelledby="who-title"><h
 const neverBlock = () => `<section class="block" aria-labelledby="never-title"><h2 id="never-title">What Lore never does</h2>
 <ul class="never">${NEVER.map(([what, why]) => `<li><b>Never ${escape(what[0].toLowerCase() + what.slice(1))}</b>${escape(why)}</li>`).join("")}</ul></section>`;
 
-/** The home page. `bids` are the live bids as /bids.json lists them, `markets` name them, and `featured` stands in when none are open. */
-export function homePage({ bids = [], markets = [], featured = FEATURED, hero = HERO, now = Date.now() } = {}) {
+/** The home page. `bids` are the live bids as /bids.json lists them, and `featured` stands in when none are open. */
+export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Date.now() } = {}) {
   return page({
     title: "Lore: one memory for every AI you use",
     description: hero.lede,
     canonical: `${SITE}/`,
     alternate: "/bids.json",
     head: STYLE,
-    body: `<section class="hero"><h1>${escape(hero.title)}</h1><p class="lede">${escape(hero.lede)}</p>
-<div class="cta">${download}<span class="trust">${escape(TRUST)}</span></div></section>
-${recallBlock()}${bidsBlock(bids, featured, markets, now)}${howBlock()}${peopleBlock()}${neverBlock()}
+    body: `<section class="hero"><div><h1>${escape(hero.title)}</h1><p class="lede">${escape(hero.lede)}</p>
+<div class="cta">${download}<span class="trust">${escape(TRUST)}</span></div></div>${demand(bids, featured, now)}</section>
+${recallBlock()}${howBlock()}${peopleBlock()}${neverBlock()}
 <section class="get"><h2>Get Lore</h2>${download}<p class="trust">Free for Apple silicon Macs. Open the zip, move Lore to Applications, and open it.</p></section>`
   });
 }

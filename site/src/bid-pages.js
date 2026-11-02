@@ -7,6 +7,12 @@ const HOUR = 3_600_000;
 const STATUS = { open: "Open", answered: "Answered", filled: "Filled", expired: "Ended" };
 const PROMISE = "If nobody answers in 7 days, the bid ends.";
 
+/** "3 answers", "New" for an unanswered bid under a day old, or null: an empty count says nothing. */
+export function answered(bid, now = Date.now()) {
+  if (bid.answers.length) return plural(bid.answers.length, "answer");
+  return now - Date.parse(bid.created) < 24 * HOUR ? "New" : null;
+}
+
 /** "6 days", "5 hours", or null once the bid has ended. */
 export function timeLeft(bid, now = Date.now()) {
   const left = Date.parse(bid.expires) - now;
@@ -29,7 +35,7 @@ export function bidForm(markets, { error = "", values = {} } = {}) {
 <label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to hear from someone who has done it?">${value("question")}</textarea></label>
 <div class="pair"><label><span>You'll pay</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
 <label><span>Market</span><select name="market">${options(markets, values.market)}</select></label></div>
-<button class="go" type="submit">Place a bid</button><p class="note">You read a free preview of each answer and pay only for the one you want. If nobody answers in 7 days, the bid ends. Answers show on the bid's own page.</p></form>`;
+<button class="go" type="submit">Place a bid</button><p class="note">No card needed to ask. You read a free preview of each answer and pay only for one you choose to buy. If nobody answers in 7 days, the bid ends. Answers show on the bid's own page.</p></form>`;
 }
 
 function event(e) {
@@ -51,7 +57,7 @@ export function bidPage(bid, { markets, now = Date.now() }) {
   const left = timeLeft(bid, now);
   const market = bid.market === "unsorted" ? "" : marketName(markets, bid.market);
   const marketLink = markets.some((m) => m.id === bid.market) ? `<a href="/bids?market=${encodeURIComponent(bid.market)}">${escape(market)}</a>` : escape(market);
-  const props = [`<b>${money(bid.usd)}</b> offered`, ...(market ? [marketLink] : []), left ? `${left} left` : STATUS[bid.status], plural(bid.answers.length, "answer")];
+  const props = [`<b>${money(bid.usd)}</b> offered`, ...(market ? [marketLink] : []), left ? `${left} left` : STATUS[bid.status], ...[answered(bid, now) ?? []].flat()];
   const url = `${SITE}/b/${bid.id}`;
   return page({
     title: bid.question,

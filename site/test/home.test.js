@@ -6,8 +6,8 @@ import worker from "../src/worker.js";
 
 const MARKETS = [{ id: "rl-evals", name: "RL evals", tab: "AI" }];
 const now = Date.parse("2026-11-01T00:00:00Z");
-const bid = (id, usd, extra = {}) => ({ id, usd, market: "rl-evals", status: "open", question: `Question ${id} worth asking?`, created: "2026-10-31T22:10:00Z", expires: "2026-11-07T22:10:00Z", answers: [], ...extra });
-const rows = (html) => [...html.matchAll(/<a class="line" href="\/b\/(\w+)">/g)].map((m) => m[1]);
+const bid = (id, usd, extra = {}) => ({ id, usd, market: "rl-evals", status: "open", question: `Question ${id} worth asking?`, created: "2026-10-30T22:10:00Z", expires: "2026-11-07T22:10:00Z", answers: [], ...extra });
+const rows = (html) => [...html.matchAll(/<a class="line[^"]*" href="\/b\/(\w+)">/g)].map((m) => m[1]);
 const pass = () => ({ limit: async () => ({ success: true }) });
 
 async function call(path, init = {}) {
@@ -37,13 +37,27 @@ describe("the home page", () => {
     const html = homePage({ now });
     expect(html).not.toContain('id="bids-title"');
     expect(rows(html)).toEqual([]);
+    expect(html).toContain("None are open right now.");
+    expect(html).toContain('<a class="quiet ask" href="/bids?ask#ask">Ask a question</a>');
   });
 
-  test("shows the open bids as rows, biggest first, at most five", () => {
-    const html = homePage({ bids: [bid("a", 5), bid("b", 300), bid("c", 40), bid("d", 60), bid("e", 15), bid("f", 25)], markets: MARKETS, now });
-    expect(html).toContain("Open bids");
-    expect(rows(html)).toEqual(["b", "d", "c", "f", "e"]);
-    expect(html).toContain('<span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side"><span class="mk">RL evals</span><span>7 days left</span><span>0 answers</span></span>');
+  test("puts the open bids beside the hero, biggest first, at most four, with a way to ask", () => {
+    const html = homePage({ bids: [bid("a", 5), bid("b", 300), bid("c", 40), bid("d", 60), bid("e", 15), bid("f", 25)], now });
+    expect(html.indexOf('id="bids-title"')).toBeLessThan(html.indexOf("One memory, every AI"));
+    expect(html).toMatch(/<\/h1>[\s\S]*<aside class="demand" aria-labelledby="bids-title">[\s\S]*<\/section>/);
+    expect(rows(html)).toEqual(["b", "d", "c", "f"]);
+    expect(html).toContain('<a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a>');
+    expect(html).toContain("No card needed to ask; you pay only for an answer you choose to buy.");
+  });
+
+  test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
+    const fresh = { ...bid("n", 9), created: "2026-10-31T23:00:00Z" };
+    const answeredBid = { ...bid("m", 9), answers: [{}, {}] };
+    const html = homePage({ bids: [fresh, answeredBid, bid("o", 9)], now });
+    expect(html).toContain('href="/b/n"><span class="amt">$9</span><span class="q">Question n worth asking?</span><span class="side">7 days left · New</span>');
+    expect(html).toContain('<span class="side">7 days left · 2 answers</span>');
+    expect(html).toContain('href="/b/o"><span class="amt">$9</span><span class="q">Question o worth asking?</span><span class="side">7 days left</span>');
+    expect(html).not.toContain("0 answers");
   });
 
   test("falls back to the owner's featured bids, labelled as recent, only when none are open", () => {
@@ -54,7 +68,7 @@ describe("the home page", () => {
   });
 
   test("escapes what buyers wrote", () => {
-    const html = homePage({ bids: [bid("a", 5, { question: `<script>alert("x")</script> & more` })], markets: MARKETS, now });
+    const html = homePage({ bids: [bid("a", 5, { question: `<script>alert("x")</script> & more` })], now });
     expect(html).not.toContain('<script>alert("x")');
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; more");
   });
@@ -86,7 +100,7 @@ describe("served by the Worker", () => {
     const { id } = await placed.json();
     const html = await (await call("/")).text();
     expect(rows(html)).toEqual([id]);
-    expect(html).toContain('<span class="mk">RL evals</span>');
+    expect(html).toContain("New</span>");
   });
 
   test("/download hands out the latest release, and unknown paths get the site's not-found page", async () => {

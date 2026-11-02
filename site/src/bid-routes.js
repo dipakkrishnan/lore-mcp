@@ -59,8 +59,8 @@ export class BidDesk {
   }
 
   async board(error, values, status = 200) {
-    const market = new URL(this.request.url).searchParams.get("market") ?? "";
-    return html(boardPage({ ...(await this.screen()), market, error, values }), status);
+    const params = new URL(this.request.url).searchParams;
+    return html(boardPage({ ...(await this.screen()), market: params.get("market") ?? "", ask: params.has("ask"), error, values }), status);
   }
 
   async stats() {
@@ -70,7 +70,7 @@ export class BidDesk {
 
   /** The home page, drawn around the live bids. */
   async home() {
-    return html(homePage(await this.screen()), 200, "public, max-age=60");
+    return html(homePage({ bids: await this.live().catch(() => []) }), 200, "public, max-age=60");
   }
 
   async list() {
