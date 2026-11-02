@@ -10,7 +10,7 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "none",
-    "run_worker_first": ["/", "/download", "/marketplace", "/marketplace/*", "/marketplace.json", "/bids", "/bids/*", "/bids.json", "/b/*"]
+    "run_worker_first": ["/", "/download", "/marketplace", "/marketplace/*", "/marketplace.json", "/marketplace.jsonl", "/llms.txt", "/robots.txt", "/sitemap.xml", "/bids", "/bids/*", "/bids.json", "/b/*"]
   },
   "routes": [
     { "pattern": "yourlore.dev", "custom_domain": true },

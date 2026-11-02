@@ -177,6 +177,8 @@ if [[ "$scenario" == "schedule" ]]; then
 from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+# Only the reading is two days old; Lore's other routines start now, so none of them is owed whatever the weekday.
+automation.Routines().begin()
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "automations" ]]; then

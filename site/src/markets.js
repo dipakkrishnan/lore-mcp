@@ -69,13 +69,13 @@ function offers(catalog, seller) {
   for (const [topic, entries] of Object.entries(catalog?.topics ?? {})) {
     for (const entry of Array.isArray(entries) ? entries : []) {
       if (PIECE.test(entry?.id) && text(entry.teaser)) {
-        found.set(entry.id, { id: entry.id, question: text(entry.teaser), sample: text(entry.sample), usefulIf: text(entry.useful_if), updated: text(entry.updated_at), topic, price, pieces: 1 });
+        found.set(entry.id, { id: entry.id, question: text(entry.teaser), sample: text(entry.sample), usefulIf: text(entry.useful_if), notUsefulIf: text(entry.not_useful_if), updated: text(entry.updated_at), topic, price, pieces: 1 });
       }
     }
   }
   for (const set of Array.isArray(catalog?.collections) ? catalog.collections : []) {
     if (PIECE.test(set?.id) && text(set.title) && typeof set.price_usd === "number") {
-      found.set(set.id, { id: set.id, question: text(set.title), sample: "", usefulIf: "", updated: "", topic: "", price: set.price_usd, pieces: set.pieces?.length ?? 0 });
+      found.set(set.id, { id: set.id, question: text(set.title), sample: "", usefulIf: "", notUsefulIf: "", updated: "", topic: "", price: set.price_usd, pieces: set.pieces?.length ?? 0, collection: true });
     }
   }
   return found;
@@ -124,6 +124,16 @@ export class Exchange {
     });
     for (const m of markets.values()) m.rows.sort((a, b) => b.updated.localeCompare(a.updated) || a.question.localeCompare(b.question));
     return new Exchange([...markets.values()].filter((m) => m.rows.length), sellers);
+  }
+
+  /** The exchange behind a registry address, or null when the registry can't be read. */
+  static async from(address, read) {
+    try {
+      const response = await fetch(address, { cf: { cacheTtl: 300, cacheEverything: true } });
+      return response.ok ? await Exchange.load(await response.json(), read) : null;
+    } catch {
+      return null;
+    }
   }
 
   get tabs() {
