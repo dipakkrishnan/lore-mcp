@@ -34,7 +34,9 @@ the first time you open an updated app, or once in the terminal.
 - **What is never sent:** your memories, pieces, titles, prompts, file paths,
   URLs, prices, amounts, wallet or payment details, or how many of anything
   you have. Most events are sent only the first time they happen; "app
-  opened" at most once a day; a failed command says only which command.
+  opened", and "memory saved" with how it came in (you, an agent, a connected
+  app, or Lore's own summaries), at most once a day each; a failed command says
+  only which command.
 - **Where it goes:** to the maintainers' relay (`relay.yourlore.dev`), which
   drops anything not on the fixed list (`contracts/usage_events.json`) and
   passes the rest to PostHog, an analytics service, with no person profile
@@ -42,6 +44,17 @@ the first time you open an updated app, or once in the terminal.
 - **See and stop it:** every event sent is also written to
   `~/.lore/usage.log`. Turn it off in Settings → Anonymous usage, or with
   `lore telemetry off`.
+
+## Requests to yourlore.dev
+
+yourlore.dev counts requests to the addresses agents read (`/llms.txt`,
+`/marketplace.jsonl`, `/marketplace.json`, each market's JSON and
+`/sitemap.xml`). Each request becomes one event, passed privately from the
+site to the same relay, carrying only which address was read and a coarse
+kind of client taken from its User-Agent (for example "claudebot", "curl" or
+"browser"). It sets no cookie, and every event shares one fixed id, so no
+visitor can be told apart from another. No IP address, full User-Agent, path,
+query or referrer is sent.
 
 ## A deployed node's own observability
 
