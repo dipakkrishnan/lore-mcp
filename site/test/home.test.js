@@ -27,8 +27,8 @@ describe("the home page", () => {
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
   });
 
-  test("speaks to people, with no protocol names or API docs", () => {
-    const text = homePage({ now }).replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>|<[^>]+>/g, " ");
+  test("speaks to people, with the agent addresses kept to their own section", () => {
+    const text = homePage({ now }).replace(/<section class="block" id="agents"[\s\S]*?<\/section>|<style>[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<[^>]+>/g, " ");
     expect(text).not.toMatch(/\bMCP\b|mainnet|x402|USDC|Worker|POST|JSON|endpoint|\bpieces?\b/i);
   });
 
@@ -47,7 +47,7 @@ describe("the home page", () => {
     expect(html).toMatch(/<\/h1>[\s\S]*<aside class="demand" aria-labelledby="bids-title">[\s\S]*<\/section>/);
     expect(rows(html)).toEqual(["b", "d", "c", "f"]);
     expect(html).toContain('<a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a>');
-    expect(html).toContain("Your card is saved when you ask and charged only for the answer you accept.");
+    expect(html).toContain("You pay only for the answer you accept.");
   });
 
   test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
@@ -73,14 +73,18 @@ describe("the home page", () => {
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; more");
   });
 
-  test("labels every illustrative step of the worked example, and links the real one", () => {
-    const html = homePage({ now });
-    expect(html).toContain("The question<small>Illustrative</small>");
-    expect(html).toContain("What Lore kept<small>Private, on Dipak's Mac. Shown in outline</small>");
-    expect(html).toContain("What Dipak approved<small>Real. The free first lines of his answer</small>");
-    expect(html.match(/<small>Illustrative<\/small>/g)).toHaveLength(3);
-    expect(html).toContain('href="https://lore.dipakrkrishnan.workers.dev/p/fff411212f0157275f3fbb59"');
-    expect(html).toContain("The bids beside each are examples.");
+  test("names no one: the page is about the reader, not the maker", () => {
+    expect(homePage({ now })).not.toMatch(/Dipak|dipakrkrishnan|Bonaire/);
+  });
+
+  test("tells a browser agent where to read bids, place one without a card, and search, and says it as structured data", () => {
+    const html = homePage({ bids: [bid("a", 5)], now });
+    expect(html).toContain('<h2 id="agents-title">For agents</h2>');
+    for (const href of ["/bids.json", "/bids", "/marketplace.jsonl", "/llms.txt"]) expect(html).toContain(`<a href="${href}">${href}</a>`);
+    expect(html).toContain("An agent can bid without a card");
+    expect(html).toContain('<li data-bid="a" data-usd="5">');
+    const data = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
+    expect(data["@graph"][1].itemListElement).toEqual([{ "@type": "ListItem", position: 1, url: "https://yourlore.dev/b/a", name: "Question a worth asking?" }]);
   });
 });
 

@@ -38,7 +38,8 @@ export function bidForm(markets, { error = "", values = {} } = {}) {
 <label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to hear from someone who has done it?">${value("question")}</textarea></label>
 <div class="pair"><label><span>You'll pay</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
 <label><span>Market</span><select name="market">${options(markets, values.market)}</select></label></div>
-<button class="go" type="submit">Add card and place bid</button><p class="note">${CARD_TERMS}</p></form>`;
+<label class="check"><input type="checkbox" name="card" value="skip"${values.card === "skip" ? " checked" : ""}><span>I'm an agent placing this bid. Skip the card; it's listed as no card on file.</span></label>
+<button class="go" type="submit">Place bid</button><p class="note">${CARD_TERMS}</p></form>`;
 }
 
 function event(e) {
@@ -98,7 +99,8 @@ ${buyer ? buyerPanel(bid, buyer) : ""}
 ${left && !buyer ? `<div class="actions"><a class="go" href="/download?bid=${escape(bid.id)}">Answer with Lore</a><a class="quiet" data-share href="${escape(url)}">Know someone who knows? Share</a></div>
 <p class="note">Answer with Lore gets you the free Mac app. Lore drafts an answer from what your AIs have already saved there, and nothing is sent until you approve it. ${bid.card ? "The buyer's card is saved with Stripe and is charged when they accept your answer, straight to you." : "This bid has no card on file, so it's a promise only: you're paid if the buyer buys your answer."} ${PROMISE}</p>` : ""}
 <h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${answers}</ul>` : `<p class="empty">No answers yet.</p>`}
-<h2 class="part">Activity</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>`
+<h2 class="part">Activity</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>
+<p class="meta"><a href="/b/${escape(bid.id)}.json">This bid as JSON</a></p>`
   });
 }
 

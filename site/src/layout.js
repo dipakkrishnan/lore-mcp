@@ -126,6 +126,8 @@ section.tab>h2{font:600 var(--t12) var(--sans);color:var(--faint);margin:0 0 var
 .dollar{position:relative}.dollar:before{content:"$";position:absolute;left:var(--s3);top:50%;transform:translateY(-50%);color:var(--muted)}
 .dollar input{padding-left:26px}
 .bid-form .go{align-self:flex-start}
+.bid-form label.check{flex-direction:row;align-items:flex-start;gap:var(--s2);font-weight:400}.bid-form .check input{width:auto;margin-top:3px}
+.meta a{color:var(--muted)}.meta a:hover{color:var(--ink)}
 .mine{display:flex;flex-direction:column;align-items:flex-start;gap:var(--s2);margin:var(--s5) 0 0}.mine form,.buy form{margin:0}.mine code{font:var(--t12) var(--mono);word-break:break-all}
 .error{margin:0;padding:var(--s2) var(--s3);border-radius:var(--r6);background:color-mix(in srgb,#d0453b 14%,var(--raise));font-size:var(--t13)}
 .sheet{flex:0 0 auto}.sheet[open]{flex-basis:100%}

@@ -13,7 +13,7 @@ export function bidRow(bid, markets, now = Date.now()) {
   const market = bid.market === "unsorted" ? "" : marketName(markets, bid.market);
   const left = timeLeft(bid, now);
   const count = answered(bid, now);
-  return `<li data-k="${mark(bid)}"><a class="line" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${market ? `<span class="mk">${escape(market)}</span>` : ""}<span>${left ? `${left} left` : "Ended"}</span>${count ? `<span>${count}</span>` : ""}${bid.card ? "" : "<span>No card on file</span>"}</span></a></li>`;
+  return `<li data-k="${mark(bid)}" data-bid="${escape(bid.id)}" data-usd="${bid.usd}"><a class="line" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${market ? `<span class="mk">${escape(market)}</span>` : ""}<span>${left ? `${left} left` : "Ended"}</span>${count ? `<span>${count}</span>` : ""}${bid.card ? "" : "<span>No card on file</span>"}</span></a></li>`;
 }
 
 /** The rows for one market (or all), and a key that moves when a bid or an answer does. */
@@ -49,8 +49,9 @@ export function boardPage({ bids, markets, market = "", ask = false, error, valu
     canonical: `${SITE}/bids`,
     section: "bids",
     alternate: "/bids.json",
+    data: { "@context": "https://schema.org", "@type": "ItemList", name: "Open bids", url: `${SITE}/bids`, itemListElement: biggestFirst(bids.filter((b) => !current || b.market === current)).map((b, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE}/b/${b.id}`, name: b.question })) },
     body: `<header class="head"><div><h1>Bids</h1><p class="lede">Ask something only someone who has done it can answer. Your card is saved when you ask and charged only for the answer you accept, paid straight to its author.</p>
-<p class="meta">${plural(stats.bids, "open bid")} · ${money(stats.offered)} offered</p></div>
+<p class="meta">${plural(stats.bids, "open bid")} · ${money(stats.offered)} offered · <a href="/bids.json">As JSON</a> · <a href="/#agents">For agents</a></p></div>
 <details class="sheet" id="ask"${error || ask ? " open" : ""}><summary class="go">Place a bid</summary>${bidForm(markets, { error, values })}</details></header>
 ${tabs(bids, markets, current)}
 <div data-poll="${escape(poll)}"><ul class="list" data-live="board" data-key="${escape(stats.board_key)}">${stats.board}</ul></div>`

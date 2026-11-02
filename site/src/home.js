@@ -1,8 +1,8 @@
 // yourlore.dev/: the first screen holds both values side by side: what Lore does for you even
 // if you never sell (left), and the live bids that show people pay for what you know (right).
-// Below: one memory across your AIs, one real piece end to end, who it's for, what Lore never
-// does, and one download. Only real records are drawn as bids; with none open, the owner's
-// FEATURED list stands in, and with that empty no bid is drawn. Anything illustrative says so.
+// Below: one memory across your AIs, how a bid gets answered, who it's for, what Lore never
+// does, how an agent uses the site, and one download. Only real records are drawn as bids; with
+// none open, the owner's FEATURED list stands in, and with that empty no bid is drawn.
 import { answered, timeLeft } from "./bid-pages.js";
 import { escape, money, page } from "./layout.js";
 
@@ -19,20 +19,10 @@ export const HERO = {
 
 const TRUST = "Free · Open source · Nothing you've taught it is shared until you approve it";
 
-/** The one worked example: a real public piece, with the steps around it marked for what they are. */
-const EXAMPLE = {
-  piece: "https://lore.dipakrkrishnan.workers.dev/p/fff411212f0157275f3fbb59",
-  question: "Which training choices turned an overwhelming first open-water dive into reliable skills, and which drills mattered most?",
-  memory: "Learned to dive at Buddy Dive, Bonaire, Sept 2026, one-on-one. First sessions felt overwhelming: regulator, instructions, buoyancy all at once. What made it click, and the drills that mattered.",
-  sample:
-    "I learned to dive at Buddy Dive Resort in Bonaire in September 2026, one-on-one with my instructor. My first pool and open-water sessions felt overwhelming: breathing through a regulator, following instructions underwater and managing buoyancy all at once in a new physical environment.",
-  price: "$1"
-};
-
-/** What "one memory" means, as two moments. Illustrative, and labelled so. */
+/** What "one memory" means, as two moments. */
 const RECALL = [
-  ["Monday, in Claude", "You mention you get seasick, so you only dive from shore."],
-  ["Friday, in ChatGPT", "\u201cPlan my week in Bonaire.\u201d It plans shore dives and no boat days, without being told again."]
+  ["Monday, in Claude", "You mention you stopped eating meat last year."],
+  ["Friday, in ChatGPT", "\u201cPlan dinners for next week.\u201d Every one is vegetarian, and you never said so again."]
 ];
 
 const PEOPLE = [
@@ -48,7 +38,15 @@ const NEVER = [
 ];
 
 /** For buyers, true to MON-054: the card is saved when they ask and charged only for the answer they accept. */
-const ASK = "Ask something only someone who has done it can answer. Your card is saved when you ask and charged only for the answer you accept.";
+const ASK = "Ask something only someone who has done it can answer. You pay only for the answer you accept.";
+
+/** How an agent uses the site, shown to anyone who reads the page, browser agents included. */
+const AGENTS = [
+  ["Read the open bids", "/bids.json", "every open bid as JSON: question, amount, market, expiry."],
+  ["Place a bid", "/bids", "use the form, or POST question, usd and market as JSON. An agent can bid without a card; the bid is listed as no card on file."],
+  ["Search what's for sale", "/marketplace.jsonl", "one line per listed answer, with its price and free sample."],
+  ["Everything else", "/llms.txt", "buying over MCP or by card, and the lore-buy skill."]
+];
 
 const STYLE = `
 .hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:var(--s12);align-items:start;padding:var(--s12) 0 var(--s8)}
@@ -84,9 +82,12 @@ const STYLE = `
 .never{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 .never li{padding:var(--s3) 0;border-bottom:1px solid var(--line);font-size:var(--t13);color:var(--muted)}
 .never b{color:var(--ink);font-weight:600;margin-right:var(--s1)}
+.agents{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.agents li{display:grid;grid-template-columns:200px minmax(0,1fr);gap:var(--s4);padding:var(--s3) 0;border-bottom:1px solid var(--line);font-size:var(--t13);color:var(--muted)}
+.agents b{color:var(--ink);font-weight:600}.agents a{color:var(--accent);font-family:var(--mono);font-size:var(--t12);margin-right:var(--s2)}
 .get{padding-top:var(--s16)}
 .get h2{font:600 var(--t20)/1.3 var(--sans);margin:0 0 var(--s4)}
-@media (max-width:640px){.hero{padding-top:var(--s6)}.block{padding-top:var(--s8)}.steps{grid-template-columns:1fr 1fr;row-gap:var(--s3)}.trail li,.people li{grid-template-columns:1fr;gap:var(--s1)}}
+@media (max-width:640px){.hero{padding-top:var(--s6)}.block{padding-top:var(--s8)}.steps{grid-template-columns:1fr 1fr;row-gap:var(--s3)}.trail li,.people li,.agents li{grid-template-columns:1fr;gap:var(--s1)}}
 `;
 
 const download = `<a class="go" href="/download">Download for Mac</a>`;
@@ -95,7 +96,7 @@ const download = `<a class="go" href="/download">Download for Mac</a>`;
 function miniRow(bid, now) {
   const left = timeLeft(bid, now);
   const meta = [left ? `${left} left` : "Ended", answered(bid, now)].filter(Boolean).join(" · ");
-  return `<li><a class="line mini" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${meta}</span></a></li>`;
+  return `<li data-bid="${escape(bid.id)}" data-usd="${bid.usd}"><a class="line mini" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${meta}</span></a></li>`;
 }
 
 /** The hero's right column: what people are paying to learn right now, and a way to ask. */
@@ -110,25 +111,36 @@ function demand(bids, featured, now) {
 }
 
 const recallBlock = () => `<section class="block" aria-labelledby="recall-title"><h2 id="recall-title">One memory, every AI</h2>
-<p>Sign in with Claude or ChatGPT, and Lore adds itself to the AIs you use as a connector, the way you would add Google Drive. They save what they learn about you to Lore, and read it back in any app. It stays on your Mac, and it is worth having even if you never sell a thing.</p>
-<ul class="trail">${RECALL.map(([when, what]) => `<li><span class="k">${escape(when)}<small>Illustrative</small></span><p>${escape(what)}</p></li>`).join("")}</ul></section>`;
+<p>Lore connects to Claude, ChatGPT and your other AIs. What one learns about you, the others can read. It stays on your Mac.</p>
+<ul class="trail">${RECALL.map(([when, what]) => `<li><span class="k">${escape(when)}</span><p>${escape(what)}</p></li>`).join("")}</ul></section>`;
 
 const howBlock = () => `<section class="block" aria-labelledby="how-title"><h2 id="how-title">How a bid gets answered</h2>
-<p>Answering costs you nothing to write. Lore already holds what you know. Here is a real one from Dipak, who makes Lore.</p>
-<ol class="steps"><li><b>A bid matches</b> something your Lore already knows.</li><li><b>Lore drafts</b> the answer from your memories.</li><li><b>You approve it</b>, or change it, or say no.</li><li><b>The buyer reads a free preview</b>, then pays you to read it all.</li></ol>
-<ul class="trail">
-<li><span class="k">The question<small>Illustrative</small></span><p><q>${escape(EXAMPLE.question)}</q></p></li>
-<li><span class="k">What Lore kept<small>Private, on Dipak's Mac. Shown in outline</small></span><p>${escape(EXAMPLE.memory)}</p></li>
-<li><span class="k">What Dipak approved<small>Real. The free first lines of his answer</small></span><p><q>${escape(EXAMPLE.sample)}</q></p></li>
-<li><span class="k">The answer<small>Real, on sale</small></span><p>${EXAMPLE.price}, sample free. <a href="${EXAMPLE.piece}">Read it</a></p></li>
-</ul></section>`;
+<ol class="steps"><li><b>A bid matches</b> something your Lore already knows.</li><li><b>Lore drafts</b> the answer from your memories.</li><li><b>You approve it</b>, or change it, or say no.</li><li><b>The buyer reads a free preview</b>, then pays you for the rest.</li></ol></section>`;
 
 const peopleBlock = () => `<section class="block" aria-labelledby="who-title"><h2 id="who-title">Who it's for</h2>
-<p>Anyone who has done something the hard way. The bids beside each are examples.</p>
+<p>Example bids.</p>
 <ul class="people">${PEOPLE.map((p) => `<li><p class="who">${escape(p.who)}</p><span class="ask"><b>$${p.usd}</b>${escape(p.ask)}</span></li>`).join("")}</ul></section>`;
 
 const neverBlock = () => `<section class="block" aria-labelledby="never-title"><h2 id="never-title">What Lore never does</h2>
 <ul class="never">${NEVER.map(([what, why]) => `<li><b>Never ${escape(what[0].toLowerCase() + what.slice(1))}</b>${escape(why)}</li>`).join("")}</ul></section>`;
+
+const agentsBlock = () => `<section class="block" id="agents" aria-labelledby="agents-title"><h2 id="agents-title">For agents</h2>
+<p>Every page here works for a browser agent as it does for a person. These addresses skip the page.</p>
+<ul class="agents">${AGENTS.map(([what, href, how]) => `<li><b>${escape(what)}</b><span><a href="${href}">${href}</a>${escape(how)}</span></li>`).join("")}</ul></section>`;
+
+/** What a crawler or agent reads without parsing the page: the site, the app, and the open bids. */
+const structured = (bids) => ({
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "SoftwareApplication", name: "Lore", operatingSystem: "macOS", applicationCategory: "ProductivityApplication", offers: { "@type": "Offer", price: 0, priceCurrency: "USD" }, downloadUrl: `${SITE}/download`, url: `${SITE}/` },
+    {
+      "@type": "ItemList",
+      name: "Open bids",
+      url: `${SITE}/bids`,
+      itemListElement: bids.map((bid, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE}/b/${bid.id}`, name: bid.question }))
+    }
+  ]
+});
 
 /** The home page. `bids` are the live bids as /bids.json lists them, and `featured` stands in when none are open. */
 export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Date.now() } = {}) {
@@ -137,10 +149,11 @@ export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Da
     description: hero.lede,
     canonical: `${SITE}/`,
     alternate: "/bids.json",
+    data: structured(bids),
     head: STYLE,
     body: `<section class="hero"><div><h1>${escape(hero.title)}</h1><p class="lede">${escape(hero.lede)}</p>
 <div class="cta">${download}<span class="trust">${escape(TRUST)}</span></div></div>${demand(bids, featured, now)}</section>
-${recallBlock()}${howBlock()}${peopleBlock()}${neverBlock()}
+${recallBlock()}${howBlock()}${peopleBlock()}${neverBlock()}${agentsBlock()}
 <section class="get"><h2>Get Lore</h2>${download}<p class="trust">Free for Apple silicon Macs. Open the zip, move Lore to Applications, and open it.</p></section>`
   });
 }

@@ -122,8 +122,28 @@ describe("placing a bid", () => {
     expect(html).toMatch(/<form class="bid-form" method="post" action="\/bids">/);
     expect(html).toContain('<option value="rl-evals">RL evals</option>');
     expect(html).toContain(CARD_TERMS);
-    expect(html).toContain("Add card and place bid");
+    expect(html).toContain('<button class="go" type="submit">Place bid</button>');
+    expect(html).toContain('<input type="checkbox" name="card" value="skip">');
     expect(html).not.toContain('name="email"');
+  });
+
+  test("a browser agent ticks the agent box and its bid opens at once, with no card and no Stripe page", async () => {
+    const response = await placeForm({ card: "skip" });
+    expect(response.status).toBe(303);
+    const [, id] = response.headers.get("location").match(/^https:\/\/yourlore\.dev\/b\/([a-z0-9]{10})$/);
+    expect(await env.CHECKOUT.asked()).toEqual([]);
+    const html = await (await call(`/b/${id}`)).text();
+    expect(html).toContain("<li>No card on file</li>");
+    expect(html).toContain(`<a href="/b/${id}.json">This bid as JSON</a>`);
+  });
+
+  test("the board marks each row with its bid and amount, and lists them as structured data", async () => {
+    const id = await placed();
+    const html = await (await call("/bids")).text();
+    expect(html).toContain(`data-bid="${id}" data-usd="20"`);
+    expect(html).toContain('<a href="/bids.json">As JSON</a>');
+    const data = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
+    expect(data.itemListElement).toEqual([{ "@type": "ListItem", position: 1, url: `https://yourlore.dev/b/${id}`, name: QUESTION }]);
   });
 
   test("an unknown or missing market files under unsorted", async () => {
