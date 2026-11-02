@@ -19,9 +19,10 @@
     {
       "id": "welcome",
       "name": "Welcome (sign-in) with the provisioning banner",
-      "about": "#welcome before sign-in: the setup-failed banner with Try again, then the sign-in it recovers to.",
+      "about": "#welcome before sign-in: the setup-failed banner with Try again, then the sign-in it recovers to; the sign-in with its usage-events notice and See what's sent (APP-250).",
       "scans": [
-        { "walk": "provision", "widths": [1040], "shots": ["provision-failed", "provision-recovered"] }
+        { "walk": "provision", "widths": [1040], "shots": ["provision-failed", "provision-recovered"] },
+        { "walk": "fresh", "widths": [1040], "shots": ["welcome-usage"] }
       ]
     },
     {
