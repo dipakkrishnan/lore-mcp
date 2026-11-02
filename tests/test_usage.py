@@ -96,6 +96,19 @@ class UsageTest(LoreTestCase):
             ],
         )
 
+    def test_an_install_is_counted_by_its_first_event_only(self) -> None:
+        self.assertFalse(usage.record("app.installed"))
+        usage.notice_shown()
+        self.assertTrue(usage.record("app.installed"))
+        self.assertFalse(usage.record("app.installed"))
+        self.assertEqual(self.names(), ["app.installed"])
+
+    def test_an_install_already_measured_is_never_counted_as_new(self) -> None:
+        usage.notice_shown()
+        usage.record("app.opened")
+        self.assertFalse(usage.record("app.installed"))
+        self.assertEqual(self.names(), ["app.opened"])
+
     def test_events_carry_only_coded_values(self) -> None:
         usage.notice_shown()
         with self.assertRaises(ValueError):
@@ -103,6 +116,17 @@ class UsageTest(LoreTestCase):
         usage.record("sale.seen", "card")
         self.assertEqual(self.sent[0]["props"], {"via": "card"})
         self.assertEqual(set(self.sent[0]), {"name", "props", "at"})
+
+    def test_each_first_run_step_is_sent_once_and_only_as_a_code(self) -> None:
+        usage.notice_shown()
+        for step in ("apps", "agent", "agent", "skipped"):
+            usage.record("firstrun.step", step)
+        with self.assertRaises(ValueError):
+            usage.record("firstrun.step", "Grok Bot")
+        self.assertEqual(
+            [event["props"] for event in self.sent],
+            [{"step": "apps"}, {"step": "agent"}, {"step": "skipped"}],
+        )
 
     def test_every_event_sent_is_in_the_local_log(self) -> None:
         usage.notice_shown()
@@ -165,6 +189,21 @@ class UsageTest(LoreTestCase):
         ):
             self.assertEqual(cli.main(["push"]), 1)
         self.assertEqual(self.sent[-1]["props"], {"command": "push"})
+
+    def test_a_polled_read_that_fails_is_not_a_failed_command(self) -> None:
+        usage.notice_shown()
+        down = OSError("store unreachable")
+        with (
+            captured(),
+            patch("lore.deploy.sales", side_effect=down),
+            patch("lore.deploy.views", side_effect=down),
+            patch("lore.deploy.deploy", side_effect=down),
+        ):
+            self.assertEqual(cli.main(["node", "sales", "--json"]), 1)
+            self.assertEqual(cli.main(["node", "views", "--json"]), 1)
+            self.assertEqual(self.sent, [])
+            self.assertEqual(cli.main(["node", "deploy"]), 1)
+        self.assertEqual(self.sent[-1]["props"], {"command": "node"})
 
     def test_a_terminal_says_it_once_before_anything_is_sent(self) -> None:
         with (

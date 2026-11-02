@@ -16,6 +16,7 @@ Three planes, three different trust boundaries:
 |---|---|---|---|
 | **Node (owner)** | The deployed x402 Worker, `lore/node/` | The owner's own Cloudflare account, via Workers' built-in observability. Never the maintainers'. | None needed — it is the owner's own infrastructure, same as any other Cloudflare Worker they run. |
 | **Desktop (funnel)** | Milestones the app and `lore` observe (`APP-058`) | The feedback relay's `/events` route, which re-checks every event and passes it to PostHog | **Opt-out, on by default**, disclosed before the first event and in Settings, with an off switch (`CLI-004`). |
+| **Site (agent demand)** | One event per request to an agent-facing address on yourlore.dev (`XC-120`): `agent.llms`, `agent.catalog`, `agent.json`, `agent.sitemap`, and `agent.bid` / `agent.mcp` once those routes exist, each with a coarse `agent` family | `site/src/demand.js` → the relay's binding-only `SiteEvents` entrypoint (two codes, never the request) → PostHog, under one fixed site id | None needed: cookieless, no IP, no per-visitor id; described in `PRIVACY.md`. |
 | **QA node (maintainer)** | The standing `lore-qa` deployment, `MON-008` | The same maintainer collector, over OTLP | N/A — maintainer-owned infrastructure and synthetic fixture data only. |
 
 `PRIVACY.md` describes only shipped behavior. The desktop funnel shipped with
@@ -28,8 +29,9 @@ a row in this table needed it — nothing is collected "just in case."
 
 | Question | Metric | Plane | Supplied by |
 |---|---|---|---|
-| Do installs reach first value? | Funnel conversion across setup → capture → publish → store | desktop | `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
+| Do installs reach first value? | Funnel conversion across install → setup → capture → publish → store | desktop | `app.installed` (an install's first event, sent once the welcome screen has said what is sent: `APP-250`), `app.opened`, `signin.completed`, `setup.completed`, `memory.saved`, `publication.approved`, `store.opened`, `sale.viewed` |
 | Do people come back? | Distinct days with an `app.opened` per install | desktop | `app.opened` |
+| Where does the first-run chat lose new owners? | Installs reaching each step: apps connected → agent picked → store online → link shown → first save, or skipped | desktop | `firstrun.step{step}`, each step once per install |
 | Which operations fail for real users? | Failure rate by CLI command | desktop | `cli.failed` with a coded command + outcome |
 | Is a deployed node serving? | Request rate, error rate, p50/p95 latency by tool | node (owner) | Workers' automatic request tracing, `observability.traces` in `wrangler.jsonc` |
 | Are buyers hitting revoked or stale ids? | `get` miss rate | node (owner) | `lore.get` span, `lore.outcome = "not_found"` — the drift signal `MON-013` wants |
@@ -60,7 +62,9 @@ answers.
   opening, a sign-in), and Python records the rest where they happen. The
   closed list is `contracts/usage_events.json`: a name and at most one coded
   property per event. Milestones are sent once per install, `app.opened` once
-  a day, `cli.failed` each time with only the command's name. Nothing is sent
+  a day, `cli.failed` each time with only the command's name, except for the
+  store reads the app polls every minute (`node sales`, `node views`), whose
+  failures mean the store is out of reach, not a broken command (`CLI-016`). Nothing is sent
   before the notice (`telemetry_noticed`) or with telemetry off, and every
   event sent is appended to `~/.lore/usage.log`. Sending is a 2-second,
   best-effort POST that never fails a command.

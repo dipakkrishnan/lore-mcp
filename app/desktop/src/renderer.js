@@ -1161,6 +1161,12 @@ class FirstRunChat {
   /** Whether where it stands has been read this sign-in: until then nothing starts it. */
   #known = false;
 
+  /** Where a new owner got to (once each), for the funnel: kept only once the owner was told about usage events.
+   * @param {FirstRunStep} step */
+  passed(step) {
+    void window.lore.usage("firstrun.step", step).catch(() => undefined);
+  }
+
   /** Whether a step begun in `run` still belongs on screen. @param {number} run */
   current(run) {
     return run === this.#run && this.active;
@@ -1231,6 +1237,7 @@ class FirstRunChat {
     if (choice === "coding") return this.leave("done", () => void startSetup());
     this.picked = [choice, label];
     this.problem = "";
+    this.passed("agent");
     if (snapshot?.node.agents) return this.connect();
     this.stage = "store";
     return this.putOnline();
@@ -1250,6 +1257,7 @@ class FirstRunChat {
       // Skipped while it went online: the store stays online, and nothing goes on to connect.
       if (!this.current(run)) return;
       if (!online) throw new Error();
+      this.passed("store");
       this.working = false;
       await this.connect();
     } catch (error) {
@@ -1277,6 +1285,7 @@ class FirstRunChat {
       if (!this.current(run) || ask !== this.#asks) return;
       this.handed = handed;
       this.stage = "connect";
+      this.passed("link");
       void this.keep({ state: "started", source: handed.source });
       this.wait(handed);
       void load();
@@ -1299,6 +1308,7 @@ class FirstRunChat {
   heard(saved) {
     this.saved = saved;
     this.stage = "saved";
+    this.passed("saved");
     void this.keep({ state: "done", source: this.kept?.source });
     void load();
     this.redraw();
@@ -1404,6 +1414,7 @@ class FirstRunChat {
     this.walled = walled;
     this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
     if (!failed.length) this.appsDone = true;
+    if (this.connected.length) this.passed("apps");
     this.working = false;
     await load();
   }
@@ -1413,6 +1424,7 @@ class FirstRunChat {
     this.stop();
     this.#run++;
     this.active = false;
+    if (state === "skipped") this.passed("skipped");
     void this.keep({ state, ...(this.kept?.source ? { source: this.kept.source } : {}) });
     show("today");
     then?.();
@@ -5776,17 +5788,26 @@ function usageRow(s) {
   );
 }
 
+/** Whether the welcome screen on show has said what usage events are sent. */
+let welcomed = false;
+
 function enter() {
   const signedIn = Boolean(auth?.credentials.length);
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
   if (signedIn) {
+    welcomed = false;
     render();
     void firstRun.read().then(load).then(opened);
     return;
   }
   firstRun.reset();
+  // The welcome screen says it (APP-250), so from here on events are kept, starting with this install's first.
+  if (!welcomed && !welcome.classList.contains("provisioning")) {
+    welcomed = true;
+    void noticed().catch(() => undefined);
+  }
   // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
   loads++;
   told.clear();
@@ -5813,11 +5834,16 @@ function noticeAutomations() {
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+/** The owner has been told about usage events: remember it, then count the install if this is its first event. */
+function noticed() {
+  return window.lore.usage("noticed").then(() => window.lore.usage("app.installed"));
+}
+
+/** Someone who signed in before the welcome screen said it hears about usage events once, on Today, before any is sent. */
 function noticeUsage() {
   const setup = snapshot?.setup;
   if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
-  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => noticed().then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */
@@ -6330,6 +6356,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
   });
 }
 welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
+$("#welcome-usage").addEventListener("click", () => void window.lore.usageLog());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();

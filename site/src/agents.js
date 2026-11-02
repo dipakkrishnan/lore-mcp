@@ -1,5 +1,6 @@
 // The front door for agents: plain text and JSON at fixed addresses, drawn from the same
 // Exchange the marketplace pages render, so what an agent reads can't drift from what a person sees.
+import { countDemand } from "./demand.js";
 
 const SITE = "https://yourlore.dev";
 const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
@@ -95,13 +96,14 @@ export function marketJson(exchange, id) {
 
 const unavailable = () => Response.json({ error: "the markets can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
 
-/** The routes, by path; each takes what it needs: the env, the exchange (null when it can't load), and a way to ask this Worker for a path. */
+/** The routes, by path, with the demand event each counts; each takes what it needs: the env, the exchange (null when it can't load), and a way to ask this Worker for a path. */
 const ROUTES = [
-  [/^\/llms\.txt$/, async ({ env }) => new Response(llmsTxt({ bids: Boolean(env?.BIDS) }), { headers: TEXT })],
-  [/^\/robots\.txt$/, async () => new Response(robotsTxt(), { headers: TEXT })],
-  [/^\/sitemap\.xml$/, async ({ exchange }) => new Response(sitemap(await exchange()), { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } })],
+  [/^\/llms\.txt$/, "agent.llms", async ({ env }) => new Response(llmsTxt({ bids: Boolean(env?.BIDS) }), { headers: TEXT })],
+  [/^\/robots\.txt$/, null, async () => new Response(robotsTxt(), { headers: TEXT })],
+  [/^\/sitemap\.xml$/, "agent.sitemap", async ({ exchange }) => new Response(sitemap(await exchange()), { headers: { "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=300" } })],
   [
     /^\/marketplace\.jsonl$/,
+    "agent.catalog",
     async ({ env, exchange, self }) => {
       const [loaded, bids] = await Promise.all([exchange(), openBids(env, self)]);
       return loaded ? new Response(catalog(loaded, bids), { headers: { "content-type": "application/jsonl; charset=utf-8", ...OPEN } }) : unavailable();
@@ -109,6 +111,7 @@ const ROUTES = [
   ],
   [
     /^\/marketplace\/([a-z0-9-]+)\.json$/,
+    "agent.json",
     async ({ exchange }, id) => {
       const loaded = await exchange();
       if (!loaded) return unavailable();
@@ -118,11 +121,16 @@ const ROUTES = [
   ]
 ];
 
-/** The handler for an agent path, or null when the path isn't one. */
+/** The handler for an agent path, or null when the path isn't one. Each request it serves is counted as agent demand. */
 export function frontDoor(pathname) {
-  for (const [pattern, serve] of ROUTES) {
+  for (const [pattern, event, serve] of ROUTES) {
     const match = pathname.match(pattern);
-    if (match) return (context) => serve(context, ...match.slice(1));
+    if (match) {
+      return (context) => {
+        if (event) countDemand(event, context.request, context.env, context.ctx);
+        return serve(context, ...match.slice(1));
+      };
+    }
   }
   return null;
 }

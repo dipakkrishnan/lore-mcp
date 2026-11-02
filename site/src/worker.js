@@ -5,6 +5,7 @@
 // / is the home page, drawn around the live bids (src/home.js); /download hands out the app.
 import { frontDoor } from "./agents.js";
 import { BidDesk, isBidPath } from "./bid-routes.js";
+import { countDemand } from "./demand.js";
 import { clip, date, DOWNLOAD, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
 
@@ -174,9 +175,10 @@ const worker = {
     const json = url.pathname === "/marketplace.json";
     const stats = url.pathname === "/marketplace/stats.json";
     const door = !stats && frontDoor(url.pathname);
-    if (door) return door({ env, exchange: () => Exchange.from(LIST), self: (path) => worker.fetch(new Request(new URL(path, url)), env, ctx) });
+    if (door) return door({ request, env, ctx, exchange: () => Exchange.from(LIST), self: (path) => worker.fetch(new Request(new URL(path, url)), env, ctx) });
     const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
     if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return asset(request, env);
+    if (json) countDemand("agent.json", request, env, ctx);
     let list;
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
