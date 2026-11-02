@@ -43,6 +43,17 @@ the first time you open an updated app, or once in the terminal.
   `~/.lore/usage.log`. Turn it off in Settings → Anonymous usage, or with
   `lore telemetry off`.
 
+## Requests to yourlore.dev
+
+yourlore.dev counts requests to the addresses agents read (`/llms.txt`,
+`/marketplace.jsonl`, `/marketplace.json`, each market's JSON and
+`/sitemap.xml`). Each request becomes one event, passed privately from the
+site to the same relay, carrying only which address was read and a coarse
+kind of client taken from its User-Agent (for example "claudebot", "curl" or
+"browser"). It sets no cookie, and every event shares one fixed id, so no
+visitor can be told apart from another. No IP address, full User-Agent, path,
+query or referrer is sent.
+
 ## A deployed node's own observability
 
 If you deploy a paid Lore node, its Cloudflare Worker can record its own
