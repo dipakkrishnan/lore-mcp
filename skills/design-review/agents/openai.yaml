@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design Review"
+  short_description: "Hold a Lore UI change to the design principles"
+  default_prompt: "Use $design-review to check this UI change against docs/design-principles.md."
