@@ -128,6 +128,9 @@ const digest = async (text) => hex(await crypto.subtle.digest("SHA-256", new Tex
 const same = (a, b) => a.length === b.length && crypto.subtle.timingSafeEqual(new TextEncoder().encode(a), new TextEncoder().encode(b));
 
 export class BidBook extends DurableObject {
+  /** Charges out to checkout right now, so a second alarm run while one awaits doesn't send them again. */
+  #sending = new Set();
+
   constructor(ctx, env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
@@ -255,6 +258,8 @@ export class BidBook extends DurableObject {
     this.#expire(now);
     let retry = false;
     for (const { id, seq, answer } of this.#unsent()) {
+      if (this.#sending.has(seq)) continue;
+      this.#sending.add(seq);
       const row = this.#buyer(id);
       const found = this.#read(id);
       const piece = found.events.filter((e) => e.type === "answered")[answer];
@@ -277,6 +282,8 @@ export class BidBook extends DurableObject {
       } catch (error) {
         console.error(`bid ${id}: charge not sent: ${error.message}`);
         retry = true;
+      } finally {
+        this.#sending.delete(seq);
       }
     }
     await this.#schedule(now, retry);

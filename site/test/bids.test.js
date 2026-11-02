@@ -559,6 +559,17 @@ describe("a card on every person's bid (MON-054)", () => {
     expect(await book().walkedAway(Date.now() + LIFETIME_MS + 60_000)).toBe(1);
   });
 
+  test("two alarm runs at once send an accepted charge once", async () => {
+    const { id, cookie } = await cardedBid();
+    await answer(id);
+    await runInDurableObject(book(), async (instance, state) => {
+      await instance.accept(id, cookie.split("=")[1], 0);
+      await state.storage.deleteAlarm();
+      await Promise.all([instance.alarm(), instance.alarm()]);
+    });
+    expect((await charges()).map((c) => c.bid)).toEqual([id]);
+  });
+
   test("a charge checkout couldn't send is kept and tried again", async () => {
     const { id, cookie } = await cardedBid({}, "pm_unreachable");
     await answer(id);
