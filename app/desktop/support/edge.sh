@@ -169,7 +169,8 @@ if [[ "$scenario" == "obsidian" ]]; then
 fi
 if [[ "$scenario" == "schedule" ]]; then
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
-  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
+  # hours from now, so the walk never runs across it.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
@@ -178,9 +179,13 @@ if [[ "$scenario" == "schedule" ]]; then
   (cd "$repo_root" && uv run python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
-automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
-# Only the reading is two days old; Lore's other routines start now, so none of them is owed whatever the weekday.
-automation.Routines().begin()
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
+# Only the reading is owed: it is two days old, and Lore's other routines are paused, so neither a weekly one's
+# Sunday nor any hour the walk starts just short of is owed too (XC-123; tests/test_automation.py pins the clock).
+routines = automation.Routines()
+for routine in routines.list():
+    if routine['id'] != 'synthesis':
+        routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "automations" ]]; then
