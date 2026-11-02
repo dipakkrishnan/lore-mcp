@@ -112,72 +112,6 @@ class UsageTest(LoreTestCase):
         usage.record("app.opened")
         self.assertFalse(usage.record("app.installed"))
         self.assertEqual(self.names(), ["app.opened"])
-
-    def test_saves_count_once_a_day_for_each_way_in_never_how_many(self) -> None:
-        usage.notice_shown()
-        for via in ("capture", "capture", "agent", "capture"):
-            usage.record("memory.saved", via)
-        self.assertEqual(
-            [event["props"] for event in self.sent],
-            [{"via": "capture"}, {"via": "agent"}],
-        )
-        with Store() as store:
-            sent = store.setting(usage.SENT_SETTING)
-            store.set_setting(
-                usage.SENT_SETTING, sent | {"memory.saved:capture": "2000-01-01"}
-            )
-        self.assertTrue(usage.record("memory.saved", "capture"))
-        self.assertFalse(usage.record("memory.saved", "agent"))
-
-    def test_each_way_in_is_named_by_where_the_memory_came_from(self) -> None:
-        usage.notice_shown()
-        sources_module.Registry._saved(
-            Source("agent-a", "Grok", "a", kind="agent", app="grok")
-        )
-        sources_module.Registry._saved(Source("agent-b", "Mine", "b", kind="agent"))
-        sources_module.Registry._saved(
-            Source("automation", "Synthesis", "/x", origin="automation")
-        )
-        sources_module.Registry._saved(Source("vault", "Vault", "/v"))
-        self.assertEqual(
-            [(event["name"], event["props"]) for event in self.sent],
-            [
-                ("memory.saved", {"via": "agent"}),
-                ("agent.connected", {"agent": "grok"}),
-                ("agent.connected", {"agent": "other"}),
-                ("memory.saved", {"via": "synthesis"}),
-                ("memory.saved", {"via": "connector"}),
-            ],
-        )
-
-    def test_a_read_that_brings_something_in_counts_a_save_and_one_that_doesnt_never(
-        self,
-    ) -> None:
-        usage.notice_shown()
-        root = self.lore_home.parent / "vault"
-        root.mkdir()
-        (root / "note.md").write_text(
-            "# Note\n\nA note long enough to be a memory here."
-        )
-        with Store() as store:
-            name = str(sources_module.Registry(store).add(str(root))["name"])
-            self.assertEqual(self.names(), ["memory.saved"])
-            with Store() as other:
-                other.set_setting(usage.SENT_SETTING, {})
-            sources_module.Registry(store).read([name])
-        self.assertEqual(self.names(), ["memory.saved"])
-
-    def test_a_capture_counts_a_save_only_when_something_was_kept(self) -> None:
-        usage.notice_shown()
-        batch = json.dumps([{"title": "A lesson", "content": "the body"}])
-        for _ in range(2):
-            with Store() as store:
-                store.set_setting(usage.SENT_SETTING, {})
-            with patch("sys.stdin", StringIO(batch)), captured():
-                cli.capture_apply("-")
-        self.assertEqual(self.sent[0]["props"], {"via": "capture"})
-        self.assertEqual(len(self.sent), 1)
-
     def test_events_carry_only_coded_values(self) -> None:
         usage.notice_shown()
         with self.assertRaises(ValueError):
@@ -295,6 +229,71 @@ class UsageTest(LoreTestCase):
         self.assertIn("anonymous usage events", notice)
         with Store() as store:
             self.assertTrue(store.setting(usage.NOTICED_SETTING))
+
+    def test_saves_count_once_a_day_for_each_way_in_never_how_many(self) -> None:
+        usage.notice_shown()
+        for via in ("capture", "capture", "agent", "capture"):
+            usage.record("memory.saved", via)
+        self.assertEqual(
+            [event["props"] for event in self.sent],
+            [{"via": "capture"}, {"via": "agent"}],
+        )
+        with Store() as store:
+            sent = store.setting(usage.SENT_SETTING)
+            store.set_setting(
+                usage.SENT_SETTING, sent | {"memory.saved:capture": "2000-01-01"}
+            )
+        self.assertTrue(usage.record("memory.saved", "capture"))
+        self.assertFalse(usage.record("memory.saved", "agent"))
+
+    def test_each_way_in_is_named_by_where_the_memory_came_from(self) -> None:
+        usage.notice_shown()
+        sources_module.Registry._saved(
+            Source("agent-a", "Grok", "a", kind="agent", app="grok")
+        )
+        sources_module.Registry._saved(Source("agent-b", "Mine", "b", kind="agent"))
+        sources_module.Registry._saved(
+            Source("automation", "Synthesis", "/x", origin="automation")
+        )
+        sources_module.Registry._saved(Source("vault", "Vault", "/v"))
+        self.assertEqual(
+            [(event["name"], event["props"]) for event in self.sent],
+            [
+                ("memory.saved", {"via": "agent"}),
+                ("agent.connected", {"agent": "grok"}),
+                ("agent.connected", {"agent": "other"}),
+                ("memory.saved", {"via": "synthesis"}),
+                ("memory.saved", {"via": "connector"}),
+            ],
+        )
+
+    def test_a_read_that_brings_something_in_counts_a_save_and_one_that_doesnt_never(
+        self,
+    ) -> None:
+        usage.notice_shown()
+        root = self.lore_home.parent / "vault"
+        root.mkdir()
+        (root / "note.md").write_text(
+            "# Note\n\nA note long enough to be a memory here."
+        )
+        with Store() as store:
+            name = str(sources_module.Registry(store).add(str(root))["name"])
+            self.assertEqual(self.names(), ["memory.saved"])
+            with Store() as other:
+                other.set_setting(usage.SENT_SETTING, {})
+            sources_module.Registry(store).read([name])
+        self.assertEqual(self.names(), ["memory.saved"])
+
+    def test_a_capture_counts_a_save_only_when_something_was_kept(self) -> None:
+        usage.notice_shown()
+        batch = json.dumps([{"title": "A lesson", "content": "the body"}])
+        for _ in range(2):
+            with Store() as store:
+                store.set_setting(usage.SENT_SETTING, {})
+            with patch("sys.stdin", StringIO(batch)), captured():
+                cli.capture_apply("-")
+        self.assertEqual(self.sent[0]["props"], {"via": "capture"})
+        self.assertEqual(len(self.sent), 1)
 
 
 class SendTest(LoreTestCase):
