@@ -115,7 +115,10 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
-          node-version: lts/*
+          # XC-121: pinned, not lts/*. When lts/* moved to Node 26 on
+          # 2026-11-02, electron-forge 7.11.2 stopped at "Finalizing package"
+          # and exited 0 with no app bundle. Lift the pin with a forge upgrade.
+          node-version: 24
       - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
@@ -164,7 +167,10 @@ jobs:
       # cache hit as on a miss.
       - name: Packaged whisper is the pinned tag
         run: |
-          shipped="$(cat out/Lore-darwin-arm64/Lore.app/Contents/Resources/whisper/version)"
+          app=out/Lore-darwin-arm64/Lore.app
+          # XC-121: forge can exit 0 without finishing (Node 26); say so, rather than "no such file".
+          [ -f "$app/Contents/Resources/whisper/version" ] || { echo "::error title=no packaged app::npm run package left no $app/Contents/Resources/whisper/version; electron-forge did not finish."; ls -la out 2>/dev/null; exit 1; }
+          shipped="$(cat "$app/Contents/Resources/whisper/version")"
           pinned="$(sed -n 's/^WHISPER_TAG=//p' packaging/whisper.sh)"
           echo "shipped $shipped, pinned $pinned"
           [ "$shipped" = "$pinned" ] || { echo "::error title=stale whisper-cli::The packaged app carries whisper.cpp $shipped but whisper.sh pins $pinned."; exit 1; }
