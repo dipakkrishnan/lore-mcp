@@ -1914,6 +1914,36 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.list_publications(), [])
 
+    def test_a_draft_waiting_from_before_the_sample_rule_never_blocks_a_new_one(
+        self,
+    ) -> None:
+        waiting = {
+            "title": "Waiting",
+            "content": "a bounded claim about pricing agent APIs",
+            "topic": "pricing",
+            "teaser": "What this claim tells a buyer about pricing",
+            "provenance": [self.memory_id],
+        }
+        self.staged_path.write_text(json.dumps([waiting]))
+        fresh = {
+            "title": "New one",
+            "content": "another bounded claim about pricing",
+            "topic": "pricing",
+            "teaser": "What this other claim tells a buyer",
+            "provenance": [self.memory_id],
+        }
+        batch = self.lore_home / "resent.json"
+        # A new draft with no sample is still refused, waiting draft beside it or not.
+        batch.write_text(json.dumps([waiting, fresh]))
+        with self.assertRaisesRegex(ValueError, "sample"):
+            cli.publication_draft(str(batch))
+        sample = "We priced the first API at a dollar. Then we watched who paid."
+        batch.write_text(json.dumps([waiting, fresh | {"sample": sample}]))
+        with captured():
+            self.assertEqual(cli.publication_draft(str(batch)), 0)
+        staged = json.loads(self.staged_path.read_text(encoding="utf-8"))
+        self.assertEqual([c["title"] for c in staged], ["Waiting", "New one"])
+
     def test_a_draft_that_repeats_a_piece_for_sale_is_skipped(self) -> None:
         with Store() as store:
             store.add_publication(

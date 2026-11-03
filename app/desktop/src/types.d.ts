@@ -320,7 +320,7 @@ type BidMatch = {
 };
 
 /** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
-type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
+type BidDraft = { title: string; teaser: string; sample: string; content: string; useful_if: string; not_useful_if: string };
 
 /** New free parts for a piece already on sale; its link, price and paid content stay. */
 type PublicationExtras = {

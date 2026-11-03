@@ -12,7 +12,7 @@ import sys
 import urllib.parse
 from itertools import islice
 from pathlib import Path
-from typing import Annotated, Mapping, get_args
+from typing import Annotated, Mapping, Sequence, get_args
 
 from pydantic import (
     BaseModel,
@@ -2029,13 +2029,19 @@ def _candidates_path() -> Path:
 
 
 def _validated_candidates(
-    text: str, *, for_sale: bool = True
+    text: str, *, for_sale: bool = True, waiting: Sequence[PublicationInput] = ()
 ) -> list[PublicationInput]:
-    """Validate a drafted batch the way review does, provenance included."""
+    """Validate a drafted batch the way review does, provenance included. A
+    draft already `waiting` is held to what it was staged under, so one that
+    predates a rule never blocks the draft sent beside it."""
     candidates = PUBLICATION_CANDIDATES.validate_json(text)
     with Store() as store:
         for candidate in candidates:
-            _candidate(candidate, store, for_sale=for_sale)
+            _candidate(
+                candidate,
+                store,
+                for_sale=for_sale and candidate not in waiting,
+            )
     return candidates
 
 
@@ -2208,7 +2214,7 @@ def publication_draft(file: str) -> int:
     with Store() as store:
         for_sale = store.list_publications(active_only=True)
     candidates = []
-    for candidate in _validated_candidates(text):
+    for candidate in _validated_candidates(text, waiting=_staged()):
         if repeated := _repeats(candidate, for_sale):
             warn(
                 f"Skipped “{candidate.title}”: it repeats “{repeated.title}”, "

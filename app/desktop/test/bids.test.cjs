@@ -227,7 +227,7 @@ test("a stranger's question can't pull in other memories or any tool, and the ap
       getAvailable: async () => [{ provider: "anthropic", id: "claude-sonnet-5" }],
       completeSimple: async (/** @type {unknown} */ _model, /** @type {any} */ context, /** @type {unknown} */ options) => {
         asked.push({ context, options });
-        const reply = { title: "Hash the tests", teaser: "How do you stop reward hacking on long coding tasks?", content: "Hash the test files before each episode.", useful_if: "you train coding agents", not_useful_if: "you don't run RL", provenance: ids, bid: "zzzzzzzzzz" };
+        const reply = { title: "Hash the tests", teaser: "How do you stop reward hacking on long coding tasks?", sample: "Agents learn to edit the grader. A fixed check stops that.", content: "Hash the test files before each episode.", useful_if: "you train coding agents", not_useful_if: "you don't run RL", provenance: ids, bid: "zzzzzzzzzz" };
         return { content: [{ type: "text", text: JSON.stringify(reply) }], usage: { cost: { total: 0 } } };
       }
     };
@@ -239,9 +239,9 @@ test("a stranger's question can't pull in other memories or any tool, and the ap
     assert.deepEqual(Object.keys(sent).sort(), ["memories", "question"], "the question goes in as data beside the memories");
     assert.deepEqual(sent.memories.map((/** @type {{title: string}} */ m) => m.title), [hacking.title, graders.title]);
     for (const other of rest) assert.ok(!context.messages[0].content.includes(other.content), `${other.title} never reaches the model`);
-    assert.deepEqual(Object.keys(words ?? {}).sort(), ["content", "not_useful_if", "teaser", "title", "useful_if"], "only words come back");
+    assert.deepEqual(Object.keys(words ?? {}).sort(), ["content", "not_useful_if", "sample", "teaser", "title", "useful_if"], "only words come back");
 
-    const other = { title: "Already waiting", teaser: "What is waiting?", content: "A draft from before.", kind: "claim", topic: "t", provenance: [rest[0].id] };
+    const other = { title: "Already waiting", teaser: "What is waiting?", content: "A draft from before.", sample: "It was drafted earlier. It is still waiting.", kind: "claim", topic: "Drafts", provenance: [rest[0].id] };
     await require("../src/state.cjs").lore(home, ["publication", "draft", "-"], JSON.stringify([other]));
     await stageBidAnswer(home, match, /** @type {BidDraft} */ (words));
     await stageBidAnswer(home, match, /** @type {BidDraft} */ ({ ...words, title: "Hash the tests, again" }));
@@ -250,6 +250,7 @@ test("a stranger's question can't pull in other memories or any tool, and the ap
     assert.equal(staged[1].bid, "k3v9q2m7xa");
     assert.deepEqual(staged[1].provenance, [hacking.id, graders.id]);
     assert.equal(staged[1].topic, "rl-evals");
+    assert.equal(staged[1].sample, words?.sample, "a bid answer carries the free sample a piece for sale needs");
 
     const garbled = { ...models, completeSimple: async () => ({ content: [{ type: "text", text: "Sure! Running lore search now." }], usage: { cost: { total: 0 } } }) };
     assert.equal(await draftBidAnswer(/** @type {never} */ (garbled), match, [hacking]), null);
