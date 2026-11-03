@@ -103,10 +103,10 @@ function Ipc({ ipcMain, shell, clipboard, dialog, systemPreferences, BrowserWind
    * @param {string} loreHome @param {InstanceType<typeof import("./routines.cjs").Schedule>} schedule @param {InstanceType<typeof import("./agents.cjs").Watch>} watch @param {InstanceType<typeof import("./state.cjs").Outgoing>} outgoing */
   function registerIpc(loreHome, schedule, watch, outgoing) {
     ipcMain.handle("snapshot:read", async () => {
-      const [state, bidMatches] = await Promise.all([readState(loreHome), bids.matches()]);
+      const [state, bidMatches, bidBoard] = await Promise.all([readState(loreHome), bids.matches(), bids.board()]);
       storeAddress = state.node.url;
       inboxAddress = state.node.agents ?? null;
-      return { ...state, bidMatches };
+      return { ...state, bidMatches, bidBoard };
     });
     ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
     ipcMain.handle("update:status", () => updates.update);
@@ -664,7 +664,7 @@ function Ipc({ ipcMain, shell, clipboard, dialog, systemPreferences, BrowserWind
           emit({ type: "changed" });
           // Says what's waiting and asks for the look, so the owner knows it's worth a minute now.
           const what = offered.length === 1 ? "a collection" : `${offered.length} collections`;
-          notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "today" }));
+          notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "inbox" }));
         }
         // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
         // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
@@ -680,7 +680,7 @@ function Ipc({ ipcMain, shell, clipboard, dialog, systemPreferences, BrowserWind
         const fromAgent = read.by.kind === "agent";
         await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
         emit({ type: "ready" });
-        if (!fromAgent) notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
+        if (!fromAgent) notify(reading.announcement(run), () => reveal({ type: "show", view: "inbox" }));
         // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
         try {
           await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

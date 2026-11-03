@@ -110,6 +110,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Run from source, Electron would show its own icon in the Dock; the packaged app gets Lore's from forge.
+  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, "..", "packaging", "icon.png"));
   const loreHome = LORE_HOME;
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   /** The sign-ins the owner has been told of. @type {Set<string>} */
@@ -158,7 +160,9 @@ function watchBids() {
   const look = async () => {
     try {
       const fresh = await bids.check();
-      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "today" }));
+      // One bid opens its own page; a lot of them, the Inbox that lists them (APP-283).
+      const [only] = fresh.length === 1 ? fresh : [];
+      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "inbox", ...(only ? { bid: only.bid.id } : {}) }));
       // Remembered only once the banners are up: one that failed is announced on the next look.
       await bids.announced(fresh.map((match) => match.bid.id));
       if (fresh.length) emit({ type: "changed" });

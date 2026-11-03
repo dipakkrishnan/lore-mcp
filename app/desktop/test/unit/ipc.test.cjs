@@ -45,7 +45,7 @@ function harness({ agent, window, bridge = {}, ask, loreHome = mkdtempSync(join(
     getAgent: () => state.agent,
     requests: { ask: async (/** @type {string} */ type, /** @type {any} */ payload) => (ask ? ask(type, payload) : Promise.reject(new Error(`unexpected card ${type}`))) },
     badge: new reading.Badge((count) => void seen.badge.push(count)),
-    bids: { matches: async () => [], dismiss: async () => {}, find: async () => null },
+    bids: { matches: async () => [], board: async () => [], dismiss: async () => {}, find: async () => null },
     updates: {},
     appearance: {},
     boot: async () => {},
@@ -382,7 +382,7 @@ test("memoriesReady, for an app, syncs, files the card, announces it and credits
   assert.deepEqual(h.seen.emitted.map((event) => event.type), ["changed", "ready", "changed"]);
   assert.deepEqual(h.seen.notes[0].words, { title: "Lore read your Notes notes", body: "1 new memory. 1 looks worth selling." });
   h.seen.notes[0].onClick();
-  assert.deepEqual(h.seen.revealed, [{ type: "show", view: "today" }]);
+  assert.deepEqual(h.seen.revealed, [{ type: "show", view: "inbox" }]);
 });
 
 test("memoriesReady never loses the card or the banner to a judging or crediting failure", async (t) => {

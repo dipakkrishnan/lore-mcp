@@ -235,6 +235,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 "public_id",
                 "title",
                 "topic",
+                "bid",
                 "state",
                 "live",
             },
