@@ -517,6 +517,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Run from source, Electron would show its own icon in the Dock; the packaged app gets Lore's from forge.
+  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, "..", "packaging", "icon.png"));
   const loreHome = LORE_HOME;
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   /** The sign-ins the owner has been told of. @type {Set<string>} */
