@@ -4,7 +4,7 @@ title: Have lore-buy place a bid when nothing fits, and pick it up later
 priority: P1
 effort: S
 component: monetization
-status: in-review
+status: in-progress
 related: [MON-051, XC-117, MON-054]
 blockers: []
 dependencies: [MON-051]
@@ -35,3 +35,17 @@ back to an answer later.
 - [ ] A lore-buy run that finds nothing places a bid with one call and records its id.
 - [ ] A later run picks up the answers and buys at most one within budget.
 - [ ] A bid with a `callback_url` gets one POST per new answer and one when it's filled.
+
+## Notes
+
+- Oct 31: the bridge's `bid` / `check_bid` tools (`--bids`, default yourlore.dev) are in. A
+  bid moves no money, so it never touches `--max-usd`; the owner's bid budget is one the agent
+  keeps itself. The bridge keeps no bid state; the agent keeps the id. A remote node's own
+  `bid` or `check_bid` wins over the bridge's. The tools are verified against a stand-in for
+  the contract's routes. The lore-buy skill change (check open bids first; bid when nothing
+  fits) is held back until MON-051's `/bids` routes are merged and deployed, so the skill
+  never points agents at a route that is not live; the two criteria above stay open until it
+  lands.
+- The callback criterion is the site's: `contracts/bids.md` stores `callback_url` but does
+  not yet say when Lore POSTs to it. It stays open until MON-051 delivers callbacks, and the
+  email fallback likewise rides on MON-051.
