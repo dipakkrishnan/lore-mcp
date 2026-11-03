@@ -108,9 +108,8 @@
     {
       "id": "connectors",
       "name": "Connectors",
-      "about": "Your apps catalog (every app by name with its mark, connected rows with counts), Your agents (offer, a connected agent, after disconnect), the reading rhythm row (taken over from Codex; paused), notices over it (next step to sell, Read again found nothing, scrolled to the bottom), and the page in dark. Labels named settings-* here date from when Connectors lived in Settings.",
+      "about": "Your apps catalog (every app by name with its mark, connected rows with counts), Your agents (offer, a connected agent, after disconnect), notices over it (next step to sell, Read again found nothing, scrolled to the bottom), and the page in dark. Labels named settings-* here date from when Connectors lived in Settings.",
       "scans": [
-        { "walk": "jobs", "widths": [1040], "shots": ["settings-taken-over"] },
         { "walk": "obsidian", "widths": [1040], "shots": ["settings-obsidian-offered", "settings-obsidian-connected"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["settings-catalog", "connected-next-step", "notice-in-view", "granola-connected", "settings-connected", "settings-connected-dark"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-offer", "agents-connected", "agents-disconnected"] },

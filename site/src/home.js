@@ -17,7 +17,7 @@ export const HERO = {
   lede: "Lore is one private memory for Claude, ChatGPT and the other AIs you use, kept on your Mac. Because it knows what you've lived through, when someone puts a price on a question you can answer, Lore drafts the answer and you get paid."
 };
 
-const TRUST = "Free · Open source · Notarized by Apple · Nothing you've taught it is shared until you approve it";
+const TRUST = "Free · Open source · Nothing you've taught it is shared until you approve it";
 
 /** The one worked example: a real public piece, with the steps around it marked for what they are. */
 const EXAMPLE = {

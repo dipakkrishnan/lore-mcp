@@ -1175,7 +1175,7 @@ class Store:
 
     def publication_inventory(self) -> list[dict[str, object]]:
         rows = self.db.execute(
-            "SELECT id,public_id,title,topic,active "
+            "SELECT id,public_id,title,topic,bid,active "
             "FROM publications ORDER BY updated_at DESC,id"
         ).fetchall()
         return [dict(row) for row in rows]
