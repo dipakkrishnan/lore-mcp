@@ -387,6 +387,15 @@ type BidRow = {
   strength: 0 | 2 | 3;
 };
 
+/** Inventory's text tabs (APP-282): every memory and piece is exactly one of these, so their counts add up to All. */
+type Shelf = "all" | "private" | "draft" | "sale";
+
+/** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down. */
+type InventoryRow =
+  | { key: string; kind: "memory"; shelf: "private"; group: string; item: MemoryItem }
+  | { key: string; kind: "draft"; shelf: "draft"; group: string; item: PublicationCandidate }
+  | { key: string; kind: "piece"; shelf: "sale" | "private"; group: string; item: PublicationItem };
+
 type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
 
 /** What a bid's page reads its state from. */
@@ -482,6 +491,8 @@ interface Window {
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
+    /** Show the file a memory was read from in Finder; the path comes from the store, never from the page. */
+    revealMemory(id: number): Promise<void>;
     usage(name: "noticed" | "app.installed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
     usageLog(): Promise<string>;

@@ -15,8 +15,6 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
-const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
-const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
@@ -49,8 +47,7 @@ const stepDown = /** @type {HTMLButtonElement} */ ($("#step-down"));
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "faq" | "settings"} View */
-/** @typedef {"all" | "private" | "sale" | "down"} Shelf */
+/** @typedef {"inbox" | "bid" | "memory" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
@@ -382,166 +379,272 @@ function renderMemoryBody(content, title) {
 }
 
 /** @param {number} id */
-async function openMemory(id) {
-  hidePeek();
-  /** @type {Memory} */
-  let memory;
-  try {
-    memory = await window.lore.memory(id);
-  } catch (error) {
-    tell(reason(error, "Lore could not open that."), true);
-    return;
+function openMemory(id) {
+  return memoryPage.open(id);
+}
+
+/** APP-282: a memory's own page, laid out as a bid's: its title, its body as prose, Activity at the foot, and its
+ * properties in a column beside it. ↑/↓ step through the list it was opened from; Esc goes back. */
+class MemoryPage {
+  /** @type {Memory | null} */
+  memory = null;
+  /** Where it was opened from, which its breadcrumb and Esc go back to. @type {View} */
+  from = "inventory";
+  /** The page as drawn, kept across redraws so an edit in progress survives a refresh. @type {{key: string, node: HTMLElement} | null} */
+  built = null;
+  menu = el("div", "menu inv-menu");
+
+  constructor() {
+    this.menu.popover = "auto";
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "More");
+    document.body.append(this.menu);
   }
-  closeSheet();
-  // A native modal: focus stays inside, Escape closes it, and focus returns to what opened it.
-  const sheet = el("dialog", "sheet");
-  sheet.setAttribute("aria-label", memory.title);
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  const text = el("div", "t");
-  const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, provenanceLine(memory));
-  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
-  // step away, except for work, which is never offered for sale.
-  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
-  if (kept) {
-    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
-    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
-    text.append(note);
+
+  /** How one contributor brought a memory in: "Saved by" an agent, "Read from" an app. @param {MemorySource} source */
+  static verb(source) {
+    return { agent: "Saved by", app: "Read from", routine: "Written by", capture: source.mark === "file" ? "Brought in from" : "Written by", lore: "Written by" }[source.kind];
   }
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  close.addEventListener("click", closeSheet);
-  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
-  // its width and Delete is never a click away from selling.
-  const actions = el("div", "sheet-actions");
-  const menu = el("div", "menu sheet-menu");
-  menu.popover = "auto";
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", "More");
-  /** @param {string} label @param {string} icon @param {() => void} onClick */
-  const item = (label, icon, onClick) => {
-    const node = el("button", "", label);
-    node.type = "button";
-    node.setAttribute("role", "menuitem");
-    node.insertAdjacentHTML("afterbegin", icon);
-    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
-    return node;
-  };
-  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
-  removeItem.classList.add("danger");
-  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
-  menu.addEventListener("toggle", (event) => {
-    const open = /** @type {ToggleEvent} */ (event).newState === "open";
-    more.setAttribute("aria-expanded", String(open));
-    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
-  });
-  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
-  const iconButton = (label, icon, onClick) => {
+
+  /** @param {number} id */
+  async open(id) {
+    hidePeek();
+    /** @type {Memory} */
+    let memory;
+    try {
+      memory = await window.lore.memory(id);
+    } catch (error) {
+      tell(reason(error, "Lore could not open that."), true);
+      return;
+    }
+    closeSheet();
+    if (palette.open) palette.close();
+    if (view !== "memory") this.from = view;
+    this.memory = memory;
+    this.built = null;
+    if (this.from === "inventory") inventoryView.selected = `memory:${id}`;
+    show("memory");
+  }
+
+  /** The memories the page steps through: Inventory's, in its order, when it was opened from there. */
+  ids() {
+    return this.from === "inventory" ? inventoryView.shown.flatMap((row) => (row.key.startsWith("memory:") ? [Number(row.key.slice(7))] : [])) : [];
+  }
+
+  /** @param {number} by */
+  step(by) {
+    const ids = this.ids();
+    const next = ids[ids.indexOf(this.memory?.id ?? -1) + by];
+    if (next !== undefined) void this.open(next);
+  }
+
+  back() {
+    show(this.from);
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const memory = this.memory;
+    if (!memory) return [el("p", "caught-up", "This memory is gone")];
+    const drafted = candidates.some((candidate) => candidate.provenance.includes(memory.id));
+    const key = JSON.stringify([memory, drafted]);
+    if (this.built?.key !== key) this.built = { key, node: this.build(s, memory, drafted) };
+    return [this.built.node];
+  }
+
+  /** @param {Snapshot} s @param {Memory} memory @param {boolean} drafted */
+  build(s, memory, drafted) {
+    const main = el("div", "page-col");
+    const heading = el("h2", "ptitle", memory.title);
+    const body = renderMemoryBody(memory.content, memory.title);
+    body.classList.add("read");
+    // An agent's bookkeeping is a property, not part of what the memory says (APP-284).
+    const kept = body.querySelector(".memory-props");
+    kept?.remove();
+    const actions = el("div", "page-actions");
+    const note = el("p", "lede page-note");
+    const verdict = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+    const idle = () => {
+      note.replaceChildren();
+      note.hidden = !verdict;
+      if (verdict) {
+        // A memory Lore judged not worth selling says why in one quiet line (APP-235); work is never offered for sale.
+        note.append(verdict.work ? "Work · stays private" : ["Lore keeps this private", verdict.why].filter(Boolean).join(" · "));
+        if (!verdict.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+      }
+      const sell = drafted ? button("Review draft", "secondary", () => show("drafts")) : verdict ? null : button("Draft for sale", "secondary", () => void publishMemory(memory), SALE_ICON);
+      actions.replaceChildren(...(sell ? [sell] : []), this.icon("Edit", EDIT_ICON, () => edit()), this.more([["Rename", RENAME_ICON, () => rename()], ["Delete", TRASH_ICON, () => remove()]]));
+    };
+    const edit = () => {
+      const area = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
+      area.value = memory.content;
+      area.setAttribute("aria-label", "Memory content");
+      body.replaceWith(area);
+      fit(area);
+      area.addEventListener("input", () => fit(area));
+      area.focus();
+      const cancel = () => { area.replaceWith(body); idle(); };
+      const save = async () => {
+        const value = area.value.trim();
+        if (!value || value === memory.content) return cancel();
+        try {
+          this.memory = await window.lore.editMemory(memory.id, value);
+        } catch (error) {
+          tell(reason(error, "Lore could not save that."), true);
+          return;
+        }
+        await load();
+      };
+      area.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+        else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); }
+      });
+      actions.replaceChildren(button("Cancel", "secondary", cancel), button("Save", "primary", () => void save()));
+    };
+    const rename = () => {
+      const input = el("input", "draft-title ptitle");
+      input.type = "text";
+      input.value = memory.title;
+      input.setAttribute("aria-label", "Memory title");
+      heading.replaceWith(input);
+      input.focus();
+      input.select();
+      const cancel = () => { input.replaceWith(heading); idle(); };
+      const save = async () => {
+        const value = input.value.trim();
+        if (!value || value === memory.title) return cancel();
+        try {
+          this.memory = await window.lore.renameMemory(memory.id, value);
+        } catch (error) {
+          tell(reason(error, "Lore could not rename that."), true);
+          return;
+        }
+        await load();
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); void save(); }
+        else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+      });
+      actions.replaceChildren(button("Cancel", "secondary", cancel), button("Save", "primary", () => void save()));
+    };
+    const remove = () => {
+      note.hidden = false;
+      note.replaceChildren("Delete this memory? Lore won't bring it back.");
+      const sure = button("Delete", "quiet", () => void act(async () => {
+        await window.lore.deleteMemory(memory.id);
+        this.memory = null;
+        tell(`Deleted ${memory.title}.`);
+        this.back();
+      }));
+      sure.classList.add("destructive");
+      actions.replaceChildren(button("Cancel", "secondary", idle), sure);
+    };
+    idle();
+    main.append(heading, note, body, actions, el("h3", "sec", "Activity"), bidPage.timeline(this.activity(memory, drafted)));
+    const layout = el("div", "page memory-page");
+    layout.append(main, this.properties(s, memory, drafted, kept));
+    return layout;
+  }
+
+  /** What happened to it, oldest first: who brought it in, what Lore judged of it, and a draft made from it.
+   * @param {Memory} memory @param {boolean} drafted */
+  activity(memory, drafted) {
+    /** @type {Array<{actor: string, glyph: string, text: string, before?: string, on?: string, mark?: HTMLElement}>} */
+    const entries = [...memory.sources].reverse().map((source) => ({
+      before: MemoryPage.verb(source),
+      actor: source.kind === "capture" && source.mark !== "file" ? "you" : source.label,
+      glyph: source.kind === "lore" ? "lore" : "memory",
+      text: "",
+      on: source.at ? when(source.at) : undefined,
+      mark: source.kind === "lore" ? undefined : markTile(sourceMark(source))
+    }));
+    // Nothing on record says where it came from, so the page says so rather than guessing.
+    if (!entries.length) entries.push({ actor: "", glyph: "help", text: "Where it came from isn't recorded" });
+    const verdict = memory.verdict;
+    if (verdict) entries.push({ actor: "Lore", glyph: "lore", text: verdict.sell ? "judged it worth selling" : verdict.work ? "kept it private: it's about work" : "kept it private" });
+    if (drafted) entries.push({ actor: "Lore", glyph: "draft", text: "drafted it for sale" });
+    return entries;
+  }
+
+  /** @param {Snapshot} s @param {Memory} memory @param {boolean} drafted @param {Element | null} kept */
+  properties(s, memory, drafted, kept) {
+    const side = el("div", "page-side");
+    const list = el("dl", "props");
+    /** @param {string} label @param {(string | HTMLElement)[]} value */
+    const prop = (label, ...value) => {
+      const item = el("div", "prop");
+      const dd = el("dd");
+      dd.append(...value);
+      item.append(el("dt", "", label), dd);
+      list.append(item);
+    };
+    prop("Status", chip(drafted ? "Draft" : "Private", drafted ? "pending" : ""));
+    // Where it came from: who brought it in first, the file or post it was read from, and when.
+    const first = memory.sources.at(-1);
+    if (first) {
+      const mark = markTile(sourceMark(first));
+      mark.title = `${MemoryPage.verb(first)} ${first.label}`;
+      prop("Source", mark, el("span", "from", first.kind === "capture" && first.mark !== "file" ? "You" : first.label));
+    } else prop("Source", "Unknown");
+    const path = memory.source_path;
+    if (/^https?:\/\//.test(path)) {
+      const link = outLink(`${path.replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "").slice(0, 32)} ↗`, path, "quiet-link");
+      link.title = path;
+      prop("From", link);
+    } else if (/^(\/|~\/)/.test(path)) {
+      const finder = inline("Show in Finder", () => void window.lore.revealMemory(memory.id));
+      finder.title = path;
+      prop("From", finder);
+    }
+    if (first?.at) prop("Saved", when(first.at));
+    prop("Topic", s.library.items.find((item) => item.id === memory.id)?.project_label || memory.project || "Unsorted");
+    if (drafted && typeof s.pricing.publication_usd === "number") prop("Price", dollars(s.pricing.publication_usd));
+    prop("Updated", when(memory.updated_at));
+    if (kept) list.append(...kept.children);
+    side.append(list);
+    return side;
+  }
+
+  /** @param {string} label @param {string} paths @param {() => void} onClick */
+  icon(label, paths, onClick) {
     const node = el("button", "icon-btn");
     node.type = "button";
-    node.setAttribute("aria-label", label);
     node.title = label;
-    node.insertAdjacentHTML("afterbegin", icon);
-    if (onClick) node.addEventListener("click", onClick);
+    node.setAttribute("aria-label", label);
+    node.innerHTML = paths;
+    node.addEventListener("click", onClick);
     return node;
-  };
-  const more = iconButton("More", MORE_ICON, undefined);
-  more.classList.add("sheet-more");
-  more.setAttribute("aria-haspopup", "menu");
-  more.popoverTargetElement = menu;
-  function showActions() {
-    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
   }
-  function startDelete() {
-    // The question sits under the title like the sale note, so asking never squeezes the title.
-    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
-    const back = () => { asking.remove(); showActions(); };
-    const remove = button("Delete", "quiet", () => void act(async () => {
-      await window.lore.deleteMemory(memory.id);
-      closeSheet();
-      tell(`Deleted ${memory.title}.`);
-    }).then((done) => { if (!done) back(); }));
-    remove.classList.add("destructive");
-    text.append(asking);
-    actions.replaceChildren(button("Cancel", "secondary", back), remove);
-  }
-  /** @type {HTMLElement} */
-  let body = renderMemoryBody(memory.content, memory.title);
-  function startRename() {
-    const input = el("input", "draft-title");
-    input.type = "text";
-    input.value = memory.title;
-    input.setAttribute("aria-label", "Memory title");
-    titleLabel.replaceWith(input);
-    input.focus();
-    input.select();
-    actions.replaceChildren(button("Cancel", "secondary", cancelRename), button("Save", "primary", () => void saveRename()));
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); void saveRename(); }
-      else if (event.key === "Escape") { event.preventDefault(); cancelRename(); }
+
+  /** The … beside the page's actions: Rename and Delete. @param {Array<[string, string, () => void]>} items */
+  more(items) {
+    const more = this.icon("More", MORE_ICON, () => {
+      this.menu.replaceChildren(...items.map(([label, icon, run], at) => {
+        const item = el("button", at === items.length - 1 ? "danger" : "", label);
+        item.type = "button";
+        item.setAttribute("role", "menuitem");
+        item.insertAdjacentHTML("afterbegin", icon);
+        item.addEventListener("click", () => { this.menu.hidePopover(); run(); });
+        return item;
+      }));
+      this.menu.showPopover({ source: more });
+      /** @type {HTMLElement | null} */ (this.menu.querySelector("button"))?.focus();
     });
-    function cancelRename() {
-      input.replaceWith(titleLabel);
-      showActions();
-    }
-    async function saveRename() {
-      const title = input.value.trim();
-      if (!title || title === memory.title) { cancelRename(); return; }
-      try {
-        memory = await window.lore.renameMemory(memory.id, title);
-      } catch (error) {
-        say(reason(error, "Lore could not rename that."));
-        return;
-      }
-      titleLabel.textContent = memory.title;
-      sheet.setAttribute("aria-label", memory.title);
-      cancelRename();
-      void load();
-    }
+    more.setAttribute("aria-haspopup", "menu");
+    return more;
   }
-  function startEdit() {
-    const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
-    textarea.value = memory.content;
-    textarea.setAttribute("aria-label", "Memory content");
-    body.replaceWith(textarea);
-    textarea.focus();
-    actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
-    textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelEdit(); }
-      else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
-    });
-    function cancelEdit() {
-      textarea.replaceWith(body);
-      showActions();
-    }
-    async function saveEdit() {
-      const value = textarea.value.trim();
-      if (!value || value === memory.content) { cancelEdit(); return; }
-      try {
-        memory = await window.lore.editMemory(memory.id, value);
-      } catch (error) {
-        tell(reason(error, "Lore could not save that."), true);
-        return;
-      }
-      body = renderMemoryBody(memory.content, memory.title);
-      textarea.replaceWith(body);
-      showActions();
-      void load();
-    }
+
+  /** ↑/↓ or K/J to the memory before or after, Esc back. @param {KeyboardEvent} event */
+  key(event) {
+    if (event.key === "ArrowUp" || event.key === "k") this.step(-1);
+    else if (event.key === "ArrowDown" || event.key === "j") this.step(1);
+    else if (event.key === "Escape") this.back();
+    else return false;
+    return true;
   }
-  showActions();
-  head.append(text, actions, close);
-  panel.append(head, body);
-  sheet.append(panel, menu);
-  // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
-  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
-  sheet.addEventListener("close", () => sheet.remove());
-  document.body.append(sheet);
-  sheet.showModal();
-  close.focus();
 }
+
+const memoryPage = new MemoryPage();
 
 function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet[open]"))?.close();
@@ -716,26 +819,6 @@ function explorer(network) {
   return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
-/** @param {Snapshot["node"]["live"]} live @param {string} [className] */
-function payoutLink(live, className) {
-  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`, className) : null;
-}
-
-/** @param {Snapshot["node"]} node */
-function storeAddress(node) {
-  const url = /** @type {string} */ (node.url);
-  const box = el("span", "address");
-  box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
-  // Where buyers browse every store, this one among them.
-  box.append(outLink("Markets ↗", MARKETS, "quiet-link"));
-  const console = workerConsole(url);
-  // The store's own dashboard, named for what it is to the owner, not who hosts it.
-  if (console) box.append(outLink("Dashboard ↗", console, "quiet-link"));
-  const payouts = payoutLink(node.live, "quiet-link");
-  if (payouts) box.append(payouts);
-  return box;
-}
-
 /** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
 function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
@@ -745,9 +828,6 @@ function forSale(s) {
 function lineIcon(paths) {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
 }
-
-/** The public exchange every open store is part of. */
-const MARKETS = "https://yourlore.dev/marketplace";
 
 /** Each of Today's next steps by its mark. */
 const STEP_ICONS = {
@@ -1567,21 +1647,23 @@ class BidPage {
     return side;
   }
 
-  /** What happened to the bid, newest last. @param {ReturnType<InstanceType<typeof Inbox>["bid"]>["activity"]} activity */
+  /** What happened, newest last; an entry's mark, when it has one, stands in for its glyph, and words `before` its
+   * actor read first ("Saved by **Claude**"). An entry dated `on` says that day rather than how long ago.
+   * @param {Array<{actor: string, glyph: string, text: string, before?: string, at?: string, on?: string, live?: boolean, mark?: HTMLElement}>} activity */
   timeline(activity) {
     const list = el("div", "timeline");
     const age = new Inbox();
     for (const entry of activity) {
       const node = el("div", "ev");
-      const icon = entry.glyph === "lore" ? mark("glyph lore") : glyph(entry.glyph);
+      const icon = entry.mark ?? (entry.glyph === "lore" ? mark("glyph lore") : glyph(entry.glyph));
       const text = el("span", "tx");
-      const said = [el("b", "", entry.actor), ` ${entry.text}`];
+      const said = [entry.before ? `${entry.before} ` : "", ...(entry.actor ? [el("b", "", entry.actor)] : []), entry.text ? `${entry.actor ? " " : ""}${entry.text}` : ""].filter(Boolean);
       if (entry.live) {
         const live = el("span", "shimmer");
         live.append(...said);
         text.append(live);
       } else text.append(...said);
-      if (entry.at) text.append(el("span", "when", ` · ${age.age(entry.at)}`));
+      if (entry.on || entry.at) text.append(el("span", "when", ` · ${entry.on ?? age.age(entry.at)}`));
       node.append(icon, text);
       list.append(node);
     }
@@ -2232,24 +2314,6 @@ function privateMemories(s) {
   return s.library.items.filter((item) => item.status === "private");
 }
 
-/** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
-function priceRow(s) {
-  // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
-  // would spread its hover background across the whole bar.
-  const item = el("div", "price-row");
-  const { publication_usd: piece, answer_usd: answer, answer_enabled: answers, free_copies: copies } = s.pricing;
-  if (typeof piece === "number") {
-    const open = el("button", "price-open");
-    open.type = "button";
-    open.title = "Change what a buyer pays per publication";
-    open.append(`${dollars(piece)} `, el("span", "", ["a piece", copies ? freeCopies(copies) : ""].filter(Boolean).join(" · ")));
-    open.addEventListener("click", openPriceSheet);
-    item.append(open);
-  } else if (s.node.url && s.node.live.state !== "unreachable") item.append(inline("Set a price", openPriceSheet));
-  if (answers && typeof answer === "number") item.append(el("span", "", " · "), `${dollars(answer)} `, el("span", "", "an answer"));
-  return item;
-}
-
 /** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
 function priceField(value) {
   const field = el("div", "price-field");
@@ -2317,177 +2381,278 @@ async function savePrice(raw, rawCopies) {
   if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
-/** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
-function storeBar(s) {
-  const live = s.node.live;
-  const selling = forSale(s);
-  const bar = el("div", "card store-bar");
-  const lead = el("div", "lead");
-  lead.append(el("span", `dot ${live.state === "online" && selling ? "ok" : live.state === "unreachable" ? "" : "off"}`));
-  const text = el("div", "t");
-  const state = !s.node.url ? "No store yet" : live.state === "unreachable" ? "Your store isn't responding" : !selling ? "Nothing for sale yet" : live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : "No store yet";
-  text.append(el("b", "sans", state));
-  if (selling) {
-    text.append(storeAddress(s.node));
-  } else {
-    const open = el("span");
-    open.append(inline("Open your store", () => void startDeploy()), " when you're ready to sell.");
-    text.append(open);
-  }
-  lead.append(text);
-  const prices = el("div", "prices");
-  prices.append(priceRow(s));
-  const stale = stalePrice(s);
-  if (stale !== null && !pushing) {
-    const note = el("div", "stale-price");
-    note.append(el("span", "", `Your store still charges ${price(stale)}.`));
-    prices.append(note);
-  }
-  bar.append(lead, prices);
-  // One Update store at a time: pieces waiting to go on or come off are pushed first; a new price is redeployed after.
-  if (unpushed(s).length) {
-    if (!pushOffer) {
-      const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
-      push.disabled = pushing;
-      bar.append(push);
-    }
-  } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
-  else {
-    const newer = newerStore(s);
-    if (newer) {
-      // Its own strip along the foot, so the price stays one clean line.
-      const line = el("div", "newer-store-line");
-      line.append(newer.note, newer.update);
-      bar.append(line);
-    }
-  }
-  return bar;
-}
+/** APP-282: Inventory as one-line rows under flat group headers, with All / Private / Draft / On sale as text tabs
+ * beside the title. Each row: title, its actions on hover, where it came from, its status, its date and its price. */
+class InventoryView {
+  /** The selected row, by key, so a redraw keeps it. */
+  selected = "";
+  /** Groups the owner folded, by name. @type {Set<string>} */
+  closed = new Set();
+  /** What each row drawn does. @type {Array<{key: string, open?: () => void, tag?: () => void}>} */
+  shown = [];
+  menu = el("div", "menu inv-menu");
 
-/** One piece on sale: what it's about, how it's doing, and taking it down. @param {PublicationItem} item */
-function saleItem(item) {
-  const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
-  const seen = views[item.public_id] ?? 0;
-  const detail = [seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ") || "No views yet";
-  const badge = item.live === false ? chip("Not on your store yet") : el("span");
-  const trailing = el("div", "v");
-  const ask = button("Take down", "quiet", () => {
-    trailing.replaceChildren(
-      el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
-      button("Keep", "secondary", () => trailing.replaceChildren(badge, ask)),
-      button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
-    );
-    trailing.classList.add("asking");
-  });
-  trailing.append(badge, ask);
-  return row(item.title, detail, trailing);
-}
-
-/** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
-function renderInventory(s) {
-  const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
-  const from = inventoryFrom;
-  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
-  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
-  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
-  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
-  unseen.forget();
-  if (shelf === "down" && !down.length) shelf = "all";
-
-  const tabs = el("div", "shelves");
-  tabs.setAttribute("role", "tablist");
-  // Approved pieces wait for the store to open for sale before anyone can buy them (XC-069).
-  const saleLabel = forSale(s) ? "On sale" : "Ready to sell";
-  const waitingNote = forSale(s) ? undefined : el("span", "hint", "Ready to sell once your store opens.");
-  /** @type {[Shelf, string, number][]} */
-  const shelves =[["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", saleLabel, onSale.length]];
-  if (down.length) shelves.push(["down", "Taken down", down.length]);
-  for (const [id, label, count] of shelves) {
-    const tab = el("button", "shelf");
-    tab.type = "button";
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", String(shelf === id));
-    tab.append(label, el("span", "shelf-count", String(count)));
-    tab.addEventListener("click", () => { shelf = id; render(); });
-    tabs.append(tab);
+  constructor() {
+    this.menu.popover = "auto";
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "More");
+    document.body.append(this.menu);
   }
 
-  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
-  const known = new Map();
-  for (const item of kept) {
-    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
+  /** @param {Snapshot} s */
+  model(s) {
+    const from = inventoryFrom;
+    // A piece or a draft says nothing of who brought its memories in, so filtering by one shows memories only.
+    const memories = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+    return Inbox.inventory({ memories, pieces: from ? [] : s.publications.items, drafts: from ? [] : candidates, tab: shelf });
   }
-  /** Rows under one heading, each group a card headed by what it's about; the group with the newest row first.
-   * @param {Map<string, HTMLElement[]>} groups @param {(name: string) => HTMLElement | undefined} [action] */
-  const grouped = (groups, action) => [...groups].map(([name, rows]) => {
-    const box = el("div", "card rows inv-group");
-    const head = el("div", "inv-group-head");
-    const app = agentApp(name);
-    const source = known.get(name);
-    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
-    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
-    const extra = action?.(name);
-    if (extra) head.append(extra);
-    box.append(head, ...rows);
-    return box;
-  });
-  /** Newest first, and so is each group by its newest item.
-   * @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => number} recency @param {(item: T) => HTMLElement} make
-   * @param {(name: string) => HTMLElement | undefined} [action] */
-  const groupBy = (items, key, recency, make, action) => {
-    /** @type {Map<string, HTMLElement[]>} */
-    const groups = new Map();
-    for (const item of [...items].sort((a, b) => recency(b) - recency(a))) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
-    return grouped(groups, action);
-  };
-  /** @param {string} name */
-  const collectIt = (name) => button("Sell as a collection", "quiet", () => void collectTopic(name, kept.filter((item) => item.project_label === name).map((item) => item.id)));
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => Date.parse(item.updated_at), (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival), from ? undefined : collectIt);
-  // A piece's id only grows, so the highest is the newest.
-  const saleGroups = () => groupBy(onSale, (item) => item.topic, (item) => item.id, saleItem);
-  const downGroups = () => groupBy(down, (item) => item.topic, (item) => item.id, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
-  const stack = (/** @type {HTMLElement[]} */ cards) => {
-    const node = el("div", "inv-stack");
-    node.append(...cards);
-    return node;
-  };
 
-  /** @type {HTMLElement[]} */
-  const parts = [storeBar(s)];
-  if (pushOffer) parts.push(seamCard());
-  if (pushedNote) parts.push(pushReceipt(s));
-  const filters = el("div", "inv-filters");
-  filters.append(tabs);
-  if (from) {
+  /** The text tabs beside the title, and the chip of the one agent or app it's filtered to. @param {Snapshot} s */
+  tabs(s) {
+    const { counts } = this.model(s);
+    /** @type {[Shelf, string][]} */
+    const shelves = [["all", "All"], ["private", "Private"], ["draft", "Draft"], ["sale", forSale(s) ? "On sale" : "Ready to sell"]];
+    const tabs = shelves.map(([id, label]) => {
+      const tab = el("button", "ptab");
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(shelf === id));
+      tab.append(label, el("span", "n", String(counts[id])));
+      tab.addEventListener("click", () => { shelf = id; render(); });
+      return tab;
+    });
+    const from = inventoryFrom;
+    if (!from) return tabs;
     const only = el("span", "chip source-filter", from.label);
     const all = el("button", "dismiss", "×");
     all.type = "button";
     all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
-    all.addEventListener("click", () => {
-      inventoryFrom = null;
-      render();
-    });
+    all.addEventListener("click", () => { inventoryFrom = null; render(); });
     only.append(all);
-    filters.append(only);
+    return [...tabs, only];
   }
-  parts.push(filters);
-  const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
-  const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
-  if (shelf === "all") {
-    if (!kept.length && !onSale.length) parts.push(nothingKept);
-    if (onSale.length) parts.push(section(saleLabel, stack(saleGroups()), waitingNote));
-    if (kept.length) parts.push(section("Private", stack(privateGroups())));
-  } else if (shelf === "private") {
-    parts.push(kept.length ? stack(privateGroups()) : nothingKept);
-  } else if (shelf === "sale") {
-    if (onSale.length && waitingNote) parts.push(waitingNote);
-    parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
-  } else {
-    parts.push(stack(downGroups()));
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    unseen.forget();
+    this.shown = [];
+    const { counts, groups } = this.model(s);
+    const list = el("div", "inbox inv");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Inventory");
+    for (const group of groups) {
+      const sell = !inventoryFrom && group.rows.some((row) => row.kind === "memory") ? button("Sell as a collection", "quiet", () => void collectTopic(group.key, group.rows.flatMap((row) => (row.kind === "memory" ? [row.item.id] : [])))) : undefined;
+      list.append(...this.group(group.key, group.name, group.rows.map((row) => this.row(s, row)), sell));
+    }
+    if (!inventoryFrom && (shelf === "all" || shelf === "sale")) {
+      const collections = s.collections?.items ?? [];
+      if (collections.length) list.append(...this.group("\0collections", "Collections", collections.map((item) => this.collectionRow(item))));
+      list.append(...this.salesGroup());
+    }
+    this.shown = this.shown.filter((row) => list.querySelector(`[data-key="${CSS.escape(row.key)}"]`));
+    if (!this.shown.some((row) => row.key === this.selected)) this.selected = this.shown[0]?.key ?? "";
+    for (const node of list.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === this.selected);
+    if (list.childElementCount) return [list];
+    if (shelf === "sale") return [this.empty("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }))];
+    if (!counts.all && !inventoryFrom) return [this.empty("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()))];
+    return [this.empty(shelf === "draft" ? "No drafts to approve." : "Nothing here.")];
   }
-  if (!from && (shelf === "all" || shelf === "sale")) parts.push(collectionsSection(s));
-  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
-  return parts;
+
+  /** @param {string} text @param {HTMLElement} [action] */
+  empty(text, action) {
+    const node = el("div", "caught-up empty");
+    node.append(el("span", "", text), ...(action ? [action] : []));
+    return node;
+  }
+
+  /** A flat header row that folds its rows away, then the rows. @param {string} key @param {string} name
+   * @param {HTMLElement[]} rows @param {HTMLElement} [action] @param {string} [meta] */
+  group(key, name, rows, action, meta) {
+    const closed = this.closed.has(key);
+    const head = el("div", "igroup");
+    head.setAttribute("role", "button");
+    head.tabIndex = 0;
+    head.setAttribute("aria-expanded", String(!closed));
+    head.append(glyph("down", "glyph chev"), el("span", "label", name), el("span", "n", String(rows.length)));
+    if (meta) head.append(el("span", "meta", meta));
+    if (action) head.append(action);
+    const fold = () => { if (closed) this.closed.delete(key); else this.closed.add(key); render(); };
+    head.addEventListener("click", (event) => { if (!(event.target instanceof Element && event.target.closest("button"))) fold(); });
+    head.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); fold(); } });
+    return [head, ...(closed ? [] : rows)];
+  }
+
+  /** One line: title, actions on hover, source, status, date, price.
+   * @param {{key: string, title: string, mark?: HTMLElement, status?: [string, string], date?: string, price?: string, hint?: string,
+   *   open?: () => void, tag?: [string, () => void], menu?: Array<[string, string, () => void]>, extra?: HTMLElement}} spec */
+  line({ key, title, mark, status, date = "", price: cost = "", hint, open, tag, menu, extra }) {
+    const node = el("div", `irow invrow${open ? "" : " still"}`);
+    node.setAttribute("role", "listitem");
+    node.dataset.key = key;
+    // A row that opens is reached by Tab on its title, which previews a memory on focus as on hover.
+    const say = open ? el("button", "say", title) : el("span", "say", title);
+    if (say instanceof HTMLButtonElement) {
+      say.type = "button";
+      say.addEventListener("click", () => open?.());
+      say.addEventListener("focus", () => this.select(key));
+    }
+    say.title = hint ?? title;
+    const acts = el("span", "acts");
+    if (tag) acts.append(this.icon(tag[0], GLYPHS.sell, tag[1]));
+    if (menu?.length) {
+      const more = this.icon("More", `<circle cx="3.5" cy="8" r="1" fill="currentColor"></circle><circle cx="8" cy="8" r="1" fill="currentColor"></circle><circle cx="12.5" cy="8" r="1" fill="currentColor"></circle>`, () => this.open(more, menu));
+      more.setAttribute("aria-haspopup", "menu");
+      acts.append(more);
+    }
+    if (extra) acts.append(extra);
+    const src = el("span", "src");
+    if (mark) src.append(mark);
+    node.append(say, acts, src, el("span", `st ${status?.[1] ?? ""}`.trim(), status?.[0] ?? ""), el("span", "age", date), el("span", "cost", cost));
+    node.addEventListener("click", (event) => { if (!(event.target instanceof Element && event.target.closest("button, a"))) open?.(); });
+    node.addEventListener("mousemove", () => this.select(key));
+    this.shown.push({ key, open, tag: tag?.[1] });
+    return node;
+  }
+
+  /** A 16px line icon that does one thing. @param {string} label @param {string} paths @param {() => void} onClick */
+  icon(label, paths, onClick) {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.title = label;
+    node.setAttribute("aria-label", label);
+    node.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+    node.addEventListener("click", (event) => { event.stopPropagation(); onClick(); });
+    return node;
+  }
+
+  /** The row's … menu, opened under it. @param {HTMLElement} anchor @param {Array<[string, string, () => void]>} items */
+  open(anchor, items) {
+    this.menu.replaceChildren(...items.map(([label, paths, run]) => {
+      const item = el("button", "", label);
+      item.type = "button";
+      item.setAttribute("role", "menuitem");
+      item.insertAdjacentHTML("afterbegin", `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`);
+      item.addEventListener("click", () => { this.menu.hidePopover(); run(); });
+      return item;
+    }));
+    this.menu.showPopover({ source: anchor });
+    /** @type {HTMLElement | null} */ (this.menu.querySelector("button"))?.focus();
+  }
+
+  /** @param {Snapshot} s @param {InventoryRow} row */
+  row(s, row) {
+    const each = dollars(s.pricing.publication_usd ?? 0);
+    const cost = typeof s.pricing.publication_usd === "number" ? each : "";
+    const setPrice = /** @type {[string, () => void]} */ (["Set price", openPriceSheet]);
+    if (row.kind === "memory") {
+      const memory = row.item;
+      // Its mark names where it came from on hover; nothing on record reads as unknown, not as Lore's.
+      const mark = memory.sources.length ? markTile(sourceMark(memory.sources[0])) : glyph("help", "routine-mark");
+      mark.title = memory.sources.length ? provenance(memory.sources).line : "Source unknown";
+      const sell = memory.verdict?.sell ?? true;
+      const draft = () => void publishMemory(memory);
+      /** @type {Array<[string, string, () => void]>} */
+      const menu = [["Open", GLYPHS.memory, () => void openMemory(memory.id)]];
+      if (sell) menu.push(["Draft for sale", GLYPHS.sell, draft]);
+      const node = this.line({ key: row.key, title: memory.title, mark, date: when(memory.updated_at), open: () => void openMemory(memory.id), tag: sell ? ["Draft for sale", draft] : undefined, menu });
+      peekable(/** @type {HTMLElement} */ (node.querySelector(".say")), memory.id);
+      return unseen.watch(node, memory.arrival);
+    }
+    if (row.kind === "draft") {
+      const draft = row.item;
+      const review = () => (draft.bid ? bidPage.open(draft.bid) : show("drafts"));
+      const source = privateMemories(s).find((memory) => memory.id === draft.provenance[0])?.sources[0];
+      return this.line({ key: row.key, title: draft.title, mark: source ? markTile(sourceMark(source)) : undefined, status: ["Draft", "draft"], price: cost, open: review, tag: setPrice, menu: [["Review", GLYPHS.draft, review], ["Set price…", GLYPHS.sell, openPriceSheet]] });
+    }
+    const piece = row.item;
+    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === piece.public_id && sale.network !== "free").length : 0;
+    const seen = views[piece.public_id] ?? 0;
+    const hint = [piece.title, seen ? Inbox.plural(seen, "view") : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
+    if (piece.state === "revoked") return this.line({ key: row.key, title: piece.title, status: ["Taken down", "down"], hint: piece.live === true ? `${piece.title} · Still on your store until it updates` : hint });
+    const page = forSale(s) && piece.live !== false && s.node.url ? `${s.node.url.replace(/\/mcp$/, "")}/p/${piece.public_id}` : "";
+    const visit = page ? () => void window.open(page) : undefined;
+    const selling = forSale(s);
+    const status = /** @type {[string, string]} */ (piece.live === false && selling ? ["Pending", "wait"] : [selling ? "On sale" : "Ready to sell", "sale"]);
+    return this.line({ key: row.key, title: piece.title, status, price: cost, hint: piece.live === false && selling ? `${hint} · Not on your store yet` : hint, open: visit, tag: setPrice, menu: [...(visit ? [/** @type {[string, string, () => void]} */ (["Open on your store", GLYPHS.next, visit])] : []), ["Set price…", GLYPHS.sell, openPriceSheet], ["Take down…", GLYPHS.lock, () => this.takeDown(piece)]] });
+  }
+
+  /** No one can buy it after this; anyone who already did keeps their copy. @param {PublicationItem} piece */
+  takeDown(piece) {
+    const form = new FormSheet("Take down this piece?");
+    form.note(`“${piece.title}”. No one can buy it after this. Anyone who already did keeps their copy.`);
+    form.button("Keep", "secondary", () => form.close());
+    form.open({ primary: "Take down", submit: () => void act(() => window.lore.revoke(piece.id), "Taken down. Your store stops selling it as soon as it updates.") });
+  }
+
+  /** @param {CollectionItem} item */
+  collectionRow(item) {
+    const open = () => showCollection(item.id);
+    return this.line({ key: `collection:${item.id}`, title: item.title, status: item.on_sale ? ["On sale", "sale"] : ["Draft", "draft"], price: item.on_sale ? dollars(item.price_usd) : "", hint: `${item.title} · ${collectionDetail(item)}`, open, menu: [["Open", GLYPHS.collection, open]] });
+  }
+
+  /** What the store sold, newest first, under its tally; a store not opened here, or a ledger that didn't answer, says so in one row. */
+  salesGroup() {
+    if (sales === null) return this.group("\0sales", "Sales", [this.line({ key: "sales:checking", title: "Checking your store…" })]);
+    if (sales instanceof Error) {
+      const retry = sales.message === SALES_ELSEWHERE ? undefined : button("Try again", "quiet", () => void loadSales());
+      return this.group("\0sales", "Sales", [this.line({ key: "sales:problem", title: sales.message, extra: retry })]);
+    }
+    if (!sales.length) return [];
+    return this.group("\0sales", "Sales", sales.map((sale) => this.saleRow(sale)), undefined, `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`);
+  }
+
+  /** One sale: what sold and how it was paid, its receipt on hover, and a refund the owner owes. @param {Sale} sale */
+  saleRow(sale) {
+    const key = `sale:${sale.tx || sale.sold_at}`;
+    if (sale.network === "free") return this.line({ key, title: `${sale.title} · a free copy`, date: when(sale.sold_at), price: "Free" });
+    const byCard = sale.network === "stripe";
+    const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
+    const receipt = outLink("Receipt", href, "receipt");
+    receipt.title = `See this payment on ${where}`;
+    // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
+    const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
+    const owed = sale.refund_owed ? `${byCard ? "Taken down before delivery" : "Not answered"}${who}` : "";
+    return this.line({ key, title: `${sale.title} · ${byCard ? "by card" : "by an agent"}`, status: sale.refund_owed ? ["Refund owed", "owed"] : undefined, hint: owed || undefined, date: when(sale.sold_at), price: price(sale.price_usd), open: () => void window.open(href), extra: receipt });
+  }
+
+  /** @param {string} key */
+  select(key) {
+    if (this.selected === key) return;
+    this.selected = key;
+    for (const node of content.querySelectorAll(".invrow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === key);
+    content.querySelector(".invrow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens, P is the row's tag action. @param {KeyboardEvent} event @returns {boolean} */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.key === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.key);
+      return true;
+    }
+    const row = this.shown[at];
+    if (event.key === "Enter" && row?.open) { row.open(); return true; }
+    if (event.key === "p" && row?.tag) { row.tag(); return true; }
+    return false;
+  }
+}
+
+const inventoryView = new InventoryView();
+
+/** The one Update a store can take now: pieces going on or coming off first, then a new price, then a newer store from
+ * Lore. Null when there is none. @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
+function storeUpdate(s) {
+  const waiting = unpushed(s);
+  if (waiting.length && !pushOffer) {
+    const push = button(pushing ? "Updating…" : "Update store", "secondary", pushNow);
+    push.disabled = pushing;
+    return { note: el("span", "newer-store", pendingLabel(waiting)), update: push };
+  }
+  const stale = stalePrice(s);
+  if (stale !== null && !pushing) return { note: el("span", "newer-store", `Your store still charges ${price(stale)}.`), update: button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)) };
+  return newerStore(s);
 }
 
 /** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
@@ -2554,7 +2719,7 @@ class Unseen {
   /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
   watch(row, id) {
     if (!this.fresh(id)) return row;
-    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    row.querySelector(".say")?.append(el("span", "new-mark", "New"));
     if (!this.seen.has(id)) {
       row.dataset.memory = String(id);
       this.#observer.observe(row);
@@ -2600,23 +2765,6 @@ function collectionEyebrow(item) {
 function collectionDetail(item) {
   const count = `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`;
   return item.on_sale ? `${count} · ${price(item.price_usd)} for all of them` : `${count} · not on sale yet`;
-}
-
-/** For Sale's collections, each opening its own view. @param {Snapshot} s */
-function collectionsSection(s) {
-  const items = s.collections?.items ?? [];
-  const make = button("New collection", "quiet", () => void newCollection());
-  if (!items.length) return section("Collections", emptyState("Sell a set of pieces together, at one price.", make));
-  const rows = items.map((item) => {
-    const node = el("button", "row link");
-    node.type = "button";
-    const text = el("div", "t");
-    text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
-    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
-    node.addEventListener("click", () => showCollection(item.id));
-    return node;
-  });
-  return section("Collections", card(rows), make);
 }
 
 /** @param {number} id */
@@ -2808,8 +2956,8 @@ function memoryPicker(s) {
   const syncs = [];
   const kept = privateMemories(s);
   const groups = [...byTopic(pickBundle ? kept.filter((memory) => pickBundle?.includes(memory.id)) : kept)].map(([topic, memories]) => {
-    const box = el("div", "card rows inv-group pick-group");
-    const head = el("label", "inv-group-head pick-head");
+    const box = el("div", "card rows pick-group");
+    const head = el("label", "pick-head");
     const every = el("input");
     every.type = "checkbox";
     every.setAttribute("aria-label", `Every memory about ${topic || "nothing in particular"}`);
@@ -2987,7 +3135,9 @@ function collectionPiece(item, piece) {
     );
   });
   trailing.append(ask);
-  return row(piece.title, "", trailing, false);
+  const node = el("div", "irow");
+  node.append(el("span", "say", piece.title), trailing);
+  return node;
 }
 
 const UNTITLED = "Untitled collection";
@@ -3114,22 +3264,32 @@ function renderCollection(s) {
 
   // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
   if (!filled) return [section("Add memories", fill), foot];
-  const more = button(collectionAdding ? "Done adding" : "Add memories", "secondary", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
-  const contents = card(item.pieces.map((piece) => collectionPiece(item, piece)));
-  contents.classList.add("collection-contents");
-  return [
-    ...(collectionAdding ? [section("Add memories", fill)] : []),
-    section(`Contents · ${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`, contents, more),
-    section("Price", collectionPrice(item)),
-    foot
-  ];
-}
-
-function renderSales() {
-  if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
-  if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
-  if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
-  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
+  // APP-282: once set up, a collection is a page like a memory's: its pieces as rows, its price, its properties beside.
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "quiet", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
+  const contents = el("div", "found collection-contents");
+  contents.append(...item.pieces.map((piece) => collectionPiece(item, piece)));
+  const head = el("h3", "sec");
+  const right = el("span", "right");
+  right.append(more);
+  head.append(`${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`, right);
+  const main = el("div", "page-col");
+  main.append(el("h2", "ptitle", item.title), ...(collectionAdding ? [fill] : []), head, contents, el("h3", "sec", "Price"), collectionPrice(item), foot);
+  const side = el("div", "page-side");
+  const list = el("dl", "props");
+  /** @type {[string, string | HTMLElement][]} */
+  const props = [["Status", chip(item.on_sale ? "On sale" : "Draft", item.on_sale ? "live" : "pending")], ["Price", item.on_sale ? dollars(item.price_usd) : "Not set"], ["Pieces", String(item.pieces.length)]];
+  if (item.value_usd) props.push(["Separately", dollars(item.value_usd)]);
+  for (const [label, value] of props) {
+    const entry = el("div", "prop");
+    const dd = el("dd");
+    dd.append(value);
+    entry.append(el("dt", "", label), dd);
+    list.append(entry);
+  }
+  side.append(list);
+  const layout = el("div", "page collection-page");
+  layout.append(main, side);
+  return [layout];
 }
 
 /** @param {Sale[]} rows */
@@ -3140,23 +3300,6 @@ function tally(rows) {
   const free = rows.filter((sale) => sale.network === "free").length;
   const paid = rows.length - free;
   return [`${paid} ${paid === 1 ? "sale" : "sales"}`, free ? `${free} free ${free === 1 ? "copy" : "copies"}` : ""].filter(Boolean).join(" · ");
-}
-
-/** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
-function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")), false);
-  const byCard = sale.network === "stripe";
-  const trailing = el("div", "v");
-  const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
-  const receipt = outLink("Receipt", href, "receipt");
-  receipt.title = `See this payment on ${where}`;
-  if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
-  trailing.append(el("span", "value", price(sale.price_usd)), receipt);
-  // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
-  const why = byCard ? "taken down before delivery" : "not answered";
-  const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
-  const owed = sale.refund_owed ? ` · ${why}${who}` : "";
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing, false);
 }
 
 const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
@@ -3302,7 +3445,7 @@ function priceSetting(s) {
   if (minimum !== null) detail.append(el("span", "row-warn", `Card payments need at least ${price(minimum)} a piece. Buyers can't pay by card until you raise it.`));
   // One editor, on For Sale. Every other surface reads the same numbers and
   // sends the owner there rather than growing a second field.
-  return row("Price", detail, cell(el("span", "value", value), button(set ? "Change" : "Set a price", "quiet", openPriceEditor)), false);
+  return row("Price", detail, cell(el("span", "value", value), button(set ? "Change" : "Set a price", "quiet", openPriceSheet)), false);
 }
 
 /** Settings → Your store → Address: where buyers find the store, whether it answers, and one way to open it. @param {Snapshot} s */
@@ -3314,9 +3457,9 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  const newer = newerStore(s);
+  const newer = storeUpdate(s);
   if (newer) detail.append(newer.note);
-  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), outLink("Open ↗", home)), false);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), ...(s.node.selling === false ? [button("Open your store", "secondary", () => void startDeploy())] : []), outLink("Open ↗", home)), false);
 }
 
 /** APP-231: a newer store from Lore, offered quietly where the store shows, never as a step: a short line, and an
@@ -4537,6 +4680,7 @@ function renderSettings(s) {
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(pill(s.setup.blueprint_configured ? "Set" : "Not set", s.setup.blueprint_configured ? "ok" : ""), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(path, button("Show in Finder", "quiet", () => void window.lore.revealHome())), false)
     ])),
+    ...(pushedNote ? [pushReceipt(s)] : []),
     section("Your store", card([
       addressRow(s),
       priceSetting(s),
@@ -4828,40 +4972,44 @@ function automationsSection() {
   return node;
 }
 
-const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
+const renderers = { inbox: renderInbox, bid: renderBid, memory: (/** @type {Snapshot} */ s) => memoryPage.parts(s), drafts: renderDrafts, inventory: (/** @type {Snapshot} */ s) => inventoryView.parts(s), bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
   const detail = view === "inbox" ? detailTask : null;
   const welcoming = view === "inbox" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, memory: memoryPage.memory?.title ?? "Memory", drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
+  // A collection set up and filled is a page; its first steps keep their own layout.
+  const shelved = view === "collection" && !collectionStep && Boolean(openCollection()?.pieces.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "collection" ? collectionEyebrow(openCollection()) : "";
+    : welcoming || shelved ? "" : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   // A collection's name is its heading, renamed in place.
   title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
   title.spellcheck = false;
-  // APP-283: the Inbox, Bids, a bid and the drafts are pages: a header bar with a breadcrumb, rows edge to edge.
-  const paged = !detail && !welcoming && (view === "inbox" || view === "bids" || view === "bid" || view === "drafts");
+  // APP-283, APP-282: the Inbox, Bids, Inventory and each object are pages: a header bar with a breadcrumb.
+  const paged = !detail && !welcoming && (view === "inbox" || view === "bids" || view === "bid" || view === "drafts" || view === "inventory" || view === "memory" || shelved);
   mainEl.classList.toggle("paged", paged);
   // A bid's breadcrumb is the list it was opened from.
-  const list = view === "bid" ? bidPage.from : view === "drafts" ? "inbox" : view;
-  taskBack.textContent = paged ? (list === "bids" ? "Bids" : "Inbox") : view === "collection" && !detail ? "← Inventory" : "← Inbox";
-  taskBack.hidden = !detail && view !== "collection" && view !== "bid" && view !== "drafts";
-  stepper.hidden = view !== "bid";
-  if (view === "bid" && snapshot) {
-    const ids = bidPage.ids(snapshot);
-    const at = ids.indexOf(bidPage.id);
+  const opener = view === "memory" ? memoryPage.from : view;
+  const list = opener === "bid" ? bidPage.from : opener === "drafts" ? "inbox" : opener;
+  const PLACES = { inbox: "Inbox", bids: "Bids", inventory: "Inventory", connectors: "Connectors", settings: "Settings", faq: "FAQ", collection: "Collection" };
+  taskBack.textContent = view === "memory" ? (opener === "bid" ? `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid` : PLACES[/** @type {keyof typeof PLACES} */ (list)] ?? "Inbox") : shelved ? "Inventory" : paged ? (list === "bids" ? "Bids" : "Inbox") : view === "collection" && !detail ? "← Inventory" : "← Inbox";
+  taskBack.hidden = !detail && view !== "collection" && view !== "bid" && view !== "drafts" && view !== "memory";
+  const stepping = view === "bid" || (view === "memory" && memoryPage.ids().length > 0);
+  stepper.hidden = !stepping;
+  if (stepping && snapshot) {
+    /** @type {Array<string | number>} */
+    const ids = view === "bid" ? bidPage.ids(snapshot) : memoryPage.ids();
+    const at = ids.indexOf(view === "bid" ? bidPage.id : memoryPage.memory?.id ?? -1);
     stepperAt.textContent = at < 0 ? "" : `${at + 1} / ${ids.length}`;
     stepUp.disabled = at <= 0;
     stepDown.disabled = at < 0 || at >= ids.length - 1;
   }
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
-  sellWritingBtn.hidden = addMemoryBtn.hidden;
   // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
   captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
@@ -4870,13 +5018,14 @@ function render() {
   log.hidden = !detail;
   syncComposer();
   // A collection lives in Inventory, so Inventory stays lit while one is open.
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" ? list : view)));
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" || view === "memory" ? list : view)));
   if (!snapshot) return;
   $("[data-count=inbox]").textContent = String(inbox.count(snapshot) || "");
-  $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
+  $("[data-count=inventory]").textContent = String(inventoryView.model(snapshot).counts.all);
   $("[data-count=bids]").textContent = String(bidsView.rows(snapshot, "matches").length || "");
-  pageTabs.hidden = view !== "bids";
-  pageTabs.replaceChildren(...(view === "bids" ? bidsView.tabs(snapshot) : []));
+  pageTabs.hidden = view !== "bids" && view !== "inventory";
+  pageTabs.setAttribute("aria-label", view === "bids" ? "Which bids" : "Which memories");
+  pageTabs.replaceChildren(...(view === "bids" ? bidsView.tabs(snapshot) : view === "inventory" ? inventoryView.tabs(snapshot) : []));
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -4912,14 +5061,6 @@ function show(next) {
   mainEl.scrollTop = 0;
   if (next === "automations") $("#automations")?.scrollIntoView();
   mainEl.focus({ preventScroll: true });
-}
-
-/** Every "change the price" affordance lands on For Sale, with the one price sheet open over it. */
-function openPriceEditor() {
-  detailTask = null;
-  detailRecord = null;
-  show("store");
-  openPriceSheet();
 }
 
 async function load() {
@@ -6602,11 +6743,11 @@ document.addEventListener("drop", (event) => {
   if (attachments.length) startCapture();
 });
 
-taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" ? show(bidPage.from) : view === "drafts" ? show("inbox") : closeTask()));
+taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" ? show(bidPage.from) : view === "memory" ? memoryPage.back() : view === "drafts" ? show("inbox") : closeTask()));
 // An answer grows to its text, so a wider or narrower window fits it again.
 addEventListener("resize", () => { for (const area of mainEl.querySelectorAll("textarea.answer")) fit(/** @type {HTMLTextAreaElement} */ (area)); });
-stepUp.addEventListener("click", () => bidPage.step(-1));
-stepDown.addEventListener("click", () => bidPage.step(1));
+stepUp.addEventListener("click", () => (view === "memory" ? memoryPage.step(-1) : bidPage.step(-1)));
+stepDown.addEventListener("click", () => (view === "memory" ? memoryPage.step(1) : bidPage.step(1)));
 title.addEventListener("keydown", (event) => {
   if (title.contentEditable !== "plaintext-only") return;
   if (event.key === "Enter") { event.preventDefault(); title.blur(); }
@@ -6637,8 +6778,6 @@ async function startCapture(text = "") {
   if (composer.hidden || input.disabled) { if (text) tell("Finish what Lore is asking first. What you typed is waiting in the composer."); return; }
   input.focus();
 }
-addMemoryBtn.addEventListener("click", () => startCapture());
-sellWritingBtn.addEventListener("click", openPasteSheet);
 
 /* New: one place to start anything the owner makes. */
 const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
@@ -6659,6 +6798,7 @@ function startNew(what) {
   closeNewMenu();
   if (what === "memory") startCapture();
   else if (what === "collection") void newCollection();
+  else if (what === "writing") openPasteSheet();
   else if (what === "automation") { show("automations"); openNewRoutine(); }
 }
 for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
@@ -6876,13 +7016,15 @@ document.addEventListener("keydown", (event) => {
   pageKey(event);
 });
 
-/** APP-283, APP-288: the Inbox, Bids and a bid's page by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
+/** APP-283, APP-288, APP-282: the Inbox, Bids, a bid's page and Inventory by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
 function pageKey(event) {
   const typing = event.target instanceof HTMLElement && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
-  if (event.defaultPrevented || typing || event.metaKey || event.ctrlKey || event.altKey || palette.open || document.querySelector("dialog[open]") || !newMenu.hidden || document.body.dataset.state !== "app") return;
+  if (event.defaultPrevented || typing || event.metaKey || event.ctrlKey || event.altKey || palette.open || document.querySelector("dialog[open], :popover-open") || !newMenu.hidden || document.body.dataset.state !== "app") return;
   const handled = view === "inbox" && !detailTask && !firstRun.active ? inbox.key(event)
     : view === "bids" ? bidsView.key(event)
+    : view === "inventory" ? inventoryView.key(event)
     : view === "bid" ? bidKey(event)
+    : view === "memory" ? memoryPage.key(event)
     : false;
   if (handled) event.preventDefault();
 }

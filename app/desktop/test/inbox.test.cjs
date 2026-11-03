@@ -153,3 +153,21 @@ test("a bid the owner is answering says where the answer stands in place of its 
   assert.equal(Inbox.unmatched(matches[0].bid).memories.length, 0, "a bid nothing answers opens with no memories, so its page offers no draft");
   assert.equal(inbox.bid(look({ match: Inbox.unmatched(matches[0].bid) })).state, "unmatched");
 });
+
+test("APP-282: Inventory's tabs add up to All, a taken-down piece is private again, and drafts lead each group", () => {
+  /** @param {number} id @param {string} label @param {string} at @returns {MemoryItem} */
+  const memory = (id, label, at) => ({ id, title: `Memory ${id}`, project_label: label, status: "private", updated_at: at, sources: [], arrival: id });
+  /** @param {number} id @param {string} topic @param {"approved" | "revoked"} state @returns {PublicationItem} */
+  const piece = (id, topic, state) => ({ id, public_id: `p${id}`, title: `Piece ${id}`, topic, state, live: true });
+  const input = { memories: [memory(1, "pricing", ago(HOUR)), memory(2, "hiring", ago(2 * HOUR)), memory(3, "", ago(3 * HOUR))], pieces: [piece(1, "pricing", "approved"), piece(2, "hiring", "revoked")], drafts: [draft({ topic: "hiring" })] };
+  const all = Inbox.inventory({ ...input, tab: "all" });
+  assert.deepEqual(all.counts, { all: 6, private: 4, draft: 1, sale: 1 });
+  assert.deepEqual(all.groups.map((group) => [group.name, group.rows.map((row) => `${row.kind}:${row.shelf}`)]), [
+    ["hiring", ["draft:draft", "piece:private", "memory:private"]],
+    ["pricing", ["piece:sale", "memory:private"]],
+    ["Unsorted", ["memory:private"]]
+  ]);
+  const sale = Inbox.inventory({ ...input, tab: "sale" });
+  assert.deepEqual(sale.groups.map((group) => group.name), ["pricing"]);
+  assert.deepEqual(sale.counts, all.counts, "a tab narrows the rows, never the counts");
+});

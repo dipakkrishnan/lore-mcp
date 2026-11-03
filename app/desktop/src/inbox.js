@@ -118,6 +118,25 @@ class Inbox {
     });
   }
 
+  /** APP-282: Inventory's rows in groups by what they are about, and how many each tab holds. A taken-down piece is
+   * private again, so the counts add up to All. Drafts come first in each group, then pieces newest first, then
+   * memories newest first; groups follow their first row.
+   * @param {{memories: MemoryItem[], pieces: PublicationItem[], drafts: PublicationCandidate[], tab: Shelf}} input */
+  static inventory({ memories, pieces, drafts, tab }) {
+    /** @type {InventoryRow[]} */
+    const rows = [
+      ...drafts.map((item, at) => ({ key: `draft:${at}`, kind: /** @type {const} */ ("draft"), shelf: /** @type {const} */ ("draft"), group: item.topic, item })),
+      ...[...pieces].sort((a, b) => b.id - a.id).map((item) => ({ key: `piece:${item.id}`, kind: /** @type {const} */ ("piece"), shelf: item.state === "approved" ? /** @type {const} */ ("sale") : /** @type {const} */ ("private"), group: item.topic, item })),
+      ...[...memories].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).map((item) => ({ key: `memory:${item.id}`, kind: /** @type {const} */ ("memory"), shelf: /** @type {const} */ ("private"), group: item.project_label, item }))
+    ];
+    const counts = { all: rows.length, private: 0, draft: 0, sale: 0 };
+    for (const row of rows) counts[row.shelf]++;
+    /** @type {Map<string, InventoryRow[]>} */
+    const groups = new Map();
+    for (const row of rows.filter((each) => tab === "all" || each.shelf === tab)) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
+    return { counts, groups: [...groups].map(([key, listed]) => ({ key, name: key || "Unsorted", rows: listed })) };
+  }
+
   /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
    * matched (or not, when Lore found nothing). @param {BidLook} look @returns {BidState} */
   state({ match, drafting, draft, approved, dismissed }) {
