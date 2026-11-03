@@ -93,6 +93,31 @@ class Inbox {
     return rows.sort((a, b) => time(b) - time(a) || (order.get(a) ?? 0) - (order.get(b) ?? 0));
   }
 
+  /** A market's slug in words, "rl-evals" as "Rl evals"; a bid with no market has none. @param {string} slug */
+  static market(slug) {
+    return slug && slug !== "unsorted" ? slug[0].toUpperCase() + slug.slice(1).replace(/-/g, " ") : "";
+  }
+
+  /** A bid on the board that nothing the owner kept answers, shaped like a match with no memories. @param {BoardBid} bid
+   * @returns {BidMatch} */
+  static unmatched(bid) {
+    return { bid, memories: [], score: 0, strength: "good" };
+  }
+
+  /** APP-288: the Bids page's rows. Matches lists what the owner's memories answer, best first; All lists the board in
+   * its own order, then any match the last look didn't list. A closed bid is on neither. @param {BidsInput} input
+   * @returns {BidRow[]} */
+  bids({ matches, board, tab, drafting, drafted, answered }) {
+    const open = (/** @type {BoardBid} */ bid) => Date.parse(bid.expires) > this.now;
+    const found = new Map(matches.filter((match) => open(match.bid)).map((match) => [match.bid.id, match]));
+    const onBoard = board.filter(open).map((bid) => found.get(bid.id) ?? Inbox.unmatched(bid));
+    const listed = tab === "matches" ? [...found.values()] : [...onBoard, ...[...found.values()].filter((match) => !onBoard.includes(match))];
+    return listed.map(({ bid, memories, strength }) => {
+      const pill = answered.has(bid.id) ? { label: "Answer ready", tint: "live" } : drafted.has(bid.id) ? { label: "Answer drafted", tint: "pending" } : drafting.has(bid.id) ? { label: "Drafting", tint: "pending" } : null;
+      return { id: bid.id, amount: Inbox.dollars(bid.usd), question: bid.question, market: Inbox.market(bid.market), left: this.left(bid.expires) ?? "", pill, strength: !memories.length ? 0 : strength === "strong" ? 3 : 2 };
+    });
+  }
+
   /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
    * matched (or not, when Lore found nothing). @param {BidLook} look @returns {BidState} */
   state({ match, drafting, draft, approved, dismissed }) {
@@ -104,7 +129,7 @@ class Inbox {
     return match.memories.length ? "matched" : "unmatched";
   }
 
-  /** The bid's page, in words: its status, what it says under the question, and its timeline, newest last.
+  /** The bid's page, in words: its status, time left and timeline, newest last.
    * @param {BidLook} look */
   bid(look) {
     const { bid, memories } = look.match;
@@ -112,10 +137,7 @@ class Inbox {
     const count = memories.length;
     const left = this.left(bid.expires);
     const pays = Inbox.dollars(bid.usd);
-    const closed = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(Date.parse(bid.expires));
     const status = { matched: "Open", unmatched: "Open", drafting: "Drafting", drafted: "Answer drafted", approved: "Answer ready", expired: "Closed", dismissed: "Dismissed" }[state];
-    const offered = `A buyer offered ${pays} for a first-hand answer.`;
-    const lede = state === "dismissed" ? `${offered} You dismissed it.` : left ? `A buyer will pay ${pays} for a first-hand answer. Closes in ${left}.` : `${offered} It closed ${closed}.`;
     /** Who did it, in bold, then what they did; `glyph` names its icon, "lore" being Lore's own mark.
      * @type {Array<{actor: string, glyph: string, text: string, at?: string, live?: boolean}>} */
     const activity = [{ actor: "The buyer", glyph: "bid", text: `posted this bid for ${pays}`, at: Inbox.posted(bid) }];
@@ -126,7 +148,7 @@ class Inbox {
     if (state === "approved") activity.push({ actor: "You", glyph: "check", text: "approved the answer" });
     if (state === "dismissed") activity.push({ actor: "You", glyph: "person", text: "dismissed this bid" });
     if (state === "expired") activity.push({ actor: "The bid", glyph: "working", text: "closed", at: bid.expires });
-    return { state, status, lede, left, activity };
+    return { state, status, left, activity };
   }
 }
 

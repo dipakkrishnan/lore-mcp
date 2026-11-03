@@ -174,6 +174,30 @@ test("a bid whose week ran out while Lore was closed is not shown, and offline k
   }
 });
 
+test("the last board read is kept for the Bids page, less what the owner dismissed and what closed, with no look of its own", async () => {
+  const { world, watch, look, done } = await watching();
+  try {
+    world.board = { bids: [{ ...listed("aaaaaaaaa1"), answers: [{ preview: "x".repeat(50) }], url: "https://yourlore.dev/b/aaaaaaaaa1" }, listed("aaaaaaaaa2"), { ...listed("aaaaaaaaa3"), expires: "2026-11-01T12:00:00Z" }] };
+    world.found = [matched("aaaaaaaaa2")];
+    await look();
+    const asked = world.asked.length;
+    assert.deepEqual(await watch.board(), [
+      { id: "aaaaaaaaa1", question: "Question aaaaaaaaa1?", usd: 40, market: "unsorted", url: "https://yourlore.dev/b/aaaaaaaaa1", expires: LATER },
+      { id: "aaaaaaaaa2", question: "Question aaaaaaaaa2?", usd: 40, market: "unsorted", url: "", expires: LATER },
+      { id: "aaaaaaaaa3", question: "Question aaaaaaaaa3?", usd: 40, market: "unsorted", url: "", expires: "2026-11-01T12:00:00Z" }
+    ], "only what a row shows is kept");
+    world.now = Date.parse("2026-11-01T13:00:00Z");
+    await watch.dismiss("aaaaaaaaa2");
+    assert.deepEqual((await watch.board()).map((bid) => bid.id), ["aaaaaaaaa1"]);
+    assert.equal(world.asked.length, asked, "reading the board again asks nothing of yourlore.dev");
+    world.down = true;
+    await assert.rejects(look(), /offline/);
+    assert.deepEqual((await watch.board()).map((bid) => bid.id), ["aaaaaaaaa1"], "offline keeps the last board");
+  } finally {
+    await done();
+  }
+});
+
 test("a damaged file reads as nothing found, and the next look repairs it", async () => {
   const { world, watch, look, done } = await watching();
   try {

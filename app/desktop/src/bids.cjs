@@ -46,7 +46,10 @@ function boardBids(board) {
     .slice(0, BIDS_AT_MOST);
 }
 
-/** The open bids the owner's memories answer, kept on disk with the ones the owner dismissed and the ones already
+/** What the Bids page shows of a bid on the board, and nothing more. @param {Record<string, unknown>} bid @returns {BoardBid} */
+const boardBid = ({ id, question, usd, market, url, expires }) => /** @type {BoardBid} */ ({ id, question, usd, market: typeof market === "string" ? market : "", url: typeof url === "string" ? url : "", expires });
+
+/** The open bids the owner's memories answer, and the last board read (APP-288), kept on disk with the ones the owner dismissed and the ones already
  * announced, so a relaunch never repeats a banner and a dismissed bid never comes back. Every change to the file goes
  * through one queue, so a dismissal never crosses a look. */
 class BidWatch {
@@ -77,6 +80,12 @@ class BidWatch {
   async matches() {
     const { matches } = await this.#read();
     return matches.filter((match) => Date.parse(match.bid.expires) > this.now());
+  }
+
+  /** APP-288: the open bids the last look read, less the ones the owner dismissed; the Bids page lists these. */
+  async board() {
+    const { board = [], dismissed } = await this.#read();
+    return board.filter((bid) => !dismissed.includes(bid.id) && Date.parse(bid.expires) > this.now());
   }
 
   /** @param {string} id */
@@ -116,7 +125,7 @@ class BidWatch {
     const state = await this.#change((state) => {
       const dismissed = state.dismissed.filter((id) => live.has(id));
       const matches = [...new Map(found.filter((match) => !dismissed.includes(match.bid.id)).map((match) => [match.bid.id, match])).values()];
-      return { matches, dismissed, announced: state.announced.filter((id) => live.has(id)) };
+      return { matches, dismissed, announced: state.announced.filter((id) => live.has(id)), board: bids.map(boardBid) };
     });
     return state.matches.filter((match) => !state.announced.includes(match.bid.id));
   }
@@ -151,6 +160,6 @@ class BidWatch {
   }
 }
 
-/** @typedef {{matches: BidMatch[], dismissed: string[], announced: string[]}} BidState */
+/** @typedef {{matches: BidMatch[], dismissed: string[], announced: string[], board?: BoardBid[]}} BidState */
 
 module.exports = { BidWatch, announcements, boardBids, nextLook, dollars, BIDS_URL, LOOK_EVERY_MS, BIDS_AT_MOST };
