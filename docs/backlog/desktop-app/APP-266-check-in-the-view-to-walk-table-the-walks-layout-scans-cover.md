@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-02
 ---
 
 ## Problem
@@ -55,8 +55,11 @@ APP-270 rewrites it for the seven-walk set and XC-108 guards it.
 - Workstream A5 of the test-pyramid plan. Every walk retirement (APP-269,
   APP-270) cites this table for the views it moves; APP-271 (cheaper walks)
   uses it to keep one scan per view per walk.
-- Done 2026-10-30. `app/desktop/support/views.json`: 30 views, 163 distinct
-  labels from 162 `shot()` calls (the `settings` walk's
+- Done 2026-10-30; merged with main again 2026-11-02, when APP-250 had added
+  one `shot("welcome-usage")` to the fresh walk (the welcome screen's
+  usage-events notice): the guard test caught it, and it is now a `fresh`
+  scan on the `welcome` row. `app/desktop/support/views.json`: 30 views, 164
+  distinct labels from 163 `shot()` calls (the `settings` walk's
   `settings-appearance-${DARK ? "light" : "dark"}` expands to two), all 21
   walks named. `app/desktop/test/views.test.cjs` (6 node:test cases, read by
   `npm test`) parses `shot(...)` out of edge.cjs, expanding `${X ? "a" : "b"}`

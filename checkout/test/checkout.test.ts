@@ -1,4 +1,4 @@
-import { env, exports } from "cloudflare:workers";
+import { WorkerEntrypoint, env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as entry from "../src/index";
 import { ACCOUNT, PIECE, STORE, listing, stub } from "./stubs";
@@ -129,8 +129,9 @@ describe("verify", () => {
   });
 });
 
-it("exports only the handler, since the Workers runtime refuses any other export", () => {
-  expect(Object.keys(entry)).toEqual(["default"]);
+it("exports only the handler and the bids entrypoint, since the Workers runtime refuses any other export", () => {
+  expect(Object.keys(entry).sort()).toEqual(["BidCards", "default"]);
+  expect(entry.BidCards.prototype).toBeInstanceOf(WorkerEntrypoint);
 });
 
 describe("store binding", () => {
@@ -281,10 +282,8 @@ describe("create, past the happy path", () => {
   it("refuses a test store a real card payment on a live key, but not on a test or restricted test key", async () => {
     const as = (key: string) =>
       entry.default.fetch(new Request("https://checkout.test/create", { method: "POST", body: new URLSearchParams({ origin: STORE, id: PIECE }), redirect: "manual" }), {
-        STRIPE_API: env.STRIPE_API,
-        STRIPE_SECRET_KEY: key,
-        STRIPE_WEBHOOK_SECRET: env.STRIPE_WEBHOOK_SECRET,
-        ACCOUNT_TOKEN_SECRET: env.ACCOUNT_TOKEN_SECRET
+        ...env,
+        STRIPE_SECRET_KEY: key
       });
     let calls = stub({ store: listing({ test: true }) });
     const live = await as("sk_live_not_a_real_key");

@@ -10,6 +10,8 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
+# Nor does a walk read the real bids board (APP-274): the look fails at once and the walk sees no matches.
+export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 # APP-215: every walk starts past the first-run chat, as an owner who skipped it (APP-265 deleted the firstrun walk).
 echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
@@ -142,7 +144,8 @@ if [[ "$scenario" == "obsidian" ]]; then
 fi
 if [[ "$scenario" == "schedule" ]]; then
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
-  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
+  # hours from now, so the walk never runs across it.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
@@ -151,7 +154,13 @@ if [[ "$scenario" == "schedule" ]]; then
   (cd "$repo_root" && uv run python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
-automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
+# Only the reading is owed: it is two days old, and Lore's other routines are paused, so neither a weekly one's
+# Sunday nor any hour the walk starts just short of is owed too (XC-123; tests/test_automation.py pins the clock).
+routines = automation.Routines()
+for routine in routines.list():
+    if routine['id'] != 'synthesis':
+        routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "automations" ]]; then
