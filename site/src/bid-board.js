@@ -50,7 +50,7 @@ export function boardPage({ bids, markets, market = "", ask = false, error, valu
     section: "bids",
     alternate: "/bids.json",
     data: { "@context": "https://schema.org", "@type": "ItemList", name: "Open bids", url: `${SITE}/bids`, itemListElement: biggestFirst(bids.filter((b) => !current || b.market === current)).map((b, i) => ({ "@type": "ListItem", position: i + 1, url: `${SITE}/b/${b.id}`, name: b.question })) },
-    body: `<header class="head"><div><h1>Bids</h1><p class="lede">Ask something only someone who has done it can answer. Your card is saved when you ask and charged only for the answer you accept, paid straight to its author.</p>
+    body: `<header class="head"><div><h1>Bids</h1><p class="lede">Questions with a price on them. You're charged only if someone answers yours.</p>
 <p class="meta">${plural(stats.bids, "open bid")} · ${money(stats.offered)} offered · <a href="/bids.json">As JSON</a> · <a href="/#agents">For agents</a></p></div>
 <details class="sheet" id="ask"${error || ask ? " open" : ""}><summary class="go">Place a bid</summary>${bidForm(markets, { error, values })}</details></header>
 ${tabs(bids, markets, current)}

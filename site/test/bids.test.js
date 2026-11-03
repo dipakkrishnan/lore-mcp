@@ -109,7 +109,7 @@ describe("placing a bid", () => {
     const id = await placed();
     const html = await (await call(`/b/${id}`)).text();
     expect(html).toContain(`<a class="go" href="/download?bid=${id}">Answer with Lore</a>`);
-    expect(html).toContain(`<a class="quiet" data-share href="https://yourlore.dev/b/${id}">Know someone who knows? Share</a>`);
+    expect(html).toContain(`<a class="quiet" data-share href="https://yourlore.dev/b/${id}">Share</a>`);
     expect(html).not.toMatch(/POST \/bids|callback_url|<code/);
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
     const download = await call(`/download?bid=${id}`);
@@ -461,7 +461,7 @@ describe("a card on every person's bid (MON-054)", () => {
     const board = await (await call("/bids")).text();
     expect(board.indexOf(carded)).toBeLessThan(board.indexOf(bare));
     expect(board).toContain("<span>No card on file</span>");
-    expect(await (await call(`/b/${bare}`)).text()).toContain("This bid has no card on file, so it's a promise only: you're paid if the buyer buys your answer.");
+    expect(await (await call(`/b/${bare}`)).text()).toContain("No card is on file, so payment isn't guaranteed.");
   });
 
   test("an agent can ask for a card: it gets Stripe's page for its person and a key", async () => {

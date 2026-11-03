@@ -21,15 +21,16 @@ describe("the home page", () => {
   test("leads with what Lore does for you, one download, and a trust line that names only true things", () => {
     const html = homePage({ now });
     expect(html).toContain(`<h1>${HERO.title}</h1>`);
-    expect(html).toContain("Free · Open source · Nothing you&#39;ve taught it is shared until you approve it");
-    expect(html.match(/href="\/download"/g)).toHaveLength(3);
+    expect(html).toContain("Free · Open source · Apple silicon Macs");
+    expect(html.match(/href="\/download"/g)).toHaveLength(2);
     expect(html).toContain('<nav><a href="/bids">Bids</a><a href="/marketplace">Markets</a><a href="https://github.com/dipakkrishnan/lore-mcp">Open source</a><a href="/download">Download</a></nav>');
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
   });
 
   test("speaks to people, with the agent addresses kept to their own section", () => {
-    const text = homePage({ now }).replace(/<section class="block" id="agents"[\s\S]*?<\/section>|<style>[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<[^>]+>/g, " ");
-    expect(text).not.toMatch(/\bMCP\b|mainnet|x402|USDC|Worker|POST|JSON|endpoint|\bpieces?\b/i);
+    const text = homePage({ now }).replace(/<section class="agents" id="agents"[\s\S]*?<\/section>|<style>[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<[^>]+>/g, " ");
+    expect(text).not.toMatch(/\bMCP\b|mainnet|x402|USDC|Worker|JSON|endpoint|\bpieces?\b/i);
+    expect(text).not.toMatch(/\bPOST\b/);
   });
 
   test("draws no bids at all when none are open and nothing is featured: nothing fake stands in", () => {
@@ -37,17 +38,17 @@ describe("the home page", () => {
     const html = homePage({ now });
     expect(html).not.toContain('id="bids-title"');
     expect(rows(html)).toEqual([]);
-    expect(html).toContain("None are open right now.");
-    expect(html).toContain('<a class="quiet ask" href="/bids?ask#ask">Ask a question</a>');
+    expect(html).toContain("No open bids right now.");
+    expect(html).toContain('<a class="quiet ask" href="/bids?ask#ask">Place a bid</a>');
   });
 
   test("puts the open bids beside the hero, biggest first, at most four, with a way to ask", () => {
     const html = homePage({ bids: [bid("a", 5), bid("b", 300), bid("c", 40), bid("d", 60), bid("e", 15), bid("f", 25)], now });
-    expect(html.indexOf('id="bids-title"')).toBeLessThan(html.indexOf("One memory, every AI"));
+    expect(html.indexOf('id="bids-title"')).toBeLessThan(html.indexOf('id="agents-title"'));
     expect(html).toMatch(/<\/h1>[\s\S]*<aside class="demand" aria-labelledby="bids-title">[\s\S]*<\/section>/);
     expect(rows(html)).toEqual(["b", "d", "c", "f"]);
     expect(html).toContain('<a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a>');
-    expect(html).toContain("You pay only for the answer you accept.");
+    expect(html).toContain("You&#39;re charged only if someone answers it.");
   });
 
   test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
@@ -58,6 +59,12 @@ describe("the home page", () => {
     expect(html).toContain('<span class="side">7 days left · 2 answers</span>');
     expect(html).toContain('href="/b/o"><span class="amt">$9</span><span class="q">Question o worth asking?</span><span class="side">7 days left</span>');
     expect(html).not.toContain("0 answers");
+  });
+
+  test("says when a bid has no card behind it, so its amount isn't read as money waiting", () => {
+    const html = homePage({ bids: [bid("p", 9, { card: true }), bid("u", 8, { card: false })], now });
+    expect(html).toContain('href="/b/p"><span class="amt">$9</span><span class="q">Question p worth asking?</span><span class="side">7 days left</span>');
+    expect(html).toContain('href="/b/u"><span class="amt">$8</span><span class="q">Question u worth asking?</span><span class="side">7 days left · No card on file</span>');
   });
 
   test("falls back to the owner's featured bids, labelled as recent, only when none are open", () => {
@@ -73,6 +80,12 @@ describe("the home page", () => {
     expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; more");
   });
 
+  test("stays short: what Lore is, the bids, one download and a note for agents", () => {
+    const text = homePage({ now }).replace(/<style>[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<[^>]+>/g, " ");
+    expect(text.split(/\s+/).filter(Boolean).length).toBeLessThan(200);
+    expect(homePage({ now }).match(/<h2/g)).toHaveLength(2);
+  });
+
   test("names no one: the page is about the reader, not the maker", () => {
     expect(homePage({ now })).not.toMatch(/Dipak|dipakrkrishnan|Bonaire/);
   });
@@ -81,7 +94,7 @@ describe("the home page", () => {
     const html = homePage({ bids: [bid("a", 5)], now });
     expect(html).toContain('<h2 id="agents-title">For agents</h2>');
     for (const href of ["/bids.json", "/bids", "/marketplace.jsonl", "/llms.txt"]) expect(html).toContain(`<a href="${href}">${href}</a>`);
-    expect(html).toContain("An agent can bid without a card");
+    expect(html).toContain("an agent can bid without a card");
     expect(html).toContain('<li data-bid="a" data-usd="5">');
     const data = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
     expect(data["@graph"][1].itemListElement).toEqual([{ "@type": "ListItem", position: 1, url: "https://yourlore.dev/b/a", name: "Question a worth asking?" }]);
@@ -104,7 +117,7 @@ describe("served by the Worker", () => {
     const { id } = await placed.json();
     const html = await (await call("/")).text();
     expect(rows(html)).toEqual([id]);
-    expect(html).toContain("New</span>");
+    expect(html).toContain("7 days left · New · No card on file</span>");
   });
 
   test("/download hands out the latest release, and unknown paths get the site's not-found page", async () => {

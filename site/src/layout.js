@@ -131,7 +131,7 @@ section.tab>h2{font:600 var(--t12) var(--sans);color:var(--faint);margin:0 0 var
 .mine{display:flex;flex-direction:column;align-items:flex-start;gap:var(--s2);margin:var(--s5) 0 0}.mine form,.buy form{margin:0}.mine code{font:var(--t12) var(--mono);word-break:break-all}
 .error{margin:0;padding:var(--s2) var(--s3);border-radius:var(--r6);background:color-mix(in srgb,#d0453b 14%,var(--raise));font-size:var(--t13)}
 .sheet{flex:0 0 auto}.sheet[open]{flex-basis:100%}
-.sheet summary{list-style:none}.sheet summary::-webkit-details-marker{display:none}
+.sheet summary{list-style:none}.sheet[open]>summary{display:none}.sheet summary::-webkit-details-marker{display:none}
 .timeline{list-style:none;margin:0;padding:0;font-size:var(--t13);color:var(--muted)}
 .timeline li{display:flex;gap:var(--s3);padding:6px 0}
 .timeline time{min-width:52px;color:var(--faint)}
