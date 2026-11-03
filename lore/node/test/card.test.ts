@@ -88,6 +88,13 @@ describe("a card receipt", () => {
     expect(await cardSales()).toEqual([{ item_id: FIXTURE_PUBLICATION_ID, price_usd: 3, network: "stripe", tx: "pi_123" }]);
   });
 
+  it("opens the piece for a bid's buyer, whose receipt is the direct charge that paid for it", async () => {
+    const asked = checkout({ payment_intent: "pi_bid" });
+    expect(await (await receipt("pi_bid")).text()).toContain("the secret owner-approved content");
+    expect(asked[0].searchParams.get("session")).toBe("pi_bid");
+    expect(await cardSales()).toEqual([{ item_id: FIXTURE_PUBLICATION_ID, price_usd: 3, network: "stripe", tx: "pi_bid" }]);
+  });
+
   it("opens nothing for a session that is unpaid, for another piece or store, or unverifiable", async () => {
     for (const reply of [{ paid: false }, { piece: "1111111111111111807ae5f3" }, { origin: "https://other.test" }, { payment_intent: "" }, "down"] as const) {
       checkout(reply);

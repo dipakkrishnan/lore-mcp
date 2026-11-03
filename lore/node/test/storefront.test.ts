@@ -84,6 +84,11 @@ describe("publicationPage", () => {
     expect(data.offers.seller.name).toBe("Dipak’s Working Lore");
   });
 
+  it("links its JSON twin for agents", () => {
+    expect(publicationPage(piece, store)).toContain(`<link rel="alternate" type="application/json" href="https://lore.example.workers.dev/p/${A}.json">`);
+    expect(storefront(catalog, store)).not.toContain('rel="alternate"');
+  });
+
   it("renders the owner's sample and fit lines, escaped, and describes the piece by its sample", () => {
     const html = publicationPage(
       { ...piece, sample: "First <b>paragraph</b>.\n\nSecond one.", useful_if: "you hire <fast>", not_useful_if: "you're solo" },
