@@ -31,6 +31,8 @@ Draft the answer, the editable draft, Approve through the existing approval path
 column and an Activity timeline; ↑/↓ step through the Inbox's bids. Sending the answer to the buyer is MON-056, so
 an approved answer says "Your answer is ready. Sending it to the buyer comes next."
 
+The owner named the sidebar places on Nov 2: Inbox, Inventory, Bids, Connectors. The Bids place is APP-288.
+
 ## Acceptance criteria
 
 - [x] The home view is one list of rows, each with one verb; empty says "You're all caught up".
