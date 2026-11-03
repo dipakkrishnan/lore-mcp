@@ -1,29 +1,13 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineProject({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: {
-        // Point every test at a stub facilitator instead of the real
-        // x402.org endpoint; individual tests control its responses by
-        // mocking `globalThis.fetch` (see test/facilitator.ts). The API key
-        // is a fixture: the answer tests stub api.anthropic.com the same way.
-        bindings: {
-          LORE_FACILITATOR_URL: "https://facilitator.test",
-          CHECKOUT_URL: "https://checkout.test",
-          ANTHROPIC_API_KEY: "test-key"
-        }
-      }
-    })
-  ],
+// XC-099: two projects under one `vitest run`. `node` (vitest.unit.config.ts) runs the pure
+// modules' tests in plain node, files in parallel, in well under a second; `workerd`
+// (vitest.workerd.config.ts) is the Workers pool, which boots a Worker per file and so runs
+// one file at a time. `npm run test:unit` and `npm run test:component` pick one.
+// Lore's hosted stores are a third pool (vitest.hosted.config.ts, XC-088), run by `npm test`
+// with its own `-c`, since it is another Worker with another wrangler config.
+export default defineConfig({
   test: {
-    fileParallelism: false,
-    include: ["test/**/*.test.ts"],
-    // Lore's hosted stores are another Worker, with their own pool (vitest.hosted.config.ts).
-    exclude: ["test/hosted/**"],
-    setupFiles: ["./test/setup.ts"],
-    testTimeout: 15_000
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"]
   }
 });

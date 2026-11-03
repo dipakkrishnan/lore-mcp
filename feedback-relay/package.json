@@ -8,6 +8,8 @@
     "dev": "wrangler dev",
     "lint": "eslint '**/*.ts'",
     "test": "vitest run",
+    "test:unit": "vitest run --project node",
+    "test:component": "vitest run --project workerd",
     "types": "wrangler types env.d.ts --include-runtime false"
   },
   "devDependencies": {

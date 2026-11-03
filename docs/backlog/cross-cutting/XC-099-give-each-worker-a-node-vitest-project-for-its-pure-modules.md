@@ -4,13 +4,13 @@ title: Give each Worker a node vitest project for its pure modules
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-088, XC-098, XC-100, XC-101, XC-102]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-03
 ---
 
 ## Problem
@@ -40,18 +40,26 @@ project. `npm test` runs all projects.
 
 ## Acceptance criteria
 
-- [ ] `lore/node`, `feedback-relay` and `checkout` each have a `node`
+- [x] `lore/node`, `feedback-relay` and `checkout` each have a `node`
       project and a `workerd` project; `npm test` runs both.
-- [ ] The nine pure `lore/node` files run in the node project; the node
-      project finishes in under 3 s locally.
-- [ ] A guard test fails if any file under `test/unit/` imports
+- [x] The pure `lore/node` files run in the node project (six of the nine
+      named were pure; the other three read D1 — see Notes); the node
+      project finishes in under 3 s locally (0.3 s).
+- [x] A guard test fails if any file under `test/unit/` imports
       `cloudflare:workers` or `cloudflare:test`.
-- [ ] Total test counts are unchanged.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Total test counts are unchanged, apart from the guard's own two tests
+      per Worker.
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
 
+- Three of the nine files named in Problem are not pure and stay in the workerd
+  project: `answer-state`, `answer-tools` and `refund` import `cloudflare:workers`
+  and read or write `env.LORE_DB` (D1). `telemetry` was split: its attribute
+  tests moved to `test/unit/telemetry.test.ts`, `withSpan` stays in workerd.
+  `open` moved out of `test/inbox.ts` into `test/open.ts` so `seal` no longer
+  imports `cloudflare:workers`.
 - Workstream C1 of the test-pyramid plan. XC-100 (leaf-module extraction),
   XC-101 (fewer Worker-boot files) and XC-102 (relay and checkout leaf
   modules) all land their tests in the node project.
