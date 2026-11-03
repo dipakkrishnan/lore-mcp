@@ -25,3 +25,6 @@ Audit step 5 and principles §5: a full page in the main area with a property co
 ## Acceptance criteria
 
 - [ ] A memory, piece, collection, connector and automation each open as a page with properties and Activity.
+- [ ] A memory an agent saved in its own format (Codex's `scope:`, `applies_to: cwd=…`, `rollout_summary_files`,
+      `keywords`) reads as prose: the title shows once, those fields become properties (Source, Project, Updated),
+      and session paths and thread ids are not shown.

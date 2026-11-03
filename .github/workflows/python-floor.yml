@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
 
 permissions:
   contents: read
@@ -19,3 +21,14 @@ jobs:
       # tests/test_cli.py fails if the two drift apart.
       - run: uv run --locked --python 3.10 python -VV
       - run: uv run --locked --python 3.10 python -m unittest discover -s tests -p test_cli.py -v
+
+  real-install:
+    name: Real uv tool install (weekly)
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      # XC-097: reaches PyPI through `uv tool install`, so it runs on a schedule
+      # and not on pull requests.
+      - run: uv run --extra dev python -m pytest tests/integration/test_install.py -k real_uv_install -q

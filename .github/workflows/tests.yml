@@ -37,7 +37,19 @@ jobs:
       # explains why one global fail_under is not enough). The Worker steps
       # gate.py also knows are this workflow's own jobs, so only the Python
       # half runs here. The per-file table lands in the step summary.
-      - run: uv run python tests/gate.py --python-only
+      # XC-097: the tests that start real processes live in tests/integration
+      # and run in python-integration, so this tier is the in-process one.
+      - run: uv run python tests/gate.py --python-only --ignore=tests/integration
+
+  python-integration:
+    name: Python integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      # test_real_uv_install reaches PyPI, so a PR never depends on it; it runs
+      # weekly from python-floor.yml.
+      - run: uv run --extra dev python -m pytest tests/integration -k "not real_uv_install" -q
 
   python-types:
     name: Python type checks
