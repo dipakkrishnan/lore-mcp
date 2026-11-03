@@ -66,10 +66,10 @@
           <button type="button" role="menuitem" id="sign-out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 13.5h-3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3"></path><path d="M10 5l3 3-3 3M13 8H6"></path></svg>Sign out</button>
         </div>
         <nav aria-label="Main">
-          <button type="button" data-view="today" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.75"></circle><path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.06 1.06M11.34 11.34l1.06 1.06M3.6 12.4l1.06-1.06M11.34 4.66l1.06-1.06"></path></svg>Today</button>
+          <button type="button" data-view="inbox" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9.5h3l1 2h3l1-2h3"></path><path d="M4 3.5h8l1.5 6v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3z"></path></svg>Inbox<span class="count" data-count="inbox"></span></button>
           <button type="button" data-view="inventory" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l5.5 3L8 8.5 2.5 5.5z"></path><path d="M2.5 8.5L8 11.5l5.5-3"></path><path d="M2.5 11L8 14l5.5-3"></path></svg>Inventory<span class="count" data-count="inventory"></span></button>
+          <button type="button" data-view="bids" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.75"></circle><path d="M9.9 6.2c-.3-.6-1-.95-1.9-.95-1.05 0-1.85.6-1.85 1.4 0 1.9 3.85 1 3.85 2.9 0 .8-.8 1.4-2 1.4-.9 0-1.65-.4-1.95-1M8 4.1v1.15M8 10.75v1.15"></path></svg>Bids<span class="count" data-count="bids"></span></button>
           <button type="button" data-view="connectors" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5v3M10 2.5v3"></path><path d="M4.5 5.5h7V8a3.5 3.5 0 0 1-7 0z"></path><path d="M8 11.5v2"></path></svg>Connectors<span class="count" data-count="connectors"></span></button>
-          <button type="button" data-view="automations" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z"></path></svg>Automations</button>
         </nav>
       </aside>
       <main id="main" tabindex="-1">
@@ -80,7 +80,9 @@
           </div>
           <p class="eyebrow" id="eyebrow"></p>
           <h1 id="title"></h1>
+          <div id="page-tabs" class="page-tabs" role="tablist" aria-label="Which bids" hidden></div>
           <div class="header-actions">
+            <div id="stepper" class="stepper" hidden><span id="stepper-at"></span><button type="button" id="step-up" class="icon-btn" aria-label="Previous bid" aria-keyshortcuts="ArrowUp K"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 9.5L8 6l3.5 3.5"></path></svg></button><button type="button" id="step-down" class="icon-btn" aria-label="Next bid" aria-keyshortcuts="ArrowDown J"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg></button></div>
             <button type="button" class="btn quiet" id="first-run-skip" hidden>Skip for now</button>
             <button type="button" class="btn secondary" id="sell-writing" hidden>Sell something you wrote</button>
             <button type="button" class="btn primary" id="add-memory" hidden>+ Add Memory</button>
@@ -118,6 +120,8 @@
     </dialog>
     <script src="../node_modules/marked/lib/marked.umd.js"></script>
     <script src="markdown.js"></script>
+    <script src="inbox.js"></script>
+    <script src="memorytext.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>
