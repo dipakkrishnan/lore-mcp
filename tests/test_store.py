@@ -438,6 +438,11 @@ class ArrivalTest(LoreTestCase):
                 {p.title: p.bid for p in store.list_publications()},
                 {"Old": "", "New": "k3v9q2m7xa"},
             )
+            self.assertEqual(
+                {p["title"]: p["bid"] for p in store.publication_inventory()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+                "the app reads which bid a piece answers from the inventory (APP-283)",
+            )
 
     def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
         titles = [f"Memory {n}" for n in range(1, 8)]
