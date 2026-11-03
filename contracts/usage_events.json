@@ -1,8 +1,20 @@
 {
-  "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else.",
+  "description": "The only usage events Lore sends. lore/usage.py and feedback-relay/src/events.ts both check against this list; the relay drops anything else. An `optional` property may also be left out, as copies of Lore from before it was added send the event bare.",
   "events": {
+    "app.installed": null,
     "app.opened": null,
     "signin.completed": null,
+    "firstrun.step": {
+      "prop": "step",
+      "values": [
+        "apps",
+        "agent",
+        "store",
+        "link",
+        "saved",
+        "skipped"
+      ]
+    },
     "source.connected": {
       "prop": "connector",
       "values": [
@@ -24,7 +36,28 @@
         "agents"
       ]
     },
-    "memory.saved": null,
+    "memory.saved": {
+      "prop": "via",
+      "values": [
+        "capture",
+        "agent",
+        "connector",
+        "synthesis"
+      ],
+      "optional": true
+    },
+    "agent.connected": {
+      "prop": "agent",
+      "values": [
+        "grok",
+        "muse",
+        "chatgpt",
+        "claude",
+        "instinct",
+        "other"
+      ]
+    },
+    "piece.drafted": null,
     "piece.approved": null,
     "store.attempted": null,
     "store.online": null,
@@ -71,5 +104,34 @@
         "other"
       ]
     }
+  },
+  "site_description": "Requests yourlore.dev's Worker counts (XC-120), one per request, cookieless, under one fixed id for the whole site, carrying only a coarse agent family taken from the User-Agent. They reach the relay only through its binding-only SiteEvents entrypoint, never the public /events route; lore/usage.py never sends them.",
+  "site_events": {
+    "names": [
+      "agent.llms",
+      "agent.catalog",
+      "agent.json",
+      "agent.sitemap",
+      "agent.bid",
+      "agent.mcp"
+    ],
+    "prop": "agent",
+    "values": [
+      "claudebot",
+      "claude-user",
+      "gptbot",
+      "chatgpt-user",
+      "oai-searchbot",
+      "perplexitybot",
+      "perplexity-user",
+      "grok",
+      "google",
+      "bingbot",
+      "curl",
+      "python",
+      "node",
+      "browser",
+      "other"
+    ]
   }
 }

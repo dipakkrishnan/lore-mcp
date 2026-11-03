@@ -1,6 +1,6 @@
 const { app, BrowserWindow } = require("electron");
 
-const [out, view = "today"] = process.argv.slice(-2);
+const [out, view = "inbox"] = process.argv.slice(-2);
 require("../src/main.cjs");
 
 app.on("browser-window-created", (_event, window) => {

@@ -4,13 +4,13 @@ title: Enforce the Python per-file coverage floor in CI
 priority: P1
 effort: S
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-083, XC-097, XC-105]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-02
 ---
 
 ## Problem

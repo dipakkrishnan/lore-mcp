@@ -4,7 +4,7 @@ title: Give each bid its own page with its answers and history
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [MON-051, XC-114, MON-054, XC-118]
 blockers: []
 dependencies: [MON-051]
@@ -32,6 +32,6 @@ so a page titled with the question is also how they find bids.
 
 ## Acceptance criteria
 
-- [ ] Every bid has an indexable page whose title is its question, plus a JSON twin with the same fields.
-- [ ] Answers show the handle, the opening lines and a Buy link. They never show a seller's real name.
-- [ ] The timeline only ever grows, and a filled bid links its rail proof.
+- [x] Every bid has an indexable page whose title is its question, plus a JSON twin with the same fields.
+- [x] Answers show the handle, the opening lines and a Buy link. They never show a seller's real name.
+- [x] The timeline only ever grows, and a filled bid links its rail proof.
