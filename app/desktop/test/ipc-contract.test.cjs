@@ -1,6 +1,7 @@
 // APP-064: the renderer, preload and main agree on every IPC channel and window.lore member, so a channel
 // exposed with no handler (APP-039's agent:status) or a handler nobody can reach fails here, not in a console.
-// main.cjs cannot be required outside Electron, so channels are read as text; preload runs against a stub Electron.
+// The handlers live in ipc.cjs (APP-267), read as text so a channel is counted once however it is registered; preload runs
+// against a stub Electron.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
@@ -44,15 +45,16 @@ const unreadable = (renderer) => all(renderer, /(window\.lore(?!\??\.[A-Za-z_$])
 test("every channel preload invokes has a handler in main", () => {
   const channels = invoked(read("preload.cjs"));
   assert.ok(channels.size > 0, "found no ipcRenderer.invoke channels in preload.cjs");
-  assert.deepEqual(missing(channels, handled(read("main.cjs"))), [], "preload.cjs invokes channels main.cjs never handles");
+  assert.deepEqual(missing(channels, handled(read("ipc.cjs"))), [], "preload.cjs invokes channels ipc.cjs never handles");
 });
 
 test("every handler main registers is reachable from preload, and registered once", () => {
-  const main = read("main.cjs");
+  const main = read("ipc.cjs");
   const handlers = handled(main);
-  assert.ok(handlers.size > 0, "found no ipcMain.handle channels in main.cjs");
-  assert.deepEqual(missing(handlers, invoked(read("preload.cjs"))), [], "main.cjs handles channels preload.cjs never invokes");
-  assert.deepEqual(twice(main), [], "main.cjs handles a channel twice");
+  assert.ok(handlers.size > 0, "found no ipcMain.handle channels in ipc.cjs");
+  assert.deepEqual(missing(handlers, invoked(read("preload.cjs"))), [], "ipc.cjs handles channels preload.cjs never invokes");
+  assert.deepEqual(twice(main), [], "ipc.cjs handles a channel twice");
+  assert.deepEqual(handled(read("main.cjs")), new Set(), "main.cjs handles channels of its own; every handler belongs in ipc.cjs");
 });
 
 test("every window.lore member the renderer uses is one preload exposes", () => {
