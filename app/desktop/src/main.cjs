@@ -568,7 +568,9 @@ function watchBids() {
   const look = async () => {
     try {
       const fresh = await bids.check();
-      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "today" }));
+      // One bid opens its own page; a lot of them, the Inbox that lists them (APP-283).
+      const [only] = fresh.length === 1 ? fresh : [];
+      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "inbox", ...(only ? { bid: only.bid.id } : {}) }));
       // Remembered only once the banners are up: one that failed is announced on the next look.
       await bids.announced(fresh.map((match) => match.bid.id));
       if (fresh.length) emit({ type: "changed" });
@@ -805,7 +807,7 @@ async function start(loreHome, outgoing) {
         emit({ type: "changed" });
         // Says what's waiting and asks for the look, so the owner knows it's worth a minute now.
         const what = offered.length === 1 ? "a collection" : `${offered.length} collections`;
-        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "today" }));
+        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "inbox" }));
       }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
@@ -821,7 +823,7 @@ async function start(loreHome, outgoing) {
       const fromAgent = read.by.kind === "agent";
       await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
       emit({ type: "ready" });
-      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
+      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inbox" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

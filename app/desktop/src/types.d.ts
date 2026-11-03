@@ -25,6 +25,8 @@ type PublicationItem = {
   topic: string;
   state: "approved" | "revoked";
   live: boolean | null;
+  /** The bid this piece answers (APP-274); empty when it answers none. */
+  bid?: string;
 };
 
 /** A named set of pieces sold together at one price (MON-044). */
@@ -319,6 +321,52 @@ type BidMatch = {
   strength: "strong" | "good";
 };
 
+/** What the Inbox is drawn from (APP-283), each part already narrowed to what still needs the owner. */
+type InboxInput = {
+  bids: BidMatch[];
+  drafts: PublicationCandidate[];
+  /** Bids whose answer Lore is drafting now. */
+  drafting: Set<string>;
+  /** Bids whose answer the owner approved. */
+  answered: Set<string>;
+  /** Pieces on sale with new free parts to approve. */
+  updates: number;
+  offer: { label: string; action: string } | null;
+  problems: Array<{ key: string; name: string; says: string; verb: string }>;
+  /** The next step; `what` names the changes it is about, when there are some. */
+  step: { label: string; action: string; mark: string; what?: string } | null;
+  checkIn: CheckIn | null;
+  tasks: TaskRecord[];
+  reading: TaskRecord | null;
+  ready: Array<{ key: string; from: string; title: string; memories: number; selling: number; saves: number; at: string }>;
+  suggestions: Array<{ at: string; title: string; count: number }>;
+  sales: Sale[];
+  help: boolean;
+};
+
+/** One Inbox row: a glyph, one sentence (lead in secondary, title in primary, tail in secondary), its age and one verb. */
+type InboxRow = {
+  key: string;
+  kind: "bid" | "draft" | "step" | "problem" | "checkin" | "task" | "reading" | "memories" | "suggestion" | "sale" | "help";
+  glyph: string;
+  /** Money the row is about, shown first: a bid's "$40", a sale's "+$8". */
+  amount: string;
+  lead: string;
+  title: string;
+  tail: string;
+  at: string | null;
+  verb: string;
+  /** Whether Done (hover, or E) clears it. */
+  done: boolean;
+  ref?: string;
+};
+
+type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
+
+/** What a bid's page reads its state from. */
+type BidLook = { match: BidMatch; drafting: boolean; draft: PublicationCandidate | null; approved: boolean; dismissed: boolean };
+
+declare const Inbox: typeof import("./inbox.js").Inbox;
 /** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
 type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
 
@@ -529,7 +577,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string } }
+  | { type: "show"; view: "store" | "inbox" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string }; bid?: string }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */
