@@ -4,13 +4,13 @@ title: Move the main-process logic behind a seam node:test can reach
 priority: P1
 effort: M
 component: desktop-app
-status: ready
+status: completed
 related: [APP-062, APP-064, APP-269, APP-270]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-02
 ---
 
 ## Problem
@@ -47,14 +47,14 @@ rejection before `ready`; `watchSales`' old-sale suppression and batching.
 
 ## Acceptance criteria
 
-- [ ] `src/ipc.cjs` exports a factory with no top-level Electron use;
+- [x] `src/ipc.cjs` exports a factory with no top-level Electron use;
       `require("./src/ipc.cjs")` succeeds in plain node.
-- [ ] `test/ipc-contract.test.cjs` still proves renderer, preload and the IPC
+- [x] `test/ipc-contract.test.cjs` still proves renderer, preload and the IPC
       handlers agree on every channel, reading the new file.
-- [ ] `test/unit/ipc.test.cjs` covers the nine rules listed in the approach
+- [x] `test/unit/ipc.test.cjs` covers the nine rules listed in the approach
       with a fake ipcMain and runs in under 2 s.
-- [ ] `npm run check` passes with the moved code typed as before.
-- [ ] Layout scan: this item touches no walk; all 21 walks pass on the PR's
+- [x] `npm run check` passes with the moved code typed as before.
+- [x] Layout scan: this item touches no walk; all 21 walks pass on the PR's
       macOS run against the refactored main, which is the proof nothing
       visible changed.
 
