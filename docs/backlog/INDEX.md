@@ -214,7 +214,6 @@ obsolete), then `priority` (P0 → P3).
 | [XC-101](./cross-cutting/XC-101-boot-the-worker-in-at-most-seven-test-files.md) | Boot the Worker in at most seven test files | P1 | S | cross-cutting | ready | XC-099, XC-100 | XC-099 | — | — |
 | [XC-104](./cross-cutting/XC-104-start-the-python-stand-in-node-once-per-test-class-not-per-test.md) | Start the Python stand-in node once per test class, not per test | P1 | S | cross-cutting | ready | XC-096, XC-097 | — | — | — |
 | [MON-056](./monetization/MON-056-let-a-seller-send-a-bid-answer-from-their-own-store.md) | Let a seller send a bid answer from their own store, with no admin token | P1 | M | monetization | ready | APP-274, MON-051, XC-115, XC-118 | — | MON-051, APP-274 | — |
-| [APP-288](./desktop-app/APP-288-give-bids-a-place-in-the-sidebar.md) | Give Bids a place in the sidebar | P1 | M | desktop-app | ready | APP-283, APP-274, APP-282 | — | APP-283 | — |
 | [XC-122](./cross-cutting/XC-122-draw-the-markets-pages-as-rows.md) | Draw the Markets pages as rows, in the site's one look | P2 | S | cross-cutting | ready | XC-093, XC-114, XC-094 | — | — | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
@@ -293,6 +292,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
+| [APP-288](./desktop-app/APP-288-give-bids-a-place-in-the-sidebar.md) | Give Bids a place in the sidebar | P1 | M | desktop-app | completed | APP-283, APP-274, APP-282 | — | APP-283 | — |
 | [XC-096](./cross-cutting/XC-096-enforce-the-python-per-file-coverage-floor-in-ci.md) | Enforce the Python per-file coverage floor in CI | P1 | S | cross-cutting | completed | XC-083, XC-097, XC-105 | — | — | — |
 | [XC-115](./cross-cutting/XC-115-give-each-bid-its-own-page-with-its-answers-and-history.md) | Give each bid its own page with its answers and history | P1 | S | cross-cutting | completed | MON-051, XC-114, MON-054, XC-118 | — | MON-051 | — |
 | [APP-063](./desktop-app/APP-063-test-the-renderers-untrusted-text-boundary.md) | Test the renderer's untrusted-text boundary and its CSP | P1 | S | desktop-app | completed | APP-066, APP-010, APP-008 | — | — | — |
@@ -405,7 +405,6 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
-| [APP-288](./desktop-app/APP-288-give-bids-a-place-in-the-sidebar.md) | Give Bids a place in the sidebar | P1 | M | desktop-app | completed | APP-283, APP-274, APP-282 | — | APP-283 | — |
 | [XC-110](./cross-cutting/XC-110-bring-lore-cloudflare-py-to-the-90-90-coverage-floor.md) | Bring lore/cloudflare.py to the 90/90 coverage floor | P2 | S | cross-cutting | completed | XC-087, XC-096, XC-108 | — | — | — |
 | [APP-062](./desktop-app/APP-062-give-the-owner-gate-callbacks-a-testable-seam.md) | Give main.cjs's owner-gate callbacks a testable seam | P2 | S | desktop-app | completed | APP-056, APP-057, APP-006, APP-066 | — | — | — |
 | [APP-248](./desktop-app/APP-248-split-test-app-test-cjs-so-node-test-can-run-the-desktop-unit-tests-in-parallel.md) | Split test/app.test.cjs so node --test can run the desktop unit tests in parallel | P2 | S | desktop-app | completed | XC-077, XC-072 | — | — | — |

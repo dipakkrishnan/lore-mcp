@@ -98,23 +98,23 @@ test("ages read like an inbox and a bid's time left counts down to closed", () =
 /** @param {Partial<BidLook>} [over] @returns {BidLook} */
 const look = (over = {}) => ({ match: match(), drafting: false, draft: null, approved: false, dismissed: false, ...over });
 
-test("a bid's page in each state: what it says, its status and its timeline", () => {
+test("a bid's page in each state: its status, time left and timeline", () => {
   const inbox = new Inbox(NOW);
   const page = (/** @type {Partial<BidLook>} */ over) => {
-    const { state, status, lede, activity } = inbox.bid(look(over));
-    return { state, status, lede, activity: activity.map((entry) => `${entry.actor} ${entry.text}`) };
+    const { state, status, left, activity } = inbox.bid(look(over));
+    return { state, status, left, activity: activity.map((entry) => `${entry.actor} ${entry.text}`) };
   };
-  const open = "A buyer will pay $40 for a first-hand answer. Closes in 2 days.";
+  const open = "2 days";
   const posted = "The buyer posted this bid for $40";
   const found = "Lore found 3 matching memories";
-  assert.deepEqual(page({ match: match({}, 0) }), { state: "unmatched", status: "Open", lede: open, activity: [posted, "Lore found nothing you know that answers it"] });
-  assert.deepEqual(page({}), { state: "matched", status: "Open", lede: open, activity: [posted, found] });
-  assert.deepEqual(page({ drafting: true }), { state: "drafting", status: "Drafting", lede: open, activity: [posted, found, "Lore is drafting from 3 memories…"] });
-  assert.deepEqual(page({ draft: draft({ bid: "aaaaaaaaa1" }) }), { state: "drafted", status: "Answer drafted", lede: open, activity: [posted, found, "Lore drafted the answer from 3 memories"] });
-  assert.deepEqual(page({ approved: true }), { state: "approved", status: "Answer ready", lede: open, activity: [posted, found, "Lore drafted the answer from 3 memories", "You approved the answer"] });
-  assert.deepEqual(page({ dismissed: true, draft: draft() }), { state: "dismissed", status: "Dismissed", lede: "A buyer offered $40 for a first-hand answer. You dismissed it.", activity: [posted, found, "You dismissed this bid"] });
+  assert.deepEqual(page({ match: match({}, 0) }), { state: "unmatched", status: "Open", left: open, activity: [posted, "Lore found nothing you know that answers it"] });
+  assert.deepEqual(page({}), { state: "matched", status: "Open", left: open, activity: [posted, found] });
+  assert.deepEqual(page({ drafting: true }), { state: "drafting", status: "Drafting", left: open, activity: [posted, found, "Lore is drafting from 3 memories…"] });
+  assert.deepEqual(page({ draft: draft({ bid: "aaaaaaaaa1" }) }), { state: "drafted", status: "Answer drafted", left: open, activity: [posted, found, "Lore drafted the answer from 3 memories"] });
+  assert.deepEqual(page({ approved: true }), { state: "approved", status: "Answer ready", left: open, activity: [posted, found, "Lore drafted the answer from 3 memories", "You approved the answer"] });
+  assert.deepEqual(page({ dismissed: true, draft: draft() }), { state: "dismissed", status: "Dismissed", left: open, activity: [posted, found, "You dismissed this bid"] });
   const ended = page({ match: match({ expires: ago(HOUR) }), draft: draft() });
-  assert.deepEqual(ended, { state: "expired", status: "Closed", lede: "A buyer offered $40 for a first-hand answer. It closed Nov 2.", activity: [posted, found, "Lore drafted the answer from 3 memories", "The bid closed"] });
+  assert.deepEqual(ended, { state: "expired", status: "Closed", left: null, activity: [posted, found, "Lore drafted the answer from 3 memories", "The bid closed"] });
   assert.deepEqual(page({ match: match({ expires: ago(HOUR) }), approved: true }).state, "approved", "an approved answer stays approved once the bid closes");
   assert.equal(inbox.bid(look({ match: match({}, 1) })).activity[1].text, "found 1 matching memory");
 });

@@ -129,7 +129,7 @@ class Inbox {
     return match.memories.length ? "matched" : "unmatched";
   }
 
-  /** The bid's page, in words: its status, what it says under the question, and its timeline, newest last.
+  /** The bid's page, in words: its status, time left and timeline, newest last.
    * @param {BidLook} look */
   bid(look) {
     const { bid, memories } = look.match;
@@ -137,10 +137,7 @@ class Inbox {
     const count = memories.length;
     const left = this.left(bid.expires);
     const pays = Inbox.dollars(bid.usd);
-    const closed = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(Date.parse(bid.expires));
     const status = { matched: "Open", unmatched: "Open", drafting: "Drafting", drafted: "Answer drafted", approved: "Answer ready", expired: "Closed", dismissed: "Dismissed" }[state];
-    const offered = `A buyer offered ${pays} for a first-hand answer.`;
-    const lede = state === "dismissed" ? `${offered} You dismissed it.` : left ? `A buyer will pay ${pays} for a first-hand answer. Closes in ${left}.` : `${offered} It closed ${closed}.`;
     /** Who did it, in bold, then what they did; `glyph` names its icon, "lore" being Lore's own mark.
      * @type {Array<{actor: string, glyph: string, text: string, at?: string, live?: boolean}>} */
     const activity = [{ actor: "The buyer", glyph: "bid", text: `posted this bid for ${pays}`, at: Inbox.posted(bid) }];
@@ -151,7 +148,7 @@ class Inbox {
     if (state === "approved") activity.push({ actor: "You", glyph: "check", text: "approved the answer" });
     if (state === "dismissed") activity.push({ actor: "You", glyph: "person", text: "dismissed this bid" });
     if (state === "expired") activity.push({ actor: "The bid", glyph: "working", text: "closed", at: bid.expires });
-    return { state, status, lede, left, activity };
+    return { state, status, left, activity };
   }
 }
 

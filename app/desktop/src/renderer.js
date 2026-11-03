@@ -49,7 +49,7 @@ const stepDown = /** @type {HTMLButtonElement} */ ($("#step-down"));
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "faq" | "settings"} View */
 /** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
@@ -77,8 +77,6 @@ let auth = null;
 let view = "inbox";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
-/** Which automations the tab shows. @type {"all" | "active" | "paused"} */
-let automationsShown = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
 /** The collection open in its own view. @type {number | null} */
@@ -1469,11 +1467,7 @@ class BidPage {
     const look = { match, drafting: this.drafting.has(id) && !draft, draft, approved, dismissed: this.dismissed.has(id) };
     const page = new Inbox().bid(look);
     const main = el("div", "page-col");
-    const pays = Inbox.dollars(match.bid.usd);
-    const lede = el("p", "lede");
-    const [before, ...after] = page.lede.split(pays);
-    lede.append(before, el("b", "", pays), after.join(pays));
-    main.append(el("h2", "ptitle", match.bid.question), lede);
+    main.append(el("h2", "ptitle", match.bid.question), el("p", "lede", "A buyer wants a first-hand answer."));
     const count = match.memories.length;
     if (count) {
       main.append(el("h3", "sec", `Lore found ${Inbox.plural(count, "memory", "memories")} that ${count === 1 ? "answers" : "answer"} this`));
@@ -3197,16 +3191,6 @@ function pill(label, tone = "") {
   return el("span", `status-pill ${tone}`.trim(), label);
 }
 
-/** Settings → How often Lore reads them: the rhythm Lore keeps while it is open. @param {Snapshot} s */
-function scheduleRow(s) {
-  const label = "How often Lore reads them";
-  const schedule = s.setup.schedule;
-  if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
-  if (schedule.paused) return row(label, `${runsWhen(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
-  const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
-  return row(label, `${runsWhen(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
-}
-
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
 let cards = null;
 let cardsLoading = false;
@@ -3815,8 +3799,9 @@ function openConnection(app, source) {
   const form = new FormSheet(name, logo(app));
   form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
   if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule && !snapshot.setup.schedule.paused ?`Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
-  form.text(standing, "hint");
+  const reading = routines.find((routine) => routine.kind === "read");
+  const standing = form.text(source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : reading && !reading.paused ? `Lore looks for new ${many(app.item)} ` : `Lore looks for new ${many(app.item)} only when you choose Read again.`, "hint");
+  if (source.refresh !== false && reading && !reading.paused) standing.append(inline(runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every"), () => openRoutine(reading)), ".");
   form.button("Disconnect", "quiet", ask);
   if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
   else form.button(`Change ${unit}`, "quiet", () => void openConnect(app, source));
@@ -3848,10 +3833,10 @@ function openConnection(app, source) {
   }
 }
 
-/** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
- * way context gets into Lore, not a preference. @param {Snapshot} s */
+/** Connectors: the owner's own agents, then where memories come from, then what Lore does with them on its own. First
+ * class: the way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), section("", card([scheduleRow(s)]))];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), automationsSection()];
 }
 
 /** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
@@ -4683,10 +4668,6 @@ function routineRow(routine) {
   // The moment it stands for, so what it says is checked against the clock, not the words.
   if (!busy && !routine.paused) next.dataset.next = routine.next_run;
   detail.append(time, " · ", next);
-  const lines = el("div", "routine-lines");
-  // A routine named by its own sentence says it once.
-  if (routine.about && routine.about !== routine.name) lines.append(el("span", "routine-about", routine.about));
-  lines.append(detail);
   const actions = el("div", "routine-actions");
   actions.append(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
   if (!routine.built_in) actions.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
@@ -4701,7 +4682,7 @@ function routineRow(routine) {
     news.addEventListener("click", () => show("inventory"));
     trailing.append(news);
   }
-  const node = row(routine.name, lines, trailing, false);
+  const node = row(routine.name, detail, trailing, false);
   node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : " on"}`));
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
@@ -4837,78 +4818,28 @@ function openNewRoutine(said = "") {
   text.focus();
 }
 
-/** "3 automations · next in 15 hours", above the title as on every other page. */
-function automationsEyebrow() {
-  const live = routines.filter((routine) => !routine.paused).sort((x, y) => Date.parse(x.next_run) - Date.parse(y.next_run));
-  const count = `${routines.length} ${routines.length === 1 ? "automation" : "automations"}`;
-  return live.length ? `${count} · next ${nextRun(live[0].next_run)}` : routines.length ? `${count} · all paused` : "";
-}
-
-/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
-function renderAutomations(s) {
-  const page = el("div", "automations-page");
-  const find = el("div", "auto-find");
-  find.innerHTML = lineIcon(`<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>`);
-  const query = el("input");
-  query.type = "search";
-  query.placeholder = "Search automations";
-  query.setAttribute("aria-label", "Search automations");
-  find.append(query);
-  const bar = el("div", "auto-bar");
-  // Inventory's own tabs, so the two lists read as one app.
-  const tabs = el("div", "shelves");
-  tabs.setAttribute("role", "tablist");
-  const paused = routines.filter((routine) => routine.paused).length;
-  for (const [id, label, count] of /** @type {const} */ ([["all", "All", routines.length], ["active", "Active", routines.length - paused], ["paused", "Paused", paused]])) {
-    const tab = el("button", "shelf");
-    tab.type = "button";
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", String(automationsShown === id));
-    tab.append(label, el("span", "shelf-count", String(count)));
-    tab.addEventListener("click", () => { automationsShown = id; render(); });
-    tabs.append(tab);
-  }
-  const add = button("New automation", "quiet", () => openNewRoutine());
-  add.id = "new-automation";
-  add.prepend(Object.assign(el("span", "auto-add"), { innerHTML: lineIcon(`<path d="M12 5v14M5 12h14"></path>`) }));
-  bar.append(tabs, add);
-  const shown = [...routines]
-    .filter((routine) => automationsShown === "all" || (automationsShown === "paused") === Boolean(routine.paused))
-    .sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in)));
+/** APP-288: everything Lore does on its own, and when, Lore's own first, at the foot of Connectors. New ones start from
+ * the New menu, as everything else does. */
+function automationsSection() {
   const list = el("div", "automations");
-  list.append(...shown.map(routineRow));
-  const none = el("p", "hint auto-none", automationsShown === "paused" ? "Nothing paused." : "No automations match.");
-  none.hidden = shown.length > 0;
-  list.append(none);
-  // Filtered in place, so the search box keeps its focus while the owner types.
-  query.addEventListener("input", () => {
-    const words = query.value.trim().toLowerCase();
-    let any = 0;
-    for (const node of list.querySelectorAll(".row.routine")) {
-      const hit = !words || /** @type {HTMLElement} */ (node).dataset.find?.includes(words);
-      /** @type {HTMLElement} */ (node).hidden = !hit;
-      if (hit) any++;
-    }
-    none.hidden = any > 0;
-  });
-  // A handful needs no search; it appears once the list is long enough to look through.
-  if (routines.length > 6) page.append(find);
-  page.append(bar, list);
-  return [page];
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow));
+  const node = section("Automations", list);
+  node.id = "automations";
+  return node;
 }
 
-const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
   const detail = view === "inbox" ? detailTask : null;
   const welcoming = view === "inbox" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "collection" ? collectionEyebrow(openCollection()) : view === "automations" ? automationsEyebrow() : "";
+    : welcoming ? "" : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   // A collection's name is its heading, renamed in place.
   title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
@@ -4966,18 +4897,20 @@ function renderAccount() {
   signOutBtn.hidden = !credential;
 }
 
-/** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
+/** Memories and For Sale became Inventory's tabs, and Automations a section of Connectors; anything that still asks for
+ * them lands there. @param {View | "memories" | "store" | "automations"} next */
 function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
-  view = next === "memories" || next === "store" ? "inventory" : next;
+  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "connectors" : next;
   if (view === "inventory") void loadSales();
   if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
-  if (next === "connectors") void loadAgents();
+  if (view === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   unseen.visit();
   render();
   mainEl.scrollTop = 0;
+  if (next === "automations") $("#automations")?.scrollIntoView();
   mainEl.focus({ preventScroll: true });
 }
 
@@ -6405,7 +6338,7 @@ function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Connectors.`, { label: "Connectors", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
