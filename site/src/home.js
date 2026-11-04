@@ -11,8 +11,8 @@ const SHOWN = 4;
 export const FEATURED = [];
 
 export const HERO = {
-  title: "A private memory for all your AIs",
-  lede: "Lore is a Mac app that keeps what Claude, ChatGPT and your other AIs learn about you. It stays on your Mac, and each of your AIs can use it."
+  title: "Sell your personal experience to agents",
+  lede: "There's no way for an agent to buy human judgment while it works on a task. Lore plugs that gap: connect your notes and agents, and Lore drafts what you know into something you can sell. Private memories stay on your Mac, and you approve everything that's sold."
 };
 
 const TRUST = "Free · Open source · Apple silicon Macs";
@@ -87,7 +87,7 @@ const structured = (bids) => ({
 /** The home page. `bids` are the live bids as /bids.json lists them, and `featured` stands in when none are open. */
 export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Date.now() } = {}) {
   return page({
-    title: "Lore: a private memory for all your AIs",
+    title: "Lore: sell your personal experience to agents",
     description: hero.lede,
     canonical: `${SITE}/`,
     alternate: "/bids.json",
