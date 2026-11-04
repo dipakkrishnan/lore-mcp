@@ -3,7 +3,7 @@
 // Python-side half of this check; each surface verifies itself against the
 // same checked-in contracts/feedback_report.json.
 import { describe, expect, it } from "vitest";
-import contract from "../../contracts/feedback_report.json";
+import contract from "../../../contracts/feedback_report.json";
 import {
   LENGTH_UNIT,
   LIMITS,
@@ -12,7 +12,7 @@ import {
   ReportError,
   SOURCES,
   parseReport
-} from "../src/report";
+} from "../../src/report";
 
 function validMetadata(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
