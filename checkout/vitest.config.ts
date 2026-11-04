@@ -1,31 +1,16 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
+// XC-099: two projects under one `vitest run`. `node` (vitest.unit.config.ts) runs the pure
+// modules' tests in plain node, files in parallel; `workerd` (vitest.workerd.config.ts) is the
+// Workers pool, which boots a Worker per file and so runs one file at a time.
+// `npm run test:unit` and `npm run test:component` pick one.
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: {
-        // Every test points at a stubbed Stripe and a stubbed store (see
-        // test/stubs.ts); no test reaches the real Stripe API.
-        bindings: {
-          STRIPE_API: "https://stripe.test",
-          STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
-          STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret",
-          STRIPE_PLATFORM_WEBHOOK_SECRET: "whsec_test_platform_not_a_real_secret",
-          ACCOUNT_TOKEN_SECRET: "not_a_real_token_secret"
-        },
-        // A stand-in for yourlore.dev's BidRail entrypoint, recording what the rail told it.
-        workers: [{ name: "yourlore-site", modules: true, scriptPath: "./test/fake-site.js", compatibilityDate: "2026-06-11" }]
-      }
-    })
-  ],
   test: {
-    fileParallelism: false,
-    include: ["test/**/*.test.ts"],
-    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). The Workers pool
-    // supports the istanbul provider only; CI reads coverage/coverage-summary.json into one line
-    // of the step summary. No thresholds until XC-108.
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). Coverage is a
+    // root option: one istanbul report over both projects (the Workers pool supports istanbul
+    // only, and it instruments the node project the same); CI reads coverage/coverage-summary.json
+    // into one line of the step summary. No thresholds until XC-108.
     coverage: {
       provider: "istanbul",
       reporter: ["text-summary", "json-summary"],
