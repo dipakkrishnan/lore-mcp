@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 ## Problem
@@ -64,3 +64,21 @@ rejection before `ready`; `watchSales`' old-sale suppression and batching.
   whose assertions move into `ipc.test.cjs`; they are blocked on this item.
 - Keep `main.cjs` to Electron wiring: window creation, lifecycle, the
   single-instance lock, and assembling the bundle the factory takes.
+- Done 2026-11-04 (PR #649). `main.cjs` went from 875 lines to 246. Moved
+  into `src/ipc.cjs`'s `Ipc(...)` factory, by line range, not rewritten:
+  `registerIpc` (98 handlers by the time it merged; APP-283 and APP-288 added
+  two while this was open), `signInToCloudflare`, `request`, `readThrough`,
+  `queueReadings`, `showSaved`, `told`, `AFTER_RUN`, `recordCheckIn`,
+  `closeCheckIn`, `runNow`, `hasStore`/`hasInbox` with the store and inbox
+  addresses, `watchSales` (now returns `{check, stop}`), `hidden`, the
+  `TASKS`/`USAGE`/`LOGINS`/`FIRST_RUN_STEPS` sets, the `Ready`, `Suggestions`,
+  `FirstRun`, `Seen` and `CheckIns` objects, and every `LoreAgent.create`
+  callback as `agentCallbacks(loreHome, outgoing, validEntries)`. Stayed in
+  `main.cjs`: `createWindow`, `reveal`, `emit`, `watchBids`, `watchAgents`,
+  `boot`/`start`, the lifecycle hooks, and the `badge`, `bids`, `updates`,
+  `appearance` and `requests` objects the bundle hands over. The factory takes
+  `state.cjs` as a second argument so the tests run against a fake CLI bridge.
+  `runtime.cjs` reads Electron's `app` through getters, so it loads in node.
+- `test/unit/ipc.test.cjs`: 36 tests over a fake ipcMain, about 0.1 s.
+  `node --test` with no arguments already matches `test/unit/`, so `npm test`
+  needed no change (XC-097 moves the existing tests into tiers separately).
