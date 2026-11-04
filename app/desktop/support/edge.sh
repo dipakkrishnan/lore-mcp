@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | inventory | cards | sales | extras | settings | agents | today | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -125,6 +125,35 @@ with Store() as store:
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
   mkdir -p "$LORE_STORE"
   echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
+fi
+if [[ "$scenario" == "inventory" ]]; then
+  # APP-282: a library shaped like a real one. Memories kept from three places, pieces drafted one memory at a time (so
+  # each piece's topic is that memory's whole sentence of a title), and a piece taken down beside a live copy of itself.
+  # The store is a stand-in: its live state is cached and its ledger is empty, so nothing reaches Cloudflare.
+  echo '[{"title":"Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip","content":"Book the boat dives early.","project":"personal"},{"title":"Travel: window seat on United or American; beach trips chosen for diving and poke","content":"Window seat, always.","project":"personal"},{"title":"Packing a dive kit for carry-on only","content":"Mask and computer in the carry-on.","project":"personal"},{"title":"Notarizing an Electron app without stapling surprises","content":"Staple after notarizing.","project":"lore-mcp"},{"title":"Code signing fails silently on .bin symlinks","content":"Dereference the symlinks first.","project":"lore-mcp"},{"title":"Auto-update from GitHub releases: three gotchas","content":"Publish the yml with the zip.","project":"lore-mcp"},{"title":"What the first three trial users got stuck on","content":"Cold start, the wallet gate, the explainer.","project":"lore-mcp"}]' | (cd "$repo_root" && uv run lore capture apply - >/dev/null)
+  (cd "$repo_root" && uv run python -c "import time
+from datetime import datetime, timedelta, timezone
+from lore.store import Store
+with Store() as store:
+ ids = {row['title']: row['id'] for row in store.db.execute('SELECT id,title FROM memories')}
+ for at, memory in enumerate(ids.values()):
+  store.db.execute('UPDATE memories SET updated_at=? WHERE id=?', ((datetime.now(timezone.utc) - timedelta(days=3 * at)).isoformat(), memory))
+ store.db.commit()
+ def piece(title):
+  return store.add_publication(title=title, content='paid text', topic=title, teaser=title, provenance=[ids[title]])
+ piece('Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip')
+ store.revoke_publication(piece('Travel: window seat on United or American; beach trips chosen for diving and poke'))
+ piece('Travel: window seat on United or American; beach trips chosen for diving and poke')
+ piece('Notarizing an Electron app without stapling surprises')
+ store.set_setting('price_usd', 1.0)
+ store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
+ live = [p.public_id for p in store.list_publications() if p.active]
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 1.0, 'payout': '0x' + 'a' * 40}, 'ids': live})")
+  mkdir -p "$LORE_STORE/node_modules/.bin"
+  printf '#!/bin/sh\nprintf "[{\\"results\\": []}, {\\"results\\": []}]"\n' > "$LORE_STORE/node_modules/.bin/wrangler"
+  chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
+  : > "$LORE_STORE/.installed"
 fi
 if [[ "$scenario" == "extras" ]]; then
   # A piece already for sale from before samples existed, and new free parts an agent drafted for it.

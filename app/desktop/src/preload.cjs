@@ -64,6 +64,8 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   deleteCollection: (id) => ipcRenderer.invoke("collection:delete", id),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
+  /** @param {number} id */
+  revealMemory: (id) => ipcRenderer.invoke("memory:reveal", id),
   /** Main checks the name, and the step the first-run chat's event carries. @param {string} name @param {FirstRunStep} [step] */
   usage: (name, step) => ipcRenderer.invoke("usage:record", name, step),
   /** @param {boolean} on */

@@ -13,7 +13,7 @@
   "dark": {
     "about": "Shots drawn dark: every shot of a walk walks.cjs launches with appearance dark, and these shots of light walks that flip the appearance mid-walk.",
     "walks": ["faq"],
-    "shots": ["settings-connected-dark", "export-manage-dark", "settings-appearance-dark", "account-menu-dark-mode-on"]
+    "shots": ["settings-connected-dark", "export-manage-dark", "settings-appearance-dark", "account-menu-dark-mode-on", "inventory-rows-dark"]
   },
   "views": [
     {
@@ -85,11 +85,11 @@
     },
     {
       "id": "inventory-sale",
-      "name": "Inventory, On sale shelf (For Sale: store card, pieces, Sales), with the Taken down and Ready to sell shelves",
-      "about": "show(\"store\"): the store bar in every state (no store, stale price, update offered, nothing for sale, unreachable), pieces on sale and not yet pushed, the Sales ledger, a pending removal under Taken down, a piece under Ready to sell.",
+      "name": "Inventory, All and On sale (pieces, Sales, Ready to sell), with taken-down pieces in their own folded group",
+      "about": "show(\"store\") and show(\"inventory\"): one-line rows grouped by source, pieces on sale and not yet pushed, the Sales ledger, a pending removal, a piece under Ready to sell, a row's take-down confirm, and the folded Taken down group.",
       "scans": [
-        { "walk": "update", "widths": [1040], "shots": ["update-store-card"] },
-        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "store-unpushed", "store-removal-pending", "store-push-first"] },
+        { "walk": "inventory", "widths": [1040], "shots": ["inventory-rows", "inventory-taken-down", "inventory-rows-dark"] },
+        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "store-unpushed", "store-removal-pending", "store-push-first", "store-take-down"] },
         { "walk": "fresh", "widths": [1040], "shots": ["store-empty"] },
         { "walk": "settings", "widths": [1040, 900], "shots": ["store-card", "store-price-editor-saved"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-nothing-for-sale", "agents-ready-to-sell"] },

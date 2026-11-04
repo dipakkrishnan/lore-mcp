@@ -118,6 +118,35 @@ class Inbox {
     });
   }
 
+  /** APP-282: Inventory's rows in groups by where their memories came from (the project or app a memory was kept from),
+   * so a piece and a draft sit beside the memories they were drafted from. A piece's own topic is a sentence the
+   * drafting agent wrote, never a heading. A memory sold on its own as a live piece is that piece's row, not a second
+   * row beside it with the same title: one status per thing. A taken-down piece is private again, so the counts add up to All, but it
+   * leaves the groups for `down`, shown apart so it never reads as a second live copy. Drafts come first in each group,
+   * then pieces newest first, then memories newest first; groups follow their first row.
+   * @param {{memories: MemoryItem[], pieces: PublicationItem[], drafts: PublicationCandidate[], tab: Shelf}} input */
+  static inventory({ memories, pieces, drafts, tab }) {
+    const kept = new Map(memories.map((memory) => [memory.id, memory]));
+    /** The first memory it was drafted from that is still kept. @param {number[] | undefined} ids */
+    const origin = (ids) => (ids ?? []).map((id) => kept.get(id)).find(Boolean);
+    const sole = (/** @type {number[] | undefined} */ ids) => (ids?.length === 1 ? [ids[0]] : []);
+    const sold = new Set(pieces.filter((item) => item.state === "approved").flatMap((item) => sole(item.provenance)));
+    /** @type {InventoryRow[]} */
+    const rows = [
+      ...drafts.map((item, at) => ({ key: `draft:${at}`, kind: /** @type {const} */ ("draft"), shelf: /** @type {const} */ ("draft"), group: origin(item.provenance)?.project_label ?? "", item, from: origin(item.provenance) })),
+      ...[...pieces].sort((a, b) => b.id - a.id).map((item) => ({ key: `piece:${item.id}`, kind: /** @type {const} */ ("piece"), shelf: item.state === "approved" ? /** @type {const} */ ("sale") : /** @type {const} */ ("private"), group: origin(item.provenance)?.project_label ?? "", item, from: origin(item.provenance) })),
+      ...memories.filter((item) => !sold.has(item.id)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).map((item) => ({ key: `memory:${item.id}`, kind: /** @type {const} */ ("memory"), shelf: /** @type {const} */ ("private"), group: item.project_label, item, from: item }))
+    ];
+    const counts = { all: rows.length, private: 0, draft: 0, sale: 0 };
+    for (const row of rows) counts[row.shelf]++;
+    const shown = rows.filter((each) => tab === "all" || each.shelf === tab);
+    const down = shown.filter((row) => row.kind === "piece" && row.item.state === "revoked");
+    /** @type {Map<string, InventoryRow[]>} */
+    const groups = new Map();
+    for (const row of shown.filter((each) => !down.includes(each))) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
+    return { counts, groups: [...groups].map(([key, listed]) => ({ key, name: key || "Unsorted", rows: listed })), down };
+  }
+
   /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
    * matched (or not, when Lore found nothing). @param {BidLook} look @returns {BidState} */
   state({ match, drafting, draft, approved, dismissed }) {
