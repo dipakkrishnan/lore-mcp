@@ -7,6 +7,7 @@
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
+    "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
     "test:capture": "./test-capture.sh",
     "test:edge": "node support/walks.cjs",
     "dogfood:new": "./support/dogfood.sh new",
