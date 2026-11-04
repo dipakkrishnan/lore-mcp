@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | fresh | feedback | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | settings | agents | today | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -86,23 +86,6 @@ for (const name of readdirSync(dir)) writeFileSync(resolve(dir, name), readFileS
   chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
   : > "$LORE_STORE/.installed"
 fi
-if [[ "$scenario" == "listing" ]]; then
-  # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
-  mkdir -p "$LORE_STORE" "$root/bin"
-  echo '{}' > "$LORE_STORE/wrangler.jsonc"
-  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
-  echo '{"sellers":[]}' > "$root/marketplace.json"
-  export PATH="$root/bin:$PATH" LORE_MARKETPLACE_URL="file://$root/marketplace.json"
-  (cd "$repo_root" && uv run python -c "import json, time
-from lore import blueprint
-from lore.store import Store
-with Store() as store:
- store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_selling', True)
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
-blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
-blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
-fi
 if [[ "$scenario" == "store" ]]; then
   (cd "$repo_root" && uv run python -c "import time
 from lore.store import Store
@@ -125,14 +108,6 @@ with Store() as store:
  store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
   mkdir -p "$LORE_STORE"
   echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
-fi
-if [[ "$scenario" == "extras" ]]; then
-  # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
-  (cd "$repo_root" && uv run python -c "
-from lore.store import Store
-with Store() as store:
- store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])"
-  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool"}]' | uv run lore publication extras draft - >/dev/null)
 fi
 if [[ "$scenario" == "settings" ]]; then
   # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
