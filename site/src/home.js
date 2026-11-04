@@ -15,7 +15,7 @@ export const HERO = {
   lede: "There's no way for an agent to buy human judgment while it works on a task. Lore plugs that gap: connect your notes and agents, and Lore drafts what you know into something you can sell. Private memories stay on your Mac, and you approve everything that's sold."
 };
 
-const TRUST = "Free · Open source · Apple silicon Macs";
+const TRUST = "Free · Open source";
 
 /** For buyers, true to MON-054: the card is saved when they ask and charged only for the answer they accept. */
 const ASK = "Need experience you can't find online? Put a price on your question. You're charged only if someone answers it.";

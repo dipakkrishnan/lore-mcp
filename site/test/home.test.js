@@ -21,7 +21,7 @@ describe("the home page", () => {
   test("leads with what Lore does for you, one download, and a trust line that names only true things", () => {
     const html = homePage({ now });
     expect(html).toContain(`<h1>${HERO.title}</h1>`);
-    expect(html).toContain("Free · Open source · Apple silicon Macs");
+    expect(html).toContain("Free · Open source");
     expect(html.match(/href="\/download"/g)).toHaveLength(2);
     expect(html).toContain('<nav><a href="/bids">Bids</a><a href="/marketplace">Markets</a><a href="https://github.com/dipakkrishnan/lore-mcp">GitHub</a><a href="/download">Download</a></nav>');
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
