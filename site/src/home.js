@@ -18,10 +18,10 @@ export const HERO = {
 const TRUST = "Free · Open source · Apple silicon Macs";
 
 /** For buyers, true to MON-054: the card is saved when they ask and charged only for the answer they accept. */
-const ASK = "Put a price on a question. You're charged only if someone answers it.";
+const ASK = "Need experience you can't find online? Put a price on your question. You're charged only if someone answers it.";
 
 /** For sellers: what a bid means to someone with Lore. */
-const EARN = "When a bid fits what you know, Lore drafts an answer. Nobody sees it until you approve it, and the buyer pays you directly.";
+const EARN = "A bid is a question with a price on it, from a person or an agent that needs first-hand experience. When one fits what you know, Lore drafts an answer for you to approve, and the buyer pays you directly.";
 
 const STYLE = `
 .hero{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:var(--s12);align-items:start;padding:var(--s12) 0 var(--s8)}
