@@ -1,5 +1,6 @@
-// APP-268: the Today notice state machine (APP-211), as the `fresh` walk drives it with a busy CLI: a notice told once a
-// sign-in, shown only on Today, remembered as said only once seen, its failed write tried again on the next load, and
+// APP-268: the Inbox notice state machine (APP-211; the Inbox was Today until APP-283), as the `fresh` walk drives it
+// with a busy CLI: a notice told once a sign-in, shown only on the Inbox, remembered as said only once seen, its failed
+// write tried again on the next load, and
 // dropped whole by a sign-out. The pure rules (withNotice, shownNotices) are tabled; the rest is driven through the
 // loaded renderer with the fake window.lore failing writes on cue.
 const assert = require("node:assert/strict");
@@ -29,7 +30,7 @@ for (const [name, items, notice, left] of WITH_NOTICE) {
   });
 }
 
-test("shownNotices: a plain notice shows anywhere, one told once only on Today", () => {
+test("shownNotices: a plain notice shows anywhere, one told once only on the Inbox", () => {
   const items = [plain("a"), once("k", "k"), alert("x")];
   assert.deepEqual(h.call("shownNotices", items, true).map((item) => item.text), ["a", "k", "x"]);
   assert.deepEqual(h.call("shownNotices", items, false).map((item) => item.text), ["a", "x"]);
@@ -41,7 +42,7 @@ const USAGE = "anonymous usage events";
 const noticesSaying = (harness, text) => harness.all("#status .notice").filter((node) => node.textContent.includes(text));
 const noticedWrites = (harness) => harness.lore.callsTo("usage").filter((call) => call.args[0] === "noticed").length;
 
-test("a notice waits for Today, is remembered only once seen, and a failed write is tried again on the next load", async () => {
+test("a notice waits for the Inbox, is remembered only once seen, and a failed write is tried again on the next load", async () => {
   const w = load();
   w.lore.answer("snapshot", unsaid());
   w.lore.failNext("usage", "database is locked");
@@ -52,9 +53,9 @@ test("a notice waits for Today, is remembered only once seen, and a failed write
   assert.equal(w.text("#title"), "Connectors");
   assert.equal(w.all("#status .notice").length, 0, "no notice on Connectors");
   assert.equal(noticedWrites(w), 0, "nothing remembered before it's seen");
-  assert.equal(w.get("told").has("usage"), true, "but the notice is told, waiting for Today");
-  // The first visit to Today shows it, and tries to remember it only then; that first write fails.
-  w.call("show", "today");
+  assert.equal(w.get("told").has("usage"), true, "but the notice is told, waiting for the Inbox");
+  // The first visit to the Inbox shows it, and tries to remember it only then; that first write fails.
+  w.call("show", "inbox");
   await w.idle();
   assert.equal(noticesSaying(w, USAGE).length, 1);
   assert.equal(noticedWrites(w), 1, "one write, which failed");
@@ -67,12 +68,12 @@ test("a notice waits for Today, is remembered only once seen, and a failed write
   assert.equal(w.get("told").get("usage"), null, "remembered");
   assert.deepEqual(w.lore.callsTo("usage").map((call) => call.args[0]).slice(1), ["noticed", "app.installed", "app.opened"], "only then counts Lore as opened");
   assert.equal(noticesSaying(w, USAGE).length, 1, "shown once throughout");
-  // Notices belong to Today: the other pages open clean, and Today has it back until dismissed.
-  for (const page of ["inventory", "connectors", "automations"]) {
+  // Notices belong to the Inbox: the other pages open clean, and the Inbox has it back until dismissed.
+  for (const page of ["inventory", "connectors", "bids"]) {
     w.call("show", page);
     assert.equal(w.all("#status .notice").length, 0, `${page} carries no notice`);
   }
-  w.call("show", "today");
+  w.call("show", "inbox");
   assert.equal(noticesSaying(w, USAGE).length, 1);
   // Later snapshots leave it alone.
   w.lore.emit({ type: "changed" });
@@ -81,7 +82,7 @@ test("a notice waits for Today, is remembered only once seen, and a failed write
   assert.equal(noticesSaying(w, USAGE).length, 1);
 });
 
-test("nothing is said about reading connected apps while none is connected; once one is, Today says it once, with where to change it", async () => {
+test("nothing is said about reading connected apps while none is connected; once one is, the Inbox says it once, with where to change it", async () => {
   const w = load();
   const s = unsaid();
   s.setup.telemetry_noticed = true;
@@ -96,14 +97,14 @@ test("nothing is said about reading connected apps while none is connected; once
   s.library.sources = [{ name: "obsidian", label: "Obsidian", enabled: true, imported: 1, connector: "obsidian" }];
   w.lore.emit({ type: "changed" });
   await w.idle();
-  const told = noticesSaying(w, "Change this in Automations");
+  const told = noticesSaying(w, "Change this in Connectors");
   assert.equal(told.length, 1);
-  assert.equal(told[0].querySelector("span").textContent, "Lore reads your connected apps every day at 6 PM and checks in at 9 PM when something's worth asking. Change this in Automations.");
-  assert.equal(told[0].querySelector("button.quiet")?.textContent, "Automations");
+  assert.equal(told[0].querySelector("span").textContent, "Lore reads your connected apps every day at 6 PM and checks in at 9 PM when something's worth asking. Change this in Connectors.");
+  assert.equal(told[0].querySelector("button.quiet")?.textContent, "Connectors");
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "remembered as said once seen");
   told[0].querySelector("button.quiet").click();
-  assert.equal(w.text("#title"), "Automations", "its action opens Automations");
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 0, "and takes the notice with it");
+  assert.equal(w.text("#title"), "Connectors", "its action opens Connectors, where automations now live");
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "and takes the notice with it");
 });
 
 test("a paused check-in leaves the notice to the reading alone", async () => {
@@ -118,7 +119,7 @@ test("a paused check-in leaves the notice to the reading alone", async () => {
   ]);
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Automations")[0]?.querySelector("span").textContent, "Lore reads your connected apps every Sunday at 9 PM. Change this in Automations.");
+  assert.equal(noticesSaying(w, "Change this in Connectors")[0]?.querySelector("span").textContent, "Lore reads your connected apps every Sunday at 9 PM. Change this in Connectors.");
 });
 
 test("dismissed while its write is out, and the write fails: it stays dismissed, and the next load remembers it without showing it again", async () => {
@@ -132,20 +133,20 @@ test("dismissed while its write is out, and the write fails: it stays dismissed,
   w.lore.answer("noticedRoutines", () => new Promise((_, reject) => { release = () => reject(new w.window.Error("database is locked")); }));
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 1);
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 1);
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "the write is out");
-  noticesSaying(w, "Change this in Automations")[0].querySelector(".dismiss").click();
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 0, "dismissed at once");
+  noticesSaying(w, "Change this in Connectors")[0].querySelector(".dismiss").click();
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "dismissed at once");
   release();
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "the failed write is not retried on its own");
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 0, "stays dismissed");
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "stays dismissed");
   w.lore.answer("noticedRoutines", undefined);
   w.lore.emit({ type: "changed" });
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 2, "the next load tries the write again");
   assert.equal(w.get("told").get("automations"), null, "remembered");
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 0, "without showing it again");
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "without showing it again");
   w.lore.emit({ type: "changed" });
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 2, "later loads leave it alone");
@@ -161,8 +162,8 @@ test("signing out drops every notice told this sign-in, and a write queued behin
   w.lore.answer("noticedRoutines", () => new Promise(() => {}));
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Automations").length, 1);
-  assert.equal(noticesSaying(w, USAGE).length, 1, "Today says both");
+  assert.equal(noticesSaying(w, "Change this in Connectors").length, 1);
+  assert.equal(noticesSaying(w, USAGE).length, 1, "the Inbox says both");
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1);
   assert.equal(noticedWrites(w), 0, "the usage write waits its turn");
   w.set("auth", { credentials: [] });

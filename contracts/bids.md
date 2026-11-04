@@ -199,7 +199,9 @@ SQLite full-text index). A bid matches at 0.5 or more; the corpus in
 `tests/fixtures/bids` puts every answerable bid at 0.62+ and every other bid,
 near misses included, at 0.31 or less. Only bids that are `open` or
 `answered` and inside their week match. The app keeps the matches in its own
-data folder with the bids the owner dismissed. Every change to that file
+data folder with the bids the owner dismissed, and the last board it read
+(each bid's id, question, amount, market, link and close date), which the Bids
+page lists (APP-288) without reading the board again. Every change to that file
 goes through one queue. A match counts as announced only after its
 notification is up.
 

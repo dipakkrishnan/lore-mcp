@@ -6,8 +6,9 @@
 // the view looks. The walks' LAYOUT scan (`shot()` in support/edge.cjs, under real Chromium) stays the only visual
 // check, and APP-266's view-to-walk table is the record of which walk scans which view.
 //
-// How it loads: src/index.html goes into a jsdom window; a `marked` stub, src/markdown.js and src/renderer.js are then
-// run as classic scripts in that window's own vm context, the way Chromium runs the three <script> tags, so renderer.js's
+// How it loads: src/index.html goes into a jsdom window; a `marked` stub, then every other script index.html names
+// (markdown.js, inbox.js, memorytext.js, renderer.js last) are run as classic scripts in that window's own vm context,
+// the way Chromium runs its <script> tags, so renderer.js's
 // top-level `let`s and functions are reachable from later code the same way edge.cjs reaches them with
 // executeJavaScript. renderer.js's closing `boot()` call is held back; `harness.boot()` makes it. `window.lore` is a
 // recorded fake generated from the `Window.lore` interface in src/types.d.ts: every member is a function that records
@@ -26,10 +27,20 @@ const vm = require("node:vm");
 const { JSDOM } = require("jsdom");
 
 const SRC = join(__dirname, "..", "src");
-/** Every window a load() has opened. pretendToBeVisual keeps a timer running in each, so a test file's process would sit
- * out the event loop for about ten seconds after its last test; they are closed once the file's tests are done. */
+/** Every window a load() has opened. Each keeps timers of its own (the first-run read's 5 s wait, pretendToBeVisual's
+ * frame clock), so a test file's process would sit out the event loop for seconds after its last test; they are all
+ * closed once the file's tests are done. The hook is registered here, as the harness is required, at the file's top
+ * level: registered from inside a test (the first load() of a file that has none at top level) it would attach to that
+ * one test and close only what had opened by then. */
 const opened = new Set();
-let closing = false;
+if (process.env.NODE_TEST_CONTEXT) {
+  require("node:test").after(() => {
+    for (const open of opened) {
+      try { open.close(); } catch {}
+    }
+    opened.clear();
+  });
+}
 /** @param {string} name */
 const read = (name) => readFileSync(join(SRC, name), "utf8");
 
@@ -237,10 +248,6 @@ function load({ dark = false, focused = true, answers = {} } = {}) {
   const dom = new JSDOM(read("index.html"), { url: "http://lore.local/index.html", runScripts: "outside-only", pretendToBeVisual: true });
   const { window } = dom;
   opened.add(window);
-  if (!closing && process.env.NODE_TEST_CONTEXT) {
-    closing = true;
-    require("node:test").after(() => { for (const open of opened) open.close(); opened.clear(); });
-  }
   window.__harness = { dark, focused };
   stubPlatform(window);
   const context = dom.getInternalVMContext();
@@ -252,7 +259,10 @@ function load({ dark = false, focused = true, answers = {} } = {}) {
   // marked, as markdown.js uses it: text in paragraphs, nothing parsed. The real library's output is pinned by
   // test/boundary.test.cjs under real Chromium; here the DOM only needs the text to land.
   run(`var marked = { use() {}, parse(text) { return text.split(/\\n{2,}/).map((p) => "<p>" + p.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + "</p>").join("\\n"); } };`, "marked-stub.js");
-  run(read("markdown.js"), "markdown.js");
+  // Then every script index.html loads after marked, in its order (markdown.js, inbox.js, memorytext.js, ... renderer.js).
+  const scripts = [...read("index.html").matchAll(/<script src="([^"]+)"><\/script>/g)].map(([, src]) => src).filter((src) => !src.includes("node_modules/"));
+  if (scripts.at(-1) !== "renderer.js") throw new Error(`index.html no longer loads renderer.js last: ${scripts.join(", ")}`);
+  for (const name of scripts.slice(0, -1)) run(read(name), name);
   const renderer = read("renderer.js");
   if (!renderer.endsWith("\nboot();\n")) throw new Error("renderer.js no longer ends with `boot();`; the harness holds that call back and must know where it is");
   run(renderer.slice(0, -"boot();\n".length), "renderer.js");

@@ -4,13 +4,13 @@ title: Load the renderer in jsdom so its rules can be table-tested
 priority: P1
 effort: M
 component: desktop-app
-status: ready
-related: [APP-063, APP-064, APP-269, APP-270]
+status: completed
+related: [APP-063, APP-064, APP-266, APP-269, APP-270, APP-283, XC-097]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-04
 ---
 
 ## Problem
@@ -49,19 +49,31 @@ that it checks DOM structure and text and never layout.
 
 ## Acceptance criteria
 
-- [ ] `support/renderer-harness.cjs` loads renderer.js in jsdom with a fake
+- [x] `support/renderer-harness.cjs` loads renderer.js in jsdom with a fake
       `window.lore`; a smoke test proves `boot()` runs and the first `load()`
       issues the nine IPC calls renderer.js:4353 makes today.
-- [ ] `nextStep` takes its inputs as parameters and has a table test for
+      (`test/unit/renderer-harness.test.cjs`: the nine reads, in order, after
+      `agentStatus` and `firstRun`, then `memoriesSeen` and `usage`.)
+- [x] `nextStep` takes its inputs as parameters and has a table test for
       stages a-f that mirrors what the `today` walk asserts.
-- [ ] The notice state machine, Activity row formatter, update-button state,
+      (`nextStep(s, state = stepState())`; `renderer-next-step.test.cjs`,
+      24 staged rows plus the ordering and detail tests.)
+- [x] The notice state machine, Activity row formatter, update-button state,
       price-sheet validation, FAQ wording and account-menu rules each have a
-      unit test file under `test/unit/`.
-- [ ] The whole renderer unit tier runs in under 5 s locally.
-- [ ] The harness README says it checks DOM and text, never layout, and
-      points at APP-266's table for what does.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
-      walks before this change is unscanned after it.
+      unit test file under `test/unit/`. (`renderer-notices`,
+      `renderer-activity`, `renderer-update`, `renderer-price-sheet`,
+      `renderer-faq`, `renderer-account-menu`.)
+- [x] The whole renderer unit tier runs in under 5 s locally. (148 tests in
+      eight files: 1.3 s wall on a 10-core Mac, about 0.5 s per file alone; a
+      harness `load()` is 75 ms.)
+- [x] The harness README says it checks DOM and text, never layout, and
+      points at APP-266's table for what does. (`app/desktop/README.md`,
+      the paragraph before the `shot()` one; it points at
+      `support/views.json`.)
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
+      walks before this change is unscanned after it. (No change under
+      `support/` but the new harness; `support/walks.cjs`, `edge.cjs` and
+      `views.json` are as main has them.)
 
 ## Notes
 
@@ -72,3 +84,33 @@ that it checks DOM structure and text and never layout.
   `elementsFromPoint`), `matchMedia`, the observers, `AudioContext` and
   `getUserMedia` for dictation. Stub what the rules under test need; leave
   dictation out.
+- Done in PR #647 (2026-11-04). What jsdom 30.1.3 actually lacks, stubbed in
+  the harness: every `HTMLDialogElement` method (`show`, `showModal`,
+  `close`), the popover API (`showPopover`/`hidePopover`/`togglePopover`,
+  marked with `data-popover-open` and a `toggle` event, since `:popover-open`
+  cannot match), `scrollIntoView`, `getAnimations`/`animate`, `matchMedia`,
+  `ResizeObserver`, `IntersectionObserver`; `document.hasFocus()` is false,
+  so the harness answers true. `getComputedStyle`, `requestSubmit`,
+  `localStorage` (with an http: URL) and `requestAnimationFrame` are there.
+- The scripts run through `vm.runInContext` on jsdom's own context, not
+  `window.eval`: only a classic script puts top-level `let`s in the global
+  lexical scope where later code (and edge.cjs's `executeJavaScript`) can
+  reach them. The harness reads index.html's `<script>` list, so APP-283's
+  `inbox.js` and `memorytext.js` loaded without a change here.
+- The rules now take state: `nextStep(s, state = stepState())` and
+  `underWay(kind, state)`; `recent(iso, now)`; `activityRuns(items)` and
+  `activityRow(run, now)` split out of `recentRuns`; `withNotice(items,
+  notice)` and `shownNotices(items, today)` out of `tell`/`renderNotices`;
+  `updateButton(update)`; `priceEntry(raw, rawCopies)`; `faqPrice(usd)`;
+  `accountState(status, snapshot)`. Every default reads the live global the
+  function read before, so no caller changed.
+- APP-283 (Inbox replaces Today) and APP-288 (Automations into Connectors)
+  landed while this was open. `nextStep` is unchanged by them; the Inbox
+  draws its result as an `.irow.step` row with the action as the verb rather
+  than a card, and the automations notice now says "Change this in
+  Connectors". The tests say Inbox where they mean the view; the walk is
+  still named `today`.
+- A `node:test` `after()` hook registered from inside a running test attaches
+  to that test, not the file. The harness registers its close-all-windows
+  hook as it is required, or a file with no top-level `load()` sits out the
+  first-run read's 5 s timer after its last test.

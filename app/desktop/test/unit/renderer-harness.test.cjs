@@ -18,7 +18,7 @@ test("renderer.js loads in jsdom with boot() held back, in well under a second",
   assert.deepEqual(h.lore.names(), ["onAgentEvent", "update", "appearance"], "what renderer.js asks main at load, before boot()");
   assert.ok(h.loadMs < 1000, `loading took ${h.loadMs.toFixed(0)} ms`);
   assert.equal(typeof h.get("nextStep"), "function", "top-level functions are reachable by name");
-  assert.equal(h.get("view"), "today", "top-level lets are reachable by name");
+  assert.equal(h.get("view"), "inbox", "top-level lets are reachable by name");
   assert.deepEqual(Object.keys(h.window.__lore).sort(), ["event", "load", "openTask", "preview", "show", "signIn"], "the hooks edge.cjs drives are still exposed");
 });
 
@@ -34,7 +34,7 @@ test("boot() signs in and the first load() issues the nine reads, then marks the
   assert.deepEqual(after.slice(2, 2 + LOAD_CALLS.length), LOAD_CALLS, "the first load() makes these nine calls, together, in this order");
   assert.deepEqual(after.slice(2 + LOAD_CALLS.length), ["memoriesSeen", "usage"], "then what has been seen, and that Lore was opened");
   assert.deepEqual(h.lore.callsTo("usage").map((call) => call.args), [["app.opened"]]);
-  assert.match(h.text("#title"), /^Good (morning|afternoon|evening)\.$/);
+  assert.equal(h.text("#title"), "Inbox", "and lands on the Inbox");
 });
 
 test("boot() with nobody signed in shows the welcome screen and says what is sent", async () => {

@@ -69,7 +69,7 @@ test("the buyer fork is one row that opens the buyer skill in the browser", () =
   assert.equal(link.textContent, "Get the buyer skill ↗");
 });
 
-test("the FAQ is a view: the account menu's Help & FAQ lands on it, and nothing about selling is added to Today or Settings", async () => {
+test("the FAQ is a view: the account menu's Help & FAQ lands on it, and nothing about selling is added to the Inbox or Settings", async () => {
   h.lore.answer("snapshot", emptySnapshot({ library: { counts: { private: 1 }, sources: [], items: [{ id: 1, title: "A memory", project_label: "p", status: "private", updated_at: "2026-10-30", sources: [], arrival: 1 }] } }));
   h.signIn();
   await h.idle();
@@ -79,8 +79,8 @@ test("the FAQ is a view: the account menu's Help & FAQ lands on it, and nothing 
   assert.equal(h.text("#eyebrow"), "");
   assert.equal(h.all("#content .row b")[0]?.textContent, "What is Lore?");
   assert.ok(!h.document.getElementById("account-menu").hasAttribute("data-popover-open"), "the menu closes");
-  assert.equal(h.document.getElementById("capture").hidden, true, "the composer is Today's");
-  h.call("show", "today");
+  assert.equal(h.document.getElementById("capture").hidden, true, "the composer is the Inbox's");
+  h.call("show", "inbox");
   assert.doesNotMatch(h.text("#content"), /Who buys|Getting paid/);
   h.call("show", "settings");
   assert.doesNotMatch(h.text("#content"), /Who buys|Getting paid/);

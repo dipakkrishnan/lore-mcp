@@ -34,10 +34,25 @@ reverse, or a `window.lore` member the renderer uses but preload does not expose
 fails `test/ipc-contract.test.cjs`.
 
 `test/unit/renderer-*.test.cjs` run the renderer's rules without Electron: `support/renderer-harness.cjs`
-loads `src/index.html` and `renderer.js` into jsdom with a recorded fake `window.lore`, and each test calls a
-top-level function with a snapshot and asserts the result. They check DOM structure and text, never layout: jsdom
-has no layout engine, so every box is 0×0 and nothing overlaps or clips. What a view looks like is still the walks'
-LAYOUT scan, and APP-266's view-to-walk table records which walk scans which view.
+loads `src/index.html` and its scripts (`renderer.js` last) into jsdom with a recorded fake `window.lore`, and each
+test calls a top-level function with a snapshot and asserts the result. They check DOM structure and text, never
+layout: jsdom has no layout engine, so every box is 0×0 and nothing overlaps or clips. What a view looks like is
+still the walks' LAYOUT scan below, and `support/views.json` (APP-266) records which walk scans which view.
+
+Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
+check (the screenshots are written, never compared): once the page settles it
+scans the whole DOM in real Chromium for layout faults — a box wider than its
+room, text or a control cut off or clipped by the box around it, a one-line
+label wrapping, neighbours drawn over each other, text or the focused control
+hidden under something painted over it, a dialog running off the window — at
+the window's width (1040 px) and, for the walks in edge.cjs's `NARROW` set, at
+900 px too. With a modal sheet open only the sheet (and any popover or preview)
+is scanned, not the page under it. `support/views.json` is the table of which
+walks scan which view at which widths, one row per view, derived from those
+labels; `test/views.test.cjs` fails when a `shot()` label has no row, a row
+names a label or walk that is gone, or the widths disagree with edge.cjs and
+main.cjs. Only a `shot()` under Electron counts as a layout check: a jsdom or
+`node:vm` assertion never does, because neither lays anything out (APP-266).
 
 To look at a view without clicking through, render it to a PNG:
 

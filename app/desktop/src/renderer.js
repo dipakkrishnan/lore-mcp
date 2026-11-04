@@ -41,10 +41,15 @@ const paletteInput = /** @type {HTMLInputElement} */ ($("#palette-input"));
 const paletteList = $("#palette-list");
 const paletteEnter = $("#palette-enter");
 const mainEl = $("#main");
+const stepper = $("#stepper");
+const pageTabs = $("#page-tabs");
+const stepperAt = $("#stepper-at");
+const stepUp = /** @type {HTMLButtonElement} */ ($("#step-up"));
+const stepDown = /** @type {HTMLButtonElement} */ ($("#step-down"));
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
+/** @typedef {"inbox" | "bid" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "faq" | "settings"} View */
 /** @typedef {"all" | "private" | "sale" | "down"} Shelf */
 /** @type {Snapshot | null} */
 let snapshot = null;
@@ -69,11 +74,9 @@ const running = new Set();
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
-let view = "today";
+let view = "inbox";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
-/** Which automations the tab shows. @type {"all" | "active" | "paused"} */
-let automationsShown = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
 /** The collection open in its own view. @type {number | null} */
@@ -190,7 +193,7 @@ function resetBlueprintGhost() {
   blueprintSlot.replaceChildren();
 }
 
-const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
+const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2" stroke="var(--accent)" stroke-width="1.7"></path><path d="M4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
@@ -218,7 +221,6 @@ const STORE_FIX = "My store isn't responding. Find out why and bring it back onl
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in", checkin: "Look over today", evening: "Evening check-in" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
@@ -257,7 +259,7 @@ function reason(error, fallback) {
 /** @param {HTMLTextAreaElement} area */
 function fit(area) {
   area.style.height = "";
-  area.style.height = `${Math.min(area.scrollHeight, 200)}px`;
+  area.style.height = `${area.classList.contains("answer") ? area.scrollHeight : Math.min(area.scrollHeight, 200)}px`;
 }
 
 /** @param {string} className */
@@ -352,13 +354,30 @@ function inline(label, onClick) {
   return node;
 }
 
-/** Render a memory's content as markdown, pulling the description out of any frontmatter. @param {string} content */
-function renderMemoryBody(content) {
+/** Render a memory's content as markdown, pulling the description out of any frontmatter, the title out of the body,
+ * and an agent's bookkeeping into properties (APP-284). @param {string} content @param {string} title */
+function renderMemoryBody(content, title) {
   const meta = content.match(FRONTMATTER)?.[1] ?? "";
-  const node = markdown(content.replace(FRONTMATTER, ""));
-  node.classList.add("body");
+  const text = new MemoryText(title, content.replace(FRONTMATTER, "")).read();
+  const node = el("div", "md body");
+  for (const part of text.parts) {
+    if ("keywords" in part) node.append(el("p", "keywords", part.keywords));
+    else node.append(...markdown(part.markdown).childNodes);
+  }
   const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
   if (description) node.prepend(el("p", "lede", description));
+  /** @type {[string, string][]} */
+  const props = [["Project", text.project], ["Updated", text.updated ? when(text.updated) : ""], ["Scope", text.scope]];
+  const shown = props.filter(([, value]) => value);
+  if (shown.length) {
+    const list = el("dl", "props memory-props");
+    for (const [label, value] of shown) {
+      const item = el("div", "prop");
+      item.append(el("dt", "", label), el("dd", "", value));
+      list.append(item);
+    }
+    node.prepend(list);
+  }
   return node;
 }
 
@@ -449,7 +468,7 @@ async function openMemory(id) {
     actions.replaceChildren(button("Cancel", "secondary", back), remove);
   }
   /** @type {HTMLElement} */
-  let body = renderMemoryBody(memory.content);
+  let body = renderMemoryBody(memory.content, memory.title);
   function startRename() {
     const input = el("input", "draft-title");
     input.type = "text";
@@ -506,7 +525,7 @@ async function openMemory(id) {
         tell(reason(error, "Lore could not save that."), true);
         return;
       }
-      body = renderMemoryBody(memory.content);
+      body = renderMemoryBody(memory.content, memory.title);
       textarea.replaceWith(body);
       showActions();
       void load();
@@ -737,12 +756,6 @@ function storeAddress(node) {
 /** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
 function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
-}
-
-/** Past midnight is still the evening to someone up late; morning starts at 5. */
-function greeting() {
-  const hour = new Date().getHours();
-  return hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
 /** A line icon from its strokes. @param {string} paths */
@@ -1010,7 +1023,7 @@ function readyGroup(key, runs, sources) {
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
 function noticeReady() {
-  if (view !== "today" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
+  if (view !== "inbox" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
   readyRuns = readyRuns.map((run) => ({ ...run, seen: true }));
   void window.lore.seenMemories();
 }
@@ -1023,58 +1036,596 @@ function draftsPhase() {
 /** Threads whose agent can stage a publication draft. */
 const DRAFTING = new Set(["publish", "capture", "evening"]);
 
-/** Drafts to approve, and the push after approving. @param {Snapshot} s */
-function drafts(s) {
+/** Drafts to approve, and the push after approving; without a bid's answer, which its own page approves.
+ * @param {Snapshot} s @param {boolean} [answers] Whether a bid's answer is listed too, as it is in the thread that drafted it. */
+function drafts(s, answers = true) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+  const listed = answers ? candidates : candidates.filter((candidate) => !candidate.bid);
+  if (listed.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(listed), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
   return parts;
 }
 
-/** What came in, and the one thing to do next. @param {Snapshot} s */
-function renderToday(s) {
-  if (firstRun.active && !detailTask) return firstRun.parts(s);
+/** A thread's own cards: drafts and the push after approving where it drafts, the next rung once setup or the store is done. @param {Snapshot} s */
+function threadParts(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  // A check-in leads Today, on the rare day there is one.
-  if (detailTask) {
-    // Drafts and the push after approving show in the threads that draft, as on Today.
-    if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
-    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
-    if (detailTask === "deploy" && signingIn) parts.push(signInCard());
-    return parts;
-  }
-  // A check-in leads Today, on the rare day there is one.
-  if (checkIn) parts.push(checkInCard(checkIn));
-  const suggested = suggestionsCard(s);
-  if (suggested) parts.push(suggested);
-  if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
-  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
-  if (reading) parts.push(readingRow(reading));
-  if (readyRuns.length) parts.push(memoriesReady(readyRuns));
-  const step = nextStep(s);
-  if (step === "drafts") parts.push(...drafts(s));
-  else if (step) parts.push(nextStepCard(step));
-  const shown = displayTasks();
-  if (shown.length) {
-    const list = el("div", "routines today-cards");
-    for (const item of shown) {
-      const row = el("div", "row routine");
-      const open = el("button", "task-link");
-      open.type = "button";
-      const text = el("div", "t");
-      text.append(el("b", "sans", item.title), el("span", "", item.phase));
-      open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
-      open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(markTile(UNFINISHED_ICON), open);
-      list.append(row);
-    }
-    parts.push(section("Unfinished", list));
-  }
-  if (step !== "drafts") parts.push(...drafts(s));
+  if (DRAFTING.has(/** @type {AgentTask} */ (detailTask))) parts.push(...drafts(s));
+  if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+  if (detailTask === "deploy" && signingIn) parts.push(signInCard());
   return parts;
+}
+
+/** APP-283: the home view. A thread or the first-run chat when one is open; otherwise one row per thing that needs the
+ * owner, and "You're all caught up" when nothing does. @param {Snapshot} s */
+function renderInbox(s) {
+  if (firstRun.active && !detailTask) return firstRun.parts(s);
+  if (detailTask) return threadParts(s);
+  const rows = inbox.rows(s);
+  if (readyRuns.length) noticeReady();
+  if (!rows.length) return [el("p", "caught-up", "You're all caught up")];
+  return [inbox.list(rows)];
+}
+
+/** Drafts waiting on the owner, opened from the Inbox; a bid's answer is approved on the bid's own page. @param {Snapshot} s */
+function renderDrafts(s) {
+  const parts = drafts(s, false);
+  return parts.length ? parts : [el("p", "caught-up", "No drafts to approve")];
+}
+
+/** 16px line glyphs, one set: what each Inbox row and timeline entry is about. */
+const GLYPHS = {
+  bid: `<circle cx="8" cy="8" r="5.75"></circle><path d="M9.9 6.2c-.3-.6-1-.95-1.9-.95-1.05 0-1.85.6-1.85 1.4 0 1.9 3.85 1 3.85 2.9 0 .8-.8 1.4-2 1.4-.9 0-1.65-.4-1.95-1M8 4.1v1.15M8 10.75v1.15"></path>`,
+  draft: `<circle cx="8" cy="8" r="5.75"></circle><path d="M8 2.25a5.75 5.75 0 0 1 0 11.5z" fill="currentColor" stroke="none"></path>`,
+  sold: `<circle cx="8" cy="8" r="6" fill="currentColor" stroke="none"></circle><path d="M5.5 8.2l1.7 1.7 3.3-3.6" stroke="var(--bg)"></path>`,
+  alert: `<path d="M8 2.5l6 10.5H2z"></path><path d="M8 6.75v2.75M8 11.3v.1"></path>`,
+  ask: `<path d="M2.5 4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11h-.5a1 1 0 0 1-1-1z"></path>`,
+  memory: `<path d="M4 2.5h5.5L12 5v8.5H4z"></path><path d="M6 8h4M6 10.5h4"></path>`,
+  collection: `<path d="M2.5 4.5a1 1 0 0 1 1-1h3L8 5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"></path>`,
+  store: `<path d="M2.5 6l1-3h9l1 3M2.5 6v7.5h11V6M2.5 6h11M6.5 13.5v-4h3v4"></path>`,
+  connect: `<path d="M6 2.5v3M10 2.5v3"></path><path d="M4.5 5.5h7V8a3.5 3.5 0 0 1-7 0z"></path><path d="M8 11.5v2"></path>`,
+  sell: `<path d="M13.5 8l-5.5 5.5-6-6V2.5h5.5z"></path><circle cx="5.25" cy="5.25" r="1"></circle>`,
+  update: `<path d="M8 10V2.5M5 5.5l3-3 3 3"></path><path d="M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10"></path>`,
+  unfinished: `<circle cx="8" cy="8" r="5.75" stroke-dasharray="2.2 2.2"></circle>`,
+  working: `<circle cx="8" cy="8" r="5.75" stroke-dasharray="2.2 2.2"></circle><path d="M8 5v3l2 1.25"></path>`,
+  help: `<circle cx="8" cy="8" r="5.75"></circle><path d="M6.3 6.3a1.8 1.8 0 0 1 3.5.5c0 1.2-1.8 1.4-1.8 2.6"></path><path d="M8 11.3v.1"></path>`,
+  check: `<path d="M3.5 8.5l3 3 6-6.5"></path>`,
+  lock: `<rect x="3.5" y="7" width="9" height="6.5" rx="1"></rect><path d="M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7"></path>`,
+  person: `<circle cx="8" cy="5.5" r="2.5"></circle><path d="M3 13.5c.6-2.4 2.6-3.5 5-3.5s4.4 1.1 5 3.5"></path>`,
+  up: `<path d="M4.5 9.5L8 6l3.5 3.5"></path>`,
+  down: `<path d="M4.5 6.5L8 10l3.5-3.5"></path>`,
+  next: `<path d="M6.5 4.5L10 8l-3.5 3.5"></path>`
+};
+// Each next step and its mark, in the Inbox's one set.
+Object.assign(GLYPHS, { publish: GLYPHS.sell });
+
+/** @param {string} name @param {string} [className] */
+function glyph(name, className = "glyph") {
+  const node = el("span", `${className} g-${name}`);
+  node.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[/** @type {keyof typeof GLYPHS} */ (name)] ?? GLYPHS.unfinished}</svg>`;
+  return node;
+}
+
+/** Inbox rows the owner marked Done that nothing else clears (a sale, the how-it-works row): kept in this window's
+ * storage, so a sale seen stays seen across launches. */
+class Cleared {
+  key = "lore.inbox.cleared";
+
+  /** @returns {Set<string>} */
+  read() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(this.key) ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  /** @param {string} rowKey */
+  add(rowKey) {
+    const kept = [...this.read(), rowKey].slice(-200);
+    try {
+      localStorage.setItem(this.key, JSON.stringify(kept));
+    } catch {}
+  }
+}
+
+/** The Inbox as the owner sees it: the rows from what Lore holds, the one selected, and each row's verb and Done. */
+class InboxView {
+  cleared = new Cleared();
+  /** The selected row, by key, so a redraw keeps it. */
+  selected = "";
+  /** What each row does, by key, as the last draw made them. @type {Map<string, {open: () => void, done?: () => void}>} */
+  actions = new Map();
+  /** The last rows drawn. @type {InboxRow[]} */
+  shown = [];
+
+  /** Everything that needs the owner, as Today used to show it in cards. @param {Snapshot} s @returns {InboxRow[]} */
+  rows(s) {
+    const cleared = this.cleared.read();
+    const step = nextStep(s);
+    const groups = this.groups();
+    const kept = new Map(privateMemories(s).map((memory) => [memory.id, memory.title]));
+    const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
+    const week = Date.now() - 7 * 86_400_000;
+    const problems = s.library.sources.flatMap((source) => {
+      const app = apps.find((each) => each.id === source.connector);
+      // An agent of the owner's answers through their store, and says how it stands on Connectors.
+      if (!app || app.id === "agent" || !source.state || source.state === "off") return [];
+      const state = stateOf(app, source);
+      if (state.ok) return [];
+      const says = state === SIGNED_OUT ? "is signed out" : source.state === "needs_permission" ? "needs access" : "stopped reading";
+      return [{ key: source.name, name: source.label || app.name, says, verb: state === SIGNED_OUT ? "Sign in" : "Fix" }];
+    });
+    /** @type {InboxInput} */
+    const input = {
+      bids: s.bidMatches ?? [],
+      drafts: candidates,
+      drafting: bidPage.drafting,
+      answered: answeredBids(s),
+      updates: extraDrafts.length,
+      offer: pushOffer && !pushing ? { label: forSale(s) ? "What you approved isn't on your store yet" : "What you approved isn't on sale yet", action: forSale(s) ? "Push now" : "Open your store" } : null,
+      problems,
+      step: step && step !== "drafts" ? { label: step.label, action: step.action, mark: step.mark, ...(step.mark === "update" ? { what: step.detail } : {}) } : null,
+      checkIn,
+      tasks: displayTasks(),
+      reading: taskItems.find((item) => item.kind === "synthesize" && item.state === "working") ?? null,
+      ready: [...groups].map(([key, runs]) => ({ key, from: runs[0].from ?? "", title: runs[0].title, memories: runs.reduce((sum, run) => sum + run.memories.length, 0), selling: runs.reduce((sum, run) => sum + run.memories.filter((memory) => memory.sell).length, 0), saves: runs.reduce((sum, run) => sum + run.read, 0), at: runs[0].at })),
+      suggestions: live.map(({ each, memories }) => ({ at: each.at, title: each.title, count: memories.length })),
+      sales: Array.isArray(sales) ? sales.filter((sale) => Date.parse(sale.sold_at) > week && !cleared.has(`sale:${sale.tx}`)) : [],
+      help: !s.library.counts.private && howItWorks.shown()
+    };
+    const rows = new Inbox().rows(input);
+    this.actions = new Map(rows.map((row) => [row.key, this.act(row, s, step, groups, live)]));
+    return rows;
+  }
+
+  /** New memories by who brought them, newest first, as one row each. */
+  groups() {
+    /** @type {Map<string, ReadyRun[]>} */
+    const groups = new Map();
+    for (const run of readyRuns) {
+      const key = run.by?.id ?? run.title;
+      groups.set(key, [...(groups.get(key) ?? []), run]);
+    }
+    return groups;
+  }
+
+  /** What a row's verb and its Done do.
+   * @param {InboxRow} row @param {Snapshot} s @param {ReturnType<typeof nextStep>} step @param {Map<string, ReadyRun[]>} groups
+   * @param {Array<{each: CollectionSuggestion, memories: number[]}>} live @returns {{open: () => void, done?: () => void}} */
+  act(row, s, step, groups, live) {
+    const ref = row.ref ?? "";
+    switch (row.kind) {
+      case "bid": return { open: () => bidPage.open(ref), done: () => void bidPage.dismiss(ref) };
+      case "draft": return { open: () => show("drafts") };
+      case "step": return { open: row.key === "offer" ? (forSale(s) ? () => void pushNow() : () => { pushOffer = false; void startDeploy(); }) : step && step !== "drafts" ? step.run : () => undefined };
+      case "problem": {
+        const source = s.library.sources.find((each) => each.name === ref);
+        const app = apps.find((each) => each.id === source?.connector);
+        return { open: () => { if (app && source) openConnection(app, source); else show("connectors"); } };
+      }
+      case "checkin": return { open: () => void openTask("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
+      case "task": return { open: () => void openTask(/** @type {AgentTask} */ (ref), taskItems.find((item) => item.kind === ref)) };
+      case "reading": return { open: () => void openTask("synthesize") };
+      case "memories": {
+        const runs = groups.get(ref) ?? [];
+        const by = runs[0]?.by;
+        return {
+          open: () => (by?.kind === "agent" ? seeFrom({ id: by.id, label: by.label }) : show("memories")),
+          done: () => {
+            /** @type {ReadyKey[]} */
+            const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+            loads++;
+            readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+            render();
+            void window.lore.dismissMemories(keys);
+          }
+        };
+      }
+      case "suggestion": {
+        const found = live.find(({ each }) => each.at === ref);
+        const alike = found ? (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === found.each.title.toLowerCase()) : [];
+        return { open: () => { if (found) reviewSuggestion(found.each, found.memories, alike.length === 1 ? alike[0] : undefined); }, done: () => { if (found) void dropSuggestion(found.each); } };
+      }
+      case "sale": return { open: () => show("store"), done: () => { this.cleared.add(row.key); render(); } };
+      case "help": return { open: () => show("faq"), done: () => { howItWorks.close(); render(); } };
+    }
+    return { open: () => undefined };
+  }
+
+  /** The rows, one line each: glyph, sentence, Done on hover, age, verb. @param {InboxRow[]} rows */
+  list(rows) {
+    this.shown = rows;
+    if (!rows.some((row) => row.key === this.selected)) this.selected = rows[0]?.key ?? "";
+    const list = el("div", "inbox");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Inbox");
+    const age = new Inbox();
+    for (const row of rows) {
+      const actions = this.actions.get(row.key);
+      const node = el("div", `irow ${row.kind}`);
+      node.setAttribute("role", "listitem");
+      node.dataset.key = row.key;
+      node.classList.toggle("sel", row.key === this.selected);
+      const text = el("span", "say");
+      const words = [row.amount && el("b", "amt", row.amount), row.lead && el("span", "sub", row.lead), row.title, row.tail && el("span", "sub", row.tail)].filter(Boolean);
+      text.append(...words.flatMap((word, at) => (at ? [" ", word] : [word])));
+      text.title = text.textContent ?? "";
+      if (row.kind === "reading") text.classList.add("shimmer");
+      node.append(glyph(row.glyph), text);
+      if (actions?.done) {
+        const done = el("button", "icon-btn done");
+        done.type = "button";
+        done.title = "Done · E";
+        done.setAttribute("aria-label", `Done: ${text.textContent}`);
+        done.innerHTML = glyph("check").innerHTML;
+        done.addEventListener("click", (event) => { event.stopPropagation(); actions.done?.(); });
+        node.append(done);
+      }
+      node.append(el("span", "age", age.age(row.at)));
+      const verb = button(row.verb, "quiet", () => actions?.open());
+      verb.classList.add("verb");
+      node.append(verb);
+      node.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("button")) return;
+        actions?.open();
+      });
+      node.addEventListener("mousemove", () => this.select(row.key));
+      list.append(node);
+    }
+    return list;
+  }
+
+  /** @param {string} key */
+  select(key) {
+    if (this.selected === key) return;
+    this.selected = key;
+    for (const node of content.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === key);
+    content.querySelector(".irow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens, E is Done. @param {KeyboardEvent} event @returns {boolean} Whether it was the Inbox's key. */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.key === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.key);
+      return true;
+    }
+    const row = this.shown[at];
+    if (!row) return false;
+    if (event.key === "Enter") { this.actions.get(row.key)?.open(); return true; }
+    if (event.key === "e") { this.actions.get(row.key)?.done?.(); return true; }
+    return false;
+  }
+
+  /** How many rows wait, for the sidebar. @param {Snapshot} s */
+  count(s) {
+    return firstRun.active ? 0 : this.rows(s).length;
+  }
+}
+
+const inbox = new InboxView();
+
+/** Bids whose answer the owner approved. @param {Snapshot} s */
+function answeredBids(s) {
+  return new Set([...bidPage.approved.keys(), ...s.publications.items.filter((item) => item.bid && item.state === "approved").map((item) => item.bid ?? "")]);
+}
+
+/** APP-288: the bids on the board, every one or only those the owner's memories answer, one line each, from what the
+ * app already read. */
+class BidsView {
+  /** @type {BidsInput["tab"]} */
+  tab = "matches";
+  /** The selected row, by bid id, so a redraw keeps it. */
+  selected = "";
+  /** The last rows drawn. @type {BidRow[]} */
+  shown = [];
+
+  /** @param {Snapshot} s @param {BidsInput["tab"]} [tab] */
+  rows(s, tab = this.tab) {
+    const drafted = new Set(candidates.flatMap((candidate) => (candidate.bid ? [candidate.bid] : [])));
+    return new Inbox().bids({ matches: s.bidMatches ?? [], board: s.bidBoard ?? [], tab, drafting: bidPage.drafting, drafted, answered: answeredBids(s) });
+  }
+
+  /** The two text tabs beside the title, each with its count. @param {Snapshot} s */
+  tabs(s) {
+    return /** @type {const} */ ([["matches", "Matches what I know"], ["all", "All"]]).map(([id, label]) => {
+      const tab = el("button", "ptab");
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(this.tab === id));
+      tab.append(label, el("span", "n", String(this.rows(s, id).length)));
+      tab.addEventListener("click", () => { this.tab = id; render(); });
+      return tab;
+    });
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const rows = this.rows(s);
+    this.shown = rows;
+    if (!rows.length) return [el("p", "caught-up", this.tab === "all" ? "No open bids" : "Nothing on the board matches what you know yet")];
+    if (!rows.some((row) => row.id === this.selected)) this.selected = rows[0].id;
+    const list = el("div", "inbox bids");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Bids");
+    for (const row of rows) {
+      const node = el("div", "irow brow");
+      node.setAttribute("role", "listitem");
+      node.dataset.key = row.id;
+      node.classList.toggle("sel", row.id === this.selected);
+      const question = el("span", "say", row.question);
+      question.title = row.question;
+      const left = el("span", "age left");
+      left.append(row.pill ? chip(row.pill.label, row.pill.tint) : row.left);
+      const strength = signal(row.strength);
+      strength.title = ["No match", "", "Good match", "Strong match"][row.strength];
+      node.append(el("b", "amt", row.amount), question, el("span", "mkt", row.market), left, strength);
+      node.addEventListener("click", () => bidPage.open(row.id, "bids"));
+      node.addEventListener("mousemove", () => this.select(row.id));
+      list.append(node);
+    }
+    return [list];
+  }
+
+  /** @param {string} id */
+  select(id) {
+    if (this.selected === id) return;
+    this.selected = id;
+    for (const node of content.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === id);
+    content.querySelector(".irow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens. @param {KeyboardEvent} event @returns {boolean} Whether it was the page's key. */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.id === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.id);
+      return true;
+    }
+    if (event.key === "Enter" && this.shown[at]) { bidPage.open(this.shown[at].id, "bids"); return true; }
+    return false;
+  }
+}
+
+const bidsView = new BidsView();
+
+/** A bid's own page (APP-283): the question, what Lore found that answers it, the answer once drafted, and its
+ * timeline, with its properties in a column beside it. */
+class BidPage {
+  /** The Status pill's tint by where the bid stands: open is money waiting, an answer under way is amber, ready is done. */
+  static TINTS = { matched: "live", unmatched: "", drafting: "pending", drafted: "pending", approved: "live", expired: "", dismissed: "" };
+
+  /** The bid open now. */
+  id = "";
+  /** The bid as last seen, so a page stays readable once its bid is dismissed or ends. @type {BidMatch | null} */
+  last = null;
+  /** Bids whose answer Lore is drafting. @type {Set<string>} */
+  drafting = new Set();
+  /** Bids dismissed this launch; the main process forgets them for good. @type {Set<string>} */
+  dismissed = new Set();
+  /** What the owner approved, by bid, to show once its draft is gone. @type {Map<string, string>} */
+  approved = new Map();
+  /** The answer being edited, kept across redraws so typing survives the agent's next event. @type {{key: string, node: HTMLElement} | null} */
+  form = null;
+
+  /** The list the page was opened from, which its breadcrumb, Esc and ↑/↓ go back to. @type {"inbox" | "bids"} */
+  from = "inbox";
+
+  /** @param {string} id @param {"inbox" | "bids"} [from] */
+  open(id, from = "inbox") {
+    this.id = id;
+    this.from = from;
+    // Back on the list, the bid last open is the one selected.
+    if (from === "bids") bidsView.selected = id;
+    else inbox.selected = `bid:${id}`;
+    this.last = snapshot ? this.find(snapshot, id) : null;
+    show("bid");
+  }
+
+  /** The bid as a match; one on the board that nothing kept answers has no memories (APP-288). @param {Snapshot} s @param {string} id */
+  find(s, id) {
+    const match = s.bidMatches.find((each) => each.bid.id === id);
+    if (match) return match;
+    const bid = (s.bidBoard ?? []).find((each) => each.id === id);
+    return bid ? Inbox.unmatched(bid) : null;
+  }
+
+  /** The bids the page steps through: the list it came from, in its order. @param {Snapshot} s */
+  ids(s) {
+    return this.from === "bids" ? bidsView.rows(s).map((row) => row.id) : inbox.rows(s).filter((row) => row.kind === "bid").map((row) => row.ref ?? "");
+  }
+
+  /** ↑/↓ to the bid before or after this one. @param {number} by */
+  step(by) {
+    if (!snapshot) return;
+    const ids = this.ids(snapshot);
+    const next = ids[ids.indexOf(this.id) + by];
+    if (next) this.open(next, this.from);
+  }
+
+  /** Not this one: off the Inbox, and the page says so. @param {string} id */
+  async dismiss(id) {
+    this.dismissed.add(id);
+    render();
+    await act(() => window.lore.dismissBid(id));
+  }
+
+  /** @param {string} id */
+  async draft(id) {
+    this.drafting.add(id);
+    render();
+    let failed = "";
+    try {
+      await window.lore.draftBid(id);
+    } catch (error) {
+      failed = reason(error, "Lore couldn't draft the answer. Try again.");
+    }
+    this.drafting.delete(id);
+    await load();
+    if (failed || !candidates.some((candidate) => candidate.bid === id)) tell(failed || "Lore didn't draft an answer. Try again.", true);
+  }
+
+  /** @param {PublicationCandidate} draft @param {string} answer */
+  async approve(draft, answer) {
+    this.approved.set(this.id, answer);
+    await decide(draft, true, { ...draft, content: answer });
+    if (candidates.some((candidate) => candidate.bid === draft.bid)) this.approved.delete(this.id);
+    render();
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const match = this.find(s, this.id) ?? (this.last?.bid.id === this.id ? this.last : null);
+    if (!match) return [el("p", "caught-up", "This bid isn't open anymore")];
+    this.last = match;
+    const id = match.bid.id;
+    const draft = candidates.find((candidate) => candidate.bid === id) ?? null;
+    const approved = this.approved.has(id) || s.publications.items.some((item) => item.bid === id && item.state === "approved");
+    const look = { match, drafting: this.drafting.has(id) && !draft, draft, approved, dismissed: this.dismissed.has(id) };
+    const page = new Inbox().bid(look);
+    const main = el("div", "page-col");
+    main.append(el("h2", "ptitle", match.bid.question), el("p", "lede", "A buyer wants a first-hand answer."));
+    const count = match.memories.length;
+    if (count) {
+      main.append(el("h3", "sec", `Lore found ${Inbox.plural(count, "memory", "memories")} that ${count === 1 ? "answers" : "answer"} this`));
+      const rows = el("div", "found");
+      for (const memory of match.memories) {
+        const node = el("button", "irow");
+        node.type = "button";
+        const kept = el("span", "m");
+        kept.append(glyph("lock", "glyph"), "Not sent to buyer");
+        node.append(provenance(s.library.items.find((item) => item.id === memory.id)?.sources).marks, el("span", "say", memory.title), kept);
+        node.addEventListener("click", () => openMemory(memory.id));
+        rows.append(node);
+      }
+      main.append(rows);
+    }
+    main.append(...this.answer(page.state, look));
+    main.append(el("h3", "sec", "Activity"), this.timeline(page.activity));
+    const layout = el("div", "page");
+    layout.append(main, this.properties(match, page));
+    return [layout];
+  }
+
+  /** The answer, as far as it has come. @param {BidState} state @param {BidLook} look */
+  answer(state, { match, draft }) {
+    const id = match.bid.id;
+    const head = el("h3", "sec", "Answer");
+    const from = Inbox.plural(match.memories.length, "memory", "memories");
+    const said = (/** @type {string} */ text) => [head, el("p", "says", text)];
+    if (state === "dismissed") return said("You dismissed this bid. It won't come back.");
+    if (state === "expired") return said(`This bid closed. Nothing was sent.`);
+    if (state === "unmatched") return said("Nothing you've kept answers this yet.");
+    if (state === "approved") {
+      const kept = this.approved.get(id);
+      const note = el("div", "answer-foot");
+      note.append(glyph("check", "glyph g-sold"), el("span", "note", "Your answer is ready. Sending it to the buyer comes next."));
+      return [head, ...(kept ? [el("p", "body", kept)] : []), note];
+    }
+    if (state === "drafting") {
+      const line = el("p", "says");
+      line.append(el("span", "shimmer", `Lore is drafting from ${from}…`));
+      return [head, line];
+    }
+    if (state === "matched") {
+      const foot = el("div", "answer-foot");
+      foot.append(button("Draft the answer", "primary", () => void this.draft(id)), button("Dismiss", "quiet", () => void this.dismiss(id)));
+      return [head, foot];
+    }
+    const current = /** @type {PublicationCandidate} */ (draft);
+    const key = JSON.stringify(current);
+    if (this.form?.key !== key) {
+      const block = el("div", "answer-block");
+      const label = el("h3", "sec");
+      label.append("Answer", el("span", "right", "Drafted by Lore · edit anything"));
+      const text = /** @type {HTMLTextAreaElement} */ (el("textarea", "answer"));
+      text.value = current.content;
+      text.setAttribute("aria-label", "Answer");
+      text.addEventListener("input", () => fit(text));
+      const foot = el("div", "answer-foot");
+      const note = el("span", "note");
+      note.append(glyph("lock", "glyph"), `The buyer gets this answer only. ${match.memories.length === 1 ? "Your memory isn't" : `Your ${from} aren't`} part of it.`);
+      const approve = button(`Approve · ${Inbox.dollars(match.bid.usd)}`, "primary", () => {
+        approve.disabled = true;
+        void this.approve(current, text.value.trim() || current.content);
+      });
+      foot.append(note, button("Dismiss", "quiet", () => void this.dismiss(id)), approve);
+      block.append(label, text, foot);
+      this.form = { key, node: block };
+    }
+    return [this.form.node];
+  }
+
+  /** @param {BidMatch} match @param {ReturnType<InstanceType<typeof Inbox>["bid"]>} page */
+  properties(match, page) {
+    const side = el("div", "page-side");
+    const list = el("dl", "props");
+    /** @param {string} label @param {string | HTMLElement} value */
+    const prop = (label, value) => {
+      const item = el("div", "prop");
+      const dd = el("dd");
+      dd.append(value);
+      item.append(el("dt", "", label), dd);
+      list.append(item);
+    };
+    prop("Status", chip(page.status, BidPage.TINTS[page.state]));
+    prop("Pays", el("b", "", Inbox.dollars(match.bid.usd)));
+    prop("Buyer", "Kept private");
+    const market = Inbox.market(match.bid.market);
+    if (market) prop("Market", market);
+    if (page.state !== "expired" && page.state !== "dismissed") prop("Time left", page.left ?? "—");
+    if (page.state !== "expired" && page.state !== "dismissed" && match.memories.length) {
+      const strength = el("span", "strength");
+      strength.append(signal(match.strength === "strong" ? 3 : 2), match.strength === "strong" ? "Strong" : "Good");
+      prop("Match", strength);
+    }
+    prop("Payment", "Card, straight to you");
+    side.append(list);
+    return side;
+  }
+
+  /** What happened to the bid, newest last. @param {ReturnType<InstanceType<typeof Inbox>["bid"]>["activity"]} activity */
+  timeline(activity) {
+    const list = el("div", "timeline");
+    const age = new Inbox();
+    for (const entry of activity) {
+      const node = el("div", "ev");
+      const icon = entry.glyph === "lore" ? mark("glyph lore") : glyph(entry.glyph);
+      const text = el("span", "tx");
+      const said = [el("b", "", entry.actor), ` ${entry.text}`];
+      if (entry.live) {
+        const live = el("span", "shimmer");
+        live.append(...said);
+        text.append(live);
+      } else text.append(...said);
+      if (entry.at) text.append(el("span", "when", ` · ${age.age(entry.at)}`));
+      node.append(icon, text);
+      list.append(node);
+    }
+    return list;
+  }
+}
+
+const bidPage = new BidPage();
+
+/** Three bars, `level` of them lit, the way a signal reads. @param {number} level */
+function signal(level) {
+  const node = el("span", "signal");
+  node.setAttribute("aria-hidden", "true");
+  node.innerHTML = `<svg viewBox="0 0 12 12">${[0, 1, 2].map((at) => `<rect x="${1 + at * 4}" y="${8 - at * 3}" width="2" height="${3 + at * 3}" rx="0.5"${at < level ? ' class="on"' : ""}></rect>`).join("")}</svg>`;
+  return node;
+}
+
+/** @param {Snapshot} s */
+function renderBid(s) {
+  return bidPage.parts(s);
 }
 
 /** Today's way into the FAQ for a new owner, until their first memory, their first paid sale, or until they close it. */
@@ -1088,6 +1639,12 @@ class HowItWorks {
     } catch {
       return !paid;
     }
+  }
+
+  close() {
+    try {
+      localStorage.setItem(this.key, "1");
+    } catch {}
   }
 
   line() {
@@ -1230,7 +1787,7 @@ class FirstRunChat {
   }
 
   redraw() {
-    if (this.active && view === "today" && !detailTask) render();
+    if (this.active && view === "inbox" && !detailTask) render();
   }
 
   /** Back after a relaunch, still waiting on the agent picked: its link was shown once, so a new one is a tap away.
@@ -1341,7 +1898,7 @@ class FirstRunChat {
 
   /** The newest of the chat in view. */
   reveal() {
-    if (this.active && view === "today" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+    if (this.active && view === "inbox" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
   }
 
   /** Its link was lost: a new one, shown here, and the wait goes on with it. */
@@ -1450,7 +2007,7 @@ class FirstRunChat {
     this.active = false;
     if (state === "skipped") this.passed("skipped");
     void this.keep({ state, ...(this.kept?.source ? { source: this.kept.source } : {}) });
-    show("today");
+    show("inbox");
     then?.();
   }
 
@@ -1479,7 +2036,7 @@ class FirstRunChat {
       line.append(speaker(true), el("p", "", text));
       chat.append(line);
     };
-    lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
+    lore("Hi, I'm Lore. I keep what you teach your AIs here on this Mac, so every one of them can use it.");
     // APP-223: first what's already on this Mac, so something comes in before anything is asked of the owner.
     if (!this.appsDone && !this.found) {
       lore(el("p", "hint", "Looking on this Mac…"));
@@ -1551,9 +2108,9 @@ class FirstRunChat {
   /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
    * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
   closing(chat, lore, what) {
-    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to your Inbox, which shows the next step when you want to sell some of it.`);
     const actions = el("div", "actions first-run-actions");
-    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Inbox", "primary", () => this.leave("done")));
     chat.append(actions);
   }
 
@@ -2668,16 +3225,6 @@ function pill(label, tone = "") {
   return el("span", `status-pill ${tone}`.trim(), label);
 }
 
-/** Settings → How often Lore reads them: the rhythm Lore keeps while it is open. @param {Snapshot} s */
-function scheduleRow(s) {
-  const label = "How often Lore reads them";
-  const schedule = s.setup.schedule;
-  if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
-  if (schedule.paused) return row(label, `${runsWhen(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
-  const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
-  return row(label, `${runsWhen(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
-}
-
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
 let cards = null;
 let cardsLoading = false;
@@ -3286,8 +3833,9 @@ function openConnection(app, source) {
   const form = new FormSheet(name, logo(app));
   form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
   if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule && !snapshot.setup.schedule.paused ?`Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
-  form.text(standing, "hint");
+  const reading = routines.find((routine) => routine.kind === "read");
+  const standing = form.text(source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : reading && !reading.paused ? `Lore looks for new ${many(app.item)} ` : `Lore looks for new ${many(app.item)} only when you choose Read again.`, "hint");
+  if (source.refresh !== false && reading && !reading.paused) standing.append(inline(runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every"), () => openRoutine(reading)), ".");
   form.button("Disconnect", "quiet", ask);
   if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
   else form.button(`Change ${unit}`, "quiet", () => void openConnect(app, source));
@@ -3319,10 +3867,10 @@ function openConnection(app, source) {
   }
 }
 
-/** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
- * way context gets into Lore, not a preference. @param {Snapshot} s */
+/** Connectors: the owner's own agents, then where memories come from, then what Lore does with them on its own. First
+ * class: the way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), section("", card([scheduleRow(s)]))];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), automationsSection()];
 }
 
 /** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
@@ -3981,7 +4529,7 @@ function renderFaq(s) {
   return [
     section("Getting started", card([
       qa("What is Lore?", "A private place on your Mac for what you've learned from your work. You can sell pieces of it to other people's AI agents, but only the pieces you approve."),
-      qa("How do I start?", "Connect an app you already write in, from Connectors, or tell Lore something you learned on Today. Lore drafts things to sell from it, and you approve the ones you like. Approved drafts go on sale in your store."),
+      qa("How do I start?", "Connect an app you already write in, from Connectors, or tell Lore something you learned with New › Memory. Lore drafts things to sell from it, and you approve the ones you like. Approved drafts go on sale in your store."),
       qa("Why connect my apps?", "So you don't start from a blank page. Lore reads what you've already written and suggests what's worth selling."),
       qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
@@ -4166,10 +4714,6 @@ function routineRow(routine) {
   // The moment it stands for, so what it says is checked against the clock, not the words.
   if (!busy && !routine.paused) next.dataset.next = routine.next_run;
   detail.append(time, " · ", next);
-  const lines = el("div", "routine-lines");
-  // A routine named by its own sentence says it once.
-  if (routine.about && routine.about !== routine.name) lines.append(el("span", "routine-about", routine.about));
-  lines.append(detail);
   const actions = el("div", "routine-actions");
   actions.append(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
   if (!routine.built_in) actions.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
@@ -4184,7 +4728,7 @@ function routineRow(routine) {
     news.addEventListener("click", () => show("inventory"));
     trailing.append(news);
   }
-  const node = row(routine.name, lines, trailing, false);
+  const node = row(routine.name, detail, trailing, false);
   node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : " on"}`));
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
@@ -4320,97 +4864,65 @@ function openNewRoutine(said = "") {
   text.focus();
 }
 
-/** "3 automations · next in 15 hours", above the title as on every other page. */
-function automationsEyebrow() {
-  const live = routines.filter((routine) => !routine.paused).sort((x, y) => Date.parse(x.next_run) - Date.parse(y.next_run));
-  const count = `${routines.length} ${routines.length === 1 ? "automation" : "automations"}`;
-  return live.length ? `${count} · next ${nextRun(live[0].next_run)}` : routines.length ? `${count} · all paused` : "";
-}
-
-/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
-function renderAutomations(s) {
-  const page = el("div", "automations-page");
-  const find = el("div", "auto-find");
-  find.innerHTML = lineIcon(`<circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path>`);
-  const query = el("input");
-  query.type = "search";
-  query.placeholder = "Search automations";
-  query.setAttribute("aria-label", "Search automations");
-  find.append(query);
-  const bar = el("div", "auto-bar");
-  // Inventory's own tabs, so the two lists read as one app.
-  const tabs = el("div", "shelves");
-  tabs.setAttribute("role", "tablist");
-  const paused = routines.filter((routine) => routine.paused).length;
-  for (const [id, label, count] of /** @type {const} */ ([["all", "All", routines.length], ["active", "Active", routines.length - paused], ["paused", "Paused", paused]])) {
-    const tab = el("button", "shelf");
-    tab.type = "button";
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", String(automationsShown === id));
-    tab.append(label, el("span", "shelf-count", String(count)));
-    tab.addEventListener("click", () => { automationsShown = id; render(); });
-    tabs.append(tab);
-  }
-  const add = button("New automation", "quiet", () => openNewRoutine());
-  add.id = "new-automation";
-  add.prepend(Object.assign(el("span", "auto-add"), { innerHTML: lineIcon(`<path d="M12 5v14M5 12h14"></path>`) }));
-  bar.append(tabs, add);
-  const shown = [...routines]
-    .filter((routine) => automationsShown === "all" || (automationsShown === "paused") === Boolean(routine.paused))
-    .sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in)));
+/** APP-288: everything Lore does on its own, and when, Lore's own first, at the foot of Connectors. New ones start from
+ * the New menu, as everything else does. */
+function automationsSection() {
   const list = el("div", "automations");
-  list.append(...shown.map(routineRow));
-  const none = el("p", "hint auto-none", automationsShown === "paused" ? "Nothing paused." : "No automations match.");
-  none.hidden = shown.length > 0;
-  list.append(none);
-  // Filtered in place, so the search box keeps its focus while the owner types.
-  query.addEventListener("input", () => {
-    const words = query.value.trim().toLowerCase();
-    let any = 0;
-    for (const node of list.querySelectorAll(".row.routine")) {
-      const hit = !words || /** @type {HTMLElement} */ (node).dataset.find?.includes(words);
-      /** @type {HTMLElement} */ (node).hidden = !hit;
-      if (hit) any++;
-    }
-    none.hidden = any > 0;
-  });
-  // A handful needs no search; it appears once the list is long enough to look through.
-  if (routines.length > 6) page.append(find);
-  page.append(bar, list);
-  return [page];
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow));
+  const node = section("Automations", list);
+  node.id = "automations";
+  return node;
 }
 
-const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { inbox: renderInbox, bid: renderBid, drafts: renderDrafts, inventory: renderInventory, bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
-  const detail = view === "today" ? detailTask : null;
-  const welcoming = view === "today" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const detail = view === "inbox" ? detailTask : null;
+  const welcoming = view === "inbox" && !detail && firstRun.active;
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : view === "automations" ? automationsEyebrow() : "";
+    : welcoming ? "" : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
   // A collection's name is its heading, renamed in place.
   title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
   title.spellcheck = false;
-  taskBack.textContent = view === "collection" && !detail ? "← Inventory" : "← Today";
-  taskBack.hidden = !detail && view !== "collection";
+  // APP-283: the Inbox, Bids, a bid and the drafts are pages: a header bar with a breadcrumb, rows edge to edge.
+  const paged = !detail && !welcoming && (view === "inbox" || view === "bids" || view === "bid" || view === "drafts");
+  mainEl.classList.toggle("paged", paged);
+  // A bid's breadcrumb is the list it was opened from.
+  const list = view === "bid" ? bidPage.from : view === "drafts" ? "inbox" : view;
+  taskBack.textContent = paged ? (list === "bids" ? "Bids" : "Inbox") : view === "collection" && !detail ? "← Inventory" : "← Inbox";
+  taskBack.hidden = !detail && view !== "collection" && view !== "bid" && view !== "drafts";
+  stepper.hidden = view !== "bid";
+  if (view === "bid" && snapshot) {
+    const ids = bidPage.ids(snapshot);
+    const at = ids.indexOf(bidPage.id);
+    stepperAt.textContent = at < 0 ? "" : `${at + 1} / ${ids.length}`;
+    stepUp.disabled = at <= 0;
+    stepDown.disabled = at < 0 || at >= ids.length - 1;
+  }
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
   addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
   sellWritingBtn.hidden = addMemoryBtn.hidden;
-  captureArea.hidden = view !== "today" || welcoming;
+  // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
+  captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
   header.classList.toggle("compact", welcoming || Boolean(detail));
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
   // A collection lives in Inventory, so Inventory stays lit while one is open.
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view)));
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" ? list : view)));
   if (!snapshot) return;
+  $("[data-count=inbox]").textContent = String(inbox.count(snapshot) || "");
   $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
+  $("[data-count=bids]").textContent = String(bidsView.rows(snapshot, "matches").length || "");
+  pageTabs.hidden = view !== "bids";
+  pageTabs.replaceChildren(...(view === "bids" ? bidsView.tabs(snapshot) : []));
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -4438,18 +4950,20 @@ function renderAccount() {
   signOutBtn.hidden = !signOut;
 }
 
-/** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
+/** Memories and For Sale became Inventory's tabs, and Automations a section of Connectors; anything that still asks for
+ * them lands there. @param {View | "memories" | "store" | "automations"} next */
 function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
-  view = next === "memories" || next === "store" ? "inventory" : next;
+  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "connectors" : next;
   if (view === "inventory") void loadSales();
   if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
-  if (next === "connectors") void loadAgents();
+  if (view === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   unseen.visit();
   render();
   mainEl.scrollTop = 0;
+  if (next === "automations") $("#automations")?.scrollIntoView();
   mainEl.focus({ preventScroll: true });
 }
 
@@ -4548,7 +5062,7 @@ function tellOnce(key, text, action, write) {
 
 /** Today is what the owner sees: signed in, on Today, with no thread open over it. */
 function onToday() {
-  return !appShell.hidden && view === "today" && !detailTask && !firstRun.active;
+  return !appShell.hidden && view === "inbox" && !detailTask && !firstRun.active;
 }
 
 /** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
@@ -5259,7 +5773,7 @@ function renderRequest(event) {
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   syncComposer();
-  if (view !== "today") show("today");
+  if (view !== "inbox") show("inbox");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   reveal();
   if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
@@ -5339,8 +5853,8 @@ function nextRung(s) {
       ? storeOpened(s)
       : forAgents
         ? "Nothing is for sale. When you approve something to sell, Lore asks for a price and where payments go."
-        : "This step is done. Try again now, or any time from Today."
-    : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
+        : "This step is done. Try again now, or any time from your Inbox."
+    : "This step is done. What comes next is a separate step — take it now, or any time from your Inbox.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
@@ -5392,7 +5906,7 @@ async function openTask(kind, record, fallback) {
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
   liveText = liveStatus = "";
   resetBlueprintGhost();
-  show("today");
+  show("inbox");
   renderLog();
 }
 
@@ -5405,7 +5919,7 @@ async function startOver(kind) {
   lines.splice(0);
   liveText = liveStatus = "";
   clearRequest();
-  show("today");
+  show("inbox");
   renderLog();
   // Setup and the store are Lore's flows to begin; a capture or publish thread waits for the owner's first word.
   const opening = kind === "setup" ? SETUP_INTENT : kind === "deploy" ? STORE_INTENT : null;
@@ -5454,7 +5968,8 @@ let confirmingExtras = false;
 /** How many pieces Approve all is saving and pushing; zero when it isn't. */
 let approvingExtras = 0;
 
-function approvals() {
+/** @param {PublicationCandidate[]} [listed] */
+function approvals(listed = candidates) {
   const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
@@ -5465,7 +5980,7 @@ function approvals() {
     approvalForms.set(key, node);
     return node;
   };
-  list.append(...candidates.map(form));
+  list.append(...listed.map(form));
   if (extraDrafts.length) list.append(extrasBatch(extraDrafts, extraDrafts.map(form)));
   for (const key of approvalForms.keys()) if (!shown.has(key)) approvalForms.delete(key);
   return list;
@@ -5889,7 +6404,7 @@ function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Connectors.`, { label: "Connectors", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
@@ -5935,8 +6450,9 @@ function onEvent(event) {
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
     if (event.source) seeFrom(event.source);
+    else if (event.bid) { if (detailTask) closeTask(); bidPage.open(event.bid); }
     else {
-      if (event.view === "today" && detailTask) closeTask();
+      if (event.view === "inbox" && detailTask) closeTask();
       show(event.view);
     }
   }
@@ -6149,10 +6665,14 @@ document.addEventListener("drop", (event) => {
   // Open on a collection, a drop goes into it, not into a memory.
   if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
   attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
-  if (attachments.length) show("today");
+  if (attachments.length) startCapture();
 });
 
-taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : closeTask()));
+taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" ? show(bidPage.from) : view === "drafts" ? show("inbox") : closeTask()));
+// An answer grows to its text, so a wider or narrower window fits it again.
+addEventListener("resize", () => { for (const area of mainEl.querySelectorAll("textarea.answer")) fit(/** @type {HTMLTextAreaElement} */ (area)); });
+stepUp.addEventListener("click", () => bidPage.step(-1));
+stepDown.addEventListener("click", () => bidPage.step(1));
 title.addEventListener("keydown", (event) => {
   if (title.contentEditable !== "plaintext-only") return;
   if (event.key === "Enter") { event.preventDefault(); title.blur(); }
@@ -6163,10 +6683,22 @@ title.addEventListener("blur", () => {
   if (item && title.contentEditable === "plaintext-only") void renameCollection(item, title.textContent ?? "");
 });
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
-/** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
-function startCapture(text = "") {
-  if (detailTask) closeTask();
-  show("today");
+/** A new memory: the capture thread with its composer ready (the one unfinished, if there is), carrying anything the
+ * owner already typed. @param {string} [text] */
+async function startCapture(text = "") {
+  if (detailTask === "capture") {
+    if (view !== "inbox") show("inbox");
+  } else {
+    const unfinished = taskItems.find((item) => item.kind === "capture");
+    if (unfinished) await openTask("capture", unfinished);
+    else {
+      task = detailTask = "capture";
+      detailRecord = null;
+      lines.splice(0);
+      renderLog();
+      show("inbox");
+    }
+  }
   if (text) { input.value = text; fit(input); }
   if (composer.hidden || input.disabled) { if (text) tell("Finish what Lore is asking first. What you typed is waiting in the composer."); return; }
   input.focus();
@@ -6393,7 +6925,7 @@ accountMenu.addEventListener("keydown", (event) => {
 });
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
-  if (next === "today" && detailTask) closeTask();
+  if (next === "inbox" && detailTask) closeTask();
   else show(next);
 });
 welcomeRetry.addEventListener("click", () => {
@@ -6407,7 +6939,28 @@ document.addEventListener("keydown", (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
+  pageKey(event);
 });
+
+/** APP-283, APP-288: the Inbox, Bids and a bid's page by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
+function pageKey(event) {
+  const typing = event.target instanceof HTMLElement && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
+  if (event.defaultPrevented || typing || event.metaKey || event.ctrlKey || event.altKey || palette.open || document.querySelector("dialog[open]") || !newMenu.hidden || document.body.dataset.state !== "app") return;
+  const handled = view === "inbox" && !detailTask && !firstRun.active ? inbox.key(event)
+    : view === "bids" ? bidsView.key(event)
+    : view === "bid" ? bidKey(event)
+    : false;
+  if (handled) event.preventDefault();
+}
+
+/** On a bid: ↑/↓ or K/J to the bid before or after, Esc back to the list it came from. @param {KeyboardEvent} event */
+function bidKey(event) {
+  if (event.key === "ArrowUp" || event.key === "k") bidPage.step(-1);
+  else if (event.key === "ArrowDown" || event.key === "j") bidPage.step(1);
+  else if (event.key === "Escape") show(bidPage.from);
+  else return false;
+  return true;
+}
 document.addEventListener("click", (event) => {
   if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });

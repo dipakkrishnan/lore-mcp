@@ -83,9 +83,9 @@ test("Settings draws Activity last, six rows at most, a thread link only where t
   h.lore.answer("snapshot", emptySnapshot({ jobs: { items } }));
   h.signIn();
   await h.idle();
-  assert.ok(!h.text("#content").includes("Activity"), "Today carries no Activity");
-  h.call("show", "automations");
-  assert.ok(!/Recent runs|Activity/.test(h.text("#content")), "Automations carries no run log");
+  assert.ok(!h.text("#content").includes("Activity"), "the Inbox carries no Activity");
+  h.call("show", "connectors");
+  assert.ok(!/Recent runs|Activity/.test(h.text("#content")), "Connectors, where automations live, carries no run log");
   h.call("show", "settings");
   const sections = h.all("#content .section");
   const activity = sections.at(-1);

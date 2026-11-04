@@ -1,4 +1,4 @@
-// APP-268: Today's one next step as a table over the stages the `today` walk seeds (a to f), run on nextStep(s, state)
+// APP-268: the Inbox's one next step (Today's, until APP-283) as a table over the stages the `today` walk seeds (a to f), run on nextStep(s, state)
 // straight from the loaded renderer. The walk drives these through a live Electron window and a real CLI; here each
 // stage is a snapshot and the renderer's own state, and the rule is asserted as a function of them.
 const assert = require("node:assert/strict");
@@ -24,14 +24,14 @@ const STAGES = [
   ["e: nothing connected and nothing kept", emptySnapshot(), {}, "Connect the AI you talk to most", "Connect"],
   ["e: an app that is off still counts as nothing connected", emptySnapshot({ library: { counts: { private: 0 }, sources: [{ ...obsidian, enabled: false, connector: null }], items: [] } }), {}, "Connect the AI you talk to most", "Connect"],
   ["d: memories, nothing drafted or for sale", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), {}, "Turn what you know into something to sell", "Start"],
-  ["d: a publish thread at work is the step itself, so Today asks nothing", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), { taskItems: [working("publish")] }, null],
+  ["d: a publish thread at work is the step itself, so the Inbox asks nothing", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), { taskItems: [working("publish")] }, null],
   ["d: once the publish thread finishes with nothing drafted, the step is back", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), { taskItems: [done("publish")] }, "Turn what you know into something to sell", "Start"],
   ["c: drafts waiting are the step, with no card pointing at them", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), { candidates: [{ title: "x" }] }, "drafts"],
   ["c: new free parts for a piece on sale count as drafts too", emptySnapshot({ library: { counts: { private: 2 }, sources: [], items: [memory(1), memory(2)] } }), { extraDrafts: [{ extras: {}, piece: {} }] }, "drafts"],
   ["b2: an approved piece with no store, ahead of the draft still waiting", emptySnapshot({ library: { counts: { private: 1 }, sources: [], items: [memory(2)] }, publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] }, pricing: { publication_usd: 0.02, answer_usd: null, answer_enabled: false } }), { candidates: [{ title: "x" }] }, "1 approved piece isn't on sale yet", "Open your store"],
   ["b2: two approved pieces, plural", emptySnapshot({ publications: { counts: { active: 2, revoked: 0 }, items: [piece(1, null), piece(2, null)] } }), {}, "2 approved pieces aren't on sale yet", "Open your store"],
   ["b2: a store online for the owner's agents only is not open for sale", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] }, node: { ...online(), selling: false } }), {}, "1 approved piece isn't on sale yet", "Open your store"],
-  ["b2: while the store opens, Today offers no next step", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] } }), { taskItems: [working("deploy")] }, null],
+  ["b2: while the store opens, the Inbox offers no next step", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] } }), { taskItems: [working("deploy")] }, null],
   ["b2: a deploy turn open in the composer counts the same", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] } }), { busy: "deploy" }, null],
   ["b: an approval the store doesn't hold yet, ahead of the draft still waiting", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, false)] }, pricing: { publication_usd: 0.02, answer_usd: null, answer_enabled: false }, node: online() }), { candidates: [{ title: "x" }] }, "1 change isn't live yet", "Update store"],
   ["b: a new price counts as a change too", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, false)] }, pricing: { publication_usd: 0.75, answer_usd: null, answer_enabled: false }, node: online() }), {}, "2 changes aren't live yet", "Update store"],
@@ -108,20 +108,27 @@ test("nextStep without a state reads the renderer's own, as render() calls it", 
   assert.equal(h.call("nextStep", s).label, "1 approved piece isn't on sale yet");
 });
 
-test("Today draws the step as one card, never more than one, with its action as the button", async () => {
+test("the Inbox draws the step as one row, never more than one, with its action as the row's verb", async () => {
   const s = emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, null)] } });
   h.lore.answer("snapshot", s);
   h.boot();
   await h.idle();
-  const steps = h.all("#content .next-step");
+  assert.equal(h.text("#title"), "Inbox");
+  const steps = h.all("#content .irow.step");
   assert.equal(steps.length, 1);
   assert.match(steps[0].textContent, /1 approved piece isn't on sale yet/);
-  assert.equal(steps[0].querySelector("button")?.textContent, "Open your store");
-  assert.ok(h.all("#content .section-head h2, #content h2").some((node) => node.textContent === "Next step"));
-  // Stage f: nothing to ask, so no card and no Next step heading.
+  assert.equal(steps[0].querySelector("button.verb")?.textContent, "Open your store");
+  // Stage b: an update step says what isn't live in its tail.
+  h.lore.answer("snapshot", emptySnapshot({ publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, false)] }, pricing: { publication_usd: 0.75, answer_usd: null, answer_enabled: false }, node: online() }));
+  h.lore.emit({ type: "changed" });
+  await h.idle();
+  const update = h.all("#content .irow.step");
+  assert.equal(update.length, 1);
+  assert.match(update[0].textContent, /2 changes aren't live yet · 1 approved, not on your store yet · Your store still charges \$0\.02, not \$0\.75/);
+  assert.equal(update[0].querySelector("button.verb")?.textContent, "Update store");
+  // Stage f: nothing to ask, so no step row.
   h.lore.answer("snapshot", emptySnapshot({ library: { counts: { private: 2 }, sources: [obsidian], items: [memory(1), memory(2)] }, publications: { counts: { active: 1, revoked: 0 }, items: [piece(1, true)] }, pricing: { publication_usd: 0.02, answer_usd: null, answer_enabled: false }, node: online() }));
   h.lore.emit({ type: "changed" });
   await h.idle();
-  assert.equal(h.all("#content .next-step").length, 0);
-  assert.ok(!h.all("#content h2").some((node) => node.textContent === "Next step"));
+  assert.equal(h.all("#content .irow.step").length, 0);
 });

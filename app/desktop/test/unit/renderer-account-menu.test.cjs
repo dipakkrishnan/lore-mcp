@@ -35,7 +35,7 @@ for (const [name, status, snapshot, line, signOut] of LINES) {
 test("the sidebar lists only the four main places; Settings, help and feedback live in the account menu", async () => {
   h.signIn();
   await h.idle();
-  assert.deepEqual(h.all("nav button").map((button) => button.dataset.view), ["today", "inventory", "connectors", "automations"]);
+  assert.deepEqual(h.all("nav button").map((button) => button.dataset.view), ["inbox", "inventory", "bids", "connectors"]);
   const menu = h.document.getElementById("account-menu");
   assert.ok(menu.contains(h.document.getElementById("feedback-open")), "feedback is in the menu");
   assert.equal(h.document.querySelector("aside > .feedback-open"), null, "and nowhere else");
