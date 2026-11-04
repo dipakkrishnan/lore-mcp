@@ -10,6 +10,8 @@
     "pay": "tsx scripts/pay.ts",
     "smoke": "tsx scripts/smoke.ts",
     "test": "vitest run && vitest run -c vitest.hosted.config.ts",
+    "test:unit": "vitest run --project node",
+    "test:component": "vitest run --project workerd && vitest run -c vitest.hosted.config.ts",
     "test:coverage": "vitest run --coverage && vitest run -c vitest.hosted.config.ts --coverage",
     "types": "wrangler types env.d.ts --include-runtime false",
     "preview": "tsx scripts/preview.ts"

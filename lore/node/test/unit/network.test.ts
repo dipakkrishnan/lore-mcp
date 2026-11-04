@@ -2,7 +2,7 @@
 // Mainnet settles keyless through PayAI unless the owner vaulted a full CDP pair. Pure unit tests on the leaf module —
 // the paid path itself is covered by paid-path.test.ts.
 import { describe, expect, it } from "vitest";
-import { KEYLESS_FACILITATOR, MAINNET, TESTNET, facilitator, network, type NetworkEnv } from "../src/network";
+import { KEYLESS_FACILITATOR, MAINNET, TESTNET, facilitator, network, type NetworkEnv } from "../../src/network";
 
 function env(overrides: Partial<NetworkEnv> = {}): NetworkEnv {
   return overrides as NetworkEnv;
