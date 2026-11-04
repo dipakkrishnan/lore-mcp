@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-03
+updated: 2026-11-04
 ---
 
 ## Problem
@@ -60,6 +60,28 @@ project. `npm test` runs all projects.
   tests moved to `test/unit/telemetry.test.ts`, `withSpan` stays in workerd.
   `open` moved out of `test/inbox.ts` into `test/open.ts` so `seal` no longer
   imports `cloudflare:workers`.
+- Measured locally (`npx vitest run --reporter=verbose`, Node 25, M-series Mac),
+  before -> after:
+  - `lore/node`: 23 files / 207 tests, 63.2 s wall -> 25 files / 209 tests,
+    65.0 s wall; of those, the node project is 7 files / 61 tests in 0.35 s
+    (`npm run test:unit`), the workerd project 18 files / 148 tests in 58.8 s.
+  - `feedback-relay`: 5 / 86, 3.7 s -> 6 / 88, 3.2 s; node project 2 / 24 in 0.11 s.
+  - `checkout`: 3 / 69, 3.1 s -> 5 / 71, 3.0 s; node project 2 / 7 in 0.12 s.
+  The full `npm test` wall time does not drop: the pure files were already
+  cheap inside workerd, and the Worker-boot files (XC-101) are what fill the
+  minute. What changes is the inner loop: a change to a leaf module is checked
+  in a third of a second instead of a minute, and CI reads a unit failure before
+  the pool boots. XC-100/XC-102 add tests here at that cost.
+- `feedback-relay` moved only `report.test.ts` (the one whole pure file);
+  `checkout` had none, so the five pure `signed` tests were split out of
+  `webhooks.test.ts` into `test/unit/signed.test.ts`. `issueTitle`/`issueBody`
+  and `parseBatch` stay in their workerd files for XC-102 to take with their
+  leaf modules.
+- With XC-098 merged, `coverage` moved to each root config: vitest takes it at
+  the root only, and one istanbul report now spans both projects, so
+  `test:coverage` and `.github/scripts/coverage_summary.py` are unchanged. CI
+  runs `test:unit` first and then `test:coverage`, which runs the unit tests a
+  second time, instrumented (0.3 s).
 - Workstream C1 of the test-pyramid plan. XC-100 (leaf-module extraction),
   XC-101 (fewer Worker-boot files) and XC-102 (relay and checkout leaf
   modules) all land their tests in the node project.

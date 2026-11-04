@@ -6,6 +6,15 @@ import { defineConfig } from "vitest/config";
 // `npm run test:unit` and `npm run test:component` pick one.
 export default defineConfig({
   test: {
-    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"]
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). Coverage is a
+    // root option: one istanbul report over both projects (the Workers pool supports istanbul
+    // only, and it instruments the node project the same); CI reads coverage/coverage-summary.json
+    // into one line of the step summary. No thresholds until XC-108.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"]
+    }
   }
 });

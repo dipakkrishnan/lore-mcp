@@ -8,6 +8,18 @@ import { defineConfig } from "vitest/config";
 // with its own `-c`, since it is another Worker with another wrangler config.
 export default defineConfig({
   test: {
-    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"]
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). Coverage is a
+    // root option: one istanbul report over both projects (the Workers pool supports istanbul
+    // only, and it instruments the node project the same). src/hosted belongs to the hosted
+    // Worker's report (vitest.hosted.config.ts), so the two reports partition src/ and CI sums
+    // them into one lore/node line in the step summary (.github/scripts/coverage_summary.py).
+    // No thresholds: XC-108 sets floors once a few weeks of numbers exist.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"],
+      exclude: ["src/hosted/**"]
+    }
   }
 });

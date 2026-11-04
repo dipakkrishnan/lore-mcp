@@ -1,8 +1,8 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
 // XC-088: Lore's hosted stores run as their own Worker, so their tests get their own pool.
-export default defineProject({
+export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: "./wrangler.hosted.jsonc" },
@@ -22,5 +22,13 @@ export default defineProject({
     fileParallelism: false,
     include: ["test/hosted/**/*.test.ts"],
     testTimeout: 15_000,
+    // XC-098: this Worker's half of lore/node's coverage (see vitest.config.ts); its own
+    // directory so the main run's coverage-summary.json survives.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      reportsDirectory: "coverage/hosted",
+      include: ["src/hosted/**"],
+    },
   },
 });
