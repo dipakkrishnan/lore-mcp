@@ -943,13 +943,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // A task Lore hears about while a load is out is newer than what that load read from disk: the load landing
         // after it never takes it back. The load's read goes out before the news, so this is the same order every run.
         const unfinished = `{ version: 1, kind: "capture", title: "Capture", state: "stopped", phase: "Reply to keep going", updatedAt: new Date().toISOString() }`;
-        check("a task heard while a load is out outlives that load", await js(`(() => { const landing = window.__lore.load(); window.__lore.event({ type: "task", task: ${unfinished} }); return landing.then(() => document.querySelector("#content").textContent.includes("Reply to keep going")); })()`));
-        // The thread on disk too, where every later load reads it, as Lore keeps one it asked a question in (ask()).
+        await js(`window.__landing = window.__lore.load()`);
+        // Lore writes the thread it asked in to disk before it says so (ask()), so any load that starts after the news reads it back.
         const { SessionManager } = await import("@earendil-works/pi-coding-agent");
         const thread = SessionManager.create(process.env.LORE_HOME ?? "", join(process.env.LORE_HOME ?? "", ".pi/sessions/capture"));
         const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
         thread.appendMessage({ role: "assistant", content: [{ type: "text", text: "What did you learn?" }], api: "lore", provider: "lore", model: "lore", usage, stopReason: "stop", timestamp: Date.now() });
         thread.appendCustomEntry("lore.task", { version: 1, kind: "capture", title: "Capture a memory", state: "stopped", phase: "Reply to keep going" });
+        check("a task heard while a load is out outlives that load", await js(`(() => { window.__lore.event({ type: "task", task: ${unfinished} }); return window.__landing; })().then(() => document.querySelector("#content").textContent.includes("Reply to keep going"))`));
         await js(`window.__lore.load()`);
         check("unfinished capture is listed", await js(`document.querySelector("#content").textContent.includes("Reply to keep going")`));
         check("an unfinished thread is one row with one verb, Open", await js(`(() => { const row = [...document.querySelectorAll("#content .irow.task")].find((r) => r.textContent.includes("Reply to keep going")); return Boolean(row) && [...row.querySelectorAll(".btn")].map((b) => b.textContent).join() === "Open"; })()`));
