@@ -422,13 +422,13 @@ class MemoryPage {
     if (view !== "memory") this.from = view;
     this.memory = memory;
     this.built = null;
-    if (this.from === "inventory") inventoryView.selected = `memory:${id}`;
+    if (this.from === "inventory") inventoryView.selected = inventoryView.shown.find((row) => row.memory === id)?.key ?? `memory:${id}`;
     show("memory");
   }
 
   /** The memories the page steps through: Inventory's, in its order, when it was opened from there. */
   ids() {
-    return this.from === "inventory" ? inventoryView.shown.flatMap((row) => (row.key.startsWith("memory:") ? [Number(row.key.slice(7))] : [])) : [];
+    return this.from === "inventory" ? inventoryView.shown.flatMap((row) => (row.memory === undefined ? [] : [row.memory])) : [];
   }
 
   /** @param {number} by */
@@ -2381,14 +2381,17 @@ async function savePrice(raw, rawCopies) {
   if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
+/** Inventory's group of taken-down pieces, by a key no topic can take. */
+const DOWN = "\0down";
+
 /** APP-282: Inventory as one-line rows under flat group headers, with All / Private / Draft / On sale as text tabs
  * beside the title. Each row: title, its actions on hover, where it came from, its status, its date and its price. */
 class InventoryView {
   /** The selected row, by key, so a redraw keeps it. */
   selected = "";
-  /** Groups the owner folded, by name. @type {Set<string>} */
-  closed = new Set();
-  /** What each row drawn does. @type {Array<{key: string, open?: () => void, tag?: () => void}>} */
+  /** Groups the owner folded, by name; taken-down pieces start folded. @type {Set<string>} */
+  closed = new Set([DOWN]);
+  /** What each row drawn does, and the memory behind it. @type {Array<{key: string, open?: () => void, tag?: () => void, memory?: number}>} */
   shown = [];
   menu = el("div", "menu inv-menu");
 
@@ -2436,7 +2439,7 @@ class InventoryView {
   parts(s) {
     unseen.forget();
     this.shown = [];
-    const { counts, groups } = this.model(s);
+    const { counts, groups, down } = this.model(s);
     const list = el("div", "inbox inv");
     list.setAttribute("role", "list");
     list.setAttribute("aria-label", "Inventory");
@@ -2449,6 +2452,7 @@ class InventoryView {
       if (collections.length) list.append(...this.group("\0collections", "Collections", collections.map((item) => this.collectionRow(item))));
       list.append(...this.salesGroup());
     }
+    if (down.length) list.append(...this.group(DOWN, "Taken down", down.map((row) => this.row(s, row))));
     this.shown = this.shown.filter((row) => list.querySelector(`[data-key="${CSS.escape(row.key)}"]`));
     if (!this.shown.some((row) => row.key === this.selected)) this.selected = this.shown[0]?.key ?? "";
     for (const node of list.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === this.selected);
@@ -2483,9 +2487,9 @@ class InventoryView {
   }
 
   /** One line: title, actions on hover, source, status, date, price.
-   * @param {{key: string, title: string, mark?: HTMLElement, status?: [string, string], date?: string, price?: string, hint?: string,
-   *   open?: () => void, tag?: [string, () => void], menu?: Array<[string, string, () => void]>, extra?: HTMLElement}} spec */
-  line({ key, title, mark, status, date = "", price: cost = "", hint, open, tag, menu, extra }) {
+   * @param {{key: string, title: string, mark?: HTMLElement, status?: [string, string], date?: string, price?: string,
+   *   open?: () => void, tag?: [string, () => void], menu?: Array<[string, string, () => void]>, extra?: HTMLElement, memory?: number}} spec */
+  line({ key, title, mark, status, date = "", price: cost = "", open, tag, menu, extra, memory }) {
     const node = el("div", `irow invrow${open ? "" : " still"}`);
     node.setAttribute("role", "listitem");
     node.dataset.key = key;
@@ -2496,7 +2500,6 @@ class InventoryView {
       say.addEventListener("click", () => open?.());
       say.addEventListener("focus", () => this.select(key));
     }
-    say.title = hint ?? title;
     const acts = el("span", "acts");
     if (tag) acts.append(this.icon(tag[0], GLYPHS.sell, tag[1]));
     if (menu?.length) {
@@ -2510,7 +2513,7 @@ class InventoryView {
     node.append(say, acts, src, el("span", `st ${status?.[1] ?? ""}`.trim(), status?.[0] ?? ""), el("span", "age", date), el("span", "cost", cost));
     node.addEventListener("click", (event) => { if (!(event.target instanceof Element && event.target.closest("button, a"))) open?.(); });
     node.addEventListener("mousemove", () => this.select(key));
-    this.shown.push({ key, open, tag: tag?.[1] });
+    this.shown.push({ key, open, tag: tag?.[1], memory });
     return node;
   }
 
@@ -2544,36 +2547,39 @@ class InventoryView {
     const each = dollars(s.pricing.publication_usd ?? 0);
     const cost = typeof s.pricing.publication_usd === "number" ? each : "";
     const setPrice = /** @type {[string, () => void]} */ (["Set price", openPriceSheet]);
+    // Its mark names where it came from on hover; nothing on record reads as unknown, not as Lore's.
+    const sources = row.from?.sources ?? [];
+    const mark = sources.length ? markTile(sourceMark(sources[0])) : glyph("help", "routine-mark");
+    mark.title = sources.length ? provenance(sources).line : "Source unknown";
     if (row.kind === "memory") {
       const memory = row.item;
-      // Its mark names where it came from on hover; nothing on record reads as unknown, not as Lore's.
-      const mark = memory.sources.length ? markTile(sourceMark(memory.sources[0])) : glyph("help", "routine-mark");
-      mark.title = memory.sources.length ? provenance(memory.sources).line : "Source unknown";
       const sell = memory.verdict?.sell ?? true;
       const draft = () => void publishMemory(memory);
       /** @type {Array<[string, string, () => void]>} */
       const menu = [["Open", GLYPHS.memory, () => void openMemory(memory.id)]];
       if (sell) menu.push(["Draft for sale", GLYPHS.sell, draft]);
-      const node = this.line({ key: row.key, title: memory.title, mark, date: when(memory.updated_at), open: () => void openMemory(memory.id), tag: sell ? ["Draft for sale", draft] : undefined, menu });
+      const node = this.line({ key: row.key, title: memory.title, mark, date: when(memory.updated_at), memory: memory.id, open: () => void openMemory(memory.id), tag: sell ? ["Draft for sale", draft] : undefined, menu });
       peekable(/** @type {HTMLElement} */ (node.querySelector(".say")), memory.id);
       return unseen.watch(node, memory.arrival);
     }
     if (row.kind === "draft") {
       const draft = row.item;
       const review = () => (draft.bid ? bidPage.open(draft.bid) : show("drafts"));
-      const source = privateMemories(s).find((memory) => memory.id === draft.provenance[0])?.sources[0];
-      return this.line({ key: row.key, title: draft.title, mark: source ? markTile(sourceMark(source)) : undefined, status: ["Draft", "draft"], price: cost, open: review, tag: setPrice, menu: [["Review", GLYPHS.draft, review], ["Set price…", GLYPHS.sell, openPriceSheet]] });
+      return this.line({ key: row.key, title: draft.title, mark, status: ["Draft", "draft"], date: when(row.from?.updated_at ?? ""), price: cost, open: review, tag: setPrice, menu: [["Review", GLYPHS.draft, review], ["Set price…", GLYPHS.sell, openPriceSheet]] });
     }
     const piece = row.item;
+    const date = when(piece.updated_at ?? "");
+    // How it's doing shows beside its actions on hover, in the row, never in a tooltip over the next one.
     const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === piece.public_id && sale.network !== "free").length : 0;
     const seen = views[piece.public_id] ?? 0;
-    const hint = [piece.title, seen ? Inbox.plural(seen, "view") : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
-    if (piece.state === "revoked") return this.line({ key: row.key, title: piece.title, status: ["Taken down", "down"], hint: piece.live === true ? `${piece.title} · Still on your store until it updates` : hint });
+    const doing = [seen ? Inbox.plural(seen, "view") : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
+    const extra = doing ? el("span", "sub", doing) : undefined;
+    if (piece.state === "revoked") return this.line({ key: row.key, title: piece.title, mark, status: piece.live === true ? ["Coming off", "wait"] : ["Taken down", "down"], date });
     const page = forSale(s) && piece.live !== false && s.node.url ? `${s.node.url.replace(/\/mcp$/, "")}/p/${piece.public_id}` : "";
     const visit = page ? () => void window.open(page) : undefined;
     const selling = forSale(s);
     const status = /** @type {[string, string]} */ (piece.live === false && selling ? ["Pending", "wait"] : [selling ? "On sale" : "Ready to sell", "sale"]);
-    return this.line({ key: row.key, title: piece.title, status, price: cost, hint: piece.live === false && selling ? `${hint} · Not on your store yet` : hint, open: visit, tag: setPrice, menu: [...(visit ? [/** @type {[string, string, () => void]} */ (["Open on your store", GLYPHS.next, visit])] : []), ["Set price…", GLYPHS.sell, openPriceSheet], ["Take down…", GLYPHS.lock, () => this.takeDown(piece)]] });
+    return this.line({ key: row.key, title: piece.title, mark, status, date, price: cost, open: visit, tag: setPrice, extra, memory: row.from?.id, menu: [...(row.from ? [/** @type {[string, string, () => void]} */ (["Open memory", GLYPHS.memory, () => void openMemory(/** @type {MemoryItem} */ (row.from).id)])] : []), ...(visit ? [/** @type {[string, string, () => void]} */ (["Open on your store", GLYPHS.next, visit])] : []), ["Set price…", GLYPHS.sell, openPriceSheet], ["Take down…", GLYPHS.lock, () => this.takeDown(piece)]] });
   }
 
   /** No one can buy it after this; anyone who already did keeps their copy. @param {PublicationItem} piece */
@@ -2587,7 +2593,7 @@ class InventoryView {
   /** @param {CollectionItem} item */
   collectionRow(item) {
     const open = () => showCollection(item.id);
-    return this.line({ key: `collection:${item.id}`, title: item.title, status: item.on_sale ? ["On sale", "sale"] : ["Draft", "draft"], price: item.on_sale ? dollars(item.price_usd) : "", hint: `${item.title} · ${collectionDetail(item)}`, open, menu: [["Open", GLYPHS.collection, open]] });
+    return this.line({ key: `collection:${item.id}`, title: item.title, status: item.on_sale ? ["On sale", "sale"] : ["Draft", "draft"], price: item.on_sale ? dollars(item.price_usd) : "", open, menu: [["Open", GLYPHS.collection, open]] });
   }
 
   /** What the store sold, newest first, under its tally; a store not opened here, or a ledger that didn't answer, says so in one row. */
@@ -2611,8 +2617,8 @@ class InventoryView {
     receipt.title = `See this payment on ${where}`;
     // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
     const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
-    const owed = sale.refund_owed ? `${byCard ? "Taken down before delivery" : "Not answered"}${who}` : "";
-    return this.line({ key, title: `${sale.title} · ${byCard ? "by card" : "by an agent"}`, status: sale.refund_owed ? ["Refund owed", "owed"] : undefined, hint: owed || undefined, date: when(sale.sold_at), price: price(sale.price_usd), open: () => void window.open(href), extra: receipt });
+    const owed = sale.refund_owed ? ` · ${byCard ? "taken down before delivery" : "not answered"}${who}` : "";
+    return this.line({ key, title: `${sale.title} · ${byCard ? "by card" : "by an agent"}${owed}`, status: sale.refund_owed ? ["Refund owed", "owed"] : undefined, date: when(sale.sold_at), price: price(sale.price_usd), open: () => void window.open(href), extra: receipt });
   }
 
   /** @param {string} key */

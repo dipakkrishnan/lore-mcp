@@ -236,6 +236,8 @@ class DesktopSnapshotTest(LoreTestCase):
                 "title",
                 "topic",
                 "bid",
+                "provenance",
+                "updated_at",
                 "state",
                 "live",
             },

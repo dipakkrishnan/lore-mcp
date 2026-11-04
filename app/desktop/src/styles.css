@@ -943,7 +943,7 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .brow .signal { flex-shrink: 0; margin-right: var(--s-2); }
 @media (max-width: 820px) { .brow .mkt { display: none; } }
 /* APP-282: Inventory, one line each under flat group headers: title · actions on hover · source · status · date · price. */
-.igroup { display: flex; align-items: center; gap: var(--s-2); height: var(--nav-row); padding: 0 var(--s-4) 0 var(--s-5); background: var(--bg-side); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-weight: 500; color: var(--text-1); cursor: pointer; flex-shrink: 0; }
+.igroup { display: flex; align-items: center; gap: var(--s-2); height: var(--nav-row); padding: 0 var(--s-4) 0 var(--s-5); background: var(--bg-side); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); font-size: var(--fs-13); font-weight: 500; color: var(--text-1); cursor: pointer; flex-shrink: 0; }
 .inv > .igroup:first-child { border-top: 0; }
 .irow + .igroup { margin-top: -1px; }
 .igroup .chev { width: var(--s-3); height: var(--s-3); color: var(--text-3); transition: transform var(--dur); }
@@ -955,10 +955,15 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .igroup:focus-visible { outline: none; background: var(--bg-hover); }
 .inbox.inv { padding-top: 0; }
 .invrow { cursor: pointer; }
+/* As the mock: a row a size up from its group's header, so the header reads as a label and the row as the thing. */
+.inv .invrow { height: calc(var(--row) + var(--s-2)); }
+.inv .invrow .say { font-size: var(--fs-15); }
+.igroup .label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .invrow.still { cursor: default; }
 .invrow .acts { display: flex; align-items: center; gap: 2px; visibility: hidden; }
 .invrow.sel .acts, .invrow:hover .acts, .invrow .acts:focus-within { visibility: visible; }
 .invrow .acts .icon-btn { width: var(--s-6); height: var(--s-6); color: var(--text-2); }
+.invrow .acts .sub { margin-right: var(--s-1); font-size: var(--fs-12); color: var(--text-3); white-space: nowrap; }
 .invrow .acts .icon-btn svg { width: var(--icon); height: var(--icon); }
 .invrow .src { display: inline-flex; justify-content: center; width: var(--icon); flex-shrink: 0; }
 .invrow .src .routine-mark { width: var(--icon); height: var(--icon); padding: 0; background: none; border: 0; }

@@ -27,6 +27,9 @@ type PublicationItem = {
   live: boolean | null;
   /** The bid this piece answers (APP-274); empty when it answers none. */
   bid?: string;
+  /** The memories it was drafted from, and when it last changed; absent from a CLI older than APP-282. */
+  provenance?: number[];
+  updated_at?: string;
 };
 
 /** A named set of pieces sold together at one price (MON-044). */
@@ -390,11 +393,12 @@ type BidRow = {
 /** Inventory's text tabs (APP-282): every memory and piece is exactly one of these, so their counts add up to All. */
 type Shelf = "all" | "private" | "draft" | "sale";
 
-/** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down. */
+/** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down; `from` is the memory
+ * it came from, when one is still kept. */
 type InventoryRow =
-  | { key: string; kind: "memory"; shelf: "private"; group: string; item: MemoryItem }
-  | { key: string; kind: "draft"; shelf: "draft"; group: string; item: PublicationCandidate }
-  | { key: string; kind: "piece"; shelf: "sale" | "private"; group: string; item: PublicationItem };
+  | { key: string; kind: "memory"; shelf: "private"; group: string; item: MemoryItem; from?: MemoryItem }
+  | { key: string; kind: "draft"; shelf: "draft"; group: string; item: PublicationCandidate; from?: MemoryItem }
+  | { key: string; kind: "piece"; shelf: "sale" | "private"; group: string; item: PublicationItem; from?: MemoryItem };
 
 type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
 

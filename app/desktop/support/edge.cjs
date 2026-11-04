@@ -862,7 +862,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the ledger is checked while it loads", await js(`document.querySelector("#content").textContent.includes("Checking your store…")`));
         await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
         const store = await js(`document.querySelector("#content").textContent`);
-        const hints = await js(`[...document.querySelectorAll("#content .invrow .say")].map((t) => t.title).join("|")`);
+        const hints = await js(`[...document.querySelectorAll("#content .invrow .acts .sub")].map((t) => t.textContent).join("|")`);
         check("the Sales section sums the ledger", store.includes("2 sales · $0.02 · last Sep 2"), store.slice(-200));
         check("each sale links to its transaction, as a Receipt", await js(`[...document.querySelectorAll("#content a.receipt")].map((a) => a.href).join(" ")`) === "https://sepolia.basescan.org/tx/0xfeed https://sepolia.basescan.org/tx/0xbeef");
         check("no hash is spelled out in the row", !store.includes("0xfeed"));
@@ -870,7 +870,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the Inventory has no monospace", await js(`[...document.querySelectorAll("#content *")].every((n) => !getComputedStyle(n).fontFamily.includes("Mono"))`));
         check("each piece shows its price by the piece", await js(`[...document.querySelectorAll("#content .invrow")].filter((r) => r.dataset.key.startsWith("piece:")).every((r) => r.querySelector(".cost").textContent === "$0.75")`));
         await shot("store-sales");
-        check("the one item not on the store says so on its row, once, and in amber", (hints.match(/Not on your store yet/g) ?? []).length === 1 && await js(`document.querySelectorAll("#content .invrow .st.wait").length === 1`), hints);
+        check("the one item not on the store says so on its row, once, and in amber", await js(`[...document.querySelectorAll("#content .invrow .st.wait")].map((st) => st.textContent).join("|")`) === "Pending", await js(`[...document.querySelectorAll("#content .invrow .st")].map((st) => st.textContent).join("|")`));
         await shot("store-unpushed");
         await js(`window.__lore.show("settings")`);
         check("Settings offers Update store while an approved item is not live", await waitFor(`[...(${address}?.querySelectorAll("button") ?? [])].some((b) => b.textContent === "Update store")`));
@@ -883,7 +883,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await waitFor(`document.querySelector("#content").textContent.includes("2 sales")`);
         // APP-282: taking a piece down is in its row's … menu, and asks first.
         await js(`[...document.querySelectorAll("#content .invrow")].find((r) => r.dataset.key.startsWith("piece:") && r.querySelector(".st.sale, .st.wait")).querySelector("[aria-label=More]").click()`);
-        check("the row's menu offers Take down", await waitFor(`[...document.querySelectorAll(".inv-menu:popover-open button")].map((b) => b.textContent).join("|") === "Set price…|Take down…"`), await js(`[...document.querySelectorAll(".inv-menu button")].map((b) => b.textContent).join("|")`));
+        check("the row's menu offers Take down", await waitFor(`[...document.querySelectorAll(".inv-menu:popover-open button")].map((b) => b.textContent).join("|") === "Open memory|Set price…|Take down…"`), await js(`[...document.querySelectorAll(".inv-menu button")].map((b) => b.textContent).join("|")`));
         await js(`[...document.querySelectorAll(".inv-menu button")].find((b) => b.textContent === "Take down…").click()`);
         check("take-down confirmation does not promise buyers lose their copies", await waitFor(`document.querySelector("dialog.form-sheet[open]")?.textContent.includes("Anyone who already did keeps their copy.")`));
         await shot("store-take-down");
@@ -898,7 +898,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         await js(`[...document.querySelectorAll(".ptab")].find((t) => t.textContent.startsWith("Private")).click()`);
-        check("a taken-down item is private again, says Taken down, and says on hover the node still serves it", await waitFor(`[...document.querySelectorAll("#content .invrow")].some((r) => r.querySelector(".st").textContent === "Taken down" && r.querySelector(".say").title.includes("Still on your store"))`));
+        // APP-282: taken-down pieces sit folded at the foot, apart from the live ones; one still on the store says Coming off.
+        await waitFor(`[...document.querySelectorAll("#content .igroup .label")].some((l) => l.textContent === "Taken down")`);
+        await js(`(() => { const head = [...document.querySelectorAll("#content .igroup")].find((g) => g.querySelector(".label").textContent === "Taken down"); if (head.getAttribute("aria-expanded") === "false") head.click(); })()`);
+        check("a taken-down item is private again, under Taken down, and says the store still serves it", await waitFor(`[...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Coming off")`), await js(`[...document.querySelectorAll("#content .invrow .st")].map((st) => st.textContent).join("|")`));
         check("…and the tabs still add up to All", await js(`(() => { const n = [...document.querySelectorAll(".ptab .n")].map((x) => Number(x.textContent)); return n[0] === n[1] + n[2] + n[3]; })()`), await js(`[...document.querySelectorAll(".ptab")].map((t) => t.textContent).join("|")`));
         await shot("store-removal-pending");
         await js(`window.__lore.show("settings")`);
@@ -1467,6 +1470,32 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("Draft it for sale keeps the writing privately", await waitFor(`window.lore.search("four-minute demos").then((found) => found.some((m) => m.title === "Our launch deck lost to four-minute demos."))`));
         check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
         await shot("sell-drafting");
+      } else if (scenario === "inventory") {
+        // APP-282: Inventory on a library shaped like a real one reads like the mock: short group names, a mark and a
+        // date on every row, and a taken-down piece out of the way, never beside its live copy.
+        await js(`window.__lore.signIn()`);
+        await js(`window.__lore.show("inventory")`);
+        await waitFor(`document.querySelectorAll("#content .invrow[data-key^=piece]").length >= 3`);
+        const heads = await js(`JSON.stringify([...document.querySelectorAll("#content .igroup")].map((g) => [g.querySelector(".label").textContent, g.getAttribute("aria-expanded")]))`);
+        const named = JSON.parse(heads).map(([name]) => name);
+        check("each group is named for where its memories came from, never for a piece's sentence of a topic", ["personal", "lore-mcp"].every((name) => named.includes(name)) && named.every((name) => name.length <= 20), heads);
+        check("a piece sits in the group of the memory it was drafted from", await js(`(() => { const row = [...document.querySelectorAll("#content .invrow[data-key^=piece]")].find((r) => r.querySelector(".say").textContent.startsWith("Bonaire")); let head = row?.previousElementSibling; while (head && !head.classList.contains("igroup")) head = head.previousElementSibling; return head?.querySelector(".label").textContent; })()`) === "personal");
+        check("taken-down pieces sit last, in their own folded group", JSON.parse(heads).at(-1)?.join("|") === "Taken down|false", heads);
+        check("…so no live group holds a taken-down row", await js(`![...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Taken down")`));
+        check("…and the live copy of a taken-down piece reads once", await js(`[...document.querySelectorAll("#content .invrow[data-key^=piece] .say")].filter((t) => t.textContent.startsWith("Travel: window seat")).length`) === 1);
+        check("a memory on sale on its own reads once, as its piece", await js(`[...document.querySelectorAll("#content .invrow .say")].filter((t) => t.textContent.startsWith("Bonaire")).length`) === 1);
+        check("every piece and memory row shows where it came from and a date", await js(`[...document.querySelectorAll("#content .invrow:is([data-key^=piece], [data-key^=memory])")].every((r) => r.querySelector(".src .routine-mark") && r.querySelector(".age").textContent)`));
+        check("no row title pops the browser's own tooltip", await js(`![...document.querySelectorAll("#content .invrow .say")].some((t) => t.hasAttribute("title"))`));
+        check("a group header reads as a label, as in the mock: medium weight, a size under its rows, on its own band", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && parseFloat(head.fontSize) < parseFloat(row.fontSize) && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
+        await shot("inventory-rows");
+        await js(`[...document.querySelectorAll("#content .igroup")].at(-1).click()`);
+        check("Taken down opens to show what came off sale", await waitFor(`[...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Taken down")`));
+        await js(`[...document.querySelectorAll("#content .igroup")].at(-1).scrollIntoView({ block: "center" })`);
+        await shot("inventory-taken-down");
+        await js(`window.lore.setAppearance("dark")`);
+        check("switched to dark, Inventory turns at once", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
+        await js(`document.querySelector("#main").scrollTop = 0`);
+        await shot("inventory-rows-dark");
       } else if (scenario === "extras") {
         // New free parts for a piece already on sale wait beside new drafts, preview as its page, and approve in place.
         await js(`window.__lore.signIn()`);
@@ -2821,7 +2850,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a sale is announced once", notes.length === 2, String(notes.length));
         notes[1].handlers.click();
         check("clicking it opens Inventory, on sale", await waitFor(`document.querySelector("#title").textContent === "Inventory" && document.querySelector(".ptab[aria-selected=true]")?.textContent.startsWith("On sale")`));
-        check("For Sale shows each piece's page views on hover and how each sale was paid", await waitFor(`[...document.querySelectorAll("#content .invrow .say")].some((t) => t.title.includes("42 views")) && document.querySelector("#content").textContent.includes("by an agent")`));
+        check("For Sale shows each piece's page views on hover and how each sale was paid", await waitFor(`[...document.querySelectorAll("#content .invrow .acts .sub")].some((t) => t.textContent.includes("42 views")) && document.querySelector("#content").textContent.includes("by an agent")`));
         check("an unreachable store offers no price link it can't act on", await js(`!document.querySelector("#content").textContent.includes("Set a price")`), await js(`document.querySelector("#content").textContent`));
         // APP-211: sale amounts read in the UI font with even figures, like the store card.
         const amounts = `[...document.querySelectorAll("#content *")].filter((n) => !n.children.length && /\\$\\d/.test(n.textContent))`;
@@ -3062,6 +3091,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Fix 1, technical: a failing CLI call on Memories surfaces as an attention notice instead of vanishing.
         await js(`window.__lore.show("memories")`);
         await waitFor(`document.querySelectorAll("#content .invrow[data-key^=memory] .say").length >= 1`);
+        await js(`[...document.querySelectorAll(".ptab")].find((t) => t.textContent.startsWith("All")).click()`);
+        await waitFor(`document.querySelectorAll("#content .invrow[data-key^=memory] .say").length >= 1`);
         // Focus first, as a real click or Enter would; a synthetic click() leaves focus where it was.
         await js(`const link = document.querySelector("#content .invrow[data-key^=memory] .say"); link.focus(); link.click();`);
         // APP-282: a memory opens as its own page, as a bid does: title, body, actions, Activity, and properties beside it.
@@ -3075,8 +3106,11 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await key("keyDown", "Escape");
         await sleep(100);
         await shot("memory-actions");
-        check("↓ steps to the next memory in Inventory's order, and the stepper says where", await (async () => { await js(`document.querySelector("#main").focus()`); await key("keyDown", "Down"); return waitFor(`document.querySelector("#content .memory-page .ptitle")?.textContent !== ${JSON.stringify(opened)} && /^2 \\/ \\d+$/.test(document.querySelector("#stepper-at").textContent)`); })(), await js(`document.querySelector("#stepper-at").textContent`));
-        await key("keyDown", "Up");
+        // APP-282: a memory sold on its own reads as its piece's row, off the Private tab; All steps through it too.
+        const [place, count] = (await js(`document.querySelector("#stepper-at").textContent`)).split(" / ").map(Number);
+        const [there, back] = place < count ? ["Down", "Up"] : ["Up", "Down"];
+        check("↓/↑ step to the next memory in Inventory's order, and the stepper says where", count >= 2 && await (async () => { await js(`document.querySelector("#main").focus()`); await key("keyDown", there); return waitFor(`document.querySelector("#content .memory-page .ptitle")?.textContent !== ${JSON.stringify(opened)} && document.querySelector("#stepper-at").textContent === "${place < count ? place + 1 : place - 1} / ${count}"`); })(), await js(`document.querySelector("#stepper-at").textContent`));
+        await key("keyDown", back);
         await waitFor(`document.querySelector("#content .memory-page .ptitle")?.textContent === ${JSON.stringify(opened)}`);
         await key("keyDown", "Escape");
         check("Escape goes back to Inventory, with the memory it showed selected", await waitFor(`document.querySelector("#title").textContent === "Inventory" && document.querySelector("#content .invrow.sel .say")?.textContent === ${JSON.stringify(opened)}`), await js(`document.querySelector("#title").textContent`));
