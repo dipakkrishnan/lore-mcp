@@ -16,6 +16,7 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
+const talkBtn = /** @type {HTMLButtonElement} */ ($("#talk"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const darkMode = $("#dark-mode");
@@ -1267,7 +1268,7 @@ class InboxView {
         const app = apps.find((each) => each.id === source?.connector);
         return { open: () => { if (app && source) openConnection(app, source); else show("connectors"); } };
       }
-      case "checkin": return { open: () => void openTask("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
+      case "checkin": return { open: () => void talk.begin("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
       case "task": return { open: () => void openTask(/** @type {AgentTask} */ (ref), taskItems.find((item) => item.kind === ref)) };
       case "reading": return { open: () => void openTask("synthesize") };
       case "memories": {
@@ -5006,6 +5007,8 @@ function render() {
   // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
   captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
+  // APP-290: talking to Lore is one click from the two lists where memories show up.
+  talkBtn.hidden = welcoming || Boolean(detail) || (view !== "inbox" && view !== "inventory");
   header.classList.toggle("compact", welcoming || Boolean(detail));
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
@@ -5211,6 +5214,7 @@ function syncComposer() {
   input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
+  talk.listen();
 }
 
 function clearRequest() {
@@ -6613,7 +6617,11 @@ composer.addEventListener("submit", async (event) => {
   input.style.height = "";
   await send(text || "Please read the attached files.");
 });
-input.addEventListener("input", () => fit(input));
+input.addEventListener("input", () => {
+  fit(input);
+  // Typing takes over from talking.
+  if (talk.kind && !recorder) talk.end();
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
@@ -6632,7 +6640,9 @@ function dictationMode(mode) {
   if (mode) composer.dataset.mode = mode;
   else delete composer.dataset.mode;
   dictationBox.hidden = !mode;
-  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
+  // A new thread says what to talk about; after that Lore's own question does.
+  const opener = talk.kind === "capture" && !lines.length ? "Tell Lore what you figured out. " : "";
+  dictationText.textContent = mode === "listening" ? (talk.kind ? `Listening… ${opener}Enter sends it, Esc stops.` : "Listening…") : mode === "transcribing" ? "Transcribing…" : "";
   dictate.disabled = mode === "transcribing";
   dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
@@ -6674,40 +6684,104 @@ function wav(chunks) {
   for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
   return buffer;
 }
-dictate.addEventListener("click", async () => {
-  if (recorder) {
-    const active = recorder;
-    recorder = null;
-    clearTimeout(dictationLimit);
-    dictationMode("transcribing");
-    let text = "";
-    try {
-      text = await window.lore.transcribe(wav(await active.stop()));
-    } catch (error) {
-      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
-    }
-    dictationMode(null);
-    input.value = spoken + text;
-    fit(input);
-    input.focus({ preventScroll: true });
-    return;
-  }
+/** Starts listening into the composer, after what is already typed. */
+async function startDictation() {
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
+      talk.end();
       tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
-    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
+    dictationLimit = window.setTimeout(() => void finishDictation(), MAX_DICTATION_MS);
   } catch (error) {
+    talk.end();
     tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
-});
+}
+
+/** Stops listening and puts what was said in the composer; talking it through, it goes to Lore at once. */
+async function finishDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  dictationMode("transcribing");
+  let text = "";
+  try {
+    text = (await window.lore.transcribe(wav(await active.stop()))).trim();
+  } catch (error) {
+    talk.end();
+    console.error(error);
+    tell(`Lore couldn't transcribe that. ${DICTATE_HINT}`, true);
+  }
+  dictationMode(null);
+  input.value = spoken + text;
+  fit(input);
+  // Talking it through listens for the first turn only; after that the owner picks the microphone or the keyboard.
+  const send = Boolean(talk.kind && text);
+  talk.end();
+  if (send) composer.requestSubmit();
+  else input.focus({ preventScroll: true });
+}
+
+/** Esc while listening: what was said is dropped, and talking it through ends. */
+async function cancelDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  talk.end();
+  await active.stop();
+  dictationMode(null);
+  input.focus({ preventScroll: true });
+}
+
+dictate.addEventListener("click", () => void (recorder ? finishDictation() : startDictation()));
+talkBtn.addEventListener("click", () => void talk.begin("capture"));
+
+/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening, and
+ * Done or Enter sends what was said. Only the first turn listens on its own; typing, Esc, leaving the thread or saying
+ * nothing ends it sooner. */
+const talk = {
+  /** The thread being talked through. @type {"capture" | "evening" | null} */
+  kind: /** @type {"capture" | "evening" | null} */ (null),
+  opening: false,
+  starting: false,
+  /** @param {"capture" | "evening"} kind */
+  async begin(kind) {
+    this.kind = kind;
+    this.opening = true;
+    try {
+      if (kind === "capture") await startCapture();
+      else await openTask("evening");
+    } finally {
+      this.opening = false;
+    }
+    this.listen();
+  },
+  end() {
+    this.kind = null;
+    dictationMode(recorder ? "listening" : null);
+  },
+  /** Listens when its thread waits on the owner's words: no card to approve, nothing typed, Lore not working. */
+  listen() {
+    if (!this.kind || this.opening || this.starting) return;
+    // Leaving the thread ends it even mid-listen: the recorder is stopped and its audio dropped, not left hot offscreen.
+    if (detailTask !== this.kind || view !== "inbox") return void (recorder ? cancelDictation() : this.end());
+    // A card to approve ends it too: the owner is asked to look, not listened over.
+    if (recorder) return void (shownRequest()?.current && cancelDictation());
+    // The owner speaks first in a new thread; after that, only once Lore has answered.
+    if (lines.at(-1)?.owner || busy || composer.hidden || input.disabled || shownRequest()?.current || input.value.trim()) return;
+    this.starting = true;
+    void startDictation().finally(() => { this.starting = false; });
+  }
+};
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
 function attach(paths) {
@@ -7001,6 +7075,13 @@ welcomeRetry.addEventListener("click", () => {
   void window.lore.retrySetup();
 });
 document.addEventListener("keydown", (event) => {
+  // While listening, Enter is done and Esc stops; neither reaches the page beneath.
+  if (recorder && (event.key === "Enter" || event.key === "Escape")) {
+    event.preventDefault();
+    event.stopPropagation();
+    void (event.key === "Enter" ? finishDictation() : cancelDictation());
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }

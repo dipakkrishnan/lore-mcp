@@ -79,6 +79,11 @@ let signInWait;
 let storeUnreachable = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
+/** APP-290: what the fake microphone is heard to say. */
+const SPOKEN = "We held the price on the Acme renewal because they had no alternative.";
+/** APP-290: how many times audio was sent to be transcribed, and whether the fake microphone hears nothing. */
+let transcriptions = 0;
+let silence = false;
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
 const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
@@ -250,7 +255,11 @@ if (scenario === "listing") {
   // store, and a turn is the prompt it was sent, its thread working until the walk finishes it.
   const { ipcMain } = require("electron");
   const handle = ipcMain.handle.bind(ipcMain);
-  ipcMain.handle = (channel, listener) => handle(channel, channel === "store:push" ? async () => { pushes.push(Date.now()); } : listener);
+  // APP-290: a fake microphone, and what it "heard" comes back as this sentence, so talking it through runs end to end.
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+  const stubs = { "store:push": async () => { pushes.push(Date.now()); }, "dictation:permission": async () => true, "dictation:transcribe": async () => { transcriptions++; return silence ? "" : SPOKEN; } };
+  ipcMain.handle = (channel, listener) => handle(channel, stubs[/** @type {keyof typeof stubs} */ (channel)] ?? listener);
   void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
     /** @type {Map<string, TaskRecord>} */
     const threads = new Map();
@@ -1458,9 +1467,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the preview window runs no script", preview?.webContents.getLastWebPreferences().javascript === false);
         if (preview) writeFileSync(join(S, "sell-preview.png"), (await preview.webContents.capturePage()).toPNG());
         preview?.close();
-        // APP-282: the way in is the New menu, beside Memory and Collection; no page header carries it.
+        // APP-282: the way in is the New menu, beside Memory and Collection. APP-290: the header's one button is talking it through.
         await js(`window.__lore.show("inventory")`);
-        check("Inventory's header has no buttons of its own", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector(".header-actions .btn:not([hidden])")`));
+        check("Inventory's header has no button but Record a memory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && [...document.querySelectorAll(".header-actions .btn:not([hidden])")].map((b) => b.id).join() === "talk"`));
         await shot("inventory-sell-writing");
         await js(`document.querySelector("#new-open").click()`);
         check("New lists Writing to sell", await waitFor(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|") === "MemoryM|CollectionC|Writing to sellW|AutomationA"`), await js(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|")`));
@@ -1490,7 +1499,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a memory on sale on its own reads once, as its piece", await js(`[...document.querySelectorAll("#content .invrow .say")].filter((t) => t.textContent.startsWith("Bonaire")).length`) === 1);
         check("every piece and memory row shows where it came from and a date", await js(`[...document.querySelectorAll("#content .invrow:is([data-key^=piece], [data-key^=memory])")].every((r) => r.querySelector(".src .routine-mark") && r.querySelector(".age").textContent)`));
         check("no row title pops the browser's own tooltip", await js(`![...document.querySelectorAll("#content .invrow .say")].some((t) => t.hasAttribute("title"))`));
-        check("a group header reads as a label, as in the mock: medium weight, a size under its rows, on its own band", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && parseFloat(head.fontSize) < parseFloat(row.fontSize) && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
+        check("a group header reads as a label: medium weight, on its own band, and its rows the Inbox's size", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && row.fontSize === "13px" && document.querySelector("#content .invrow").getBoundingClientRect().height === 36 && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
         await shot("inventory-rows");
         await js(`[...document.querySelectorAll("#content .igroup")].at(-1).click()`);
         check("Taken down opens to show what came off sale", await waitFor(`[...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Taken down")`));
@@ -1533,12 +1542,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "ready" } })`);
         check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".ws-row") !== null && b.getBoundingClientRect().height === 24; })()`));
         await shot("update-ready");
-        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
+        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit || getComputedStyle(hit).appRegion === "no-drag"); })()`;
         check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
-        check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
+        check("anything clickable under the drag strip takes clicks, not drags (APP-289)", await js(clearOfTitlebar));
         await js(`document.querySelector("#main").scrollTop = 400`);
         await sleep(100);
-        check("nothing clickable scrolls under the drag strip", await js(clearOfTitlebar));
+        check("…and so does anything that scrolls under it", await js(clearOfTitlebar));
         await js(`[...document.querySelectorAll("#content .memory")].at(-2)?.scrollIntoView({ block: "start" })`);
         await sleep(200);
         await shot("today-approvals");
@@ -2525,6 +2534,81 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and a connected app is enough not to be asked to connect", !(await js(`${today}.includes("Connect the AI you talk to most")`)));
         await shot("today-f-nothing");
         check("no moment of the walk showed more than one next step", (await js(`window.__steps`)) === 1, String(await js(`window.__steps`)));
+
+        // APP-290: talking it through, from Inventory: the thread opens listening, Enter sends what was said, and Lore's
+        // answer leaves the microphone off; the owner picks it again, and Esc stops without sending.
+        const listening = `document.querySelector("#composer").dataset.mode === "listening"`;
+        await js(`window.__lore.show("inventory")`);
+        check("Inventory offers Record a memory in its header", await waitFor(`!document.querySelector("#talk").hidden && document.querySelector("#talk").textContent === "Record a memory"`));
+        await js(`window.__lore.show("connectors")`);
+        check("…and only the Inbox and Inventory do", await waitFor(`document.querySelector("#talk").hidden`));
+        await js(`window.__lore.show("inventory")`);
+        await shot("talk-inventory");
+        await js(`document.querySelector("#talk").click()`);
+        check("it opens a new memory's thread already listening", await waitFor(`document.querySelector("#title").textContent === "Capture a memory" && ${listening}`), await js(`document.querySelector("#dictation").textContent`));
+        check("…and says how to finish", (await js(`document.querySelector("#dictation-text").textContent`)) === "Listening… Tell Lore what you figured out. Enter sends it, Esc stops.");
+        await shot("talk-listening");
+        const spokenAt = prompts.length;
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        for (let i = 0; i < 40 && prompts.length === spokenAt; i++) await sleep(100);
+        check("Enter sends what was said to Lore, as the owner's words", prompts.length === spokenAt + 1 && prompts.at(-1)?.text === SPOKEN && prompts.at(-1)?.task === "capture", JSON.stringify(prompts.at(-1)));
+        check("…and it doesn't listen again until Lore answers", await waitFor(`!document.querySelector("#composer").dataset.mode`) && await js(`document.querySelector("#log").textContent.includes(${JSON.stringify(SPOKEN)})`));
+        await js(`window.__lore.event({ type: "working", active: true, task: "capture" })`);
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "What did they say when you held it?" })`);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        await sleep(300);
+        check("Lore's answer leaves the microphone off: only the first turn listens on its own", !(await js(listening)));
+        await js(`document.querySelector("#dictate").click()`);
+        check("…and the microphone button listens again when asked", await waitFor(listening));
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+        check("Esc stops listening, sends nothing, and leaves the owner typing", await waitFor(`!document.querySelector("#composer").dataset.mode && document.activeElement === document.querySelector("#capture-input")`) && prompts.length === spokenAt + 1);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        await sleep(300);
+        check("…and stays off after Lore's next answer", !(await js(listening)));
+
+        // Leaving ends it: the microphone is stopped, the audio dropped, and Enter elsewhere is left alone.
+        const talkAgain = async () => {
+          await js(`window.__lore.show("inventory")`);
+          await waitFor(`!document.querySelector("#talk").hidden`);
+          await js(`(() => { const box = document.querySelector("#capture-input"); box.value = ""; })()`);
+          await js(`document.querySelector("#talk").click()`);
+          return waitFor(listening);
+        };
+        check("asking again listens again", await talkAgain());
+        const beforeLeaving = { prompts: prompts.length, transcriptions };
+        await js(`window.__lore.show("settings")`);
+        check("leaving the thread while listening stops the microphone", await waitFor(`!document.querySelector("#composer").dataset.mode`));
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        await sleep(300);
+        check("…and Enter elsewhere sends nothing and transcribes nothing", prompts.length === beforeLeaving.prompts && transcriptions === beforeLeaving.transcriptions, `${prompts.length}/${transcriptions}`);
+
+        // Typing takes over from talking: typed between a send and Lore's question, the microphone doesn't come back.
+        check("asking once more listens", await talkAgain());
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        for (let i = 0; i < 100 && prompts.length === beforeLeaving.prompts; i++) await sleep(100);
+        await waitFor(`!document.querySelector("#composer").dataset.mode`);
+        await js(`(() => { const box = document.querySelector("#capture-input"); box.value = "Also,"; box.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+        await js(`window.__lore.event({ type: "working", active: true, task: "capture" })`);
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "Anything else?" })`);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        await sleep(300);
+        check("typing ends talking it through, so Lore's next question doesn't bring the microphone back", !(await js(listening)));
+
+        // Saying nothing ends it: no empty turn is sent.
+        silence = true;
+        check("asking a third time listens", await talkAgain());
+        const beforeSilence = prompts.length;
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        check("an empty transcript ends talking it through", await waitFor(`!document.querySelector("#composer").dataset.mode`) && prompts.length === beforeSilence, `${prompts.length}/${beforeSilence} ${await js(`document.querySelector("#composer").dataset.mode + "|" + document.querySelector("#dictation-text").textContent`)}`);
+        await sleep(300);
+        check("…and the microphone stays off", !(await js(listening)));
+        silence = false;
+
+        // A card to approve ends it: the owner is asked to look, not listened over.
+        check("asking a fourth time listens", await talkAgain());
+        await js(`window.__lore.event({ type: "memories", id: "talk-card", task: "capture", entries: [{ title: "Held the Acme price", content: SPOKEN_TEXT, project: "p" }] })`.replace("SPOKEN_TEXT", JSON.stringify(SPOKEN)));
+        await sleep(300);
+        check("a memory card to approve leaves the microphone off", !(await js(listening)), await js(`document.querySelector("#composer").dataset.mode + "|" + document.querySelector("#request-slot, #request")?.textContent`));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
