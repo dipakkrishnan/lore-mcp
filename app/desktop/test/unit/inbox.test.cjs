@@ -87,6 +87,12 @@ test("the other kinds read as plain sentences", () => {
   ]);
 });
 
+test("APP-289: suggestions made in the same millisecond are separate rows, each acting on its own", () => {
+  const at = ago(HOUR);
+  const rows = new Inbox(NOW).rows(input({ suggestions: [{ at, title: "Agent evals", count: 4 }, { at, title: "Agent harnesses", count: 6 }] })).filter((row) => row.kind === "suggestion");
+  assert.deepEqual(rows.map((row) => [row.key, row.ref]), [["suggestion:agent evals", "Agent evals"], ["suggestion:agent harnesses", "Agent harnesses"]]);
+});
+
 test("ages read like an inbox and a bid's time left counts down to closed", () => {
   const inbox = new Inbox(NOW);
   assert.deepEqual([ago(5_000), ago(12 * 60_000), ago(5 * HOUR), ago(50 * HOUR), ago(10 * 24 * HOUR), null].map((at) => inbox.age(at)), ["now", "12m", "5h", "2d", "Oct 23", ""]);
@@ -152,4 +158,28 @@ test("a bid the owner is answering says where the answer stands in place of its 
   assert.deepEqual(rows.map((row) => row.pill), [{ label: "Drafting", tint: "pending" }, { label: "Answer drafted", tint: "pending" }, { label: "Answer ready", tint: "live" }, null]);
   assert.equal(Inbox.unmatched(matches[0].bid).memories.length, 0, "a bid nothing answers opens with no memories, so its page offers no draft");
   assert.equal(inbox.bid(look({ match: Inbox.unmatched(matches[0].bid) })).state, "unmatched");
+});
+
+test("APP-282, APP-289: Inventory is one list, drafts first, then the rest newest first, a memory sold alone reads as its piece, and taken-down pieces sit apart", () => {
+  /** @param {number} id @param {string} label @param {string} at @returns {MemoryItem} */
+  const memory = (id, label, at) => ({ id, title: `Memory ${id}`, project_label: label, status: "private", updated_at: at, sources: [], arrival: id });
+  // A piece's topic is the sentence its drafting agent wrote; it never becomes a heading.
+  /** @param {number} id @param {number[]} provenance @param {"approved" | "revoked"} state @returns {PublicationItem} */
+  const piece = (id, provenance, state) => ({ id, public_id: `p${id}`, title: `Piece ${id}`, topic: `Travel: window seat on United or American; piece ${id}`, state, live: true, provenance });
+  const input = { memories: [memory(1, "pricing", ago(HOUR)), memory(2, "hiring", ago(2 * HOUR)), memory(3, "", ago(3 * HOUR)), memory(4, "pricing", ago(4 * HOUR))], pieces: [piece(1, [1], "approved"), piece(2, [2], "revoked"), piece(3, [9], "approved")], drafts: [draft({ topic: "A long sentence about hiring", provenance: [2] })] };
+  const all = Inbox.inventory({ ...input, tab: "all" });
+  assert.deepEqual(all.counts, { all: 7, private: 4, draft: 1, sale: 2 });
+  assert.deepEqual(all.rows.map((row) => `${row.kind}:${row.shelf}`), ["draft:draft", "piece:sale", "memory:private", "memory:private", "memory:private", "piece:sale"]);
+  assert.deepEqual(all.down.map((row) => row.key), ["piece:2"], "a taken-down piece leaves its group");
+  assert.deepEqual(all.rows.filter((row) => row.kind === "memory").map((row) => row.item.id), [2, 3, 4], "memory 1 reads as its piece; memory 2, only drafted, keeps its row");
+  assert.equal(all.rows[1].from?.id, 1, "a piece carries the memory it was drafted from, for its mark");
+  const sale = Inbox.inventory({ ...input, tab: "sale" });
+  assert.deepEqual(sale.rows.map((row) => row.key), ["piece:1", "piece:3"]);
+  assert.deepEqual(sale.down, []);
+  assert.deepEqual(sale.counts, all.counts, "a tab narrows the rows, never the counts");
+  const recent = Inbox.inventory({ memories: [memory(5, "", ago(HOUR))], pieces: [{ ...piece(4, [], "approved"), updated_at: ago(24 * HOUR) }], drafts: [], tab: "all" });
+  assert.deepEqual(recent.rows.map((row) => row.key), ["memory:5", "piece:4"], "a memory updated today sits above a piece from yesterday");
+  const local = (/** @type {number} */ hour) => new Date(2026, 9, 28, hour).toISOString();
+  const days = Inbox.inventory({ memories: [memory(6, "", local(19)), memory(7, "", "2026-10-29"), memory(8, "", "2026-10-28")], pieces: [], drafts: [], tab: "all" });
+  assert.deepEqual(days.rows.map((row) => row.key), ["memory:7", "memory:6", "memory:8"], "a bare date is that day on the owner's clock, as its date column shows");
 });

@@ -350,8 +350,11 @@ test("APP-246: an automation's collection is a suggestion: its memories by id or
     await kept.add({ at: "2", title: "Travel", memories: [7], from: "Weekly" });
     await kept.add({ at: "3", title: "pricing", memories: [4, 9], from: "Weekly" });
     assert.deepEqual((await kept.list()).map((each) => each.at), ["3", "2"], "a newer suggestion for the same name replaces the older");
-    await kept.drop("3");
-    assert.deepEqual((await kept.list()).map((each) => each.title), ["Travel"]);
+    await kept.add({ at: "4", title: "Hiring", memories: [2], from: "Weekly" });
+    await kept.add({ at: "4", title: "Evals", memories: [3], from: "Weekly" });
+    await kept.drop("PRICING");
+    await kept.drop("Hiring");
+    assert.deepEqual((await kept.list()).map((each) => each.title), ["Evals", "Travel"], "dropped by name, so one made in the same millisecond stays");
     await assert.rejects(kept.drop(3), /Invalid suggestion/);
   } finally {
     await rm(directory, { recursive: true });
