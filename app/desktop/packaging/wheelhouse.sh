@@ -11,7 +11,7 @@ OUT="$PACKAGING/out"
 
 mkdir -p "$OUT"
 if [ ! -x "$OUT/uv" ] || [ "$("$OUT/uv" --version | cut -d' ' -f2)" != "$UV_VERSION" ]; then
-  curl -fsSL "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$ARCH.tar.gz" |
+  curl -fsSL --retry 4 --retry-all-errors "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$ARCH.tar.gz" |
     tar -xz -C "$OUT" --strip-components 1 "uv-$ARCH/uv"
 fi
 
