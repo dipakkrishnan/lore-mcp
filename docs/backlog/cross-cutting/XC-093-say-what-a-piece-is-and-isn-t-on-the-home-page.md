@@ -35,8 +35,8 @@ Nov 4: Dipak chose the live yourlore.dev page's layout plus a simple walkthrough
 
 - [x] The live layout: the serif hero "Private memory you can sell to agents.", the lede, Download for Mac, and a "Gathers from" row of source logos.
 - [x] A drawn app window that matches the app (Inbox, Inventory, Bids, Connectors; Inventory as one-line rows), captioned "Illustrative", with no invented sale.
-- [x] "How it works" in four steps, each over a small drawn screen: connect, private memories, pick and price, get paid or answer a bid.
-- [x] Open bids at the foot of the page, not in the hero: biggest first, at most five, "No card on file" where true, "All bids →"; with none open, "No open bids right now." and Place a bid.
+- [x] "How it works" in four steps, each over a small drawn screen: connect, private memories, pick and price, get paid or answer a bid. All four follow one memory, priced at $8 and answering an $8 bid; every drawn price is $2–8.
+- [x] The page ends on How it works: no beats and no bid list (Nov 4, Dipak). Live bids stay on /bids and in the page's structured data.
 - [x] No worked piece and no maker's example anywhere; no never-does list; the nav says GitHub.
 - [x] No protocol words on the page; no horizontal scroll at phone width; light and dark both work.
 
