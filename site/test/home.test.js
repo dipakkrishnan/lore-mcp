@@ -1,7 +1,7 @@
 import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { FEATURED, HERO, homePage } from "../src/home.js";
+import { HERO, homePage } from "../src/home.js";
 import worker from "../src/worker.js";
 
 const MARKETS = [{ id: "rl-evals", name: "RL evals", tab: "AI" }];
@@ -42,7 +42,7 @@ describe("the home page", () => {
     const side = html.match(/<aside class="side">([\s\S]*?)<\/aside>/)[1];
     expect([...side.matchAll(/<\/svg>(\w+)<em>/g)].map((m) => m[1])).toEqual(["Inbox", "Inventory", "Bids", "Connectors"]);
     expect(html).not.toMatch(/>Today<|Good evening/);
-    expect(html).toContain('<div class="r"><i class="st sale"></i><span class="t">Pricing a sync placement by its reach</span><span title="Grok Bot"><img class="mk" src="/marks/grok.svg" alt="" width="16" height="16"></span><span class="w">On sale</span><time>Oct 30</time><span class="p">$5</span></div>');
+    expect(html).toContain('<div class="r"><i class="st sale"></i><span class="t">Pricing a sync placement by its reach</span><span title="Grok Bot"><img class="mk" src="/marks/grok.svg" alt="" width="16" height="16"></span><span class="w">On sale</span><time>Oct 30</time><span class="p">$4</span></div>');
     expect(html).toContain('<figcaption class="cap">Illustrative</figcaption>');
   });
 
@@ -66,50 +66,25 @@ describe("the home page", () => {
     expect(homePage({ bids: [bid("a", 5)], now })).not.toMatch(/Dipak|dipakrkrishnan|Bonaire/);
   });
 
-  test("draws no bids at all when none are open and nothing is featured: nothing fake stands in", () => {
-    expect(FEATURED).toEqual([]);
-    const html = homePage({ now });
+  test("follows one memory through all four steps, at prices a person would pay", () => {
+    const walk = homePage({ now }).match(/<ol class="walk">([\s\S]*?)<\/ol>/)[1];
+    const steps = walk.split("<li>").slice(1);
+    for (const step of steps.slice(1, 3)) expect(step).toContain("How our app hit #1 in its first week");
+    expect(steps[3]).toContain("go viral in its first week");
+    expect(walk).toContain('<span class="price">$8</span>');
+    expect([...walk.matchAll(/<span class="p">\$(\d+)<\/span>/g)].map((m) => Number(m[1]))).toEqual([8, 6, 5]);
+  });
+
+  test("ends on the walkthrough: no beats and no bid list on the page itself", () => {
+    const html = homePage({ bids: [bid("a", 5)], now });
+    expect(html).not.toContain('class="beats"');
+    expect(html).not.toContain('id="bids-title"');
     expect(rows(html)).toEqual([]);
-    expect(html).toContain("No open bids right now.");
-    expect(html).toContain('<a class="quiet" href="/bids?ask#ask">Place a bid</a>');
   });
 
-  test("lists the open bids below the walkthrough, not in the hero: biggest first, at most five, with All bids", () => {
-    const html = homePage({ bids: [bid("a", 5), bid("b", 300), bid("c", 40), bid("d", 60), bid("e", 15), bid("f", 25)], now });
-    expect(html.indexOf('id="bids-title"')).toBeGreaterThan(html.indexOf('id="how-title"'));
-    expect(html.match(/<section class="hero">[\s\S]*?<\/section>/)[0]).not.toContain("/b/");
-    expect(rows(html)).toEqual(["b", "d", "c", "f", "e"]);
-    expect(html).toContain('<h2 id="bids-title">Open bids<a href="/bids">All bids →</a></h2>');
-    expect(html).toContain('<li data-bid="b" data-usd="300"><a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a></li>');
-  });
-
-  test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
-    const fresh = { ...bid("n", 9), created: "2026-10-31T23:00:00Z" };
-    const answeredBid = { ...bid("m", 9), answers: [{}, {}] };
-    const html = homePage({ bids: [fresh, answeredBid, bid("o", 9)], now });
-    expect(html).toContain('href="/b/n"><span class="amt">$9</span><span class="q">Question n worth asking?</span><span class="side">7 days left · New</span>');
-    expect(html).toContain('<span class="side">7 days left · 2 answers</span>');
-    expect(html).toContain('href="/b/o"><span class="amt">$9</span><span class="q">Question o worth asking?</span><span class="side">7 days left</span>');
-    expect(html).not.toContain("0 answers");
-  });
-
-  test("says when a bid has no card behind it, so its amount isn't read as money waiting", () => {
-    const html = homePage({ bids: [bid("p", 9, { card: true }), bid("u", 8, { card: false })], now });
-    expect(html).toContain('href="/b/p"><span class="amt">$9</span><span class="q">Question p worth asking?</span><span class="side">7 days left</span>');
-    expect(html).toContain('href="/b/u"><span class="amt">$8</span><span class="q">Question u worth asking?</span><span class="side">7 days left · No card on file</span>');
-  });
-
-  test("falls back to the owner's featured bids, labelled as recent, only when none are open", () => {
-    const featured = [bid("z", 80, { status: "filled" })];
-    expect(rows(homePage({ featured, now }))).toEqual(["z"]);
-    expect(homePage({ featured, now })).toContain("Recent bids");
-    expect(rows(homePage({ bids: [bid("a", 5)], featured, now }))).toEqual(["a"]);
-  });
-
-  test("escapes what buyers wrote", () => {
-    const html = homePage({ bids: [bid("a", 5, { question: `<script>alert("x")</script> & more` })], now });
+  test("escapes what buyers wrote in the structured data", () => {
+    const html = homePage({ bids: [bid("a", 5, { question: `</script><script>alert("x")</script>` })], now });
     expect(html).not.toContain('<script>alert("x")');
-    expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; more");
   });
 
   test("describes the app and the open bids as structured data", () => {
@@ -128,15 +103,14 @@ describe("served by the Worker", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  test("/ draws the live bids from the book", async () => {
+  test("/ describes the live bids from the book to agents", async () => {
     const empty = await call("/");
     expect(empty.status).toBe(200);
-    expect(rows(await empty.text())).toEqual([]);
+    const listed = (html) => JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1])["@graph"][1].itemListElement.map((i) => i.url);
+    expect(listed(await empty.text())).toEqual([]);
     const placed = await call("/bids", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "How do you stop reward hacking on long coding tasks?", usd: 120, market: "rl-evals" }) });
     const { id } = await placed.json();
-    const html = await (await call("/")).text();
-    expect(rows(html)).toEqual([id]);
-    expect(html).toContain("7 days left · New · No card on file</span>");
+    expect(listed(await (await call("/")).text())).toEqual([`https://yourlore.dev/b/${id}`]);
   });
 
   test("/download hands out the latest release, and unknown paths get the site's not-found page", async () => {

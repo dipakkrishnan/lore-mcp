@@ -1,15 +1,10 @@
 // yourlore.dev/: what Lore is and one download, the apps it gathers from, the app itself drawn as
-// a window, a four-step walk through it, three plain beats, and the open bids. The drawn screens
-// are illustrative and say so; only real records are drawn as bids. With none open, the owner's
-// FEATURED list stands in, and with that empty no bid is drawn.
-import { answered, timeLeft } from "./bid-pages.js";
+// a window, and a four-step walk through it that follows one memory from a connected app to a bid.
+// The drawn screens are illustrative and say so. Live bids live on /bids; here they are only
+// described for agents, as structured data.
 import { escape, MARK, money, page } from "./layout.js";
 
 const SITE = "https://yourlore.dev";
-const SHOWN = 5;
-
-/** Real bids the owner pins for when none are open: { id, question, usd, market, expires, answers: [] }. Edit by hand. */
-export const FEATURED = [];
 
 export const HERO = {
   title: "Private memory you can sell to agents.",
@@ -33,11 +28,11 @@ const NAME = Object.fromEntries(SOURCES);
 
 /** Illustrative Inventory rows: [title, source, status, date, price]. */
 const INVENTORY = [
-  ["Pricing a sync placement by its reach", "grok", "On sale", "Oct 30", 5],
-  ["What made open-water diving click", "claude", "Draft", "Oct 29", 3],
+  ["Pricing a sync placement by its reach", "grok", "On sale", "Oct 30", 4],
+  ["What made open-water diving click", "claude", "Draft", "Oct 29", 2],
   ["Running weekly planning for a team of eight", "granola", "Private", "Oct 28"],
-  ["Getting an open model to serve on rented GPUs", "chatgpt", "Draft", "Oct 26", 10],
-  ["Shipping an app through App Store review", "obsidian", "On sale", "Oct 24", 8],
+  ["Getting an open model to serve on rented GPUs", "chatgpt", "Draft", "Oct 26", 5],
+  ["How our app hit #1 in its first week", "obsidian", "On sale", "Oct 24", 8],
   ["Notes on pricing the first ten customers", "readwise", "Private", "Oct 21"]
 ];
 
@@ -86,9 +81,11 @@ const STYLE = `
 .walk p{margin:0;font-size:var(--t13);color:var(--muted)}.walk p b{color:var(--ink);font-weight:600}
 .walk p a{color:var(--accent)}
 .walk .shot{flex:1;display:flex}.walk .win{flex:1}
-.walk .r{grid-template-columns:14px minmax(0,1fr) 52px 32px}
+.walk .r{grid-template-columns:14px minmax(0,1fr) 16px 52px auto}
+.r>span[title]{display:flex}
 .walk .r.c{grid-template-columns:16px minmax(0,1fr) auto}
 .walk .r.c .w.on{color:var(--accent)}
+.walk .r.on{background:var(--raise)}
 .walk .r.b{grid-template-columns:40px minmax(0,1fr) auto}.r.b .p{text-align:left;color:var(--accent);font-weight:600}
 .verb{height:24px;padding:0 var(--s2);border:1px solid var(--line);border-radius:var(--r6);font-size:var(--t12);line-height:22px;color:var(--ink)}
 .mem{padding:var(--s4)}
@@ -98,16 +95,9 @@ const STYLE = `
 .mem .go{height:28px;margin-top:var(--s3);font-size:var(--t12);pointer-events:none}
 .block{padding-top:var(--s12)}
 .block>h2{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s4);font:600 var(--t15)/1.4 var(--sans);margin:0 0 var(--s4)}
-.block>h2 a{font:400 var(--t13) var(--sans);color:var(--muted)}.block>h2 a:hover{color:var(--ink)}
-.block>p{margin:0 0 var(--s4);font-size:var(--t13);color:var(--muted);max-width:44em}
 .block>p.cap{max-width:none;margin:var(--s4) 0 0;font-size:var(--t11);color:var(--faint)}
-.beats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s6);border-top:1px solid var(--line);margin-top:var(--s12);padding-top:var(--s6)}
-.beats h2{font:600 var(--t15)/1.4 var(--sans);margin:0 0 var(--s1)}
-.beats p{margin:0;font-size:var(--t13);color:var(--muted)}
-.mini{grid-template-columns:56px minmax(0,1fr) auto}
-.bids-empty{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s3) var(--s4)}
-@media (max-width:760px){.app .win{grid-template-columns:minmax(0,1fr);min-height:0}.app .side{display:none}.walk{grid-template-columns:minmax(0,1fr)}.beats{grid-template-columns:minmax(0,1fr);gap:var(--s4)}}
-@media (max-width:640px){.hero{padding-top:var(--s6)}.block{padding-top:var(--s8)}.r{grid-template-columns:14px minmax(0,1fr) 16px 52px 32px}.app .r time{display:none}.mini{grid-template-columns:56px minmax(0,1fr)}}
+@media (max-width:760px){.app .win{grid-template-columns:minmax(0,1fr);min-height:0}.app .side{display:none}.walk{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.hero{padding-top:var(--s6)}.block{padding-top:var(--s8)}.r{grid-template-columns:14px minmax(0,1fr) 16px 52px 32px}.app .r time{display:none}}
 `;
 
 const download = `<a class="go" href="/download">Download for Mac</a>`;
@@ -143,68 +133,45 @@ const connectors = () =>
     .map(([id, state]) => `<div class="r c">${mark(id)}<span class="t">${NAME[id]}</span>${state === "Connect" ? `<span class="verb">Connect</span>` : `<span class="w on">${state}</span>`}</div>`)
     .join("")}</div>`;
 
+/** The one memory the walkthrough follows, from Obsidian to a bid. */
+const EXAMPLE = { title: INVENTORY[4][0], source: "obsidian", usd: 8 };
+const BID = [EXAMPLE.usd, "What actually made your app go viral in its first week?"];
+
 const privateRows = () =>
   `<div class="win">${header("Inventory", ["All", "Private", "Draft", "On sale"], "Private")}${[
+    [EXAMPLE.title, EXAMPLE.source, "Private"],
     ["How I run a calm product launch week", "claude", "Private"],
     INVENTORY[2],
-    ["Which landlord questions saved me money", "notion", "Private"],
     INVENTORY[5]
   ]
-    .map((r) => item(r, { dated: false }))
+    .map((r, i) => item(r, { dated: false }).replace('class="r"', i ? 'class="r"' : 'class="r on"'))
     .join("")}</div>`;
 
 const pricing = () =>
-  `<div class="win">${header("Inventory")}<div class="mem"><b>${escape(INVENTORY[4][0])}</b>
-<div class="prop"><span>Status</span><span>Draft</span></div><div class="prop"><span>Source</span><span>${NAME.obsidian}</span></div>
-<div class="prop"><span>Price</span><span><span class="price">$8</span></span></div><span class="go">Put on sale</span></div></div>`;
+  `<div class="win">${header("Inventory")}<div class="mem"><b>${escape(EXAMPLE.title)}</b>
+<div class="prop"><span>Status</span><span>Draft</span></div><div class="prop"><span>Source</span><span>${NAME[EXAMPLE.source]}</span></div>
+<div class="prop"><span>Price</span><span><span class="price">${money(EXAMPLE.usd)}</span></span></div><span class="go">Put on sale</span></div></div>`;
 
 const bidRows = () =>
   `<div class="win">${header("Bids")}${[
-    [40, "What got your app rejected, and what got it through on the second try?"],
-    [120, "What broke serving an open model on rented GPUs, and what config held?"],
-    [25, "What should I bring to a first school meeting so the answer isn't no?"]
+    BID,
+    [6, "What broke serving an open model on rented GPUs, and what config held?"],
+    [5, "What should I bring to a first school meeting so the answer isn't no?"]
   ]
-    .map(([usd, q]) => `<div class="r b"><span class="p">${money(usd)}</span><span class="t">${escape(q)}</span><span class="verb">Answer</span></div>`)
+    .map(([usd, q], i) => `<div class="r b${i ? "" : " on"}"><span class="p">${money(usd)}</span><span class="t">${escape(q)}</span><span class="verb">Answer</span></div>`)
     .join("")}</div>`;
 
 /** The walkthrough: four steps, each a few words, one plain sentence, and the screen it happens on. */
 const STEPS = [
   ["Connect your agents and apps.", "Lore reads them on your Mac.", connectors, "Connectors: Claude, Granola and Obsidian connected, Notion ready to connect"],
-  ["Lore turns them into private memories.", "You see them in Inventory, and nothing leaves your Mac.", privateRows, "Inventory showing private memories"],
-  ["Pick what's worth selling.", "Set a price and put it on sale.", pricing, "A memory with its price set to $8 and a Put on sale button"],
-  ["Get paid.", `Other people's agents pay to read it, or <a href="/bids">post a bid</a> for something you know.`, bidRows, "Bids: questions with a price on them, each with an Answer button"]
+  ["Lore turns them into private memories.", "You see them in Inventory, and nothing leaves your Mac.", privateRows, `Inventory showing private memories, ${EXAMPLE.title} first`],
+  ["Pick what's worth selling.", "Set a price and put it on sale.", pricing, `The same memory, ${EXAMPLE.title}, with its price set to ${money(EXAMPLE.usd)} and a Put on sale button`],
+  ["Get paid.", `Other people's agents pay to read it, or <a href="/bids">post a bid</a> for something you know.`, bidRows, `Bids: a ${money(BID[0])} question about going viral that the memory answers, and two more`]
 ];
 
 const walkBlock = () => `<section class="block" aria-labelledby="how-title"><h2 id="how-title">How it works</h2>
 <ol class="walk">${STEPS.map(([lead, line, draw, label]) => `<li>${shot(label, draw())}<p><b>${lead}</b> ${line}</p></li>`).join("")}</ol>
 <p class="cap">Screens are illustrative</p></section>`;
-
-const BEATS = [
-  ["Your agents and apps, in one place", "Grok Bot, Claude and ChatGPT save what they learn about you as you talk. Lore reads your notes, meetings and highlights each morning."],
-  ["Everything stays on your Mac", "Memories are yours alone. Nothing leaves your Mac until you approve it, and you can take it back anytime."],
-  ["Agents pay for what you share", "Approve a memory and it goes on sale in your own store. Other people's agents pay to read it, straight to you."]
-];
-
-const beats = () => `<section class="beats">${BEATS.map(([h, p]) => `<div><h2>${h}</h2><p>${p}</p></div>`).join("")}</section>`;
-
-/** One bid, compact: amount, question, time left, answers once there are any, and whether a card stands behind it. */
-function miniRow(bid, now) {
-  const left = timeLeft(bid, now);
-  const meta = [left ? `${left} left` : "Ended", answered(bid, now), bid.card === false && "No card on file"].filter(Boolean).join(" · ");
-  return `<li data-bid="${escape(bid.id)}" data-usd="${bid.usd}"><a class="line mini" href="/b/${escape(bid.id)}"><span class="amt">${money(bid.usd)}</span><span class="q">${escape(bid.question)}</span><span class="side">${meta}</span></a></li>`;
-}
-
-/** The open bids, biggest first; the owner's featured ones stand in only when none are open. */
-function bidsBlock(bids, featured, now) {
-  const shown = (bids.length ? [...bids].sort((a, b) => b.usd - a.usd) : featured).slice(0, SHOWN);
-  const lead = `<p>A bid is a question with a price on it. When one fits what you know, Lore drafts an answer for you to approve.</p>`;
-  if (!shown.length) {
-    return `<section class="block" aria-labelledby="bids-title"><h2 id="bids-title">Open bids<a href="/bids">All bids →</a></h2>${lead}
-<div class="bids-empty"><span class="empty">No open bids right now.</span><a class="quiet" href="/bids?ask#ask">Place a bid</a></div></section>`;
-  }
-  return `<section class="block" aria-labelledby="bids-title"><h2 id="bids-title">${bids.length ? "Open bids" : "Recent bids"}<a href="/bids">All bids →</a></h2>${lead}
-<ul class="list">${shown.map((b) => miniRow(b, now)).join("")}</ul></section>`;
-}
 
 /** What a crawler or agent reads without parsing the page: the app, and the open bids. */
 const structured = (bids) => ({
@@ -215,8 +182,8 @@ const structured = (bids) => ({
   ]
 });
 
-/** The home page. `bids` are the live bids as /bids.json lists them, and `featured` stands in when none are open. */
-export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Date.now() } = {}) {
+/** The home page. `bids` are the live bids as /bids.json lists them, described only as structured data. */
+export function homePage({ bids = [], hero = HERO } = {}) {
   return page({
     title: "Lore: private memory you can sell to agents",
     description: hero.lede,
@@ -227,6 +194,6 @@ export function homePage({ bids = [], featured = FEATURED, hero = HERO, now = Da
     body: `<section class="hero"><h1>${escape(hero.title)}</h1><p class="lede">${escape(hero.lede)}</p>
 <div class="cta">${download}<span class="trust">${escape(TRUST)}</span></div></section>
 <div class="sources" aria-label="Where Lore gathers from"><span>Gathers from</span><ul>${SOURCES.map(([id, name]) => `<li>${mark(id)}${name}</li>`).join("")}</ul><span>and more</span></div>
-${appWindow()}${walkBlock()}${beats()}${bidsBlock(bids, featured, now)}`
+${appWindow()}${walkBlock()}`
   });
 }
