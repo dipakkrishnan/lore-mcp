@@ -29,7 +29,7 @@ const SALES_EVERY_MS = 60_000;
 /**
  * @typedef {object} MainProcess The pieces of the running app the logic needs, real in main.cjs and fakes under node --test.
  * @property {import("electron").IpcMain} ipcMain
- * @property {Pick<import("electron").Shell, "openExternal" | "openPath">} shell
+ * @property {Pick<import("electron").Shell, "openExternal" | "openPath" | "showItemInFolder">} shell
  * @property {Pick<import("electron").Clipboard, "writeText">} clipboard
  * @property {Pick<import("electron").Dialog, "showOpenDialog">} dialog
  * @property {Pick<import("electron").SystemPreferences, "askForMediaAccess">} systemPreferences
