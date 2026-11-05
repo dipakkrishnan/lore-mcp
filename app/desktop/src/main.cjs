@@ -1,6 +1,6 @@
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
-const { dirname, join } = require("node:path");
+const { dirname, isAbsolute, join } = require("node:path");
 const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
@@ -162,6 +162,12 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     return searchMemories(loreHome, query);
   });
   ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
+  // APP-282: the file a memory was read from, shown in Finder; the path is the store's, so the page can only name an id.
+  ipcMain.handle("memory:reveal", async (_event, id) => {
+    const { source_path: path } = await readMemory(loreHome, id);
+    const file = path.startsWith("~/") ? join(app.getPath("home"), path.slice(2)) : path;
+    if (isAbsolute(file) && existsSync(file)) shell.showItemInFolder(file);
+  });
   ipcMain.handle("memory:gists", () => readGists(loreHome));
   ipcMain.handle("memory:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");
@@ -287,7 +293,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("suggestions:list", () => suggestions.list());
-  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
+  ipcMain.handle("suggestions:drop", (_event, title) => suggestions.drop(title));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
