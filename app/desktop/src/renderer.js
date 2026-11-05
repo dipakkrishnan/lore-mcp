@@ -466,10 +466,13 @@ class MemoryPage {
     const verdict = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
     const idle = () => {
       note.replaceChildren();
+      note.title = "";
       note.hidden = !verdict;
       if (verdict) {
-        // A memory Lore judged not worth selling says why in one quiet line (APP-235); work is never offered for sale.
-        note.append(verdict.work ? "Work · stays private" : ["Lore keeps this private", verdict.why].filter(Boolean).join(" · "));
+        // A memory Lore judged not worth selling says so in one short line; the model's reason is its tooltip (APP-235,
+        // APP-289). Work is never offered for sale.
+        note.append(verdict.work ? "Work · stays private" : "Lore keeps this private");
+        if (!verdict.work) note.title = verdict.why;
         if (!verdict.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
       }
       const sell = drafted ? button("Review draft", "secondary", () => show("drafts")) : verdict ? null : button("Draft for sale", "secondary", () => void publishMemory(memory), SALE_ICON);
@@ -530,6 +533,7 @@ class MemoryPage {
     const remove = () => {
       note.hidden = false;
       note.replaceChildren("Delete this memory? Lore won't bring it back.");
+      note.title = "";
       const sure = button("Delete", "quiet", () => void act(async () => {
         await window.lore.deleteMemory(memory.id);
         this.memory = null;
