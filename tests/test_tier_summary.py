@@ -14,7 +14,9 @@ from unittest import mock
 
 
 def _load() -> ModuleType:
-    path = Path(__file__).resolve().parents[1] / ".github" / "scripts" / "tier_summary.py"
+    path = (
+        Path(__file__).resolve().parents[1] / ".github" / "scripts" / "tier_summary.py"
+    )
     spec = importlib.util.spec_from_file_location("tier_summary", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -57,7 +59,9 @@ class Parsing(unittest.TestCase):
     def test_node_test_summary_block(self) -> None:
         tier = tier_summary.parse_node(NODE_LOG)
         assert tier is not None
-        self.assertEqual((tier.tests, tier.passed, tier.failed, tier.skipped), (94, 93, 0, 0))
+        self.assertEqual(
+            (tier.tests, tier.passed, tier.failed, tier.skipped), (94, 93, 0, 0)
+        )
         self.assertEqual(tier.extra, {"todo": 1})
         self.assertAlmostEqual(tier.seconds, 24.584, places=3)
         self.assertEqual(
@@ -68,7 +72,9 @@ class Parsing(unittest.TestCase):
     def test_quiet_pytest_line_counts_tests_not_subtests(self) -> None:
         tier = tier_summary.parse_pytest(QUIET_PYTEST_LOG)
         assert tier is not None
-        self.assertEqual((tier.tests, tier.passed, tier.failed, tier.skipped), (15, 15, 0, 0))
+        self.assertEqual(
+            (tier.tests, tier.passed, tier.failed, tier.skipped), (15, 15, 0, 0)
+        )
         self.assertEqual(tier.extra, {})
         self.assertEqual(
             tier.line("Python unit tests"),
@@ -78,7 +84,9 @@ class Parsing(unittest.TestCase):
     def test_decorated_pytest_line_with_failures_and_warnings(self) -> None:
         tier = tier_summary.parse_pytest(DECORATED_PYTEST_LOG)
         assert tier is not None
-        self.assertEqual((tier.tests, tier.passed, tier.failed, tier.skipped), (5, 3, 1, 1))
+        self.assertEqual(
+            (tier.tests, tier.passed, tier.failed, tier.skipped), (5, 3, 1, 1)
+        )
         self.assertEqual(tier.extra, {}, "warnings are not tests")
         self.assertEqual(tier.seconds, 1.5)
 
@@ -118,14 +126,18 @@ class Main(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             log = Path(folder, "unit.log")
             log.write_text(NODE_LOG)
-            code, written, printed = self.run_main(["--name", "Desktop component tests", "--log", str(log)])
+            code, written, printed = self.run_main(
+                ["--name", "Desktop component tests", "--log", str(log)]
+            )
         self.assertEqual(code, 0)
         expected = "**Desktop component tests**: 94 tests · 93 passed · 0 failed · 0 skipped · 1 todo · 24.6 s\n"
         self.assertEqual(written, expected)
         self.assertEqual(printed, expected)
 
     def test_a_missing_log_warns_and_still_exits_zero(self) -> None:
-        code, written, printed = self.run_main(["--name", "Python unit tests", "--log", "/nonexistent/pytest.log"])
+        code, written, printed = self.run_main(
+            ["--name", "Python unit tests", "--log", "/nonexistent/pytest.log"]
+        )
         self.assertEqual(code, 0)
         self.assertIn("::warning title=tier Python unit tests::", printed)
         self.assertIn("**Python unit tests**: not counted", written)

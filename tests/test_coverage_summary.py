@@ -178,7 +178,11 @@ class Readers(unittest.TestCase):
             totals = coverage_summary.collect([], [unit, component])
             # Summing the two files' LH/LF would say 5/9 lines; the union is 4 of 5 (line 4 of state.cjs never ran).
             self.assertEqual(
-                (totals.statement_label, totals.statements_covered, totals.statements_total),
+                (
+                    totals.statement_label,
+                    totals.statements_covered,
+                    totals.statements_total,
+                ),
                 ("lines", 4, 5),
             )
             self.assertEqual((totals.branches_covered, totals.branches_total), (2, 3))

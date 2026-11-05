@@ -126,7 +126,9 @@ def read_lcov(path: Path) -> Totals:
     return Totals("lines", counts["LH"], counts["LF"], counts["BRH"], counts["BRF"])
 
 
-def read_lcov_records(path: Path) -> tuple[dict[tuple[str, int], bool], dict[tuple[str, int, str, str], bool]]:
+def read_lcov_records(
+    path: Path,
+) -> tuple[dict[tuple[str, int], bool], dict[tuple[str, int, str, str], bool]]:
     """Every `DA:` line and `BRDA:` branch of an lcov file, keyed by source file, with whether it was hit.
 
     `DA:<line>,<count>` and `BRDA:<line>,<block>,<branch>,<taken>` (`-` when the
@@ -153,11 +155,15 @@ def read_lcov_records(path: Path) -> tuple[dict[tuple[str, int], bool], dict[tup
             elif key == "BRDA":
                 number, block, branch, taken = value.split(",")[:4]
                 at = (source, int(number), block, branch)
-                branches[at] = branches.get(at, False) or (taken != "-" and int(taken) > 0)
+                branches[at] = branches.get(at, False) or (
+                    taken != "-" and int(taken) > 0
+                )
     except ValueError as error:
         raise ReportError(f"{path}: bad record {line!r}") from error
     if not lines:
-        raise ReportError(f"{path}: no DA records; not an lcov file or nothing was covered")
+        raise ReportError(
+            f"{path}: no DA records; not an lcov file or nothing was covered"
+        )
     return lines, branches
 
 
@@ -171,7 +177,9 @@ def union_lcov(paths: Iterable[Path]) -> Totals:
             lines[where] = lines.get(where, False) or hit
         for at, taken in found_branches.items():
             branches[at] = branches.get(at, False) or taken
-    return Totals("lines", sum(lines.values()), len(lines), sum(branches.values()), len(branches))
+    return Totals(
+        "lines", sum(lines.values()), len(lines), sum(branches.values()), len(branches)
+    )
 
 
 def summarise(name: str, totals: Totals) -> str:

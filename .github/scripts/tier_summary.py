@@ -30,7 +30,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-NODE_LINE = re.compile(r"^ℹ (tests|pass|fail|skipped|todo|cancelled|duration_ms) (\S+)$", re.M)
+NODE_LINE = re.compile(
+    r"^ℹ (tests|pass|fail|skipped|todo|cancelled|duration_ms) (\S+)$", re.M
+)
 PYTEST_LINE = re.compile(
     r"^(?:=+ )?(\d[\w ,]*?|no tests ran) in (\d+(?:\.\d+)?)s(?: =+)?$", re.M
 )
@@ -72,12 +74,17 @@ def parse_node(text: str) -> Tier | None:
     if "tests" not in found or "duration_ms" not in found:
         return None
     try:
-        count = {k: int(found.get(k, "0")) for k in ("tests", "pass", "fail", "skipped", "todo", "cancelled")}
+        count = {
+            k: int(found.get(k, "0"))
+            for k in ("tests", "pass", "fail", "skipped", "todo", "cancelled")
+        }
         seconds = float(found["duration_ms"]) / 1000
     except ValueError as error:
         raise LogError(f"node:test summary has a bad number ({error})") from error
     extra = {k: count[k] for k in ("todo", "cancelled") if count[k]}
-    return Tier(count["tests"], count["pass"], count["fail"], count["skipped"], seconds, extra)
+    return Tier(
+        count["tests"], count["pass"], count["fail"], count["skipped"], seconds, extra
+    )
 
 
 def parse_pytest(text: str) -> Tier | None:
@@ -93,7 +100,14 @@ def parse_pytest(text: str) -> Tier | None:
     failed = counts.pop("failed", 0)
     skipped = counts.pop("skipped", 0)
     extra = {label: count for label, count in counts.items() if count}
-    return Tier(passed + failed + skipped + sum(extra.values()), passed, failed, skipped, float(seconds), extra)
+    return Tier(
+        passed + failed + skipped + sum(extra.values()),
+        passed,
+        failed,
+        skipped,
+        float(seconds),
+        extra,
+    )
 
 
 def read_tier(path: Path) -> Tier:
@@ -111,8 +125,12 @@ def read_tier(path: Path) -> Tier:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--name", required=True, help='the tier, e.g. "Python unit tests"')
-    parser.add_argument("--log", required=True, type=Path, help="the tier's teed output")
+    parser.add_argument(
+        "--name", required=True, help='the tier, e.g. "Python unit tests"'
+    )
+    parser.add_argument(
+        "--log", required=True, type=Path, help="the tier's teed output"
+    )
     args = parser.parse_args(argv)
     try:
         line = read_tier(args.log).line(args.name)
