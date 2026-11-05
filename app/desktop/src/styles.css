@@ -743,7 +743,7 @@ dialog.palette[open] { animation: rise var(--dur) ease; }
 #title[contenteditable="plaintext-only"]:hover { background: var(--bg-hover); }
 #title[contenteditable="plaintext-only"]:focus { background: var(--bg-hover); box-shadow: 0 0 0 3px var(--ring-soft); }
 
-/* Automations, at the foot of Connectors: one line each, its name then when it runs, Run now and a switch on hover. */
+/* Automations, a section of Settings: one line each, its name then when it runs, Run now and a switch on hover. */
 .routines { display: flex; flex-direction: column; gap: var(--s-2); }
 .automations { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--s-3)); }
 .automations .row.routine { cursor: pointer; justify-content: flex-start; align-items: center; gap: var(--s-3); min-height: var(--row); padding: 0 var(--s-3); border: 0; border-radius: var(--r-8); transition: background var(--dur) linear; }
@@ -898,6 +898,8 @@ main header.compact #first-run-skip:hover { color: var(--text-1); text-decoratio
 /* APP-283: the Inbox, a bid and the drafts are pages: a 44px header bar with a breadcrumb, then rows edge to edge. */
 main.paged { padding: 0; gap: 0; }
 main.paged > :not(header) { max-width: none; }
+/* The window's drag strip (.titlebar) covers the top of the header bar; anything clickable in it opts out, or a click drags the window. */
+main > header :is(button, [contenteditable="plaintext-only"]) { -webkit-app-region: no-drag; }
 main.paged > header { display: flex; align-items: center; gap: var(--s-2); height: var(--header); padding: 0 var(--s-6); border-bottom: 1px solid var(--line); flex-shrink: 0; }
 main.paged.scrolled header { box-shadow: none; }
 main.paged .task-actions { gap: var(--s-2); }

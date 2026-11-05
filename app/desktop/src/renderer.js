@@ -3985,7 +3985,7 @@ function openConnection(app, source) {
 /** Connectors: the owner's own agents, then where memories come from, then what Lore does with them on its own. First
  * class: the way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), automationsSection()];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s)))];
 }
 
 /** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
@@ -4700,6 +4700,7 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    automationsSection(),
     section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
@@ -4968,7 +4969,7 @@ function openNewRoutine(said = "") {
   text.focus();
 }
 
-/** APP-288: everything Lore does on its own, and when, Lore's own first, at the foot of Connectors. New ones start from
+/** APP-289: everything Lore does on its own, and when, Lore's own first, in Settings. New ones start from
  * the New menu, as everything else does. */
 function automationsSection() {
   const list = el("div", "automations");
@@ -5052,11 +5053,11 @@ function renderAccount() {
   signOutBtn.hidden = !credential;
 }
 
-/** Memories and For Sale became Inventory's tabs, and Automations a section of Connectors; anything that still asks for
+/** Memories and For Sale became Inventory's tabs, and Automations a section of Settings; anything that still asks for
  * them lands there. @param {View | "memories" | "store" | "automations"} next */
 function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
-  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "connectors" : next;
+  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "settings" : next;
   if (view === "inventory") void loadSales();
   if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
   if (view === "connectors") void loadAgents();
@@ -6485,7 +6486,7 @@ function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Connectors.`, { label: "Connectors", run: () => show("automations") }, () => window.lore.noticedRoutines());
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Settings.`, { label: "Settings", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
