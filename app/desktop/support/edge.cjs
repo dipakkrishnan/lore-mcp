@@ -2533,8 +2533,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("today-f-nothing");
         check("no moment of the walk showed more than one next step", (await js(`window.__steps`)) === 1, String(await js(`window.__steps`)));
 
-        // APP-290: talking it through, from Inventory: the thread opens listening, Enter sends what was said, Lore's
-        // question brings the microphone back, and Esc stops without sending.
+        // APP-290: talking it through, from Inventory: the thread opens listening, Enter sends what was said, and Lore's
+        // answer leaves the microphone off; the owner picks it again, and Esc stops without sending.
         const listening = `document.querySelector("#composer").dataset.mode === "listening"`;
         await js(`window.__lore.show("inventory")`);
         check("Inventory offers Talk it through in its header", await waitFor(`!document.querySelector("#talk").hidden && document.querySelector("#talk").textContent === "Talk it through"`));
@@ -2554,13 +2554,15 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "working", active: true, task: "capture" })`);
         await js(`window.__lore.event({ type: "message", task: "capture", text: "What did they say when you held it?" })`);
         await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
-        check("Lore's question brings the microphone back", await waitFor(listening));
-        check("…saying only how to finish, since the question is on screen", (await js(`document.querySelector("#dictation-text").textContent`)) === "Listening… Enter sends it, Esc stops.");
+        await sleep(300);
+        check("Lore's answer leaves the microphone off: only the first turn listens on its own", !(await js(listening)));
+        await js(`document.querySelector("#dictate").click()`);
+        check("…and the microphone button listens again when asked", await waitFor(listening));
         await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
         check("Esc stops listening, sends nothing, and leaves the owner typing", await waitFor(`!document.querySelector("#composer").dataset.mode && document.activeElement === document.querySelector("#capture-input")`) && prompts.length === spokenAt + 1);
         await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
         await sleep(300);
-        check("…and talking it through stays over until asked for again", !(await js(listening)));
+        check("…and stays off after Lore's next answer", !(await js(listening)));
 
         // Leaving ends it: the microphone is stopped, the audio dropped, and Enter elsewhere is left alone.
         const talkAgain = async () => {

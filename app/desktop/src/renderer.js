@@ -6717,17 +6717,17 @@ async function finishDictation() {
     text = (await window.lore.transcribe(wav(await active.stop()))).trim();
   } catch (error) {
     talk.end();
-    tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
+    console.error(error);
+    tell(`Lore couldn't transcribe that. ${DICTATE_HINT}`, true);
   }
   dictationMode(null);
   input.value = spoken + text;
   fit(input);
-  // Nothing said ends talking it through, so Lore never sends an empty turn or keeps listening to silence.
-  if (talk.kind && text) composer.requestSubmit();
-  else {
-    talk.end();
-    input.focus({ preventScroll: true });
-  }
+  // Talking it through listens for the first turn only; after that the owner picks the microphone or the keyboard.
+  const send = Boolean(talk.kind && text);
+  talk.end();
+  if (send) composer.requestSubmit();
+  else input.focus({ preventScroll: true });
 }
 
 /** Esc while listening: what was said is dropped, and talking it through ends. */
@@ -6745,9 +6745,9 @@ async function cancelDictation() {
 dictate.addEventListener("click", () => void (recorder ? finishDictation() : startDictation()));
 talkBtn.addEventListener("click", () => void talk.begin("capture"));
 
-/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening; Done or
- * Enter sends what was said, and each time Lore answers with a question it listens again. A card to approve, typing,
- * Esc, leaving the thread or saying nothing ends it. */
+/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening, and
+ * Done or Enter sends what was said. Only the first turn listens on its own; typing, Esc, leaving the thread or saying
+ * nothing ends it sooner. */
 const talk = {
   /** The thread being talked through. @type {"capture" | "evening" | null} */
   kind: /** @type {"capture" | "evening" | null} */ (null),

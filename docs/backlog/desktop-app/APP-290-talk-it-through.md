@@ -26,9 +26,9 @@ know about this to use it").
   opens a new memory's thread with the mic already on, prompting "Tell Lore what you figured out".
 - **The check-in's Inbox row** says **Talk it through** and opens the evening thread listening, so the daily questions
   build the habit.
-- **The talk-through loop:** Enter (or the stop button) sends what was said straight to Lore. When Lore answers with a
-  question, it listens again. It stops when Lore puts up a memory card to approve, when the owner types, presses Esc,
-  leaves the thread, or says nothing. It never listens while Lore is working or before Lore has answered.
+- **The first turn:** Enter (or the stop button) sends what was said straight to Lore. Only that first turn listens on
+  its own; after Lore answers, the owner picks the mic or the keyboard (dogfood, Nov 5: re-listening after every answer
+  caught side remarks like "Whoa." as turns). Typing, Esc, leaving the thread or saying nothing ends it sooner.
 - Everything stays on the Mac: the bundled whisper.cpp transcribes, as the mic button already did.
 
 ## Acceptance criteria
