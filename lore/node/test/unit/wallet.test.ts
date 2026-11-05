@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { payTo, takesAgentPayments } from "../src/wallet.js";
+import { payTo, takesAgentPayments } from "../../src/wallet.js";
 
 const VALID = `0x${"1".repeat(40)}`;
 const env = (wallet?: string) => ({ LORE_WALLET: wallet }) as unknown as Env;
