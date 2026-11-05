@@ -240,10 +240,15 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: echo "LORE_WALLET=0x000000000000000000000000000000000000dEaD" > .dev.vars
+      # XC-099: the pure modules' tests first, in plain node (under a second), so a
+      # failure there is read before the Workers pool spends its minute booting.
+      - name: Unit tests in plain node (XC-099)
+        run: npm run test:unit
       # XC-098: the same two vitest runs with istanbul instrumentation (the only
       # provider the Workers pool supports). Report-only: the next step sums the
       # two Workers' coverage-summary.json files into one lore/node line of the
-      # step summary and never fails on a number.
+      # step summary and never fails on a number. The first run covers both the
+      # node and the workerd project, so the unit tests run again here, instrumented.
       - name: Run the mocked-facilitator test suite (MON-010)
         run: npm run test:coverage
       - name: Coverage line in the step summary (report-only)
@@ -295,6 +300,9 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: printf 'LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token\nPOSTHOG_KEY=not-a-real-key\n' > .dev.vars
+      # XC-099: unit tests first, in plain node; see node-component.
+      - name: Unit tests in plain node (XC-099)
+        run: npm run test:unit
       # XC-098: with istanbul instrumentation; report-only, see node-component.
       - name: Run the stubbed-GitHub test suite (XC-028)
         run: npm run test:coverage
@@ -362,6 +370,9 @@ jobs:
           node-version: lts/*
       - run: npm ci
       - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\nSTRIPE_PLATFORM_WEBHOOK_SECRET=whsec_not_a_real_secret\nACCOUNT_TOKEN_SECRET=not_a_real_token_secret\n" > .dev.vars
+      # XC-099: unit tests first, in plain node; see node-component.
+      - name: Unit tests in plain node (XC-099)
+        run: npm run test:unit
       # XC-098: with istanbul instrumentation; report-only, see node-component.
       - name: Run the stubbed-Stripe test suite (XC-039)
         run: npm run test:coverage

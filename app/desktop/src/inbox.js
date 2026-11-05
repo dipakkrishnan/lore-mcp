@@ -82,7 +82,7 @@ class Inbox {
       const said = group.from ? { title: what, tail: `from ${group.from}${tail}` } : { title: group.title, tail: `· ${what}${tail}` };
       add({ key: `ready:${group.key}`, kind: "memories", glyph: "memory", ...said, at: group.at, verb: group.memories ? "Review" : "View", done: true, ref: group.key });
     }
-    for (const each of input.suggestions) add({ key: `suggestion:${each.at}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.at });
+    for (const each of input.suggestions) add({ key: `suggestion:${each.title.toLowerCase()}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.title });
     for (const sale of input.sales) {
       const free = sale.network === "free";
       add({ key: `sale:${sale.tx}`, kind: "sale", glyph: free ? "sold" : "bid", amount: free ? "" : `+${Inbox.dollars(sale.price_usd)}`, lead: free ? "Someone read a free copy of" : "Sold", title: `“${sale.title}”`, at: sale.sold_at, verb: "View", done: true, ref: sale.tx });
@@ -116,6 +116,40 @@ class Inbox {
       const pill = answered.has(bid.id) ? { label: "Answer ready", tint: "live" } : drafted.has(bid.id) ? { label: "Answer drafted", tint: "pending" } : drafting.has(bid.id) ? { label: "Drafting", tint: "pending" } : null;
       return { id: bid.id, amount: Inbox.dollars(bid.usd), question: bid.question, market: Inbox.market(bid.market), left: this.left(bid.expires) ?? "", pill, strength: !memories.length ? 0 : strength === "strong" ? 3 : 2 };
     });
+  }
+
+  /** APP-282, APP-289: Inventory's rows as one list: drafts first, then pieces and memories together, most recently
+   * updated first. A memory sold on its own as a live piece is that piece's row, not a second row beside it with the
+   * same title: one status per thing. A taken-down piece is private again, so the counts add up to All, but it leaves
+   * the list for `down`, shown apart so it never reads as a second live copy.
+   * @param {{memories: MemoryItem[], pieces: PublicationItem[], drafts: PublicationCandidate[], tab: Shelf}} input */
+  static inventory({ memories, pieces, drafts, tab }) {
+    const kept = new Map(memories.map((memory) => [memory.id, memory]));
+    /** The first memory it was drafted from that is still kept. @param {number[] | undefined} ids */
+    const origin = (ids) => (ids ?? []).map((id) => kept.get(id)).find(Boolean);
+    const sole = (/** @type {number[] | undefined} */ ids) => (ids?.length === 1 ? [ids[0]] : []);
+    const sold = new Set(pieces.filter((item) => item.state === "approved").flatMap((item) => sole(item.provenance)));
+    /** When a row last changed, as its date column shows it: a bare date is that day where the owner is, not in UTC.
+     * @param {InventoryRow} row */
+    const time = (row) => {
+      const iso = (row.kind === "piece" ? row.item.updated_at ?? row.from?.updated_at : row.kind === "memory" ? row.item.updated_at : "") ?? "";
+      return Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T00:00` : iso) || 0;
+    };
+    /** @type {InventoryRow[]} */
+    const listed = [
+      ...[...pieces].sort((a, b) => b.id - a.id).map((item) => ({ key: `piece:${item.id}`, kind: /** @type {const} */ ("piece"), shelf: item.state === "approved" ? /** @type {const} */ ("sale") : /** @type {const} */ ("private"), item, from: origin(item.provenance) })),
+      ...memories.filter((item) => !sold.has(item.id)).map((item) => ({ key: `memory:${item.id}`, kind: /** @type {const} */ ("memory"), shelf: /** @type {const} */ ("private"), item, from: item }))
+    ];
+    /** @type {InventoryRow[]} */
+    const rows = [
+      ...drafts.map((item, at) => ({ key: `draft:${at}`, kind: /** @type {const} */ ("draft"), shelf: /** @type {const} */ ("draft"), item, from: origin(item.provenance) })),
+      ...listed.sort((a, b) => time(b) - time(a))
+    ];
+    const counts = { all: rows.length, private: 0, draft: 0, sale: 0 };
+    for (const row of rows) counts[row.shelf]++;
+    const shown = rows.filter((each) => tab === "all" || each.shelf === tab);
+    const down = shown.filter((row) => row.kind === "piece" && row.item.state === "revoked");
+    return { counts, rows: shown.filter((each) => !down.includes(each)), down };
   }
 
   /** Where a bid stands for the owner, the first that holds: dismissed, approved, closed, drafted, being drafted, then
