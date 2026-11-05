@@ -19,6 +19,7 @@ import sqlite3
 import threading
 import urllib.request
 from datetime import datetime, timezone
+from typing import Callable, Mapping
 
 from . import __version__, feedback
 from .paths import home
@@ -115,23 +116,57 @@ def notice_shown() -> None:
         store.set_setting(NOTICED_SETTING, True)
 
 
-def record(name: str, value: str = "") -> bool:
+# What carries an event off this machine; `_send` unless a caller brings its own.
+Sender = Callable[[dict[str, object]], None]
+
+
+def record(name: str, value: str = "", *, send: Sender | None = None) -> bool:
     """Send one event if it is allowed, due and consented to; True if sent.
-    Never fails the command that observed it."""
+    Never fails the command that observed it. `send` replaces the relay post
+    (XC-105): a caller that wants the event in hand, not on the wire."""
     frequency, prop = EVENTS[name]
     if prop and value not in prop[1]:
         raise ValueError(f"{name} can't carry {value!r}")
     try:
         # A value on an event that carries none is dropped here, not kept as a key.
         return _record(
-            name, frequency, {prop[0]: value} if prop else {}, value if prop else ""
+            name,
+            frequency,
+            {prop[0]: value} if prop else {},
+            value if prop else "",
+            send=send,
         )
     except (OSError, sqlite3.Error):
         return False
 
 
-def _record(name: str, frequency: str, props: dict[str, str], value: str) -> bool:
-    key = f"{name}:{value}" if frequency == "once" or value else name
+def event_key(name: str, frequency: str, value: str) -> str:
+    """Under what name an event's sending is remembered: with its value when the
+    value is what makes it a different event, or when it is sent once."""
+    return f"{name}:{value}" if frequency == "once" or value else name
+
+
+def due(frequency: str, key: str, sent: Mapping[str, str], today: str) -> bool:
+    """Whether an event is sent now, given what was sent before (XC-105): `once`
+    never again, `first` only before anything else, `daily` once a day, `always`."""
+    if frequency == "once" and key in sent:
+        return False
+    if frequency == "first" and sent:
+        return False
+    if frequency == "daily" and sent.get(key) == today:
+        return False
+    return True
+
+
+def _record(
+    name: str,
+    frequency: str,
+    props: dict[str, str],
+    value: str,
+    *,
+    send: Sender | None = None,
+) -> bool:
+    key = event_key(name, frequency, value)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with Store() as store:
         if store.setting(ENABLED_SETTING, True) is False:
@@ -140,11 +175,7 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
             return False
         sent = store.setting(SENT_SETTING, {})
         sent = sent if isinstance(sent, dict) else {}
-        if frequency == "once" and key in sent:
-            return False
-        if frequency == "first" and sent:
-            return False
-        if frequency == "daily" and sent.get(key) == today:
+        if not due(frequency, key, sent, today):
             return False
         if frequency != "always":
             store.set_setting(SENT_SETTING, sent | {key: today})
@@ -154,7 +185,8 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     _log(event)
-    _send(event)
+    # Looked up now, not at import, so a sender put in place later is the one used.
+    (_send if send is None else send)(event)
     return True
 
 

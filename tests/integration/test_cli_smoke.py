@@ -30,7 +30,7 @@ try:
 except ImportError:  # Windows has no pseudo-terminals
     pty = None  # type: ignore[assignment]
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 # Per command. Each one is a cold interpreter importing all of `lore`, which
 # takes seconds on a busy machine.
 TIMEOUT_S = 120

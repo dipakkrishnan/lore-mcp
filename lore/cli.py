@@ -10,9 +10,10 @@ import re
 import stat
 import sys
 import urllib.parse
+from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path
-from typing import Annotated, Mapping, get_args
+from typing import Annotated, Mapping, Sequence, get_args
 
 from pydantic import (
     BaseModel,
@@ -1911,10 +1912,14 @@ def _interactive() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def attended_folder() -> Path:
-    """Where the desktop app keeps its launch keys: the account's own home, never `HOME`."""
-    account = Path(pwd.getpwuid(os.getuid()).pw_dir)
-    return account / "Library" / "Application Support" / "Lore"
+def attended_folder(account_home: Path | None = None) -> Path:
+    """Where the desktop app keeps its launch keys: the account's own home, never `HOME`.
+
+    Pure given `account_home`; without it, the home is the account's, from the
+    password database (XC-105)."""
+    if account_home is None:
+        account_home = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    return account_home / "Library" / "Application Support" / "Lore"
 
 
 # A launch key file holds a pid and 64 hex characters; anything larger was not written by the app.
@@ -1992,16 +1997,30 @@ def _launch_keys() -> list[str]:
     return keys
 
 
-def _attended() -> bool:
+def _attended(
+    key: str | None = None,
+    *,
+    terminal: bool | None = None,
+    launch_keys: Sequence[str] | None = None,
+) -> bool:
     """Whether the Lore desktop app, the other attended surface, is piping a decision.
 
     Each app launch writes a fresh key where its agent's sandbox cannot read,
     and hands it only to the CLI processes it spawns, so the agent cannot pose as it.
+
+    Pure given all three (XC-105): the key the caller was handed, whether stdin
+    is a terminal, and the running apps' keys. Each one left out is read from
+    the live process; the key files are only read once there is a key to check.
     """
-    key = os.environ.get("LORE_ATTENDED_KEY", "")
-    if not key or sys.stdin.isatty():
+    if key is None:
+        key = os.environ.get("LORE_ATTENDED_KEY", "")
+    if terminal is None:
+        terminal = sys.stdin.isatty()
+    if not key or terminal:
         return False
-    matches = [hmac.compare_digest(key, expected) for expected in _launch_keys()]
+    if launch_keys is None:
+        launch_keys = _launch_keys()
+    matches = [hmac.compare_digest(key, expected) for expected in launch_keys]
     return any(matches)
 
 
@@ -2641,58 +2660,125 @@ def push_job(worker: Path, local: bool, *, opening: bool = False) -> int:
         raise
 
 
-def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
-    """Write the active publication set to the node's edge database."""
-    import tempfile
+@dataclass(frozen=True)
+class PushState:
+    """What one push reads from the store and the inbox, as plain data (XC-105)."""
 
-    with Store() as store:
-        waiting = store.unpriced_pieces()
-        active = [
-            p for p in store.list_publications(active_only=True) if p.id not in waiting
-        ]
-        answer_settings = store.answer_settings()
-        listed_name = str(store.setting(marketplace_module.NAME_SETTING, ""))
-        stripe_account = str(store.setting(STRIPE_ACCOUNT_SETTING, ""))
-        free = int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES)))
-        support = str(store.setting(SUPPORT_EMAIL_SETTING, ""))
-        price_usd = store.setting("price_usd", 0)
-        collections = store.collections()
-        # A local push fills the dev database a contributor runs `wrangler dev` on,
-        # never a store buyers reach, so it always sells there; a full deploy's
-        # push is the one that opens the store for sale.
-        selling = True if local or opening else deploy_module.choice(store)
+    # Every active publication; the planner drops the ones still waiting on a price.
+    publications: list[Publication]
+    unpriced: set[int]
+    answer: AnswerSettings
+    listed_name: str
+    stripe_account: str
+    free_copies: int
+    support_email: str
+    # As stored: a number, or anything else an older store left there.
+    price_usd: object
+    collections: list[Collection]
+    # The owner's choice to sell (deploy.SELLING_SETTING): true, false, or unset.
+    choice: bool | None
+    inbox: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PushPlan:
+    """Everything a push decides before it touches the world: what SQL goes to
+    the edge, whether the store sells, and how the run is reported."""
+
+    script: str
+    selling: bool | None
+    # Pieces the script carries; the job record's count and the success line's.
+    count: int
+    local: bool
+
+    def command(self, script_path: str) -> tuple[str, ...]:
+        """The wrangler call that writes `script_path` to the edge database."""
+        target = "--local" if self.local else "--remote"
+        return (
+            "npx",
+            "wrangler",
+            "d1",
+            "execute",
+            "lore-publications",
+            target,
+            "--file",
+            script_path,
+            "-y",
+        )
+
+    @property
+    def remote(self) -> bool:
+        """Whether this push settles the deployed node: only then are pending
+        revocations and approvals reflected, the live probe stale, and the card
+        store bound."""
+        return not self.local
+
+    @property
+    def said(self) -> str:
+        where = "local dev database" if self.local else "deployed node"
+        plural = "s" if self.count != 1 else ""
+        return f"Pushed {self.count} active publication{plural} to the {where}"
+
+
+def _push_state(store: Store, inbox: dict[str, str]) -> PushState:
+    """Read what a push needs from the store, deciding nothing."""
+    price_usd = store.setting("price_usd", 0)
+    return PushState(
+        publications=store.list_publications(active_only=True),
+        unpriced=store.unpriced_pieces(),
+        answer=store.answer_settings(),
+        listed_name=str(store.setting(marketplace_module.NAME_SETTING, "")),
+        stripe_account=str(store.setting(STRIPE_ACCOUNT_SETTING, "")),
+        free_copies=int(str(store.setting(FREE_COPIES_SETTING, FREE_COPIES))),
+        support_email=str(store.setting(SUPPORT_EMAIL_SETTING, "")),
+        price_usd=price_usd,
+        collections=store.collections(),
+        choice=deploy_module.choice(store),
+        inbox=inbox,
+    )
+
+
+def plan_push(state: PushState, *, local: bool, opening: bool = False) -> PushPlan:
+    """Decide one push from plain data: no store, no network, no process."""
+    active = [p for p in state.publications if p.id not in state.unpriced]
+    collections = state.collections
+    # A local push fills the dev database a contributor runs `wrangler dev` on,
+    # never a store buyers reach, so it always sells there; a full deploy's
+    # push is the one that opens the store for sale.
+    selling = True if local or opening else state.choice
     if selling is False:
         # No piece text leaves this Mac while the store sells nothing (XC-069):
         # the push carries settings and the agents' inbox keys only.
         active = []
         collections = []
+    price = state.price_usd
     script = _push_sql(
         active,
-        answer_settings,
-        listed_name,
-        stripe_account,
-        free,
-        support,
-        float(price_usd) if isinstance(price_usd, (int, float)) else 0,
+        state.answer,
+        state.listed_name,
+        state.stripe_account,
+        state.free_copies,
+        state.support_email,
+        float(price) if isinstance(price, (int, float)) else 0,
         collections,
-        Inbox().settings(),
+        state.inbox,
         selling,
     )
+    return PushPlan(script=script, selling=selling, count=len(active), local=local)
+
+
+def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
+    """Write the active publication set to the node's edge database: read the
+    state, let `plan_push` decide, then carry the plan out."""
+    import tempfile
+
+    inbox = Inbox().settings()
+    with Store() as store:
+        state = _push_state(store, inbox)
+    plan = plan_push(state, local=local, opening=opening)
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as handle:
-        handle.write(script)
+        handle.write(plan.script)
         script_path = handle.name
-    target = ["--local"] if local else ["--remote"]
-    command = [
-        "npx",
-        "wrangler",
-        "d1",
-        "execute",
-        "lore-publications",
-        *target,
-        "--file",
-        script_path,
-        "-y",
-    ]
     try:
         # A remote write is transactional, so a failed one leaves the edge as it
         # was and can be retried. Cloudflare has answered 401 to the first write
@@ -2701,7 +2787,7 @@ def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
         # through deploy_module._run so this D1 write is bounded the same way
         # every other deploy-chain subprocess is: a wedged wrangler process must
         # not hang this call, and therefore the owner's turn, forever (MON-023).
-        result = deploy_module._run(tuple(command), worker, retry=True)
+        result = deploy_module._run(plan.command(script_path), worker, retry=True)
     except OSError as error:
         os.unlink(script_path)
         with Store() as store:
@@ -2725,7 +2811,7 @@ def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
             "If that's a login or database problem, check `npx wrangler login` "
             "and that `lore-publications` exists (npx wrangler d1 create lore-publications)"
         )
-    if not local:
+    if plan.remote:
         # A remote push is a full replace, so whatever revocation or approval
         # was pending is now guaranteed reflected at the edge (MON-004, MON-013).
         with Store() as store:
@@ -2736,12 +2822,9 @@ def _push(worker: Path, local: bool, job_id: int, opening: bool = False) -> int:
         forget_live()
         _bind_card_store()
     with Store() as store:
-        store.finish_job(job_id, "succeeded", summary="pushed", count=len(active))
-    where = "local dev database" if local else "deployed node"
-    success(
-        f"Pushed {len(active)} active publication{'s' if len(active) != 1 else ''} to the {where}"
-    )
-    if not active:
+        store.finish_job(job_id, "succeeded", summary="pushed", count=plan.count)
+    success(plan.said)
+    if not plan.count:
         muted("The node now serves nothing. That is a valid state, not an error.")
     return 0
 
