@@ -35,6 +35,7 @@ obsolete), then `priority` (P0 → P3).
 | [CLI-017](./cli-ux/CLI-017-make-the-lore-cli-import-and-run-on-windows.md) | Make the lore CLI import and run on Windows | P2 | M | cli-ux | ideation | XC-095, APP-251, APP-252 | — | — | — |
 | [APP-285](./desktop-app/APP-285-run-commands-from-cmd-k-and-make-settings-rows-one-line.md) | Run commands from ⌘K and make Settings rows one line | P2 | M | desktop-app | ideation | APP-281, APP-107, APP-184 | — | APP-281 | — |
 | [APP-286](./desktop-app/APP-286-give-every-page-a-header-bar-and-one-way-to-create.md) | Give every page a header bar and one way to create | P2 | S | desktop-app | ideation | APP-281, APP-088 | — | APP-281 | — |
+| [XC-124](./cross-cutting/XC-124-find-why-the-sandbox-write-test-leaves-its-folder-non-empty.md) | Find why the sandbox write test's cleanup once found its folder not empty | P2 | S | cross-cutting | ideation | XC-072, XC-080, APP-289 | — | — | — |
 | [MON-043](./monetization/MON-043-price-pieces-by-demand.md) | Price pieces by demand | P3 | XL | monetization | ideation | APP-192, MON-018, MON-028 | MON-009 | — | — |
 | [CAP-034](./capture/CAP-034-read-browser-bookmarks-already-on-the-mac.md) | Read Chrome and Safari bookmarks already on the Mac | P3 | S | capture | ideation | CAP-032, CAP-033 | — | — | — |
 | [APP-251](./desktop-app/APP-251-port-the-attended-approval-launch-key-to-windows.md) | Port the attended-approval launch key to Windows | P3 | L | desktop-app | ideation | CLI-017, APP-252, APP-253, APP-254 | — | — | — |
