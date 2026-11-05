@@ -82,7 +82,7 @@ class Inbox {
       const said = group.from ? { title: what, tail: `from ${group.from}${tail}` } : { title: group.title, tail: `· ${what}${tail}` };
       add({ key: `ready:${group.key}`, kind: "memories", glyph: "memory", ...said, at: group.at, verb: group.memories ? "Review" : "View", done: true, ref: group.key });
     }
-    for (const each of input.suggestions) add({ key: `suggestion:${each.at}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.at });
+    for (const each of input.suggestions) add({ key: `suggestion:${each.title.toLowerCase()}`, kind: "suggestion", glyph: "collection", lead: "Lore suggests a collection:", title: `“${each.title}”`, tail: `· ${Inbox.plural(each.count, "memory", "memories")}`, at: each.at, verb: "Review", done: true, ref: each.title });
     for (const sale of input.sales) {
       const free = sale.network === "free";
       add({ key: `sale:${sale.tx}`, kind: "sale", glyph: free ? "sold" : "bid", amount: free ? "" : `+${Inbox.dollars(sale.price_usd)}`, lead: free ? "Someone read a free copy of" : "Sold", title: `“${sale.title}”`, at: sale.sold_at, verb: "View", done: true, ref: sale.tx });

@@ -472,7 +472,7 @@ interface Window {
     /** Each kept memory's one-line gist, keyed by id. */
     gists(): Promise<Record<string, string>>;
     suggestions(): Promise<CollectionSuggestion[]>;
-    dropSuggestion(at: string): Promise<void>;
+    dropSuggestion(title: string): Promise<void>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
     deleteMemory(id: number): Promise<{ deleted: number }>;

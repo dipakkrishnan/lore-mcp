@@ -87,6 +87,12 @@ test("the other kinds read as plain sentences", () => {
   ]);
 });
 
+test("APP-289: suggestions made in the same millisecond are separate rows, each acting on its own", () => {
+  const at = ago(HOUR);
+  const rows = new Inbox(NOW).rows(input({ suggestions: [{ at, title: "Agent evals", count: 4 }, { at, title: "Agent harnesses", count: 6 }] })).filter((row) => row.kind === "suggestion");
+  assert.deepEqual(rows.map((row) => [row.key, row.ref]), [["suggestion:agent evals", "Agent evals"], ["suggestion:agent harnesses", "Agent harnesses"]]);
+});
+
 test("ages read like an inbox and a bid's time left counts down to closed", () => {
   const inbox = new Inbox(NOW);
   assert.deepEqual([ago(5_000), ago(12 * 60_000), ago(5 * HOUR), ago(50 * HOUR), ago(10 * 24 * HOUR), null].map((at) => inbox.age(at)), ["now", "12m", "5h", "2d", "Oct 23", ""]);
