@@ -123,7 +123,7 @@ class Inbox {
    * drafting agent wrote, never a heading. A memory sold on its own as a live piece is that piece's row, not a second
    * row beside it with the same title: one status per thing. A taken-down piece is private again, so the counts add up to All, but it
    * leaves the groups for `down`, shown apart so it never reads as a second live copy. Drafts come first in each group,
-   * then pieces newest first, then memories newest first; groups follow their first row.
+   * then pieces and memories together, most recently updated first (APP-289); groups follow their first row.
    * @param {{memories: MemoryItem[], pieces: PublicationItem[], drafts: PublicationCandidate[], tab: Shelf}} input */
   static inventory({ memories, pieces, drafts, tab }) {
     const kept = new Map(memories.map((memory) => [memory.id, memory]));
@@ -131,11 +131,17 @@ class Inbox {
     const origin = (ids) => (ids ?? []).map((id) => kept.get(id)).find(Boolean);
     const sole = (/** @type {number[] | undefined} */ ids) => (ids?.length === 1 ? [ids[0]] : []);
     const sold = new Set(pieces.filter((item) => item.state === "approved").flatMap((item) => sole(item.provenance)));
+    /** When a row last changed, as its date column shows it. @param {InventoryRow} row */
+    const time = (row) => Date.parse((row.kind === "piece" ? row.item.updated_at ?? row.from?.updated_at : row.kind === "memory" ? row.item.updated_at : "") ?? "") || 0;
+    /** @type {InventoryRow[]} */
+    const listed = [
+      ...[...pieces].sort((a, b) => b.id - a.id).map((item) => ({ key: `piece:${item.id}`, kind: /** @type {const} */ ("piece"), shelf: item.state === "approved" ? /** @type {const} */ ("sale") : /** @type {const} */ ("private"), group: origin(item.provenance)?.project_label ?? "", item, from: origin(item.provenance) })),
+      ...memories.filter((item) => !sold.has(item.id)).map((item) => ({ key: `memory:${item.id}`, kind: /** @type {const} */ ("memory"), shelf: /** @type {const} */ ("private"), group: item.project_label, item, from: item }))
+    ];
     /** @type {InventoryRow[]} */
     const rows = [
       ...drafts.map((item, at) => ({ key: `draft:${at}`, kind: /** @type {const} */ ("draft"), shelf: /** @type {const} */ ("draft"), group: origin(item.provenance)?.project_label ?? "", item, from: origin(item.provenance) })),
-      ...[...pieces].sort((a, b) => b.id - a.id).map((item) => ({ key: `piece:${item.id}`, kind: /** @type {const} */ ("piece"), shelf: item.state === "approved" ? /** @type {const} */ ("sale") : /** @type {const} */ ("private"), group: origin(item.provenance)?.project_label ?? "", item, from: origin(item.provenance) })),
-      ...memories.filter((item) => !sold.has(item.id)).sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).map((item) => ({ key: `memory:${item.id}`, kind: /** @type {const} */ ("memory"), shelf: /** @type {const} */ ("private"), group: item.project_label, item, from: item }))
+      ...listed.sort((a, b) => time(b) - time(a))
     ];
     const counts = { all: rows.length, private: 0, draft: 0, sale: 0 };
     for (const row of rows) counts[row.shelf]++;
