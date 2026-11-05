@@ -10,6 +10,9 @@
   "account_id": "3227ac150184b0a79178897877781e2b",
   "routes": [{ "pattern": "checkout.yourlore.dev", "custom_domain": true }],
   "observability": { "enabled": true },
+  // The bid book's payment rail (MON-054): a saved card and a settled bid charge reach
+  // yourlore.dev's BidRail entrypoint only from here, over RPC, never over HTTP.
+  "services": [{ "binding": "BIDS_RAIL", "service": "yourlore-site", "entrypoint": "BidRail" }],
   "vars": {
     // Overridable so tests point at a stubbed Stripe instead of the real API.
     "STRIPE_API": "https://api.stripe.com"

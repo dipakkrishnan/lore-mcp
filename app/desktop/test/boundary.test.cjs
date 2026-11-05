@@ -68,7 +68,7 @@ function mainWindow() {
     loadFile() { return Promise.resolve(); }
   }
   const shell = { openExternal: async (/** @type {string} */ url) => void seen.opened.push(url) };
-  runInNewContext(`${source}\ncreateWindow();`, { BrowserWindow, shell, join, __dirname: join(__dirname, "..", "src"), pending: new Map() });
+  runInNewContext(`${source}\ncreateWindow();`, { BrowserWindow, nativeTheme: { shouldUseDarkColors: true }, shell, join, __dirname: join(__dirname, "..", "src"), pending: new Map() });
   return seen;
 }
 

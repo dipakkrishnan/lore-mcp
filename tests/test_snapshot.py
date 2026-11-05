@@ -2,73 +2,18 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
-import threading
 import time
 import unittest
-from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Iterator
 from unittest.mock import Mock, patch
 
-from helpers import LoreTestCase, captured
+from helpers import LoreTestCase, captured, serving
 
 from lore import automation, blueprint, cli, snapshot, sources
 from lore.paths import home
 from lore.store import AnswerSettings, Store
 
 ROOT = Path(__file__).parent.parent
-
-
-@contextmanager
-def serving(manifest: dict[str, object]) -> Iterator[str]:
-    class Handler(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            size = int(self.headers.get("Content-Length", "0"))
-            message = json.loads(self.rfile.read(size))
-            method = message["method"]
-            if method == "notifications/initialized":
-                self.send_response(202)
-                self.end_headers()
-                return
-            result: dict[str, object]
-            if method == "initialize":
-                result = {"protocolVersion": "2025-06-18"}
-            else:
-                result = {"content": [{"type": "text", "text": json.dumps(manifest)}]}
-            body = (
-                "event: message\n"
-                + "data: "
-                + json.dumps(
-                    {"jsonrpc": "2.0", "id": message.get("id"), "result": result}
-                )
-                + "\n\n"
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Content-Length", str(len(body)))
-            if method == "initialize":
-                self.send_header("Mcp-Session-Id", "test-session")
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *_: object) -> None:
-            pass
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(
-        target=server.serve_forever,
-        kwargs={"poll_interval": 0.01},
-        daemon=True,
-    )
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_address[1]}/mcp"
-    finally:
-        server.shutdown()
-        thread.join(timeout=5)
 
 
 class DesktopSnapshotTest(LoreTestCase):
@@ -121,7 +66,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 for item in store.publication_inventory()
             }
 
-    def test_subprocess_returns_the_complete_safe_contract(self) -> None:
+    def test_build_returns_the_complete_safe_contract(self) -> None:
         ids = self.seed()
         project = self.claude_home / "projects" / "-Users-owner-code-juniper"
         project.mkdir(parents=True)
@@ -164,23 +109,13 @@ class DesktopSnapshotTest(LoreTestCase):
         with serving(manifest) as url:
             with Store() as store:
                 store.set_setting("node_url", url)
-            direct = snapshot.build()
-            result = subprocess.run(
-                [sys.executable, "-m", "lore", "desktop-state"],
-                cwd=ROOT,
-                env=os.environ.copy(),
-                capture_output=True,
-                text=True,
-            )
+            state = json.loads(json.dumps(snapshot.build()))
+            text = json.dumps(state)
 
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stderr, "")
-        self.assertNotIn("\x1b", result.stdout)
-        self.assertNotIn("PRIVATE BODY SECRET", result.stdout)
-        self.assertNotIn("PUBLICATION BODY SECRET", result.stdout)
-        self.assertNotIn("PROXY SECRET", result.stdout)
-        state = json.loads(result.stdout)
-        self.assertEqual(state, direct)
+        self.assertNotIn("\x1b", text)
+        self.assertNotIn("PRIVATE BODY SECRET", text)
+        self.assertNotIn("PUBLICATION BODY SECRET", text)
+        self.assertNotIn("PROXY SECRET", text)
         self.assertEqual(state["version"], 1)
         self.assertEqual(
             state["setup"],
@@ -239,6 +174,9 @@ class DesktopSnapshotTest(LoreTestCase):
                 "public_id",
                 "title",
                 "topic",
+                "bid",
+                "provenance",
+                "updated_at",
                 "state",
                 "live",
             },

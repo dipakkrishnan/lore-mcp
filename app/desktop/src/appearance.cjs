@@ -1,5 +1,5 @@
 // APP-225: light, dark, or whatever the Mac is set to, kept across launches. The window's theme follows it, so the
-// page's colours and the sidebar's frosted material change together.
+// page's colours change with it.
 const { readFile, rename, writeFile } = require("node:fs/promises");
 
 const CHOICES = ["system", "light", "dark"];

@@ -8,10 +8,13 @@ copy-pasted eight times.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
+import threading
 import unittest
 from contextlib import contextmanager, redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
 from typing import Iterator
@@ -166,3 +169,54 @@ def automation_profile(**overrides: object) -> dict[str, object]:
         "cadence": "weekly",
         "hour": 9,
     } | overrides
+
+
+@contextmanager
+def serving(manifest: dict[str, object]) -> Iterator[str]:
+    """Serve `manifest` as a stand-in Lore node over MCP, for as long as the block runs."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            size = int(self.headers.get("Content-Length", "0"))
+            message = json.loads(self.rfile.read(size))
+            method = message["method"]
+            if method == "notifications/initialized":
+                self.send_response(202)
+                self.end_headers()
+                return
+            result: dict[str, object]
+            if method == "initialize":
+                result = {"protocolVersion": "2025-06-18"}
+            else:
+                result = {"content": [{"type": "text", "text": json.dumps(manifest)}]}
+            body = (
+                "event: message\n"
+                + "data: "
+                + json.dumps(
+                    {"jsonrpc": "2.0", "id": message.get("id"), "result": result}
+                )
+                + "\n\n"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            if method == "initialize":
+                self.send_header("Mcp-Session-Id", "test-session")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_: object) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(
+        target=server.serve_forever,
+        kwargs={"poll_interval": 0.01},
+        daemon=True,
+    )
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/mcp"
+    finally:
+        server.shutdown()
+        thread.join(timeout=5)
