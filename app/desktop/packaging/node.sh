@@ -16,7 +16,7 @@ if [ -x "$NODE/bin/node" ] && grep -qs "npm from node-v$NODE_VERSION" "$NODE/bin
 fi
 rm -rf "$NODE"
 mkdir -p "$NODE"
-curl -fsSL "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-$ARCH.tar.gz" |
+curl -fsSL --retry 4 --retry-all-errors "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-$ARCH.tar.gz" |
   tar -xz -C "$NODE" --strip-components 1 \
     "node-v$NODE_VERSION-$ARCH/bin" "node-v$NODE_VERSION-$ARCH/lib/node_modules/npm"
 rm -rf "$NODE/bin/node" "$NODE/bin/corepack" "$NODE/lib/node_modules/npm/docs" "$NODE/lib/node_modules/npm/man"
