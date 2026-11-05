@@ -63,8 +63,8 @@ When in doubt, open Linear and copy its convention. Don't invent a third design.
 
 ## 7. Navigation
 
-- **The sidebar holds places, not actions:** Inbox, Inventory, Bids, Connectors. Automations live inside Connectors
-  (each connector's schedule) and in ⌘K. Settings, Help and sign-out sit in the workspace menu at the top-left.
+- **The sidebar holds places, not actions:** Inbox, Inventory, Bids, Connectors. Automations live in Settings
+  and in ⌘K. Settings, Help and sign-out sit in the workspace menu at the top-left.
 - **One status model per object.** A memory is Private, Draft, On sale or Taken down: exactly one, so the filter counts
   add up to the total.
 - **One way to create each thing.** New (⌘N) lists Memory, Collection and Automation; ⌘K reaches the same commands.

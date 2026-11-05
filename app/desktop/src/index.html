@@ -12,7 +12,7 @@
   <body data-state="loading">
     <section id="welcome" class="welcome" hidden>
       <div class="welcome-inner">
-        <span class="mark mark-lg" aria-hidden="true"><svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg></span>
+        <span class="mark mark-lg" aria-hidden="true"><svg viewBox="100 100 824 824"><rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"></rect><g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"></path></g></svg></span>
         <h1 data-wraps>Turn what you've learned<br />into pieces agents pay for.</h1>
         <p class="welcome-sub">Your notes stay on this Mac.</p>
         <p id="welcome-back" class="welcome-back" role="status" hidden></p>
@@ -44,7 +44,7 @@
       <div class="titlebar" aria-hidden="true"></div>
       <aside>
         <div class="ws-row">
-          <button type="button" id="account" class="ws" popovertarget="account-menu" aria-haspopup="menu"><span class="mark" aria-hidden="true"><svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg></span>Lore<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg></button>
+          <button type="button" id="account" class="ws" popovertarget="account-menu" aria-haspopup="menu"><span class="mark" aria-hidden="true"><svg viewBox="100 100 824 824"><rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"></rect><g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"></path></g></svg></span>Lore<svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg></button>
           <button type="button" class="update" id="update" hidden>Update</button>
           <button type="button" id="search" class="icon-btn" aria-haspopup="dialog" aria-label="Find or capture" aria-keyshortcuts="Meta+K"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7" cy="7" r="4.25"></circle><path d="M10.2 10.2l3.3 3.3"></path></svg></button>
           <div class="new-wrap">
@@ -52,6 +52,7 @@
             <div id="new-menu" class="new-menu" role="menu" hidden>
               <button type="button" role="menuitem" data-new="memory" aria-keyshortcuts="M"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 2.5h5.5L12 5v8.5H4z"></path><path d="M6 8h4M6 10.5h4"></path></svg>Memory<kbd>M</kbd></button>
               <button type="button" role="menuitem" data-new="collection" aria-keyshortcuts="C"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3L8 5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"></path></svg>Collection<kbd>C</kbd></button>
+              <button type="button" role="menuitem" data-new="writing" aria-keyshortcuts="W"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8l-5.5 5.5-6-6V2.5h5.5z"></path><circle cx="5.25" cy="5.25" r="1"></circle></svg>Writing to sell<kbd>W</kbd></button>
               <button type="button" role="menuitem" data-new="automation" aria-keyshortcuts="A"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z"></path></svg>Automation<kbd>A</kbd></button>
             </div>
           </div>
@@ -66,10 +67,10 @@
           <button type="button" role="menuitem" id="sign-out"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 13.5h-3a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1h3"></path><path d="M10 5l3 3-3 3M13 8H6"></path></svg>Sign out</button>
         </div>
         <nav aria-label="Main">
-          <button type="button" data-view="today" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="2.75"></circle><path d="M8 1.75v1.5M8 12.75v1.5M1.75 8h1.5M12.75 8h1.5M3.6 3.6l1.06 1.06M11.34 11.34l1.06 1.06M3.6 12.4l1.06-1.06M11.34 4.66l1.06-1.06"></path></svg>Today</button>
+          <button type="button" data-view="inbox" aria-pressed="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 9.5h3l1 2h3l1-2h3"></path><path d="M4 3.5h8l1.5 6v3a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1v-3z"></path></svg>Inbox<span class="count" data-count="inbox"></span></button>
           <button type="button" data-view="inventory" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l5.5 3L8 8.5 2.5 5.5z"></path><path d="M2.5 8.5L8 11.5l5.5-3"></path><path d="M2.5 11L8 14l5.5-3"></path></svg>Inventory<span class="count" data-count="inventory"></span></button>
+          <button type="button" data-view="bids" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="8" r="5.75"></circle><path d="M9.9 6.2c-.3-.6-1-.95-1.9-.95-1.05 0-1.85.6-1.85 1.4 0 1.9 3.85 1 3.85 2.9 0 .8-.8 1.4-2 1.4-.9 0-1.65-.4-1.95-1M8 4.1v1.15M8 10.75v1.15"></path></svg>Bids<span class="count" data-count="bids"></span></button>
           <button type="button" data-view="connectors" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 2.5v3M10 2.5v3"></path><path d="M4.5 5.5h7V8a3.5 3.5 0 0 1-7 0z"></path><path d="M8 11.5v2"></path></svg>Connectors<span class="count" data-count="connectors"></span></button>
-          <button type="button" data-view="automations" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 1.5L3.5 9H8l-1 5.5L12.5 7H8z"></path></svg>Automations</button>
         </nav>
       </aside>
       <main id="main" tabindex="-1">
@@ -80,10 +81,10 @@
           </div>
           <p class="eyebrow" id="eyebrow"></p>
           <h1 id="title"></h1>
+          <div id="page-tabs" class="page-tabs" role="tablist" aria-label="Which bids" hidden></div>
           <div class="header-actions">
+            <div id="stepper" class="stepper" hidden><span id="stepper-at"></span><button type="button" id="step-up" class="icon-btn" aria-label="Previous bid" aria-keyshortcuts="ArrowUp K"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 9.5L8 6l3.5 3.5"></path></svg></button><button type="button" id="step-down" class="icon-btn" aria-label="Next bid" aria-keyshortcuts="ArrowDown J"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 6.5L8 10l3.5-3.5"></path></svg></button></div>
             <button type="button" class="btn quiet" id="first-run-skip" hidden>Skip for now</button>
-            <button type="button" class="btn secondary" id="sell-writing" hidden>Sell something you wrote</button>
-            <button type="button" class="btn primary" id="add-memory" hidden>+ Add Memory</button>
           </div>
         </header>
         <section id="capture" class="capture-area" aria-label="Capture">
@@ -118,6 +119,8 @@
     </dialog>
     <script src="../node_modules/marked/lib/marked.umd.js"></script>
     <script src="markdown.js"></script>
+    <script src="inbox.js"></script>
+    <script src="memorytext.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>

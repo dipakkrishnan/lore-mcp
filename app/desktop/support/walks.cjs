@@ -42,6 +42,7 @@ const WALKS = [
   { name: "sales", seconds: 20 },
   { name: "obsidian", seconds: 20 },
   { name: "sell", seconds: 14 },
+  { name: "inventory", seconds: 14 },
   { name: "jobs", seconds: 13 },
   // APP-247: the one check only a dark launch makes (a kept dark choice is applied at boot, before any branch runs)
   // rides on the cheapest walk that never reads DARK. The connectors walk re-shoots its own surfaces in dark inside

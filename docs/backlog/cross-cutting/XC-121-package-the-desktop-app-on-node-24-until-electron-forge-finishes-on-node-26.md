@@ -4,7 +4,7 @@ title: Package the desktop app on Node 24 until electron-forge finishes on Node 
 priority: P0
 effort: XS
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-111, XC-082, XC-083]
 blockers: []
 dependencies: []
@@ -42,14 +42,14 @@ early exit, not by `lts/*` moving again.
 
 ## Acceptance criteria
 
-- [ ] `Desktop macOS checks` on main passes "Packaged whisper is the pinned
+- [x] `Desktop macOS checks` on main passes "Packaged whisper is the pinned
       tag" again, on Node 24, with the cache hit and 21/21 walks.
-- [ ] A missing app bundle fails the check with an error annotation that
+- [x] A missing app bundle fails the check with an error annotation that
       names the missing path and says no app was packaged, distinct from the
       stale-whisper message.
-- [ ] Notes record the Node versions and run ids on each side, so whoever
+- [x] Notes record the Node versions and run ids on each side, so whoever
       lifts the pin knows what to re-test.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
@@ -60,3 +60,13 @@ early exit, not by `lts/*` moving again.
 - The local development machine runs Node 25.5.0 and packages fine, so the
   early exit is specific to Node 26 or to 26.13.0; a forge upgrade (7.11.2
   is pinned in `app/desktop/package.json`) is the likely lift.
+- Landed as PR #627 (merged 2026-11-02). Each side, for whoever lifts the pin:
+  - Red: main run 41387246365 and PR runs on #612/#614, `lts/*` → Node
+    26.13.0, forge log stops at "❯ Finalizing package", no app bundle.
+  - Green: PR #627 run 41388709698 and the first main runs after the merge
+    (41405326730, 41406416573, 41407719463, 41409115215), Node 24.22.1 from
+    the tool cache, "✔ Packaging application / ✔ Running postPackage hook",
+    `shipped b4938, pinned b4938`, 21/21 walks (493 s on run 41409115215).
+  - To lift: bump electron-forge, set `node-version` back to `lts/*` on a
+    branch, and confirm the whisper step prints both forge lines and the
+    shipped/pinned pair before merging.

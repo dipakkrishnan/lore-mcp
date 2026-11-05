@@ -25,6 +25,11 @@ type PublicationItem = {
   topic: string;
   state: "approved" | "revoked";
   live: boolean | null;
+  /** The bid this piece answers (APP-274); empty when it answers none. */
+  bid?: string;
+  /** The memories it was drafted from, and when it last changed; absent from a CLI older than APP-282. */
+  provenance?: number[];
+  updated_at?: string;
 };
 
 /** A named set of pieces sold together at one price (MON-044). */
@@ -103,6 +108,8 @@ type Snapshot = {
   jobs?: { items: JobItem[] };
   // Open bids the owner's memories answer, best first (APP-274). Added by the app, not the CLI.
   bidMatches: BidMatch[];
+  // Every open bid the last look read, less the dismissed, in the board's order (APP-288). Added by the app.
+  bidBoard: BoardBid[];
 };
 
 type JobItem = {
@@ -309,9 +316,12 @@ type PublicationCandidate = {
   bid?: string;
 };
 
+/** An open bid on yourlore.dev, as the app keeps it. */
+type BoardBid = { id: string; question: string; usd: number; market: string; url: string; expires: string };
+
 /** An open bid on yourlore.dev that the owner's memories answer, matched on this Mac (APP-274). */
 type BidMatch = {
-  bid: { id: string; question: string; usd: number; market: string; url: string; expires: string };
+  bid: BoardBid;
   /** Only memories that each answer the bid on their own, best first. */
   memories: Array<{ id: number; title: string }>;
   /** The best memory's score; `strength` is how the app should label it. */
@@ -319,6 +329,84 @@ type BidMatch = {
   strength: "strong" | "good";
 };
 
+/** What the Inbox is drawn from (APP-283), each part already narrowed to what still needs the owner. */
+type InboxInput = {
+  bids: BidMatch[];
+  drafts: PublicationCandidate[];
+  /** Bids whose answer Lore is drafting now. */
+  drafting: Set<string>;
+  /** Bids whose answer the owner approved. */
+  answered: Set<string>;
+  /** Pieces on sale with new free parts to approve. */
+  updates: number;
+  offer: { label: string; action: string } | null;
+  problems: Array<{ key: string; name: string; says: string; verb: string }>;
+  /** The next step; `what` names the changes it is about, when there are some. */
+  step: { label: string; action: string; mark: string; what?: string } | null;
+  checkIn: CheckIn | null;
+  tasks: TaskRecord[];
+  reading: TaskRecord | null;
+  ready: Array<{ key: string; from: string; title: string; memories: number; selling: number; saves: number; at: string }>;
+  suggestions: Array<{ at: string; title: string; count: number }>;
+  sales: Sale[];
+  help: boolean;
+};
+
+/** One Inbox row: a glyph, one sentence (lead in secondary, title in primary, tail in secondary), its age and one verb. */
+type InboxRow = {
+  key: string;
+  kind: "bid" | "draft" | "step" | "problem" | "checkin" | "task" | "reading" | "memories" | "suggestion" | "sale" | "help";
+  glyph: string;
+  /** Money the row is about, shown first: a bid's "$40", a sale's "+$8". */
+  amount: string;
+  lead: string;
+  title: string;
+  tail: string;
+  at: string | null;
+  verb: string;
+  /** Whether Done (hover, or E) clears it. */
+  done: boolean;
+  ref?: string;
+};
+
+/** What the Bids page lists from (APP-288): only what the app already read, never a request of its own. */
+type BidsInput = {
+  matches: BidMatch[];
+  board: BoardBid[];
+  tab: "matches" | "all";
+  drafting: Set<string>;
+  drafted: Set<string>;
+  answered: Set<string>;
+};
+
+/** One Bids row: amount · question · market · time left, or where the owner's answer stands · match strength (0 is none). */
+type BidRow = {
+  id: string;
+  amount: string;
+  question: string;
+  market: string;
+  left: string;
+  pill: { label: string; tint: string } | null;
+  strength: 0 | 2 | 3;
+};
+
+/** Inventory's text tabs (APP-282): every memory and piece is exactly one of these, so their counts add up to All. */
+type Shelf = "all" | "private" | "draft" | "sale";
+
+/** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down; `from` is the memory
+ * it came from, when one is still kept. */
+type InventoryRow =
+  | { key: string; kind: "memory"; shelf: "private"; item: MemoryItem; from?: MemoryItem }
+  | { key: string; kind: "draft"; shelf: "draft"; item: PublicationCandidate; from?: MemoryItem }
+  | { key: string; kind: "piece"; shelf: "sale" | "private"; item: PublicationItem; from?: MemoryItem };
+
+type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
+
+/** What a bid's page reads its state from. */
+type BidLook = { match: BidMatch; drafting: boolean; draft: PublicationCandidate | null; approved: boolean; dismissed: boolean };
+
+declare const Inbox: typeof import("./inbox.js").Inbox;
+declare const MemoryText: typeof import("./memorytext.js").MemoryText;
 /** The words the model drafted for a bid's answer; the app adds what it is drawn from and which bid it answers. */
 type BidDraft = { title: string; teaser: string; content: string; useful_if: string; not_useful_if: string };
 
@@ -384,7 +472,7 @@ interface Window {
     /** Each kept memory's one-line gist, keyed by id. */
     gists(): Promise<Record<string, string>>;
     suggestions(): Promise<CollectionSuggestion[]>;
-    dropSuggestion(at: string): Promise<void>;
+    dropSuggestion(title: string): Promise<void>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
     deleteMemory(id: number): Promise<{ deleted: number }>;
@@ -407,6 +495,8 @@ interface Window {
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
+    /** Show the file a memory was read from in Finder; the path comes from the store, never from the page. */
+    revealMemory(id: number): Promise<void>;
     usage(name: "noticed" | "app.installed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
     usageLog(): Promise<string>;
@@ -529,7 +619,7 @@ type AgentEvent =
   | { type: "auth"; message?: string; event?: import("@earendil-works/pi-ai").AuthEvent }
   | { type: "progress"; text?: string; done?: boolean; error?: string }
   | { type: "sold" }
-  | { type: "show"; view: "store" | "today" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string } }
+  | { type: "show"; view: "store" | "inbox" | "automations" | "inventory" | "connectors"; source?: { id: string; label: string }; bid?: string }
   | { type: "thread"; task: AgentTask }
   | { type: "ready" }
   /** What the owner's personal agents saved that Lore just brought in (APP-207). */

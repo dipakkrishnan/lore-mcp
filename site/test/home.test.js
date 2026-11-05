@@ -1,7 +1,7 @@
 import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { FEATURED, HERO, homePage } from "../src/home.js";
+import { HERO, homePage } from "../src/home.js";
 import worker from "../src/worker.js";
 
 const MARKETS = [{ id: "rl-evals", name: "RL evals", tab: "AI" }];
@@ -18,69 +18,80 @@ async function call(path, init = {}) {
 }
 
 describe("the home page", () => {
-  test("leads with what Lore does for you, one download, and a trust line that names only true things", () => {
+  const text = (html) => html.replace(/<style>[\s\S]*?<\/style>|<script[\s\S]*?<\/script>|<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  test("leads with the live hero, one download, and a trust line that names only true things", () => {
     const html = homePage({ now });
-    expect(html).toContain(`<h1>${HERO.title}</h1>`);
-    expect(html).toContain("Free · Open source · Notarized by Apple · Nothing you&#39;ve taught it is shared until you approve it");
-    expect(html.match(/href="\/download"/g)).toHaveLength(3);
-    expect(html).toContain('<nav><a href="/bids">Bids</a><a href="/marketplace">Markets</a><a href="https://github.com/dipakkrishnan/lore-mcp">Open source</a><a href="/download">Download</a></nav>');
+    expect(HERO.title).toBe("Private memory you can sell to agents.");
+    expect(html).toContain(`<section class="hero"><h1>${HERO.title}</h1>`);
+    expect(html).toContain("Free · Open source · Nothing you&#39;ve taught it is shared until you approve it");
+    expect(html).not.toContain("Notarized");
+    expect(html.match(/href="\/download"/g)).toHaveLength(2);
+    expect(html).toContain('<nav><a href="/bids">Bids</a><a href="/marketplace">Markets</a><a href="https://github.com/dipakkrishnan/lore-mcp">GitHub</a><a href="/download">Download</a></nav>');
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
   });
 
-  test("speaks to people, with no protocol names or API docs", () => {
-    const text = homePage({ now }).replace(/<style>[\s\S]*?<\/style>|<script>[\s\S]*?<\/script>|<[^>]+>/g, " ");
-    expect(text).not.toMatch(/\bMCP\b|mainnet|x402|USDC|Worker|POST|JSON|endpoint|\bpieces?\b/i);
+  test("names the apps it gathers from, each with its own mark", () => {
+    const html = homePage({ now });
+    expect(text(html)).toContain("Gathers from Grok Bot Claude ChatGPT Obsidian Notion Granola Substack Readwise and more");
+    for (const id of ["grok", "claude", "chatgpt", "obsidian", "notion", "granola", "substack", "readwise"]) expect(html).toContain(`src="/marks/${id}.svg"`);
   });
 
-  test("draws no bids at all when none are open and nothing is featured: nothing fake stands in", () => {
-    expect(FEATURED).toEqual([]);
+  test("draws the app as it is now: Inbox, Inventory, Bids and Connectors, with Inventory as one-line rows", () => {
     const html = homePage({ now });
+    const side = html.match(/<aside class="side">([\s\S]*?)<\/aside>/)[1];
+    expect([...side.matchAll(/<\/svg>(\w+)<em>/g)].map((m) => m[1])).toEqual(["Inbox", "Inventory", "Bids", "Connectors"]);
+    expect(html).not.toMatch(/>Today<|Good evening/);
+    expect(html).toContain('<div class="r"><i class="st sale"></i><span class="t">Pricing a sync placement by its reach</span><span title="Grok Bot"><img class="mk" src="/marks/grok.svg" alt="" width="16" height="16"></span><span class="w">On sale</span><time>Oct 30</time><span class="p">$4</span></div>');
+    expect(html).toContain('<figcaption class="cap">Illustrative</figcaption>');
+  });
+
+  test("walks through the product in four short steps, each with its screen, after the app window", () => {
+    const html = homePage({ now });
+    const walk = html.match(/<ol class="walk">([\s\S]*?)<\/ol>/)[1];
+    expect([...walk.matchAll(/<p><b>(.*?)<\/b>/g)].map((m) => m[1])).toEqual(["Connect your agents and apps.", "Lore turns them into private memories.", "Pick what's worth selling.", "Get paid."]);
+    expect(walk.match(/<figure class="shot /g)).toHaveLength(4);
+    expect(walk).toContain('<a href="/bids">post a bid</a>');
+    expect(html.indexOf('class="shot app"')).toBeLessThan(html.indexOf('id="how-title"'));
+    expect(html).toContain("Screens are illustrative");
+  });
+
+  test("speaks to people, with no protocol names or API docs", () => {
+    const words = text(homePage({ now }));
+    expect(words).not.toMatch(/\bMCP\b|mainnet|x402|USDC|stablecoin|Worker|JSON|endpoint|\bpieces?\b/i);
+    expect(words).not.toMatch(/\bPOST\b/);
+  });
+
+  test("names no one: the page is about the reader, not the maker", () => {
+    expect(homePage({ bids: [bid("a", 5)], now })).not.toMatch(/Dipak|dipakrkrishnan|Bonaire/);
+  });
+
+  test("follows one memory through all four steps, at prices a person would pay", () => {
+    const walk = homePage({ now }).match(/<ol class="walk">([\s\S]*?)<\/ol>/)[1];
+    const steps = walk.split("<li>").slice(1);
+    for (const step of steps.slice(1, 3)) expect(step).toContain("How our app hit #1 in its first week");
+    expect(steps[3]).toContain("go viral in its first week");
+    expect(walk).toContain('<span class="price">$8</span>');
+    expect([...walk.matchAll(/<span class="p">\$(\d+)<\/span>/g)].map((m) => Number(m[1]))).toEqual([8, 6, 5]);
+  });
+
+  test("ends on the walkthrough: no beats and no bid list on the page itself", () => {
+    const html = homePage({ bids: [bid("a", 5)], now });
+    expect(html).not.toContain('class="beats"');
     expect(html).not.toContain('id="bids-title"');
     expect(rows(html)).toEqual([]);
-    expect(html).toContain("None are open right now.");
-    expect(html).toContain('<a class="quiet ask" href="/bids?ask#ask">Ask a question</a>');
   });
 
-  test("puts the open bids beside the hero, biggest first, at most four, with a way to ask", () => {
-    const html = homePage({ bids: [bid("a", 5), bid("b", 300), bid("c", 40), bid("d", 60), bid("e", 15), bid("f", 25)], now });
-    expect(html.indexOf('id="bids-title"')).toBeLessThan(html.indexOf("One memory, every AI"));
-    expect(html).toMatch(/<\/h1>[\s\S]*<aside class="demand" aria-labelledby="bids-title">[\s\S]*<\/section>/);
-    expect(rows(html)).toEqual(["b", "d", "c", "f"]);
-    expect(html).toContain('<a class="line mini" href="/b/b"><span class="amt">$300</span><span class="q">Question b worth asking?</span><span class="side">7 days left</span></a>');
-    expect(html).toContain("Your card is saved when you ask and charged only for the answer you accept.");
-  });
-
-  test("an empty answer count says nothing; a day-old bid says New; answers are counted", () => {
-    const fresh = { ...bid("n", 9), created: "2026-10-31T23:00:00Z" };
-    const answeredBid = { ...bid("m", 9), answers: [{}, {}] };
-    const html = homePage({ bids: [fresh, answeredBid, bid("o", 9)], now });
-    expect(html).toContain('href="/b/n"><span class="amt">$9</span><span class="q">Question n worth asking?</span><span class="side">7 days left · New</span>');
-    expect(html).toContain('<span class="side">7 days left · 2 answers</span>');
-    expect(html).toContain('href="/b/o"><span class="amt">$9</span><span class="q">Question o worth asking?</span><span class="side">7 days left</span>');
-    expect(html).not.toContain("0 answers");
-  });
-
-  test("falls back to the owner's featured bids, labelled as recent, only when none are open", () => {
-    const featured = [bid("z", 80, { status: "filled" })];
-    expect(rows(homePage({ featured, now }))).toEqual(["z"]);
-    expect(homePage({ featured, now })).toContain("Recent bids");
-    expect(rows(homePage({ bids: [bid("a", 5)], featured, now }))).toEqual(["a"]);
-  });
-
-  test("escapes what buyers wrote", () => {
-    const html = homePage({ bids: [bid("a", 5, { question: `<script>alert("x")</script> & more` })], now });
+  test("escapes what buyers wrote in the structured data", () => {
+    const html = homePage({ bids: [bid("a", 5, { question: `</script><script>alert("x")</script>` })], now });
     expect(html).not.toContain('<script>alert("x")');
-    expect(html).toContain("&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt; &amp; more");
   });
 
-  test("labels every illustrative step of the worked example, and links the real one", () => {
-    const html = homePage({ now });
-    expect(html).toContain("The question<small>Illustrative</small>");
-    expect(html).toContain("What Lore kept<small>Private, on Dipak's Mac. Shown in outline</small>");
-    expect(html).toContain("What Dipak approved<small>Real. The free first lines of his answer</small>");
-    expect(html.match(/<small>Illustrative<\/small>/g)).toHaveLength(3);
-    expect(html).toContain('href="https://lore.dipakrkrishnan.workers.dev/p/fff411212f0157275f3fbb59"');
-    expect(html).toContain("The bids beside each are examples.");
+  test("describes the app and the open bids as structured data", () => {
+    const html = homePage({ bids: [bid("a", 5)], now });
+    const data = JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1]);
+    expect(data["@graph"][0]).toMatchObject({ "@type": "SoftwareApplication", name: "Lore", downloadUrl: "https://yourlore.dev/download" });
+    expect(data["@graph"][1].itemListElement).toEqual([{ "@type": "ListItem", position: 1, url: "https://yourlore.dev/b/a", name: "Question a worth asking?" }]);
   });
 });
 
@@ -92,15 +103,14 @@ describe("served by the Worker", () => {
   });
   afterEach(() => vi.restoreAllMocks());
 
-  test("/ draws the live bids from the book", async () => {
+  test("/ describes the live bids from the book to agents", async () => {
     const empty = await call("/");
     expect(empty.status).toBe(200);
-    expect(await empty.text()).not.toContain('id="bids-title"');
+    const listed = (html) => JSON.parse(html.match(/<script type="application\/ld\+json">(.*?)<\/script>/)[1])["@graph"][1].itemListElement.map((i) => i.url);
+    expect(listed(await empty.text())).toEqual([]);
     const placed = await call("/bids", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "How do you stop reward hacking on long coding tasks?", usd: 120, market: "rl-evals" }) });
     const { id } = await placed.json();
-    const html = await (await call("/")).text();
-    expect(rows(html)).toEqual([id]);
-    expect(html).toContain("New</span>");
+    expect(listed(await (await call("/")).text())).toEqual([`https://yourlore.dev/b/${id}`]);
   });
 
   test("/download hands out the latest release, and unknown paths get the site's not-found page", async () => {

@@ -1,6 +1,6 @@
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
-const { dirname, join } = require("node:path");
+const { dirname, isAbsolute, join } = require("node:path");
 const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
@@ -100,10 +100,10 @@ function request(type, payload, signal) {
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch @param {InstanceType<typeof Outgoing>} outgoing */
 function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
-    const [state, bidMatches] = await Promise.all([readState(loreHome), bids.matches()]);
+    const [state, bidMatches, bidBoard] = await Promise.all([readState(loreHome), bids.matches(), bids.board()]);
     storeAddress = state.node.url;
     inboxAddress = state.node.agents ?? null;
-    return { ...state, bidMatches };
+    return { ...state, bidMatches, bidBoard };
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
@@ -162,6 +162,12 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     return searchMemories(loreHome, query);
   });
   ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
+  // APP-282: the file a memory was read from, shown in Finder; the path is the store's, so the page can only name an id.
+  ipcMain.handle("memory:reveal", async (_event, id) => {
+    const { source_path: path } = await readMemory(loreHome, id);
+    const file = path.startsWith("~/") ? join(app.getPath("home"), path.slice(2)) : path;
+    if (isAbsolute(file) && existsSync(file)) shell.showItemInFolder(file);
+  });
   ipcMain.handle("memory:gists", () => readGists(loreHome));
   ipcMain.handle("memory:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");
@@ -287,7 +293,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("suggestions:list", () => suggestions.list());
-  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
+  ipcMain.handle("suggestions:drop", (_event, title) => suggestions.drop(title));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
@@ -517,6 +523,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  // Run from source, Electron would show its own icon in the Dock; the packaged app gets Lore's from forge.
+  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, "..", "packaging", "icon.png"));
   const loreHome = LORE_HOME;
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   /** The sign-ins the owner has been told of. @type {Set<string>} */
@@ -568,7 +576,9 @@ function watchBids() {
   const look = async () => {
     try {
       const fresh = await bids.check();
-      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "today" }));
+      // One bid opens its own page; a lot of them, the Inbox that lists them (APP-283).
+      const [only] = fresh.length === 1 ? fresh : [];
+      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "inbox", ...(only ? { bid: only.bid.id } : {}) }));
       // Remembered only once the banners are up: one that failed is announced on the next look.
       await bids.announced(fresh.map((match) => match.bid.id));
       if (fresh.length) emit({ type: "changed" });
@@ -805,7 +815,7 @@ async function start(loreHome, outgoing) {
         emit({ type: "changed" });
         // Says what's waiting and asks for the look, so the owner knows it's worth a minute now.
         const what = offered.length === 1 ? "a collection" : `${offered.length} collections`;
-        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "today" }));
+        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "inbox" }));
       }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
@@ -821,7 +831,7 @@ async function start(loreHome, outgoing) {
       const fromAgent = read.by.kind === "agent";
       await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
       emit({ type: "ready" });
-      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
+      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inbox" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);
