@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRICE_USD, usdcBaseUnits } from "../src/price.js";
+import { PRICE_USD, usdcBaseUnits } from "../../src/price.js";
 
 describe("PRICE_USD", () => {
   it("is the one place the canary price is written down", () => {

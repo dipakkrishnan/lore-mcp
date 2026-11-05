@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-02
+updated: 2026-11-04
 ---
 
 ## Problem
@@ -30,12 +30,15 @@ download block with next steps. Replace the made-up window cards with plainer ex
 
 ## Acceptance criteria
 
-- [x] The first screen says what Lore keeps, that it's private, and that selling is optional and approved.
-- [x] The page shows one real piece with its free sample and price.
-- [x] A never-does list: sell without approval, show your memories, hold your money.
-- [x] Live bids as rows; with none open, only the owner's FEATURED list or nothing.
-- [x] A non-technical reader and a developer each explain Lore back after a skim (three simulated readers, PR body).
-- [x] No horizontal scroll at phone width; light and dark both work.
+Nov 4: Dipak chose the live yourlore.dev page's layout plus a simple walkthrough, which replaces the criteria above
+(PR #660, superseding #643). The page as built:
+
+- [x] The live layout: the serif hero "Private memory you can sell to agents.", the lede, Download for Mac, and a "Gathers from" row of source logos.
+- [x] A drawn app window that matches the app (Inbox, Inventory, Bids, Connectors; Inventory as one-line rows), captioned "Illustrative", with no invented sale.
+- [x] "How it works" in four steps, each over a small drawn screen: connect, private memories, pick and price, get paid or answer a bid. All four follow one memory, priced at $8 and answering an $8 bid; every drawn price is $2–8.
+- [x] The page ends on How it works: no beats and no bid list (Nov 4, Dipak). Live bids stay on /bids and in the page's structured data.
+- [x] No worked piece and no maker's example anywhere; no never-does list; the nav says GitHub.
+- [x] No protocol words on the page; no horizontal scroll at phone width; light and dark both work.
 
 ## Notes
 

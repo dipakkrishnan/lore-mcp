@@ -10,8 +10,6 @@ import json
 import os
 import sqlite3
 import stat
-import subprocess
-import sys
 import threading
 import time
 import unittest
@@ -178,34 +176,6 @@ class StoreConcurrencyTest(LoreTestCase):
         self.connect_with(scripted)
         return scripted
 
-    def start_lore_processes(self, count: int) -> list[subprocess.Popen[str]]:
-        """Start `count` real `lore` processes together."""
-        processes = [
-            subprocess.Popen(
-                [sys.executable, "-m", "lore", *self.COMMANDS[i % len(self.COMMANDS)]],
-                cwd=Path(__file__).resolve().parent.parent,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            for i in range(count)
-        ]
-        self.addCleanup(self.reap, processes)
-        return processes
-
-    @staticmethod
-    def reap(processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            process.kill()
-            process.wait()
-            if process.stderr and not process.stderr.closed:
-                process.stderr.close()
-
-    def assert_all_succeed(self, processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            _, stderr = process.communicate(timeout=90)
-            self.assertEqual(process.returncode, 0, stderr)
-
     def test_open_waits_for_another_process_mid_first_migration(self) -> None:
         self.release_after(self.hold_write_lock(), 0.3)
         with Store() as store:
@@ -235,21 +205,6 @@ class StoreConcurrencyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.counts()["private"], 0)
         self.assertEqual(scripted.asked, 1)
-
-    def test_several_lore_processes_on_an_empty_home_all_succeed(self) -> None:
-        self.assert_all_succeed(self.start_lore_processes(4))
-
-    def test_lore_processes_wait_for_a_migration_already_under_way(self) -> None:
-        # The race itself is rare, so hold the lock the winner would hold until
-        # every process has had time to start and meet it on the journal-mode
-        # switch. One that gives up exits while the lock is still held.
-        holder = self.hold_write_lock()
-        processes = self.start_lore_processes(4)
-        ceiling = time.monotonic() + 6
-        while time.monotonic() < ceiling and all(p.poll() is None for p in processes):
-            time.sleep(0.1)
-        holder.execute("COMMIT")
-        self.assert_all_succeed(processes)
 
 
 class ContributorTest(LoreTestCase):

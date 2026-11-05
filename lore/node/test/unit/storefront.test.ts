@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { publicTopic } from "../src/answer-state.js";
-import { publicationPage, storefront, unlockedPage } from "../src/storefront.js";
+import { publicTopic } from "../../src/answer-state.js";
+import { publicationPage, storefront, unlockedPage } from "../../src/storefront.js";
 
 const A = "a".repeat(24);
 const catalog = {

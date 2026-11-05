@@ -40,21 +40,22 @@ RULE = "─" * 72
 
 
 class PlainTerminalTest(unittest.TestCase):
-    """`COLOR` is decided once, at import, from whoever ran the suite. `paint`
-    writes an escape sequence itself when it is on, so a test that looks for
-    one, or compares output exactly, has to turn it off first."""
+    """`COLOR` asks the process's own stdout and environment, so whoever ran
+    the suite decides it. `paint` writes an escape sequence itself when it is
+    on, so a test that looks for one, or compares output exactly, has to turn
+    it off first."""
 
     def setUp(self) -> None:
-        plain = patch.object(ui, "COLOR", False)
+        plain = patch.object(ui, "COLOR", lambda: False)
         plain.start()
         self.addCleanup(plain.stop)
 
 
 class PaintTest(unittest.TestCase):
     def test_color_is_added_only_when_the_terminal_wants_it(self) -> None:
-        with patch.object(ui, "COLOR", True):
+        with patch.object(ui, "COLOR", lambda: True):
             self.assertEqual(ui.paint("1", "hi"), "\033[1mhi\033[0m")
-        with patch.object(ui, "COLOR", False):
+        with patch.object(ui, "COLOR", lambda: False):
             self.assertEqual(ui.paint("1", "hi"), "hi")
 
 
@@ -208,7 +209,7 @@ class PublicationCardTest(PlainTerminalTest):
         self.assertTrue(output.getvalue().endswith(f"\n\n{full}\nz\n"))
 
     def test_only_the_title_stands_out_on_a_colour_terminal(self) -> None:
-        with patch.object(ui, "COLOR", True), captured() as output:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
             ui.publication_card(_publication(teaser="A teaser"))
         self.assertEqual(
             output.getvalue(),
@@ -254,7 +255,7 @@ class PromptTest(PlainTerminalTest):
             ui.ask("Choose")
         self.assertEqual(prompt.call_args.args[0], "? Choose: ")
         with (
-            patch.object(ui, "COLOR", True),
+            patch.object(ui, "COLOR", lambda: True),
             patch("builtins.input", return_value="") as prompt,
         ):
             ui.ask("Choose")
@@ -373,7 +374,7 @@ class FlagTest(PlainTerminalTest):
             ["Seats cost 5 each.", "Billed monthly."],
             ["Seats cost 7 each.", "Billed monthly."],
         )
-        with patch.object(ui, "COLOR", True), captured() as output:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
             ui.flag_diff(_detail(diff=diff), LABELS)
             ui.flag_diff(_detail(), LABELS)
         self.assertEqual(
@@ -413,7 +414,7 @@ class OutputTest(PlainTerminalTest):
                 self.assertEqual(self.said(say, *args), (expected, ""))
 
     def test_each_kind_of_line_has_its_own_colour(self) -> None:
-        with patch.object(ui, "COLOR", True):
+        with patch.object(ui, "COLOR", lambda: True):
             for say, args, expected in (
                 (ui.success, ("done",), "\033[32m✓ done\033[0m\n"),
                 (ui.muted, ("an aside",), "\033[2man aside\033[0m\n"),
@@ -494,7 +495,7 @@ class MemoryCardTest(PlainTerminalTest):
             "\n"
             "a lesson body\n",
         )
-        with patch.object(ui, "COLOR", True), captured() as output:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
             ui.memory_card(_memory())
         self.assertEqual(
             output.getvalue(),

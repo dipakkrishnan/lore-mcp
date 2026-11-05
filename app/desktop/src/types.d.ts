@@ -27,6 +27,9 @@ type PublicationItem = {
   live: boolean | null;
   /** The bid this piece answers (APP-274); empty when it answers none. */
   bid?: string;
+  /** The memories it was drafted from, and when it last changed; absent from a CLI older than APP-282. */
+  provenance?: number[];
+  updated_at?: string;
 };
 
 /** A named set of pieces sold together at one price (MON-044). */
@@ -387,6 +390,16 @@ type BidRow = {
   strength: 0 | 2 | 3;
 };
 
+/** Inventory's text tabs (APP-282): every memory and piece is exactly one of these, so their counts add up to All. */
+type Shelf = "all" | "private" | "draft" | "sale";
+
+/** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down; `from` is the memory
+ * it came from, when one is still kept. */
+type InventoryRow =
+  | { key: string; kind: "memory"; shelf: "private"; item: MemoryItem; from?: MemoryItem }
+  | { key: string; kind: "draft"; shelf: "draft"; item: PublicationCandidate; from?: MemoryItem }
+  | { key: string; kind: "piece"; shelf: "sale" | "private"; item: PublicationItem; from?: MemoryItem };
+
 type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
 
 /** What a bid's page reads its state from. */
@@ -459,7 +472,7 @@ interface Window {
     /** Each kept memory's one-line gist, keyed by id. */
     gists(): Promise<Record<string, string>>;
     suggestions(): Promise<CollectionSuggestion[]>;
-    dropSuggestion(at: string): Promise<void>;
+    dropSuggestion(title: string): Promise<void>;
     renameMemory(id: number, title: string): Promise<Memory>;
     editMemory(id: number, content: string): Promise<Memory>;
     deleteMemory(id: number): Promise<{ deleted: number }>;
@@ -482,6 +495,8 @@ interface Window {
     removeFromCollection(id: number, piece: number): Promise<void>;
     deleteCollection(id: number): Promise<void>;
     revealHome(): Promise<string>;
+    /** Show the file a memory was read from in Finder; the path comes from the store, never from the page. */
+    revealMemory(id: number): Promise<void>;
     usage(name: "noticed" | "app.installed" | "app.opened"): Promise<void>;
     setTelemetry(on: boolean): Promise<void>;
     usageLog(): Promise<string>;
