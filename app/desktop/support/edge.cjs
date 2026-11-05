@@ -81,6 +81,9 @@ let storeUnreachable = false;
 const storeOnlineCalls = [];
 /** APP-290: what the fake microphone is heard to say. */
 const SPOKEN = "We held the price on the Acme renewal because they had no alternative.";
+/** APP-290: how many times audio was sent to be transcribed, and whether the fake microphone hears nothing. */
+let transcriptions = 0;
+let silence = false;
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
 const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
@@ -255,7 +258,7 @@ if (scenario === "listing") {
   // APP-290: a fake microphone, and what it "heard" comes back as this sentence, so talking it through runs end to end.
   app.commandLine.appendSwitch("use-fake-device-for-media-stream");
   app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
-  const stubs = { "store:push": async () => { pushes.push(Date.now()); }, "dictation:permission": async () => true, "dictation:transcribe": async () => SPOKEN };
+  const stubs = { "store:push": async () => { pushes.push(Date.now()); }, "dictation:permission": async () => true, "dictation:transcribe": async () => { transcriptions++; return silence ? "" : SPOKEN; } };
   ipcMain.handle = (channel, listener) => handle(channel, stubs[/** @type {keyof typeof stubs} */ (channel)] ?? listener);
   void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
     /** @type {Map<string, TaskRecord>} */
@@ -2558,6 +2561,50 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
         await sleep(300);
         check("…and talking it through stays over until asked for again", !(await js(listening)));
+
+        // Leaving ends it: the microphone is stopped, the audio dropped, and Enter elsewhere is left alone.
+        const talkAgain = async () => {
+          await js(`window.__lore.show("inventory")`);
+          await waitFor(`!document.querySelector("#talk").hidden`);
+          await js(`(() => { const box = document.querySelector("#capture-input"); box.value = ""; })()`);
+          await js(`document.querySelector("#talk").click()`);
+          return waitFor(listening);
+        };
+        check("asking again listens again", await talkAgain());
+        const beforeLeaving = { prompts: prompts.length, transcriptions };
+        await js(`window.__lore.show("settings")`);
+        check("leaving the thread while listening stops the microphone", await waitFor(`!document.querySelector("#composer").dataset.mode`));
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        await sleep(300);
+        check("…and Enter elsewhere sends nothing and transcribes nothing", prompts.length === beforeLeaving.prompts && transcriptions === beforeLeaving.transcriptions, `${prompts.length}/${transcriptions}`);
+
+        // Typing takes over from talking: typed between a send and Lore's question, the microphone doesn't come back.
+        check("asking once more listens", await talkAgain());
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        for (let i = 0; i < 100 && prompts.length === beforeLeaving.prompts; i++) await sleep(100);
+        await waitFor(`!document.querySelector("#composer").dataset.mode`);
+        await js(`(() => { const box = document.querySelector("#capture-input"); box.value = "Also,"; box.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+        await js(`window.__lore.event({ type: "working", active: true, task: "capture" })`);
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "Anything else?" })`);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        await sleep(300);
+        check("typing ends talking it through, so Lore's next question doesn't bring the microphone back", !(await js(listening)));
+
+        // Saying nothing ends it: no empty turn is sent.
+        silence = true;
+        check("asking a third time listens", await talkAgain());
+        const beforeSilence = prompts.length;
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        check("an empty transcript ends talking it through", await waitFor(`!document.querySelector("#composer").dataset.mode`) && prompts.length === beforeSilence, `${prompts.length}/${beforeSilence} ${await js(`document.querySelector("#composer").dataset.mode + "|" + document.querySelector("#dictation-text").textContent`)}`);
+        await sleep(300);
+        check("…and the microphone stays off", !(await js(listening)));
+        silence = false;
+
+        // A card to approve ends it: the owner is asked to look, not listened over.
+        check("asking a fourth time listens", await talkAgain());
+        await js(`window.__lore.event({ type: "memories", id: "talk-card", task: "capture", entries: [{ title: "Held the Acme price", content: SPOKEN_TEXT, project: "p" }] })`.replace("SPOKEN_TEXT", JSON.stringify(SPOKEN)));
+        await sleep(300);
+        check("a memory card to approve leaves the microphone off", !(await js(listening)), await js(`document.querySelector("#composer").dataset.mode + "|" + document.querySelector("#request-slot, #request")?.textContent`));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);

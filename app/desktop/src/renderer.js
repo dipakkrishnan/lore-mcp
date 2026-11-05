@@ -6771,8 +6771,11 @@ const talk = {
   },
   /** Listens when its thread waits on the owner's words: no card to approve, nothing typed, Lore not working. */
   listen() {
-    if (!this.kind || this.opening || this.starting || recorder) return;
-    if (detailTask !== this.kind || view !== "inbox") return void this.end();
+    if (!this.kind || this.opening || this.starting) return;
+    // Leaving the thread ends it even mid-listen: the recorder is stopped and its audio dropped, not left hot offscreen.
+    if (detailTask !== this.kind || view !== "inbox") return void (recorder ? cancelDictation() : this.end());
+    // A card to approve ends it too: the owner is asked to look, not listened over.
+    if (recorder) return void (shownRequest()?.current && cancelDictation());
     // The owner speaks first in a new thread; after that, only once Lore has answered.
     if (lines.at(-1)?.owner || busy || composer.hidden || input.disabled || shownRequest()?.current || input.value.trim()) return;
     this.starting = true;
