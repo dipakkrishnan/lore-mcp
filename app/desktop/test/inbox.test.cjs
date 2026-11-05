@@ -153,3 +153,26 @@ test("a bid the owner is answering says where the answer stands in place of its 
   assert.equal(Inbox.unmatched(matches[0].bid).memories.length, 0, "a bid nothing answers opens with no memories, so its page offers no draft");
   assert.equal(inbox.bid(look({ match: Inbox.unmatched(matches[0].bid) })).state, "unmatched");
 });
+
+test("APP-282: Inventory groups by where memories came from, drafts lead, a memory sold alone reads as its piece, and taken-down pieces sit apart", () => {
+  /** @param {number} id @param {string} label @param {string} at @returns {MemoryItem} */
+  const memory = (id, label, at) => ({ id, title: `Memory ${id}`, project_label: label, status: "private", updated_at: at, sources: [], arrival: id });
+  // A piece's topic is the sentence its drafting agent wrote; it never becomes a heading.
+  /** @param {number} id @param {number[]} provenance @param {"approved" | "revoked"} state @returns {PublicationItem} */
+  const piece = (id, provenance, state) => ({ id, public_id: `p${id}`, title: `Piece ${id}`, topic: `Travel: window seat on United or American; piece ${id}`, state, live: true, provenance });
+  const input = { memories: [memory(1, "pricing", ago(HOUR)), memory(2, "hiring", ago(2 * HOUR)), memory(3, "", ago(3 * HOUR)), memory(4, "pricing", ago(4 * HOUR))], pieces: [piece(1, [1], "approved"), piece(2, [2], "revoked"), piece(3, [9], "approved")], drafts: [draft({ topic: "A long sentence about hiring", provenance: [2] })] };
+  const all = Inbox.inventory({ ...input, tab: "all" });
+  assert.deepEqual(all.counts, { all: 7, private: 4, draft: 1, sale: 2 });
+  assert.deepEqual(all.groups.map((group) => [group.name, group.rows.map((row) => `${row.kind}:${row.shelf}`)]), [
+    ["hiring", ["draft:draft", "memory:private"]],
+    ["Unsorted", ["piece:sale", "memory:private"]],
+    ["pricing", ["piece:sale", "memory:private"]]
+  ]);
+  assert.deepEqual(all.down.map((row) => row.key), ["piece:2"], "a taken-down piece leaves its group");
+  assert.deepEqual(all.groups.flatMap((group) => group.rows).filter((row) => row.kind === "memory").map((row) => row.item.id), [2, 3, 4], "memory 1 reads as its piece; memory 2, only drafted, keeps its row");
+  assert.equal(all.groups[2].rows[0].from?.id, 1, "a piece carries the memory it was drafted from, for its mark");
+  const sale = Inbox.inventory({ ...input, tab: "sale" });
+  assert.deepEqual(sale.groups.map((group) => group.name), ["Unsorted", "pricing"]);
+  assert.deepEqual(sale.down, []);
+  assert.deepEqual(sale.counts, all.counts, "a tab narrows the rows, never the counts");
+});

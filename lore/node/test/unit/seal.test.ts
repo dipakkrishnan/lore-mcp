@@ -1,8 +1,8 @@
 // XC-067: the sealing vector shared with lore/inbox.py, both directions.
 import { describe, expect, it } from "vitest";
-import vector from "../../../contracts/inbox_seal_vector.json";
-import { b64url, fromB64url, seal } from "../src/seal";
-import { open } from "./inbox";
+import vector from "../../../../contracts/inbox_seal_vector.json";
+import { b64url, fromB64url, seal } from "../../src/seal";
+import { open } from "../open";
 
 const PKCS8_X25519 = Uint8Array.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20]);
 
