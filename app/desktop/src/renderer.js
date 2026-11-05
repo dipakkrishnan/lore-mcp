@@ -190,7 +190,8 @@ function resetBlueprintGhost() {
   blueprintSlot.replaceChildren();
 }
 
-const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2" stroke="var(--accent)" stroke-width="1.7"></path><path d="M4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
+/** Lore's own mark, the app icon as the sidebar draws it, so it reads the same wherever it shows (APP-289). */
+const RING = `<svg viewBox="100 100 824 824"><rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"></rect><g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"></path></g></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
@@ -466,10 +467,13 @@ class MemoryPage {
     const verdict = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
     const idle = () => {
       note.replaceChildren();
+      note.title = "";
       note.hidden = !verdict;
       if (verdict) {
-        // A memory Lore judged not worth selling says why in one quiet line (APP-235); work is never offered for sale.
-        note.append(verdict.work ? "Work · stays private" : ["Lore keeps this private", verdict.why].filter(Boolean).join(" · "));
+        // A memory Lore judged not worth selling says so in one short line; the model's reason is its tooltip (APP-235,
+        // APP-289). Work is never offered for sale.
+        note.append(verdict.work ? "Work · stays private" : "Lore keeps this private");
+        if (!verdict.work) note.title = verdict.why;
         if (!verdict.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
       }
       const sell = drafted ? button("Review draft", "secondary", () => show("drafts")) : verdict ? null : button("Draft for sale", "secondary", () => void publishMemory(memory), SALE_ICON);
@@ -530,6 +534,7 @@ class MemoryPage {
     const remove = () => {
       note.hidden = false;
       note.replaceChildren("Delete this memory? Lore won't bring it back.");
+      note.title = "";
       const sure = button("Delete", "quiet", () => void act(async () => {
         await window.lore.deleteMemory(memory.id);
         this.memory = null;
@@ -1281,7 +1286,8 @@ class InboxView {
         };
       }
       case "suggestion": {
-        const found = live.find(({ each }) => each.at === ref);
+        // A suggestion is known by its name: one run can suggest several in the same millisecond (APP-289).
+        const found = live.find(({ each }) => each.title === ref);
         const alike = found ? (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === found.each.title.toLowerCase()) : [];
         return { open: () => { if (found) reviewSuggestion(found.each, found.memories, alike.length === 1 ? alike[0] : undefined); }, done: () => { if (found) void dropSuggestion(found.each); } };
       }
@@ -2439,14 +2445,11 @@ class InventoryView {
   parts(s) {
     unseen.forget();
     this.shown = [];
-    const { counts, groups, down } = this.model(s);
+    const { counts, rows, down } = this.model(s);
     const list = el("div", "inbox inv");
     list.setAttribute("role", "list");
     list.setAttribute("aria-label", "Inventory");
-    for (const group of groups) {
-      const sell = !inventoryFrom && group.rows.some((row) => row.kind === "memory") ? button("Sell as a collection", "quiet", () => void collectTopic(group.key, group.rows.flatMap((row) => (row.kind === "memory" ? [row.item.id] : [])))) : undefined;
-      list.append(...this.group(group.key, group.name, group.rows.map((row) => this.row(s, row)), sell));
-    }
+    list.append(...rows.map((row) => this.row(s, row)));
     if (!inventoryFrom && (shelf === "all" || shelf === "sale")) {
       const collections = s.collections?.items ?? [];
       if (collections.length) list.append(...this.group("\0collections", "Collections", collections.map((item) => this.collectionRow(item))));
@@ -3091,9 +3094,9 @@ function suggestionsCard(s) {
 
 /** @param {CollectionSuggestion} each */
 async function dropSuggestion(each) {
-  suggestions = suggestions.filter((other) => other.at !== each.at);
+  suggestions = suggestions.filter((other) => other.title.toLowerCase() !== each.title.toLowerCase());
   render();
-  await window.lore.dropSuggestion(each.at).catch(() => undefined);
+  await window.lore.dropSuggestion(each.title).catch(() => undefined);
 }
 
 /** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
@@ -3111,23 +3114,6 @@ function reviewSuggestion(each, memories, into) {
   pickBundle = [...memories];
   for (const id of memories) collectionPicks.add(id);
   render();
-}
-
-/** One tap from Inventory: a collection named for the topic, holding every memory about it, ready to price.
- * @param {string} topic @param {number[]} memories */
-async function collectTopic(topic, memories) {
-  if (collectionBusy) return;
-  /** @type {NewCollection | null} */
-  let made = null;
-  const done = await act(async () => {
-    made = await window.lore.newCollection(topic || undefined);
-    await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, { memories });
-  });
-  if (made) {
-    editingCollectionPrice = done;
-    showCollection(/** @type {NewCollection} */ (made).id);
-    if (done) tell(memories.length === 1 ? "Added 1 memory. Price it to put it on sale." : `Added ${memories.length} memories. Price them to put them on sale.`);
-  }
 }
 
 /** @param {CollectionItem} item @param {{id: number, title: string}} piece */
@@ -3985,7 +3971,7 @@ function openConnection(app, source) {
 /** Connectors: the owner's own agents, then where memories come from, then what Lore does with them on its own. First
  * class: the way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), automationsSection()];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s)))];
 }
 
 /** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
@@ -4700,6 +4686,7 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    automationsSection(),
     section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
@@ -4968,7 +4955,7 @@ function openNewRoutine(said = "") {
   text.focus();
 }
 
-/** APP-288: everything Lore does on its own, and when, Lore's own first, at the foot of Connectors. New ones start from
+/** APP-289: everything Lore does on its own, and when, Lore's own first, in Settings. New ones start from
  * the New menu, as everything else does. */
 function automationsSection() {
   const list = el("div", "automations");
@@ -5052,11 +5039,11 @@ function renderAccount() {
   signOutBtn.hidden = !credential;
 }
 
-/** Memories and For Sale became Inventory's tabs, and Automations a section of Connectors; anything that still asks for
+/** Memories and For Sale became Inventory's tabs, and Automations a section of Settings; anything that still asks for
  * them lands there. @param {View | "memories" | "store" | "automations"} next */
 function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
-  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "connectors" : next;
+  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "settings" : next;
   if (view === "inventory") void loadSales();
   if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
   if (view === "connectors") void loadAgents();
@@ -5070,7 +5057,7 @@ function show(next) {
 }
 
 async function load() {
-  if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
+  if (!snapshot) content.replaceChildren(el("p", "caught-up empty", "Loading…"));
   // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
   const ticket = ++loads;
   try {
@@ -6485,7 +6472,7 @@ function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Connectors.`, { label: "Connectors", run: () => show("automations") }, () => window.lore.noticedRoutines());
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Settings.`, { label: "Settings", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";

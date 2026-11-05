@@ -293,7 +293,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("suggestions:list", () => suggestions.list());
-  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
+  ipcMain.handle("suggestions:drop", (_event, title) => suggestions.drop(title));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
