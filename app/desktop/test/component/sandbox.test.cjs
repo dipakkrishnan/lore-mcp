@@ -10,12 +10,12 @@ const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 // Each test process gets its own scratch store, keys and CLI runtime; required before anything loads ../src/state.cjs.
-const { CLI, readState } = require("../support/scratch.cjs");
-const { scriptedAgent, until } = require("../support/scripted.cjs");
+const { CLI, readState } = require("../../support/scratch.cjs");
+const { scriptedAgent, until } = require("../../support/scripted.cjs");
 
-/** A Lore home for one sandbox test, with the sandbox started on it. @param {Partial<import("../src/agent.mjs").Place>} [extra] */
+/** A Lore home for one sandbox test, with the sandbox started on it. @param {Partial<import("../../src/agent.mjs").Place>} [extra] */
 async function sandboxed(extra = {}) {
-  const { initializeSandbox } = await import("../src/agent.mjs");
+  const { initializeSandbox } = await import("../../src/agent.mjs");
   const root = await realpath(await mkdtemp(join(tmpdir(), "lore-sandbox-")));
   const loreHome = join(root, "lore");
   const place = { loreHome, ...extra };
@@ -43,7 +43,7 @@ function swapping(dir, elsewhere) {
 const TASKS_ALL = ["capture", "setup", "publish", "deploy", "synthesize", "checkin", "evening"];
 
 test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const { root, loreHome, place } = await sandboxed();
   const output = [];
@@ -66,7 +66,7 @@ test("desktop Bash is confined to Lore", { skip: process.platform !== "darwin" }
 });
 
 test("no command the agent runs reaches the network, in any task", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, sandboxPolicy } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations, sandboxPolicy } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const { root, loreHome, place } = await sandboxed();
   try {
@@ -84,7 +84,7 @@ test("no command the agent runs reaches the network, in any task", { skip: proce
 });
 
 test("the sandbox reads the agents' memories, never their credential files", async () => {
-  const { sandboxPolicy } = await import("../src/agent.mjs");
+  const { sandboxPolicy } = await import("../../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   try {
     const { allowRead } = sandboxPolicy({ loreHome: home }).filesystem;
@@ -96,8 +96,8 @@ test("the sandbox reads the agents' memories, never their credential files", asy
 });
 
 test("the sandbox hides the account's home and the keys' folder, wherever HOME points", async () => {
-  const { sandboxPolicy } = await import("../src/agent.mjs");
-  const { ATTENDED_KEYS: key } = require("../src/state.cjs");
+  const { sandboxPolicy } = await import("../../src/agent.mjs");
+  const { ATTENDED_KEYS: key } = require("../../src/state.cjs");
   assert.equal(key, join(userInfo().homedir, "Library", "Application Support", "Lore", "attended.d"));
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
   const moved = process.env.HOME;
@@ -116,7 +116,7 @@ test("the sandbox hides the account's home and the keys' folder, wherever HOME p
 });
 
 test("each running app keeps its own launch key, and quitting removes only its own", async () => {
-  const { LaunchKey } = require("../src/state.cjs");
+  const { LaunchKey } = require("../../src/state.cjs");
   const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
   const folder = join(root, "attended.d");
   try {
@@ -143,7 +143,7 @@ test("each running app keeps its own launch key, and quitting removes only its o
 });
 
 test("a launch's key file is written once and never rewritten; a removed one comes back under a new name", async () => {
-  const { LaunchKey } = require("../src/state.cjs");
+  const { LaunchKey } = require("../../src/state.cjs");
   const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
   const folder = join(root, "attended.d");
   try {
@@ -167,7 +167,7 @@ test("a launch's key file is written once and never rewritten; a removed one com
 });
 
 test("clearing old keys never removes a running app's, however old, or one still being written", async () => {
-  const { LaunchKey } = require("../src/state.cjs");
+  const { LaunchKey } = require("../../src/state.cjs");
   const { utimes } = require("node:fs/promises");
   const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
   const folder = join(root, "attended.d");
@@ -201,7 +201,7 @@ test("clearing old keys follows no link and never waits on a pipe or reads a hug
     await writeFile(join(folder, "huge"), "");
     await require("node:fs/promises").truncate(join(folder, "huge"), 64 * 1024 * 1024);
     // In a child process, so a prune that blocks on the pipe fails this test instead of hanging the suite.
-    const pruned = spawnSync(process.execPath, ["-e", `const { LaunchKey } = require(${JSON.stringify(require.resolve("../src/state.cjs"))}); new LaunchKey(${JSON.stringify(folder)}).env();`], { timeout: 10_000, encoding: "utf8" });
+    const pruned = spawnSync(process.execPath, ["-e", `const { LaunchKey } = require(${JSON.stringify(require.resolve("../../src/state.cjs"))}); new LaunchKey(${JSON.stringify(folder)}).env();`], { timeout: 10_000, encoding: "utf8" });
     assert.equal(pruned.status, 0, pruned.stderr || String(pruned.error));
     assert.ok(existsSync(elsewhere), "the link's target is untouched");
   } finally {
@@ -210,7 +210,7 @@ test("clearing old keys follows no link and never waits on a pipe or reads a hug
 });
 
 test("the keys folder must be a real folder of the owner's, closed to everyone else", async () => {
-  const { LaunchKey } = require("../src/state.cjs");
+  const { LaunchKey } = require("../../src/state.cjs");
   const root = await mkdtemp(join(tmpdir(), "lore-keys-"));
   try {
     const open = join(root, "open");
@@ -231,9 +231,9 @@ test("the keys folder must be a real folder of the owner's, closed to everyone e
 });
 
 test("the agent's shell can neither read a launch key nor add one", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const { LaunchKey } = require("../src/state.cjs");
+  const { LaunchKey } = require("../../src/state.cjs");
   // As main.cjs hides the folder that holds the keys; the policy test above checks that is the real one.
   const lore = await realpath(await mkdtemp(join(tmpdir(), "lore-account-")));
   const folder = join(lore, "attended.d");
@@ -260,7 +260,7 @@ test("the agent's shell can neither read a launch key nor add one", { skip: proc
 });
 
 test("read goes through the sandbox: inside Lore yes; outside, through a link, or under a swapped folder never", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedReadOperations } = await import("../src/agent.mjs");
+  const { createSandboxedReadOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
   const { root, loreHome, place } = await sandboxed({ hidden: [outside] });
@@ -300,7 +300,7 @@ test("read goes through the sandbox: inside Lore yes; outside, through a link, o
 });
 
 test("write and edit go through the sandbox: never outside, through a link, or under a swapped folder", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const { createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
   const { root, loreHome, place } = await sandboxed();
@@ -344,7 +344,7 @@ test("write and edit go through the sandbox: never outside, through a link, or u
 });
 
 test("the agent's tools never update or deploy the store, and never write the app's own folders", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const keys = await realpath(await mkdtemp(join(tmpdir(), "lore-keys-")));
   const { root, loreHome, place } = await sandboxed({ hidden: [keys] });
@@ -375,7 +375,7 @@ test("the agent's tools never update or deploy the store, and never write the ap
 });
 
 test("the agent's shell, write and edit cannot change the store's files or the scheduled prompts, by any route",{ skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedWriteOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-app-only-out-")));
   const { root, loreHome: home, place } = await sandboxed();
@@ -429,7 +429,7 @@ test("the agent's shell, write and edit cannot change the store's files or the s
 });
 
 test("the agent's shell cannot change Lore's database", { skip: process.platform !== "darwin", todo: "Known gap: lore.db is writable inside the sandbox until an owner-only store for approvals and selling settings is decided" }, async () => {
-  const { createSandboxedBashOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const { root, loreHome, place } = await sandboxed();
   try {
@@ -443,7 +443,7 @@ test("the agent's shell cannot change Lore's database", { skip: process.platform
 });
 
 test("attachments: only regular files the agent could not have planted, within size, never a folder, a credential or Lore's own", async () => {
-  const { checkAttachments, FILE_CAP } = require("../src/attachments.cjs");
+  const { checkAttachments, FILE_CAP } = require("../../src/attachments.cjs");
   const root = await realpath(await mkdtemp(join(tmpdir(), "lore-attach-")));
   const loreHome = join(root, "lore");
   const kept = join(root, "kept");
@@ -479,14 +479,14 @@ test("attachments: only regular files the agent could not have planted, within s
 });
 
 test("the agent reads its copy of an attachment, not the original, and a quiet task reads neither", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, createSandboxedReadOperations } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations, createSandboxedReadOperations } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   // The original stands in for a file under the owner's home, which the sandbox hides.
   const desktop = await realpath(await mkdtemp(join(tmpdir(), "lore-desktop-")));
   const { agent, loreHome } = await scriptedAgent({ hidden: [desktop] });
   try {
     await writeFile(join(desktop, "notes.md"), "what the owner attached, and more written after the check");
-    await import("../src/agent.mjs").then(({ initializeSandbox }) => initializeSandbox(agent.options));
+    await import("../../src/agent.mjs").then(({ initializeSandbox }) => initializeSandbox(agent.options));
     // Streamed one at a time, and only as many bytes as the file had when the app checked it.
     const [copy, empty] = await agent.attach([{ name: "notes.md", path: join(desktop, "notes.md"), size: 23 }, { name: "empty.md", path: join(desktop, "notes.md"), size: 0 }]);
     assert.equal(await readFile(empty, "utf8"), "");
@@ -508,7 +508,7 @@ test("the agent reads its copy of an attachment, not the original, and a quiet t
 });
 
 test("a shell command with no limit of its own stops at Lore's default", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedBashOperations, BASH_TIMEOUT_S } = await import("../src/agent.mjs");
+  const { createSandboxedBashOperations, BASH_TIMEOUT_S } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const { root, loreHome, place } = await sandboxed();
   try {
@@ -525,7 +525,7 @@ test("a shell command with no limit of its own stops at Lore's default", { skip:
 });
 
 test("each task reads only its own conversation, and no read runs long or large", { skip: process.platform !== "darwin" }, async () => {
-  const { createSandboxedReadOperations, READ_CAP } = await import("../src/agent.mjs");
+  const { createSandboxedReadOperations, READ_CAP } = await import("../../src/agent.mjs");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
   const { root, loreHome, place } = await sandboxed();
   try {
@@ -554,7 +554,7 @@ test("each task reads only its own conversation, and no read runs long or large"
 test("safeStorage credentials survive an Electron restart", { skip: process.platform !== "darwin" }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   const electron = require("electron");
-  const child = join(__dirname, "../support/credential-roundtrip.cjs");
+  const child = join(__dirname, "../../support/credential-roundtrip.cjs");
   const env = { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" };
   delete env.ELECTRON_RUN_AS_NODE;
   try {
@@ -574,7 +574,7 @@ test("safeStorage credentials survive an Electron restart", { skip: process.plat
 });
 
 test("the bundled node is a shim that runs npm on Electron's embedded runtime", { skip: process.platform !== "darwin" }, async () => {
-  const packaging = join(__dirname, "../packaging");
+  const packaging = join(__dirname, "../../packaging");
   const built = spawnSync(join(packaging, "node.sh"), { encoding: "utf8", timeout: 300_000 });
   assert.equal(built.status, 0, built.stderr);
   const bin = join(packaging, "out/node/bin");
@@ -594,7 +594,7 @@ test("the bundled node is a shim that runs npm on Electron's embedded runtime", 
 test("the agent's read tool is the sandboxed one: its copy of an attachment opens, a file Lore hides does not", { skip: process.platform !== "darwin" }, async () => {
   const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const { initializeSandbox } = await import("../src/agent.mjs");
+  const { initializeSandbox } = await import("../../src/agent.mjs");
   const outside = await realpath(await mkdtemp(join(tmpdir(), "lore-outside-")));
   const { agent, faux, loreHome } = await scriptedAgent({ hidden: [outside] });
   const secret = join(outside, "secret.md");
@@ -630,7 +630,7 @@ test("the agent's read tool is the sandboxed one: its copy of an attachment open
 test("the store opens through the app; the agent's own shell can neither stage it nor reach Cloudflare", { skip: process.platform !== "darwin" }, async () => {
   const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
   const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
-  const { initializeSandbox } = await import("../src/agent.mjs");
+  const { initializeSandbox } = await import("../../src/agent.mjs");
   /** @type {OpenStore[]} */
   const opened = [];
   const { agent, faux, loreHome } = await scriptedAgent({ openStore: async (store) => { opened.push(store); return "The store is deployed."; } });

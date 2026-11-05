@@ -1,7 +1,7 @@
 // APP-283: what the Inbox lists, in what order and words, and where a bid's page stands.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { Inbox } = require("../src/inbox.js");
+const { Inbox } = require("../../src/inbox.js");
 
 const NOW = Date.parse("2026-11-02T12:00:00Z");
 const ago = (/** @type {number} */ ms) => new Date(NOW - ms).toISOString();

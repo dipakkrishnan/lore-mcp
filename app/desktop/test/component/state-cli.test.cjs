@@ -9,7 +9,7 @@ const { test } = require("node:test");
 // The module reads its store folder once, on require: point it at scratch, never the owner's Application Support.
 process.env.LORE_STORE = mkdtempSync(join(tmpdir(), "lore-store-"));
 process.once("exit", () => rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
-const { searchMemories, readSales, candidates, readGists, useRuntime } = require("../src/state.cjs");
+const { searchMemories, readSales, candidates, readGists, useRuntime } = require("../../src/state.cjs");
 
 /** Run `body` against a fresh stub CLI that prints `output`; hands back the argv it ran with, or null if it never ran.
  * @param {string} output @param {(home: string) => Promise<void>} body */

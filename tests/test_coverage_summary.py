@@ -80,6 +80,50 @@ end_of_record
 """
 
 
+# XC-097: two tiers' lcov files over the same source. Lines 1-4: the unit tier hits 1-2, the component tier
+# hits 2-3; line 4 is hit by neither. Branches: block 0 taken by both, block 1 by the component tier alone,
+# block 2 (`-`, its line never ran) by neither.
+UNIT_LCOV = """TN:
+SF:src/state.cjs
+DA:1,3
+DA:2,1
+DA:3,0
+DA:4,0
+BRDA:1,0,0,3
+BRDA:2,1,0,0
+BRDA:3,2,0,-
+LF:4
+LH:2
+BRF:3
+BRH:1
+end_of_record
+"""
+
+COMPONENT_LCOV = """TN:
+SF:src/state.cjs
+DA:1,0
+DA:2,5
+DA:3,5
+DA:4,0
+BRDA:1,0,0,1
+BRDA:2,1,0,2
+BRDA:3,2,0,-
+LF:4
+LH:2
+BRF:3
+BRH:2
+end_of_record
+TN:
+SF:src/sales.cjs
+DA:1,1
+BRF:0
+BRH:0
+LF:1
+LH:1
+end_of_record
+"""
+
+
 class Readers(unittest.TestCase):
     def test_istanbul_total_block(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -124,6 +168,27 @@ class Readers(unittest.TestCase):
             (totals.statements_covered, totals.statements_total), (150, 250)
         )
         self.assertEqual((totals.branches_covered, totals.branches_total), (15, 50))
+
+    def test_two_lcov_files_union_per_line_and_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            unit = Path(folder, "unit.lcov")
+            component = Path(folder, "component.lcov")
+            unit.write_text(UNIT_LCOV)
+            component.write_text(COMPONENT_LCOV)
+            totals = coverage_summary.collect([], [unit, component])
+            # Summing the two files' LH/LF would say 5/9 lines; the union is 4 of 5 (line 4 of state.cjs never ran).
+            self.assertEqual(
+                (totals.statement_label, totals.statements_covered, totals.statements_total),
+                ("lines", 4, 5),
+            )
+            self.assertEqual((totals.branches_covered, totals.branches_total), (2, 3))
+            # One lcov file alone still reads LF/LH, as before.
+            alone = coverage_summary.collect([], [unit])
+            self.assertEqual((alone.statements_covered, alone.statements_total), (2, 4))
+            without_records = Path(folder, "totals-only.lcov")
+            without_records.write_text(LCOV)
+            with self.assertRaises(coverage_summary.ReportError):
+                coverage_summary.union_lcov([unit, without_records])
 
     def test_a_missing_or_malformed_report_is_a_report_error(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
