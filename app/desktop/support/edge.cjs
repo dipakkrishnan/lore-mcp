@@ -1472,15 +1472,16 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and starts the publish thread from it", await waitFor(`document.querySelector("#log").textContent.includes("starting from \\"Our launch deck lost to four-minute demos.\\"")`));
         await shot("sell-drafting");
       } else if (scenario === "inventory") {
-        // APP-282: Inventory on a library shaped like a real one reads like the mock: short group names, a mark and a
+        // APP-282, APP-289: Inventory on a library shaped like a real one reads like the mock: one timeline, a mark and a
         // date on every row, and a taken-down piece out of the way, never beside its live copy.
         await js(`window.__lore.signIn()`);
         await js(`window.__lore.show("inventory")`);
         await waitFor(`document.querySelectorAll("#content .invrow[data-key^=piece]").length >= 3`);
         const heads = await js(`JSON.stringify([...document.querySelectorAll("#content .igroup")].map((g) => [g.querySelector(".label").textContent, g.getAttribute("aria-expanded")]))`);
-        const named = JSON.parse(heads).map(([name]) => name);
-        check("each group is named for where its memories came from, never for a piece's sentence of a topic", ["personal", "lore-mcp"].every((name) => named.includes(name)) && named.every((name) => name.length <= 20), heads);
-        check("a piece sits in the group of the memory it was drafted from", await js(`(() => { const row = [...document.querySelectorAll("#content .invrow[data-key^=piece]")].find((r) => r.querySelector(".say").textContent.startsWith("Bonaire")); let head = row?.previousElementSibling; while (head && !head.classList.contains("igroup")) head = head.previousElementSibling; return head?.querySelector(".label").textContent; })()`) === "personal");
+        // APP-289: one timeline, as in the mock: no source groups, only Taken down folded at the foot.
+        check("Inventory is one list: the only group is Taken down, folded", heads === JSON.stringify([["Taken down", "false"]]), heads);
+        const dated = `[...document.querySelectorAll("#content .invrow:is([data-key^=piece], [data-key^=memory]) .age")].map((a) => a.textContent)`;
+        check("…newest first, pieces and memories together", await js(`(() => { const t = ${dated}.map((d) => Date.parse(d + " 2026")); return t.every((at, n) => n === 0 || at <= t[n - 1]); })()`), JSON.stringify(await js(dated)));
         check("taken-down pieces sit last, in their own folded group", JSON.parse(heads).at(-1)?.join("|") === "Taken down|false", heads);
         check("…so no live group holds a taken-down row", await js(`![...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Taken down")`));
         check("…and the live copy of a taken-down piece reads once", await js(`[...document.querySelectorAll("#content .invrow[data-key^=piece] .say")].filter((t) => t.textContent.startsWith("Travel: window seat")).length`) === 1);
@@ -2558,8 +2559,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and nothing in the Inbox shimmers once it has read", await js(`!document.querySelector("#content .shimmer")`));
         await shot("reading-today-ready");
         await js(`window.__lore.show("memories")`);
-        const groupOf = (text) => `(() => { let n = [...document.querySelectorAll("#content .invrow")].find((r) => r.textContent.includes(${JSON.stringify(text)})); while (n && !n.classList.contains("igroup")) n = n.previousElementSibling; return n?.querySelector(".label")?.textContent; })()`;
-        check("the memories are in Inventory, grouped under work and personal", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(groupOf("ops management")) === "work", String(await js(groupOf("ops management"))));
+        check("the memories are in Inventory, in one list with no source groups (APP-289)", await waitFor(`document.querySelector("#content").textContent.includes("Raise the first price only after ten buyers pay")`) && await js(`[...document.querySelectorAll("#content .invrow")].some((r) => r.textContent.includes("ops management"))`) && await js(`![...document.querySelectorAll("#content .igroup .label")].some((l) => l.textContent === "work" || l.textContent === "personal")`));
         const older = `[...document.querySelectorAll("#content .invrow")].find((r) => r.textContent.includes("An older lesson Lore wrote"))`;
         check("one Lore wrote before it kept who from says so, never a guess", await js(`${older}?.querySelector(".src .routine-mark")?.title === "Written by Lore" && Boolean(${older}.querySelector(".src .routine-mark svg rect"))`), await js(`${older}?.outerHTML ?? ""`));
         // Who wrote them is recorded last, after the banner, so Inventory names them once that lands.
