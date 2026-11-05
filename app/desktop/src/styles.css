@@ -960,9 +960,6 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .igroup:focus-visible { outline: none; background: var(--bg-hover); }
 .inbox.inv { padding-top: 0; }
 .invrow { cursor: pointer; }
-/* As the mock: a row a size up from its group's header, so the header reads as a label and the row as the thing. */
-.inv .invrow { height: calc(var(--row) + var(--s-2)); }
-.inv .invrow .say { font-size: var(--fs-15); }
 .igroup .label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .invrow.still { cursor: default; }
 .invrow .acts { display: flex; align-items: center; gap: 2px; visibility: hidden; }

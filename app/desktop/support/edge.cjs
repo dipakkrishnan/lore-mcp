@@ -1467,7 +1467,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         preview?.close();
         // APP-282: the way in is the New menu, beside Memory and Collection. APP-290: the header's one button is talking it through.
         await js(`window.__lore.show("inventory")`);
-        check("Inventory's header has no button but Talk it through", await waitFor(`document.querySelector("#title").textContent === "Inventory" && [...document.querySelectorAll(".header-actions .btn:not([hidden])")].map((b) => b.id).join() === "talk"`));
+        check("Inventory's header has no button but Record a memory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && [...document.querySelectorAll(".header-actions .btn:not([hidden])")].map((b) => b.id).join() === "talk"`));
         await shot("inventory-sell-writing");
         await js(`document.querySelector("#new-open").click()`);
         check("New lists Writing to sell", await waitFor(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|") === "MemoryM|CollectionC|Writing to sellW|AutomationA"`), await js(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|")`));
@@ -1497,7 +1497,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a memory on sale on its own reads once, as its piece", await js(`[...document.querySelectorAll("#content .invrow .say")].filter((t) => t.textContent.startsWith("Bonaire")).length`) === 1);
         check("every piece and memory row shows where it came from and a date", await js(`[...document.querySelectorAll("#content .invrow:is([data-key^=piece], [data-key^=memory])")].every((r) => r.querySelector(".src .routine-mark") && r.querySelector(".age").textContent)`));
         check("no row title pops the browser's own tooltip", await js(`![...document.querySelectorAll("#content .invrow .say")].some((t) => t.hasAttribute("title"))`));
-        check("a group header reads as a label, as in the mock: medium weight, a size under its rows, on its own band", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && parseFloat(head.fontSize) < parseFloat(row.fontSize) && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
+        check("a group header reads as a label: medium weight, on its own band, and its rows the Inbox's size", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && row.fontSize === "13px" && document.querySelector("#content .invrow").getBoundingClientRect().height === 36 && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
         await shot("inventory-rows");
         await js(`[...document.querySelectorAll("#content .igroup")].at(-1).click()`);
         check("Taken down opens to show what came off sale", await waitFor(`[...document.querySelectorAll("#content .invrow .st")].some((st) => st.textContent === "Taken down")`));
@@ -2537,7 +2537,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // answer leaves the microphone off; the owner picks it again, and Esc stops without sending.
         const listening = `document.querySelector("#composer").dataset.mode === "listening"`;
         await js(`window.__lore.show("inventory")`);
-        check("Inventory offers Talk it through in its header", await waitFor(`!document.querySelector("#talk").hidden && document.querySelector("#talk").textContent === "Talk it through"`));
+        check("Inventory offers Record a memory in its header", await waitFor(`!document.querySelector("#talk").hidden && document.querySelector("#talk").textContent === "Record a memory"`));
         await js(`window.__lore.show("connectors")`);
         check("…and only the Inbox and Inventory do", await waitFor(`document.querySelector("#talk").hidden`));
         await js(`window.__lore.show("inventory")`);
@@ -2857,7 +2857,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         } else {
           const note = notes.find(asking);
           check("a day worth asking about is one notification naming the thing", notes.filter(asking).length === 1 && note?.words.body === "You held the price on the Acme call. What made you hold firm?", JSON.stringify(notes.map((n) => n.words)));
-          check("…an Inbox row says so, with one verb", await waitFor(`${card}?.querySelector(".say")?.textContent === "Check-in: 1 question about today" && ${card}.querySelector(".verb").textContent === "Talk it through"`), await js(`document.querySelector("#content").textContent`));
+          check("…an Inbox row says so, with one verb", await waitFor(`${card}?.querySelector(".say")?.textContent === "Check-in: 1 question about today" && ${card}.querySelector(".verb").textContent === "Answer"`), await js(`document.querySelector("#content").textContent`));
           check("…and the dock keeps a red 1 for it", badges.at(-1) === 1, JSON.stringify(badges));
           check("…recorded as the routine's last result", checkin().result === "Asked about 1 thing", checkin().result);
           check("…and the thread is not listed twice", !(await js(`Boolean(document.querySelector("#content .irow.task"))`)));

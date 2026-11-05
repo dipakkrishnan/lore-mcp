@@ -43,7 +43,7 @@ test("each row is one sentence with one verb, newest first, rows with no time of
     "$40 How do you stop reward hacking on long coding tasks? · 3 of your memories answer this · Answer",
     "3 new memories from Claude · 1 worth selling · Review",
     "+$8 Sold “GEPA prompt tuning notes” · View",
-    "Check-in: 1 question about today · Talk it through"
+    "Check-in: 1 question about today · Answer"
   ]);
   const inbox = new Inbox(NOW);
   assert.deepEqual(rows.map((row) => inbox.age(row.at)), ["", "", "12m", "1h", "3h", "6h"]);

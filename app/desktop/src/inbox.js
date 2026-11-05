@@ -71,7 +71,7 @@ class Inbox {
     if (input.step) add({ key: `step:${input.step.label}`, kind: "step", glyph: input.step.mark, title: input.step.label, tail: input.step.what ? `· ${input.step.what}` : "", verb: input.step.action });
     if (input.checkIn) {
       const count = input.checkIn.questions.length;
-      add({ key: "checkin", kind: "checkin", glyph: "ask", lead: "Check-in:", tail: `${Inbox.plural(count, "question")} about today`, at: input.checkIn.at, verb: "Talk it through", done: true });
+      add({ key: "checkin", kind: "checkin", glyph: "ask", lead: "Check-in:", tail: `${Inbox.plural(count, "question")} about today`, at: input.checkIn.at, verb: "Answer", done: true });
     }
     for (const task of input.tasks) add({ key: `task:${task.kind}`, kind: "task", glyph: "unfinished", title: task.title, tail: `· ${task.state === "working" ? "Working" : task.phase || "Waiting for you"}`, at: task.updatedAt, verb: "Open", ref: task.kind });
     if (input.reading) add({ key: "reading", kind: "reading", glyph: "working", title: `${input.reading.phase}…`, at: input.reading.updatedAt, verb: "View" });
