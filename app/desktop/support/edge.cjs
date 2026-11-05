@@ -1435,7 +1435,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await sleep(300);
         await js(`document.querySelector("#new-open").click(); document.querySelector("#new-menu [data-new=writing]").click()`);
         check("another sheet opens while the report is in flight", await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Sell something you wrote"`));
-        await sleep(2500);
+        // Waits for the relay to see the report, not a fixed time: a loaded runner took longer than 2.5s (CI, Nov 5).
+        for (let i = 0; i < 200 && relayReports.length < 2; i++) await sleep(100);
+        await sleep(500);
         check("the in-flight report did not close the sheet opened after it", await js(`(() => { const open = [...document.querySelectorAll("dialog.sheet")]; return open.length === 1 && open[0].open === true && open[0].getAttribute("aria-label") === "Sell something you wrote"; })()`));
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         check("the second report filed once", relayReports.length === 2, `relay saw ${relayReports.length}`);
