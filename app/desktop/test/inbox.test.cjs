@@ -154,7 +154,7 @@ test("a bid the owner is answering says where the answer stands in place of its 
   assert.equal(inbox.bid(look({ match: Inbox.unmatched(matches[0].bid) })).state, "unmatched");
 });
 
-test("APP-282, APP-289: Inventory groups by where memories came from, drafts lead, then the rest newest first, a memory sold alone reads as its piece, and taken-down pieces sit apart", () => {
+test("APP-282, APP-289: Inventory is one list, drafts first, then the rest newest first, a memory sold alone reads as its piece, and taken-down pieces sit apart", () => {
   /** @param {number} id @param {string} label @param {string} at @returns {MemoryItem} */
   const memory = (id, label, at) => ({ id, title: `Memory ${id}`, project_label: label, status: "private", updated_at: at, sources: [], arrival: id });
   // A piece's topic is the sentence its drafting agent wrote; it never becomes a heading.
@@ -163,18 +163,17 @@ test("APP-282, APP-289: Inventory groups by where memories came from, drafts lea
   const input = { memories: [memory(1, "pricing", ago(HOUR)), memory(2, "hiring", ago(2 * HOUR)), memory(3, "", ago(3 * HOUR)), memory(4, "pricing", ago(4 * HOUR))], pieces: [piece(1, [1], "approved"), piece(2, [2], "revoked"), piece(3, [9], "approved")], drafts: [draft({ topic: "A long sentence about hiring", provenance: [2] })] };
   const all = Inbox.inventory({ ...input, tab: "all" });
   assert.deepEqual(all.counts, { all: 7, private: 4, draft: 1, sale: 2 });
-  assert.deepEqual(all.groups.map((group) => [group.name, group.rows.map((row) => `${row.kind}:${row.shelf}`)]), [
-    ["hiring", ["draft:draft", "memory:private"]],
-    ["pricing", ["piece:sale", "memory:private"]],
-    ["Unsorted", ["memory:private", "piece:sale"]]
-  ]);
+  assert.deepEqual(all.rows.map((row) => `${row.kind}:${row.shelf}`), ["draft:draft", "piece:sale", "memory:private", "memory:private", "memory:private", "piece:sale"]);
   assert.deepEqual(all.down.map((row) => row.key), ["piece:2"], "a taken-down piece leaves its group");
-  assert.deepEqual(all.groups.flatMap((group) => group.rows).filter((row) => row.kind === "memory").map((row) => row.item.id), [2, 4, 3], "memory 1 reads as its piece; memory 2, only drafted, keeps its row");
-  assert.equal(all.groups[1].rows[0].from?.id, 1, "a piece carries the memory it was drafted from, for its mark");
+  assert.deepEqual(all.rows.filter((row) => row.kind === "memory").map((row) => row.item.id), [2, 3, 4], "memory 1 reads as its piece; memory 2, only drafted, keeps its row");
+  assert.equal(all.rows[1].from?.id, 1, "a piece carries the memory it was drafted from, for its mark");
   const sale = Inbox.inventory({ ...input, tab: "sale" });
-  assert.deepEqual(sale.groups.map((group) => group.name), ["pricing", "Unsorted"]);
+  assert.deepEqual(sale.rows.map((row) => row.key), ["piece:1", "piece:3"]);
   assert.deepEqual(sale.down, []);
   assert.deepEqual(sale.counts, all.counts, "a tab narrows the rows, never the counts");
   const recent = Inbox.inventory({ memories: [memory(5, "", ago(HOUR))], pieces: [{ ...piece(4, [], "approved"), updated_at: ago(24 * HOUR) }], drafts: [], tab: "all" });
-  assert.deepEqual(recent.groups[0].rows.map((row) => row.key), ["memory:5", "piece:4"], "a memory updated today sits above a piece from yesterday");
+  assert.deepEqual(recent.rows.map((row) => row.key), ["memory:5", "piece:4"], "a memory updated today sits above a piece from yesterday");
+  const local = (/** @type {number} */ hour) => new Date(2026, 9, 28, hour).toISOString();
+  const days = Inbox.inventory({ memories: [memory(6, "", local(19)), memory(7, "", "2026-10-29"), memory(8, "", "2026-10-28")], pieces: [], drafts: [], tab: "all" });
+  assert.deepEqual(days.rows.map((row) => row.key), ["memory:7", "memory:6", "memory:8"], "a bare date is that day on the owner's clock, as its date column shows");
 });

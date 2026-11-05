@@ -396,9 +396,9 @@ type Shelf = "all" | "private" | "draft" | "sale";
 /** One Inventory row: a memory, a draft waiting on the owner, or a piece approved or taken down; `from` is the memory
  * it came from, when one is still kept. */
 type InventoryRow =
-  | { key: string; kind: "memory"; shelf: "private"; group: string; item: MemoryItem; from?: MemoryItem }
-  | { key: string; kind: "draft"; shelf: "draft"; group: string; item: PublicationCandidate; from?: MemoryItem }
-  | { key: string; kind: "piece"; shelf: "sale" | "private"; group: string; item: PublicationItem; from?: MemoryItem };
+  | { key: string; kind: "memory"; shelf: "private"; item: MemoryItem; from?: MemoryItem }
+  | { key: string; kind: "draft"; shelf: "draft"; item: PublicationCandidate; from?: MemoryItem }
+  | { key: string; kind: "piece"; shelf: "sale" | "private"; item: PublicationItem; from?: MemoryItem };
 
 type BidState = "unmatched" | "matched" | "drafting" | "drafted" | "approved" | "expired" | "dismissed";
 

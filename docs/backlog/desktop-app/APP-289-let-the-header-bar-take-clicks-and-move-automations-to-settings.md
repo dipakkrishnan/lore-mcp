@@ -33,12 +33,14 @@ the window's drag handling, so no test could see this.
 - Everything clickable in the header (buttons, page tabs, a collection's editable title) is `no-drag`.
 - Automations becomes a section of Settings, above Appearance. "Automations" links and the first-run notice land there.
 - The note says "Lore keeps this private · Draft anyway"; the model's reason is its tooltip.
-- Within a group, drafts lead, then pieces and memories together, most recently updated first.
+- Inventory is one list, as in the mock (owner, Nov 4): drafts first, then pieces and memories together, most recently
+  updated first; the source is each row's mark. A bare date sorts as that day on the owner's clock, as it displays.
+  Sales and Taken down stay as sections at the foot. The per-group "Sell as a collection" goes; New → Collection remains.
 
 ## Acceptance criteria
 
 - [ ] A real click on the breadcrumb, ↑/↓ and the Bids tabs works anywhere on the control.
 - [ ] Connectors shows Your agents and Your apps only; Settings shows Automations.
 - [ ] A private memory's note is one line; hovering it shows Lore's reason.
-- [ ] Inventory rows in a group (after drafts) run newest first by the date they show.
+- [ ] Inventory has no source groups; after drafts, rows run newest first by the date they show.
 - [ ] The notice about what Lore does on its own says "Change this in Settings" and opens Settings at Automations.

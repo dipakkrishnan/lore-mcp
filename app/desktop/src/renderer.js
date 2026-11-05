@@ -2443,14 +2443,11 @@ class InventoryView {
   parts(s) {
     unseen.forget();
     this.shown = [];
-    const { counts, groups, down } = this.model(s);
+    const { counts, rows, down } = this.model(s);
     const list = el("div", "inbox inv");
     list.setAttribute("role", "list");
     list.setAttribute("aria-label", "Inventory");
-    for (const group of groups) {
-      const sell = !inventoryFrom && group.rows.some((row) => row.kind === "memory") ? button("Sell as a collection", "quiet", () => void collectTopic(group.key, group.rows.flatMap((row) => (row.kind === "memory" ? [row.item.id] : [])))) : undefined;
-      list.append(...this.group(group.key, group.name, group.rows.map((row) => this.row(s, row)), sell));
-    }
+    list.append(...rows.map((row) => this.row(s, row)));
     if (!inventoryFrom && (shelf === "all" || shelf === "sale")) {
       const collections = s.collections?.items ?? [];
       if (collections.length) list.append(...this.group("\0collections", "Collections", collections.map((item) => this.collectionRow(item))));
@@ -3115,23 +3112,6 @@ function reviewSuggestion(each, memories, into) {
   pickBundle = [...memories];
   for (const id of memories) collectionPicks.add(id);
   render();
-}
-
-/** One tap from Inventory: a collection named for the topic, holding every memory about it, ready to price.
- * @param {string} topic @param {number[]} memories */
-async function collectTopic(topic, memories) {
-  if (collectionBusy) return;
-  /** @type {NewCollection | null} */
-  let made = null;
-  const done = await act(async () => {
-    made = await window.lore.newCollection(topic || undefined);
-    await window.lore.addToCollection(/** @type {NewCollection} */ (made).id, { memories });
-  });
-  if (made) {
-    editingCollectionPrice = done;
-    showCollection(/** @type {NewCollection} */ (made).id);
-    if (done) tell(memories.length === 1 ? "Added 1 memory. Price it to put it on sale." : `Added ${memories.length} memories. Price them to put them on sale.`);
-  }
 }
 
 /** @param {CollectionItem} item @param {{id: number, title: string}} piece */
