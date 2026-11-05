@@ -97,14 +97,14 @@ test("nothing is said about reading connected apps while none is connected; once
   s.library.sources = [{ name: "obsidian", label: "Obsidian", enabled: true, imported: 1, connector: "obsidian" }];
   w.lore.emit({ type: "changed" });
   await w.idle();
-  const told = noticesSaying(w, "Change this in Connectors");
+  const told = noticesSaying(w, "Change this in Settings");
   assert.equal(told.length, 1);
-  assert.equal(told[0].querySelector("span").textContent, "Lore reads your connected apps every day at 6 PM and checks in at 9 PM when something's worth asking. Change this in Connectors.");
-  assert.equal(told[0].querySelector("button.quiet")?.textContent, "Connectors");
+  assert.equal(told[0].querySelector("span").textContent, "Lore reads your connected apps every day at 6 PM and checks in at 9 PM when something's worth asking. Change this in Settings.");
+  assert.equal(told[0].querySelector("button.quiet")?.textContent, "Settings");
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "remembered as said once seen");
   told[0].querySelector("button.quiet").click();
-  assert.equal(w.text("#title"), "Connectors", "its action opens Connectors, where automations now live");
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "and takes the notice with it");
+  assert.equal(w.text("#title"), "Settings", "its action opens Settings, where automations now live");
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 0, "and takes the notice with it");
 });
 
 test("a paused check-in leaves the notice to the reading alone", async () => {
@@ -119,7 +119,7 @@ test("a paused check-in leaves the notice to the reading alone", async () => {
   ]);
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Connectors")[0]?.querySelector("span").textContent, "Lore reads your connected apps every Sunday at 9 PM. Change this in Connectors.");
+  assert.equal(noticesSaying(w, "Change this in Settings")[0]?.querySelector("span").textContent, "Lore reads your connected apps every Sunday at 9 PM. Change this in Settings.");
 });
 
 test("dismissed while its write is out, and the write fails: it stays dismissed, and the next load remembers it without showing it again", async () => {
@@ -133,20 +133,20 @@ test("dismissed while its write is out, and the write fails: it stays dismissed,
   w.lore.answer("noticedRoutines", () => new Promise((_, reject) => { release = () => reject(new w.window.Error("database is locked")); }));
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 1);
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 1);
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "the write is out");
-  noticesSaying(w, "Change this in Connectors")[0].querySelector(".dismiss").click();
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "dismissed at once");
+  noticesSaying(w, "Change this in Settings")[0].querySelector(".dismiss").click();
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 0, "dismissed at once");
   release();
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1, "the failed write is not retried on its own");
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "stays dismissed");
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 0, "stays dismissed");
   w.lore.answer("noticedRoutines", undefined);
   w.lore.emit({ type: "changed" });
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 2, "the next load tries the write again");
   assert.equal(w.get("told").get("automations"), null, "remembered");
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 0, "without showing it again");
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 0, "without showing it again");
   w.lore.emit({ type: "changed" });
   await w.idle();
   assert.equal(w.lore.callsTo("noticedRoutines").length, 2, "later loads leave it alone");
@@ -162,7 +162,7 @@ test("signing out drops every notice told this sign-in, and a write queued behin
   w.lore.answer("noticedRoutines", () => new Promise(() => {}));
   w.signIn();
   await w.idle();
-  assert.equal(noticesSaying(w, "Change this in Connectors").length, 1);
+  assert.equal(noticesSaying(w, "Change this in Settings").length, 1);
   assert.equal(noticesSaying(w, USAGE).length, 1, "the Inbox says both");
   assert.equal(w.lore.callsTo("noticedRoutines").length, 1);
   assert.equal(noticedWrites(w), 0, "the usage write waits its turn");

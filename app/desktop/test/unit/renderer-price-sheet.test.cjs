@@ -78,8 +78,7 @@ test("the sheet opens on the price field, refuses zero in place and stays open, 
   h.lore.answer("snapshot", emptySnapshot({ pricing: { publication_usd: 0.02, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://store.example/mcp", selling: true, store: "current", live: { state: "online", network: "eip155:84532", price_usd: 0.02, payout: null } } }));
   h.signIn();
   await h.idle();
-  h.call("openPriceEditor");
-  assert.equal(h.text("#title"), "Inventory", "every change-the-price affordance lands on Inventory");
+  h.call("openPriceSheet");
   const sheet = h.document.querySelector("dialog.form-sheet[open]");
   assert.equal(sheet?.getAttribute("aria-label"), "Price");
   const amount = sheet.querySelector("input[aria-label='Price per publication in US dollars']");
@@ -131,23 +130,21 @@ test("an empty price field keeps Save disabled; a CLI without free copies shows 
   assert.equal(save.disabled, true, "blanks are nothing");
 });
 
-test("the store bar offers Set a price only for a store that answers, and says what the store still charges", async () => {
+test("Settings offers Set a price while none is saved, and Change with what buyers pay once one is", async () => {
   const w = load();
-  const live = (state, price_usd) => emptySnapshot({ pricing: { publication_usd: price_usd === undefined ? null : 0.75, answer_usd: null, answer_enabled: false }, node: { url: "https://store.example/mcp", selling: true, store: "current", live: { state, network: "eip155:84532", price_usd: price_usd ?? null, payout: null } } });
-  w.lore.answer("snapshot", live("online"));
+  const store = (publication_usd) => emptySnapshot({ pricing: { publication_usd, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://store.example/mcp", selling: true, store: "current", live: { state: "online", network: "eip155:84532", price_usd: publication_usd, payout: null } } });
+  w.lore.answer("snapshot", store(null));
   w.signIn();
   await w.idle();
-  w.call("show", "store");
-  assert.ok(w.all("#content .store-bar button, #content .store-bar .inline").some((node) => node.textContent === "Set a price"), w.text("#content .store-bar"));
-  assert.ok(!w.text("#content .store-bar").includes("Not set"), "shows no price it doesn't have");
-  w.lore.answer("snapshot", live("unreachable"));
+  w.call("show", "settings");
+  const priceRow = () => w.all("#content .row").find((node) => node.textContent.startsWith("Price"));
+  assert.ok(priceRow(), w.text("#content"));
+  assert.ok([...priceRow().querySelectorAll("button")].some((node) => node.textContent === "Set a price"));
+  assert.ok(priceRow().textContent.includes("Not set"));
+  w.lore.answer("snapshot", store(0.75));
   w.lore.emit({ type: "changed" });
   await w.idle();
-  assert.ok(!w.text("#content .store-bar").includes("Set a price"), "an unreachable store offers no price link it can't act on");
-  w.lore.answer("snapshot", live("online", 0.02));
-  w.lore.emit({ type: "changed" });
-  await w.idle();
-  const bar = w.text("#content .store-bar");
-  assert.match(bar, /\$0\.75/);
-  assert.match(bar, /Your store still charges \$0\.02\./, "a saved price the store does not charge yet says so");
+  assert.ok([...priceRow().querySelectorAll("button")].some((node) => node.textContent === "Change"));
+  assert.ok(priceRow().textContent.includes("$0.75 per piece \u00b7 first 3 copies free"), priceRow().textContent);
+  assert.ok(!priceRow().textContent.includes("Not set"), "shows no price it doesn't have");
 });
