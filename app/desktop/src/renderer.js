@@ -5057,7 +5057,7 @@ function show(next) {
 }
 
 async function load() {
-  if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
+  if (!snapshot) content.replaceChildren(el("p", "caught-up empty", "Loading…"));
   // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
   const ticket = ++loads;
   try {

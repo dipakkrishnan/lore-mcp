@@ -40,6 +40,7 @@ the window's drag handling, so no test could see this.
   same millisecond, so two rows shared a key (and Review/Done acted on the wrong one). They are keyed and dropped by
   name, which the store already keeps unique. Hover no longer paints a row: the pointer moves the selection, so one row
   is lit.
+- "Loading…" sat at the top left of the page; it is centred like every other empty state.
 - Lore's own mark in rows was a dark glyph unlike the app icon; it is now the sidebar's mark everywhere.
 
 ## Acceptance criteria
