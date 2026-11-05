@@ -79,6 +79,8 @@ let signInWait;
 let storeUnreachable = false;
 /** @type {boolean[]} */
 const storeOnlineCalls = [];
+/** APP-290: what the fake microphone is heard to say. */
+const SPOKEN = "We held the price on the Acme renewal because they had no alternative.";
 /** APP-214: every store push asked for, and how the walk ends a thread the stand-in agent left working. */
 const pushes = [];
 let finishThread = (/** @type {AgentTask} */ _kind) => {};
@@ -250,7 +252,11 @@ if (scenario === "listing") {
   // store, and a turn is the prompt it was sent, its thread working until the walk finishes it.
   const { ipcMain } = require("electron");
   const handle = ipcMain.handle.bind(ipcMain);
-  ipcMain.handle = (channel, listener) => handle(channel, channel === "store:push" ? async () => { pushes.push(Date.now()); } : listener);
+  // APP-290: a fake microphone, and what it "heard" comes back as this sentence, so talking it through runs end to end.
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+  const stubs = { "store:push": async () => { pushes.push(Date.now()); }, "dictation:permission": async () => true, "dictation:transcribe": async () => SPOKEN };
+  ipcMain.handle = (channel, listener) => handle(channel, stubs[/** @type {keyof typeof stubs} */ (channel)] ?? listener);
   void import(require("node:url").pathToFileURL(join(src, "agent.mjs")).href).then(({ LoreAgent }) => {
     /** @type {Map<string, TaskRecord>} */
     const threads = new Map();
@@ -1456,9 +1462,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("the preview window runs no script", preview?.webContents.getLastWebPreferences().javascript === false);
         if (preview) writeFileSync(join(S, "sell-preview.png"), (await preview.webContents.capturePage()).toPNG());
         preview?.close();
-        // APP-282: the way in is the New menu, beside Memory and Collection; no page header carries it.
+        // APP-282: the way in is the New menu, beside Memory and Collection. APP-290: the header's one button is talking it through.
         await js(`window.__lore.show("inventory")`);
-        check("Inventory's header has no buttons of its own", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector(".header-actions .btn:not([hidden])")`));
+        check("Inventory's header has no button but Talk it through", await waitFor(`document.querySelector("#title").textContent === "Inventory" && [...document.querySelectorAll(".header-actions .btn:not([hidden])")].map((b) => b.id).join() === "talk"`));
         await shot("inventory-sell-writing");
         await js(`document.querySelector("#new-open").click()`);
         check("New lists Writing to sell", await waitFor(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|") === "MemoryM|CollectionC|Writing to sellW|AutomationA"`), await js(`[...document.querySelectorAll("#new-menu button")].map((b) => b.textContent).join("|")`));
@@ -1531,12 +1537,12 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.event({ type: "update", update: { version: "0.1.13", state: "ready" } })`);
         check("a ready update shows Update by the Lore name, on one line", await js(`(() => { const b = document.querySelector("#update"); return !b.hidden && b.textContent === "Update" && b.closest(".ws-row") !== null && b.getBoundingClientRect().height === 24; })()`));
         await shot("update-ready");
-        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit); })()`;
+        const clearOfTitlebar = `(() => { const bar = document.querySelector(".titlebar"); bar.style.pointerEvents = "none"; const hits = []; for (let y = 1; y < 28; y += 3) for (let x = 1; x < innerWidth; x += 8) hits.push(document.elementFromPoint(x, y)?.closest("button, a, input, textarea, select, [tabindex]:not(#main)")); bar.style.pointerEvents = ""; return hits.every((hit) => !hit || getComputedStyle(hit).appRegion === "no-drag"); })()`;
         check("the window drags from a strip across its whole top", await js(`(() => { const bar = document.querySelector(".titlebar"); const r = bar.getBoundingClientRect(); return getComputedStyle(bar).webkitAppRegion === "drag" && r.top === 0 && r.left === 0 && r.width === innerWidth && r.height === 28; })()`));
-        check("nothing clickable sits under the drag strip", await js(clearOfTitlebar));
+        check("anything clickable under the drag strip takes clicks, not drags (APP-289)", await js(clearOfTitlebar));
         await js(`document.querySelector("#main").scrollTop = 400`);
         await sleep(100);
-        check("nothing clickable scrolls under the drag strip", await js(clearOfTitlebar));
+        check("…and so does anything that scrolls under it", await js(clearOfTitlebar));
         await js(`[...document.querySelectorAll("#content .memory")].at(-2)?.scrollIntoView({ block: "start" })`);
         await sleep(200);
         await shot("today-approvals");
@@ -2523,6 +2529,35 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…and a connected app is enough not to be asked to connect", !(await js(`${today}.includes("Connect the AI you talk to most")`)));
         await shot("today-f-nothing");
         check("no moment of the walk showed more than one next step", (await js(`window.__steps`)) === 1, String(await js(`window.__steps`)));
+
+        // APP-290: talking it through, from Inventory: the thread opens listening, Enter sends what was said, Lore's
+        // question brings the microphone back, and Esc stops without sending.
+        const listening = `document.querySelector("#composer").dataset.mode === "listening"`;
+        await js(`window.__lore.show("inventory")`);
+        check("Inventory offers Talk it through in its header", await waitFor(`!document.querySelector("#talk").hidden && document.querySelector("#talk").textContent === "Talk it through"`));
+        await js(`window.__lore.show("connectors")`);
+        check("…and only the Inbox and Inventory do", await waitFor(`document.querySelector("#talk").hidden`));
+        await js(`window.__lore.show("inventory")`);
+        await shot("talk-inventory");
+        await js(`document.querySelector("#talk").click()`);
+        check("it opens a new memory's thread already listening", await waitFor(`document.querySelector("#title").textContent === "Capture a memory" && ${listening}`), await js(`document.querySelector("#dictation").textContent`));
+        check("…and says how to finish", (await js(`document.querySelector("#dictation-text").textContent`)) === "Listening… Tell Lore what you figured out. Enter sends it, Esc stops.");
+        await shot("talk-listening");
+        const spokenAt = prompts.length;
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))`);
+        for (let i = 0; i < 40 && prompts.length === spokenAt; i++) await sleep(100);
+        check("Enter sends what was said to Lore, as the owner's words", prompts.length === spokenAt + 1 && prompts.at(-1)?.text === SPOKEN && prompts.at(-1)?.task === "capture", JSON.stringify(prompts.at(-1)));
+        check("…and it doesn't listen again until Lore answers", await waitFor(`!document.querySelector("#composer").dataset.mode`) && await js(`document.querySelector("#log").textContent.includes(${JSON.stringify(SPOKEN)})`));
+        await js(`window.__lore.event({ type: "working", active: true, task: "capture" })`);
+        await js(`window.__lore.event({ type: "message", task: "capture", text: "What did they say when you held it?" })`);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        check("Lore's question brings the microphone back", await waitFor(listening));
+        check("…saying only how to finish, since the question is on screen", (await js(`document.querySelector("#dictation-text").textContent`)) === "Listening… Enter sends it, Esc stops.");
+        await js(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+        check("Esc stops listening, sends nothing, and leaves the owner typing", await waitFor(`!document.querySelector("#composer").dataset.mode && document.activeElement === document.querySelector("#capture-input")`) && prompts.length === spokenAt + 1);
+        await js(`window.__lore.event({ type: "working", active: false, task: "capture" })`);
+        await sleep(300);
+        check("…and talking it through stays over until asked for again", !(await js(listening)));
       } else if (scenario === "reading") {
         // AUT-005: connect Granola, and Lore reads the meetings through without being asked.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -2773,7 +2808,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         } else {
           const note = notes.find(asking);
           check("a day worth asking about is one notification naming the thing", notes.filter(asking).length === 1 && note?.words.body === "You held the price on the Acme call. What made you hold firm?", JSON.stringify(notes.map((n) => n.words)));
-          check("…an Inbox row says so, with one verb", await waitFor(`${card}?.querySelector(".say")?.textContent === "Check-in: 1 question about today" && ${card}.querySelector(".verb").textContent === "Answer"`), await js(`document.querySelector("#content").textContent`));
+          check("…an Inbox row says so, with one verb", await waitFor(`${card}?.querySelector(".say")?.textContent === "Check-in: 1 question about today" && ${card}.querySelector(".verb").textContent === "Talk it through"`), await js(`document.querySelector("#content").textContent`));
           check("…and the dock keeps a red 1 for it", badges.at(-1) === 1, JSON.stringify(badges));
           check("…recorded as the routine's last result", checkin().result === "Asked about 1 thing", checkin().result);
           check("…and the thread is not listed twice", !(await js(`Boolean(document.querySelector("#content .irow.task"))`)));

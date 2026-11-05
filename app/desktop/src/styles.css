@@ -186,6 +186,7 @@ main.scrolled header { box-shadow: 0 1px 0 var(--line); }
 .task-actions { display: flex; align-items: center; justify-content: space-between; }
 /* Beside the title, not above it: the buttons sit in their own column, centered on the eyebrow and title. */
 .header-actions { grid-column: 2; grid-row: 2 / span 2; align-self: center; display: flex; align-items: center; gap: var(--s-2); }
+.btn.talk svg { width: var(--icon); height: var(--icon); }
 .back { align-self: flex-start; color: var(--text-2); font-size: var(--fs-13); margin-bottom: var(--s-1); }
 .back:hover { text-decoration: underline; }
 .eyebrow { font-size: var(--fs-12); color: var(--text-3); }
@@ -244,6 +245,7 @@ main.thread .capture-area { width: 100%; max-width: 760px; }
 .composer-actions { grid-area: actions; display: flex; align-items: center; gap: var(--s-1); }
 /* Dictation mode: the box becomes a listening bar; the mic becomes Stop. */
 .dictation { grid-area: text; display: flex; align-items: center; gap: var(--s-2); height: var(--control); overflow: hidden; font-size: var(--fs-13); color: var(--text-2); }
+#dictation-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dictation .rec { flex: none; width: 10px; height: 10px; border-radius: var(--r-pill); background: var(--red); animation: pulse var(--dur-slow) ease-in-out infinite; }
 .composer[data-mode] { border-color: var(--red); }
 .composer[data-mode] textarea, .composer[data-mode] #attach, .composer[data-mode] #capture-submit, #dictate .stop { display: none; }
