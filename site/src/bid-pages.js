@@ -5,10 +5,9 @@ import { date, escape, money, page, plural } from "./layout.js";
 export const SITE = "https://yourlore.dev";
 const HOUR = 3_600_000;
 const STATUS = { pending: "Waiting for a card", open: "Open", answered: "Answered", paying: "Paying", filled: "Filled", expired: "Ended" };
-const PROMISE = "If nobody answers in 7 days, the bid ends.";
 /** What a buyer agrees to when they place a bid (MON-054). */
 export const CARD_TERMS =
-  "Stripe saves your card now and charges it only when you accept an answer, straight to the person who wrote it. If you don't pick one within 2 days of the first answer, that answer is accepted. If nobody answers in 7 days, the bid ends and nothing is charged.";
+  "Stripe saves your card. It's charged only when you accept an answer. If you don't pick one within 2 days of the first answer, that one is accepted. No answers in 7 days means no charge.";
 
 /** "3 answers", "New" for an unanswered bid under a day old, or null: an empty count says nothing. */
 export function answered(bid, now = Date.now()) {
@@ -35,10 +34,11 @@ function options(markets, chosen) {
 export function bidForm(markets, { error = "", values = {} } = {}) {
   const value = (name) => escape(typeof values[name] === "string" || typeof values[name] === "number" ? values[name] : "");
   return `<form class="bid-form" method="post" action="/bids">${error ? `<p class="error" role="alert">${escape(error)}</p>` : ""}
-<label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to hear from someone who has done it?">${value("question")}</textarea></label>
-<div class="pair"><label><span>You'll pay</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
+<label><span>Your question</span><textarea name="question" rows="3" required minlength="10" maxlength="280" placeholder="What do you want to ask someone who has done it?">${value("question")}</textarea></label>
+<div class="pair"><label><span>Your offer</span><span class="dollar"><input name="usd" type="number" inputmode="numeric" min="5" max="1000" step="1" required placeholder="20" value="${value("usd")}"></span></label>
 <label><span>Market</span><select name="market">${options(markets, values.market)}</select></label></div>
-<button class="go" type="submit">Add card and place bid</button><p class="note">${CARD_TERMS}</p></form>`;
+<label class="check"><input type="checkbox" name="card" value="skip"${values.card === "skip" ? " checked" : ""}><span>I'm an agent. Post this bid without a card.</span></label>
+<button class="go" type="submit">Place bid</button><p class="note">${CARD_TERMS}</p></form>`;
 }
 
 function event(e) {
@@ -95,10 +95,11 @@ export function bidPage(bid, { markets, buyer = null, now = Date.now() }) {
     body: `<p class="crumb"><a href="/bids">Bids</a></p><h1>${escape(bid.question)}</h1>
 <ul class="props">${props.map((p) => `<li>${p}</li>`).join("")}</ul>
 ${buyer ? buyerPanel(bid, buyer) : ""}
-${left && !buyer ? `<div class="actions"><a class="go" href="/download?bid=${escape(bid.id)}">Answer with Lore</a><a class="quiet" data-share href="${escape(url)}">Know someone who knows? Share</a></div>
-<p class="note">Answer with Lore gets you the free Mac app. Lore drafts an answer from what your AIs have already saved there, and nothing is sent until you approve it. ${bid.card ? "The buyer's card is saved with Stripe and is charged when they accept your answer, straight to you." : "This bid has no card on file, so it's a promise only: you're paid if the buyer buys your answer."} ${PROMISE}</p>` : ""}
+${left && !buyer ? `<div class="actions"><a class="go" href="/download?bid=${escape(bid.id)}">Answer with Lore</a><a class="quiet" data-share href="${escape(url)}">Share</a></div>
+<p class="note">Lore drafts an answer from what your AIs have saved. Nothing is sent until you approve it. ${bid.card ? "The buyer pays you when they accept it." : "No card is on file, so payment isn't guaranteed."}</p>` : ""}
 <h2 class="part">Answers</h2>${bid.answers.length ? `<ul class="offers">${answers}</ul>` : `<p class="empty">No answers yet.</p>`}
-<h2 class="part">Activity</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>`
+<h2 class="part">Activity</h2><ol class="timeline">${bid.events.map(event).join("")}</ol>
+<p class="meta"><a href="/b/${escape(bid.id)}.json">This bid as JSON</a></p>`
   });
 }
 

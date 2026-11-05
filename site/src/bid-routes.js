@@ -115,9 +115,9 @@ export class BidDesk {
     if (!fields) return fail("Send the bid as a form or as a JSON object, under 16 KB.", 400);
     const read = readBid(fields, new Set((await this.markets()).map((m) => m.id)));
     if (read.error) return fail(read.error, 400, fields);
-    // A person's bid always carries a card. An agent's bid may go without one, and is then
-    // shown as "no card on file" and listed below carded bids (MON-054).
-    const card = !asJson || fields.card === true;
+    // A person's bid carries a card. An agent's bid may go without one, by JSON or by ticking the
+    // form's agent box, and is then shown as "no card on file" and listed below carded bids (MON-054).
+    const card = asJson ? fields.card === true : fields.card !== "skip";
     const placed = await this.book.place(read.value, { card });
     if (!placed) return fail("Lots of bids are coming in right now. Try again in a few minutes.", 429, fields);
     countDemand("agent.bid", this.request, this.env, this.ctx);
