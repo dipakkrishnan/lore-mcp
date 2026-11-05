@@ -323,7 +323,7 @@ class Outgoing {
     if (asks(out) && !(await this.confirm("Update your store", out))) return false;
     if (newer) {
       const said = await this.deploy(state.node.selling ? redeploy() : ["node", "deploy", "--inbox-only"]);
-      if (!said.startsWith("The store is deployed")) throw new Error(said);
+      if (!said.startsWith("The store is deployed")) throw new Error(said.split("\n").filter((line) => !line.startsWith(STORE_LOG)).join("\n"));
       return true;
     }
     await lore(this.loreHome, ["push"], "");
@@ -359,12 +359,21 @@ function redeploy() {
  */
 async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, outgoing) {
   if (inboxOnly) {
+    // XC-088: with no store of their own on Cloudflare, Lore hosts one for the owner's agents in seconds.
+    if (!(await readState(loreHome)).node.url) {
+      const yes = await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few seconds");
+      if (!yes) return "The owner chose not to put the store online right now.";
+      return storeOnline(loreHome).then(
+        () => "The store is online for the owner's agents, hosted by Lore: nothing for sale.",
+        (/** @type {Error} */ error) => `The store did not go online: ${error.message.replace(/\.$/, "")}.`
+      );
+    }
     const changes = await outgoing.changes();
     const yes = asks(changes)
       ? await outgoing.confirm("Update your store", changes)
       : await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few minutes");
     if (!yes) return "The owner chose not to put the store online right now.";
-    return outgoing.deploy(["node", "deploy", "--inbox-only"]);
+    return deployAsked(loreHome, outgoing, ask, ["node", "deploy", "--inbox-only"]);
   }
   if (asked !== undefined && asked !== "real" && asked !== "test") return "The store opens on real money or the test network; nothing else.";
   if (wallet !== undefined && !ADDRESS.test(wallet)) return "That payout address is not valid; ask the owner for it again.";
@@ -390,12 +399,31 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
-  const said = await outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  const said = await deployAsked(loreHome, outgoing, ask, ["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
   // Said plainly, so the agent never reads a card-only store's missing payout address as something left undone.
   return byCard && said.startsWith("The store is deployed") ? `${said}\n${BY_CARD_ONLY}` : said;
 }
 
-const BY_CARD_ONLY = "It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
+/** XC-087: a Cloudflare sign-in with several accounts asks the owner which one the store goes on, once; the CLI
+ * remembers the answer, and the deploy runs again there. @param {string} loreHome @param {Outgoing} outgoing @param {Ask} ask
+ * @param {string[]} args */
+async function deployAsked(loreHome, outgoing, ask, args) {
+  const said = await outgoing.deploy(args);
+  if (!said.includes("more than one account")) return said;
+  const accounts = /** @type {Array<{id: string, name: string}>} */ (JSON.parse(await lore(loreHome, ["node", "accounts", "--json"])));
+  // Two accounts with one name are told apart by the start of their id.
+  const label = (/** @type {{id: string, name: string}} */ account) => (accounts.filter((other) => other.name === account.name).length > 1 ? `${account.name} (${account.id.slice(0, 6)})` : account.name);
+  const question = "Which Cloudflare account should your store go on?";
+  const answer = (await ask([{ question, header: "Cloudflare", options: accounts.map((account) => ({ label: label(account), description: "Your store goes here" })), multiSelect: false }]))?.[question];
+  const chosen = accounts.find((account) => label(account) === answer);
+  if (!chosen) return "The owner didn't choose a Cloudflare account, so the store did not go online.";
+  return outgoing.deploy([...args, "--account", chosen.id]);
+}
+
+const BY_CARD_ONLY ="It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
+
+/** Where a failed deploy's whole story is, for the agent; the owner hears only why. */
+const STORE_LOG = "Everything Cloudflare said is in ";
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
 async function deployStore(loreHome, args) {
@@ -405,18 +433,21 @@ async function deployStore(loreHome, args) {
     // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
     return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {
-    const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
+    // XC-085: the CLI says why on its own last line; one that ends in a colon has the why on the next.
+    const at = lines.reduce((found, line, index) => (line.startsWith("lore: ") ? index : found), -1);
+    const why = at < 0 ? lines.at(-1) ?? "the deploy stopped" : lines[at].endsWith(":") && lines[at + 1] ? `${lines[at]} ${lines[at + 1]}` : lines[at];
+    const said = why.replace(/^lore: /, "").replace(/:$/, "");
     // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
     const half = lines.find((line) => line.startsWith("! Your store may be half-updated"))?.slice(2);
-    return [`The deploy did not finish: ${said.replace(/^lore: /, "").replace(/:$/, "")}.`, ...(half ? [half] : [])].join("\n");
+    return [`The deploy did not finish: ${/[.!?]$/.test(said) ? said : `${said}.`}`, ...(half ? [half] : []), `${STORE_LOG}${join(loreHome, "logs", "store.log")}.`].join("\n");
   }
 }
 
-/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
- * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
- * @param {string} loreHome */
-function storeOnline(loreHome) {
-  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+/** XC-088: a place online for the owner's agents to save to, hosted by Lore in seconds with no account to make; an
+ * owner whose store runs on their own Cloudflare keeps that one. Nothing goes on sale, so there is nothing to confirm.
+ * Rejects in the CLI's own words. @param {string} loreHome */
+async function storeOnline(loreHome) {
+  await lore(loreHome, ["node", "host"]);
 }
 
 /** How long a Cloudflare sign-in waits on the browser before it gives up. */
@@ -519,6 +550,23 @@ async function searchMemories(loreHome, query) {
   const terms = query.trim().split(/\s+/).filter((term) => term && !term.startsWith("-")).slice(0, 8);
   if (!terms.length) return [];
   return JSON.parse(await lore(loreHome, ["search", ...terms, "--status", "private", "--limit", "30", "--json"]));
+}
+
+/** The bids on the board that the owner's kept memories answer, decided here (APP-274). The board goes in on stdin,
+ * as a decision would, so no question a stranger wrote is ever read as an option. @param {string} loreHome @param {unknown} board
+ * @returns {Promise<BidMatch[]>} */
+async function matchBids(loreHome, board) {
+  return records(await lore(loreHome, ["bids", "match"], JSON.stringify(board)), "bid matches");
+}
+
+/** Stage a bid's answer beside the drafts already waiting, replacing an earlier answer to the same bid. The app, not
+ * the model, says which memories it draws on and which bid it answers. @param {string} loreHome @param {BidMatch} match
+ * @param {BidDraft} words */
+async function stageBidAnswer(loreHome, match, words) {
+  const topic = match.bid.market && match.bid.market !== "unsorted" ? match.bid.market : "answers";
+  const answer = { ...words, kind: "claim", topic, provenance: match.memories.map((memory) => memory.id), bid: match.bid.id };
+  const waiting = (await candidates(loreHome)).filter((draft) => draft.bid !== match.bid.id);
+  await lore(loreHome, ["publication", "draft", "-"], JSON.stringify([...waiting, answer]));
 }
 
 /** @param {string} loreHome @param {unknown} id @returns {Promise<Memory>} */
@@ -821,7 +869,7 @@ async function removeSource(loreHome, name, keep) {
 }
 
 /** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
-const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "instinct", "other"]);
 
 /** @param {unknown} name */
 function agentSource(name) {
@@ -945,6 +993,8 @@ module.exports = {
   readSales,
   readViews,
   searchMemories,
+  matchBids,
+  stageBidAnswer,
   readMemory,
   readGists,
   judgeMemories,

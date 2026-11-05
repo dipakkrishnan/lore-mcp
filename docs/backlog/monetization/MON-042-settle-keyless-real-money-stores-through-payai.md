@@ -41,9 +41,9 @@ Filed from the 2026-10-06 new-seller audit.
 
 **Implemented 2026-10-08.** Took the first approach: `LORE_FACILITATOR_URL` is
 gone from the default `vars` in `lore/node/wrangler.jsonc` and stays in
-`env.qa` and in the tests' own binding (`vitest.config.ts`). `network.ts` is
+`env.qa` and in the tests' own binding (`vitest.workerd.config.ts`, since XC-099). `network.ts` is
 unchanged in behaviour — it already picked PayAI on mainnet once nothing
-overrode it. `test/network.test.ts` now reads the shipped `wrangler.jsonc`
+overrode it. `test/unit/network.test.ts` now reads the shipped `wrangler.jsonc`
 itself, so the config and the code are tested together: the older unit tests
 built their env by hand, which is how this stayed green.
 

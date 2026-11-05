@@ -49,7 +49,7 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 
-from . import __version__
+from . import __version__, usage
 from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
@@ -433,9 +433,13 @@ class Obsidian(Connector):
         """Under the path a connected vault's source keeps, so one already read is known by
         it; a path that can't be resolved (a link that loops) is offered as Obsidian names it."""
         try:
-            return self.reader.locate(path)[0]
+            located = self.reader.locate(path)[0]
         except (OSError, RuntimeError):
+            # Python 3.12 and older raise on a link that loops.
             return path
+        # Python 3.13 and newer resolve as far as they can and stop on the link
+        # itself, so a located path that is still a link is one that loops.
+        return path if Path(located).is_symlink() else located
 
 
 class Role(Enum):
@@ -2111,6 +2115,8 @@ class Registry:
             if result != "unchanged":
                 brought.append(key)
         reader.settle()
+        if brought:
+            self._saved(source)
         if source.origin != "automation":
             try:
                 self.store.credit_source(source.name, source.contributor())
@@ -2127,6 +2133,17 @@ class Registry:
             at=datetime.now(timezone.utc).isoformat(), state=reader.failure or state
         )
         return stats
+
+    @staticmethod
+    def _saved(source: Source) -> None:
+        """Count the day something came in, by which way; an agent's first save also
+        says that agent is connected."""
+        if source.kind == "agent":
+            usage.record("memory.saved", "agent")
+            usage.record("agent.connected", source.app or "other")
+        else:
+            automated = source.origin == "automation"
+            usage.record("memory.saved", "synthesis" if automated else "connector")
 
     def provenance(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
         """Fill in `sources` for each memory with nobody on record: who its source says

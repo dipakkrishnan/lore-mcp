@@ -5,18 +5,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { env, exports } from "cloudflare:workers";
 import { ensureInboxSchema } from "../src/inbox";
-import { b64url, fromB64url, hex, sealingKey } from "../src/seal";
+import { b64url, hex } from "../src/seal";
+import { open } from "./open";
+
+// The owner side of "Sealing" lives in test/open.ts, which needs no Worker; re-exported so the
+// workerd tests keep one import for the Mac's whole side.
+export { open };
 
 export const workerFetch = ((input: RequestInfo | URL, init?: RequestInit) => exports.default.fetch(input, init)) as typeof fetch;
-
-/** The owner side of contracts/inbox.md "Sealing". */
-export async function open(privateKey: CryptoKey, ownerPublic: Uint8Array<ArrayBuffer>, itemId: string, sealed: string): Promise<unknown> {
-  const bytes = fromB64url(sealed);
-  const eph = bytes.slice(0, 32);
-  const key = await sealingKey(privateKey, eph, new Uint8Array([...eph, ...ownerPublic]));
-  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes.slice(32, 44), additionalData: new TextEncoder().encode(itemId) }, key, bytes.slice(44));
-  return JSON.parse(new TextDecoder().decode(plain)) as unknown;
-}
 
 export async function ownerKey(): Promise<{ privateKey: CryptoKey; publicKey: Uint8Array<ArrayBuffer> }> {
   const pair = await crypto.subtle.generateKey({ name: "X25519" }, true, ["deriveBits"]);

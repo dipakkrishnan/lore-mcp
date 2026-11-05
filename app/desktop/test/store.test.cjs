@@ -70,10 +70,10 @@ test("free copies save through the CLI, refused before it unless a whole number,
 /** A stand-in CLI: answers the snapshot with a price, free copies, the store's payout address, whether it sells and its
  * pieces, and whether it is the store this Lore ships, and records every other call with its stdin.
  * @param {string} directory @param {string | null} payout @param {{selling?: boolean, items?: Partial<PublicationItem>[], cards?: string, store?: "current" | "outdated" | "unknown"}} [store] */
-async function recordingCli(directory, payout, { selling = false, items = [], cards = "", store = "unknown" } = {}) {
+async function recordingCli(directory, payout, { selling = false, items = [], cards = "", store = "unknown", url = "https://lore.example.workers.dev/mcp" } = {}) {
   const fake = join(directory, "lore");
   const ran = join(directory, "ran");
-  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling, store, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
+  const state = JSON.stringify({ version: 1, publications: { counts: { active: items.length, revoked: 0 }, items }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url, selling, store, live: { state: "online", network: "eip155:8453", price_usd: 1.5, payout } } });
   // `cards` is the Stripe account card payments go to, "" when they're off.
   const taking = JSON.stringify({ account: cards, pending: "", ready: cards ? true : null, checking: false, minimum_usd: 0.5 });
   await writeFile(fake, `#!/bin/sh\nif [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi\nif [ "$1" = cards ]; then echo '${taking}'; exit 0; fi\necho "$* unattended=$LORE_UNATTENDED stdin=$([ "$1" = profile ] && cat)" >> ${JSON.stringify(ran)}\necho "Done"\n`, { mode: 0o755 });
@@ -148,6 +148,95 @@ test("putting the store online for the owner's agents asks one yes, and never a 
     assert.equal(await readFile(ran, "utf8"), "node deploy --inbox-only unattended=1 stdin=\n");
     assert.equal(asked.length, 2, "one card each time, and nothing else asked");
     assert.equal(seen.length, 0, "nothing goes on sale, so there is no change to confirm");
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+test("with no store of their own, the owner's agents get one Lore hosts, on one yes and in seconds (XC-088)", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await recordingCli(directory, null, { url: null });
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  /** @type {Array<{heading: string, changes: StoreChange[]}>} */
+  const seen = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => { asked.push(questions); return { [questions[0].question]: label }; };
+  try {
+    useRuntime(fake);
+    assert.match(await openStore(directory, { inboxOnly: true }, answer("Not now"), confirming(directory, true, seen)), /chose not to/);
+    assert.ok(!existsSync(ran), "nothing ran without a yes");
+    assert.equal(await openStore(directory, { inboxOnly: true }, answer("Put it online"), confirming(directory, true, seen)), "The store is online for the owner's agents, hosted by Lore: nothing for sale.");
+    assert.equal(await readFile(ran, "utf8"), "node host unattended= stdin=\n");
+    assert.match(JSON.stringify(asked[1]), /Takes a few seconds/);
+    assert.equal(seen.length, 0, "nothing goes on sale, so there is no change to confirm");
+  } finally {
+    useRuntime(CLI);
+    await rm(directory, { recursive: true });
+  }
+});
+
+/** A stand-in CLI for an owner with a store on their own Cloudflare, whose deploy fails as `failing` says on stderr, unless it names an account; it lists two accounts.
+ * @param {string} directory @param {string} failing */
+async function failingCli(directory, failing) {
+  const fake = join(directory, "lore");
+  const ran = join(directory, "ran");
+  const said = join(directory, "failing");
+  await writeFile(said, `${failing}\n`);
+  const state = JSON.stringify({ version: 1, publications: { counts: { active: 0, revoked: 0 }, items: [] }, pricing: { publication_usd: null, answer_usd: null, answer_enabled: false, free_copies: 3 }, node: { url: "https://lore.example.workers.dev/mcp", selling: false, store: "unknown", live: { state: "not_configured" } } });
+  const accounts = join(directory, "accounts.json");
+  await writeFile(accounts, JSON.stringify([{ id: "0".repeat(32), name: "Ada's Account" }, { id: "f".repeat(32), name: "Lab" }]));
+  await writeFile(fake, `#!/bin/sh
+if [ "$1" = desktop-state ]; then echo '${state}'; exit 0; fi
+if [ "$2" = accounts ]; then cat ${JSON.stringify(accounts)}; exit 0; fi
+echo "$*" >> ${JSON.stringify(ran)}
+case "$*" in *--account*) echo "Online"; exit 0;; esac
+cat ${JSON.stringify(said)} >&2
+exit 1
+`, { mode: 0o755 });
+  return { fake, ran };
+}
+
+test("a store that didn't go online says why, in the CLI's words, and where the rest is (XC-085)", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const yes = async (/** @type {OwnerQuestion[]} */ questions) => ({ [questions[0].question]: "Put it online" });
+  for (const [failing, why] of [
+    ["lore: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.", "The deploy did not finish: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again."],
+    ["lore: deploy failed:\n✘ [ERROR] Something Cloudflare never said before", "The deploy did not finish: deploy failed: ✘ [ERROR] Something Cloudflare never said before."]
+  ]) {
+    const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+    try {
+      const { fake } = await failingCli(directory, failing);
+      useRuntime(fake);
+      const said = (await openStore(directory, { inboxOnly: true }, yes, confirming(directory, true, []))).split("\n");
+      assert.equal(said[0], why);
+      assert.equal(said.at(-1), `Everything Cloudflare said is in ${join(directory, "logs", "store.log")}.`);
+    } finally {
+      useRuntime(CLI);
+      await rm(directory, { recursive: true });
+    }
+  }
+});
+
+test("a Cloudflare sign-in with two accounts asks which one, then puts the store there (XC-087)", async () => {
+  const { openStore, useRuntime } = require("../src/state.cjs");
+  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
+  const { fake, ran } = await failingCli(directory, "lore: Your Cloudflare sign-in has more than one account. Choose the one your store goes on (`lore node accounts`), then set it up again.");
+  /** @type {OwnerQuestion[][]} */
+  const asked = [];
+  const answer = (/** @type {string} */ label) => async (/** @type {OwnerQuestion[]} */ questions) => {
+    asked.push(questions);
+    return { [questions[0].question]: questions[0].question.startsWith("Which") ? label : "Put it online" };
+  };
+  try {
+    useRuntime(fake);
+    assert.match(await openStore(directory, { inboxOnly: true }, answer("Lab"), confirming(directory, true, [])), /^The store is deployed/);
+    const picker = asked.at(-1)?.[0];
+    assert.equal(picker?.question, "Which Cloudflare account should your store go on?");
+    assert.deepEqual(picker?.options.map((option) => option.label), ["Ada's Account", "Lab"]);
+    assert.equal(await readFile(ran, "utf8"), `node deploy --inbox-only\nnode deploy --inbox-only --account ${"f".repeat(32)}\n`);
+    assert.match(await openStore(directory, { inboxOnly: true }, answer(""), confirming(directory, true, [])), /didn't choose a Cloudflare account/);
   } finally {
     useRuntime(CLI);
     await rm(directory, { recursive: true });
@@ -322,7 +411,8 @@ test("a store left half-changed is said plainly in the desktop result, with no s
     useRuntime(fake);
     await recordPayout({ address: `0x${"5e11".repeat(10)}`, network: "test" });
     const said = await openStore(directory, { network: "real", wallet: next }, async () => ({}), confirming(directory, true, []));
-    assert.equal(said, `The deploy did not finish: Lore couldn't switch your store's network.\nYour store may be half-updated: it now pays ${next} on its old network. Open your store again to finish.`);
+    // XC-085: the why on the line after the CLI's own is kept, not dropped.
+    assert.equal(said, `The deploy did not finish: Lore couldn't switch your store's network: vault down.\nYour store may be half-updated: it now pays ${next} on its old network. Open your store again to finish.\nEverything Cloudflare said is in ${join(directory, "logs", "store.log")}.`);
     assert.ok(!said.includes("LORE_"));
   } finally {
     await recordPayout(null);

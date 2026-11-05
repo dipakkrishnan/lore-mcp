@@ -1,6 +1,6 @@
 const { existsSync } = require("node:fs");
 const { appendFile } = require("node:fs/promises");
-const { dirname, join } = require("node:path");
+const { dirname, isAbsolute, join } = require("node:path");
 const { app, autoUpdater, BrowserWindow, clipboard, dialog, ipcMain, nativeTheme, powerMonitor, safeStorage, shell, systemPreferences } = require("electron");
 const { provision, skillsDir, whisper } = require("./runtime.cjs");
 const { transcribe } = require("./dictation.cjs");
@@ -8,12 +8,13 @@ const sales = require("./sales.cjs");
 const { Updates } = require("./updates.cjs");
 const reading = require("./reading.cjs");
 const checkin = require("./checkin.cjs");
+const { BidWatch, BIDS_URL, nextLook, announcements: bidNews } = require("./bids.cjs");
 const { Schedule } = require("./routines.cjs");
 const { FirstRun } = require("./firstrun.cjs");
 const { Appearance } = require("./appearance.cjs");
 const { Watch, AgentApps } = require("./agents.cjs");
 const { checkAttachments } = require("./attachments.cjs");
-const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
+const { lore, listRoutines, runRoutine, changeRoutine, addRoutine, editRoutine, switchSource, openable, readState, readSales, readViews, searchMemories, matchBids, stageBidAnswer, readMemory, readGists, creditMemories, judgeMemories, renameMemory, editMemory, deleteMemory, captureMemories, previewPage, setPrice, setFreeCopies, newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection, candidates, decide, extrasCandidates, decideExtras, approveExtras, reportFeedback, listStore, cardStatus, connectCards, switchCards, listingStatus, sourceCatalog, sourceChoices, connectSource, signIn, readSource, removeSource, listAgents, connectAgent, agentKey, disconnectAgent, agentsWaiting, agentAddress, allowSignIn, denySignIn, useRuntime, openStore, Outgoing, storeOnline, cloudflareSignIn, saveProfile, ATTENDED_KEYS, forgetKey, STORE } = require("./state.cjs");
 const { OwnerRequests, ownerGates } = require("./owner.cjs");
 
 if (process.env.LORE_DESKTOP_USER_DATA) app.setPath("userData", process.env.LORE_DESKTOP_USER_DATA);
@@ -24,8 +25,9 @@ if (!app.requestSingleInstanceLock()) app.exit();
 process.env.LORE_APP_VERSION = app.getVersion();
 const TASKS = new Set(["capture", "setup", "publish", "deploy", "evening"]);
 /** What the renderer may report: that the usage notice was on screen, and that the app opened. */
-const USAGE = new Set(["noticed", "app.opened"]);
+const USAGE = new Set(["noticed", "app.installed", "app.opened"]);
 const LOGINS = new Set(["anthropic:oauth", "anthropic:api_key", "openai-codex:oauth", "openai:api_key"]);
+const FIRST_RUN_STEPS = new Set(["apps", "agent", "store", "link", "saved", "skipped"]);
 
 /** @type {LoreAgentInstance | undefined} */
 let agent;
@@ -52,6 +54,15 @@ const appearance = new Appearance(join(app.getPath("userData"), "appearance.json
 const seenMemories = new reading.Seen(join(app.getPath("userData"), "memories-seen.json"));
 /** The evening check-in waiting for the owner, if Lore found something worth asking (AUT-008). */
 const checkIns = new checkin.CheckIns(join(app.getPath("userData"), "check-in.json"), badge.part("checkin"));
+/** The owner's Lore. */
+const LORE_HOME = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
+/** Open bids the owner's memories answer, matched here; the board's address can point elsewhere for a test (APP-274). */
+const bids = new BidWatch({
+  file: join(app.getPath("userData"), "bid-matches.json"),
+  match: (board) => matchBids(LORE_HOME, board),
+  badge: badge.part("bids"),
+  url: process.env.LORE_BIDS_URL || BIDS_URL
+});
 /** @param {AgentEvent} event */
 function emit(event) {
   window?.webContents.send("agent:event", event);
@@ -61,8 +72,6 @@ const updates = new Updates({ app, autoUpdater, dialog, shell }, (update) => emi
 /** The Cloudflare sign-in waiting on the owner's browser, if any: its page, to open again, and how to stop it.
  * @type {{url: string, stop: AbortController} | null} */
 let signingIn = null;
-const VERIFY_EMAIL = "Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.";
-const STORE_ELSEWHERE = "This Cloudflare account already has a Lore store. Sign in with a different account, or reconnect that store from the Mac that set it up.";
 
 /** Sign in to Cloudflare in the browser, wherever the store goes online, with the page reopenable and the wait
  * cancellable from the app until it ends; it always ends, signed in, cancelled, failed or timed out.
@@ -91,9 +100,10 @@ function request(type, payload, signal) {
 /** @param {string} loreHome @param {InstanceType<typeof Schedule>} schedule @param {InstanceType<typeof Watch>} watch @param {InstanceType<typeof Outgoing>} outgoing */
 function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("snapshot:read", async () => {
-    const state = await readState(loreHome);
+    const [state, bidMatches, bidBoard] = await Promise.all([readState(loreHome), bids.matches(), bids.board()]);
     storeAddress = state.node.url;
-    return state;
+    inboxAddress = state.node.agents ?? null;
+    return { ...state, bidMatches, bidBoard };
   });
   ipcMain.handle("dictation:permission", () => systemPreferences.askForMediaAccess("microphone"));
   ipcMain.handle("update:status", () => updates.update);
@@ -130,8 +140,10 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
       return auth;
     });
   });
-  ipcMain.handle("usage:record", (_event, name) => {
-    if (!USAGE.has(name)) throw new Error("Unknown usage event");
+  ipcMain.handle("usage:record", (_event, name, step) => {
+    // The first-run chat's steps are the one event the renderer sends with a value, and only one of these.
+    if (name === "firstrun.step" && FIRST_RUN_STEPS.has(step)) return lore(loreHome, ["telemetry", "record", name, step]).then(() => undefined);
+    if (!USAGE.has(name) || step !== undefined) throw new Error("Unknown usage event");
     return lore(loreHome, name === "noticed" ? ["telemetry", "noticed"] : ["telemetry", "record", name]).then(() => undefined);
   });
   ipcMain.handle("telemetry:set", (_event, on) => lore(loreHome, ["telemetry", on === true ? "on" : "off"]).then(() => undefined));
@@ -150,6 +162,12 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     return searchMemories(loreHome, query);
   });
   ipcMain.handle("memory:read", (_event, id) => readMemory(loreHome, id));
+  // APP-282: the file a memory was read from, shown in Finder; the path is the store's, so the page can only name an id.
+  ipcMain.handle("memory:reveal", async (_event, id) => {
+    const { source_path: path } = await readMemory(loreHome, id);
+    const file = path.startsWith("~/") ? join(app.getPath("home"), path.slice(2)) : path;
+    if (isAbsolute(file) && existsSync(file)) shell.showItemInFolder(file);
+  });
   ipcMain.handle("memory:gists", () => readGists(loreHome));
   ipcMain.handle("memory:rename", (_event, id, title) => {
     if (typeof title !== "string") throw new Error("Invalid title");
@@ -275,7 +293,7 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("sources:read", async (_event, name) => (await readSource(loreHome, name)).map(through));
   ipcMain.handle("ready:runs", () => newMemories.runs());
   ipcMain.handle("suggestions:list", () => suggestions.list());
-  ipcMain.handle("suggestions:drop", (_event, at) => suggestions.drop(at));
+  ipcMain.handle("suggestions:drop", (_event, title) => suggestions.drop(title));
   ipcMain.handle("ready:seen", () => newMemories.seen());
   ipcMain.handle("ready:clear", () => newMemories.clear());
   ipcMain.handle("ready:dismiss", (_event, runs) => newMemories.dismiss(runs));
@@ -287,6 +305,21 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
     await seenMemories.add(reading.seenIds(ids));
   });
   ipcMain.handle("checkin:waiting", () => checkIns.waiting());
+  ipcMain.handle("bids:dismiss", async (_event, id) => {
+    await bids.dismiss(String(id));
+    emit({ type: "changed" });
+  });
+  // A stranger wrote the question, so the model drafting the answer gets no tools: the app reads the matched memories,
+  // hands their text over, and stages a draft from the words it gets back, tied to the bid, waiting on the owner's card.
+  ipcMain.handle("bids:draft", async (_event, id) => {
+    const match = await bids.find(String(id));
+    if (!match) throw new Error("That bid has ended");
+    const memories = await Promise.all(match.memories.map((memory) => readMemory(loreHome, memory.id)));
+    const words = await ready().draftBid(match, memories);
+    if (!words) throw new Error("Lore couldn't draft an answer from those memories. Try again.");
+    await stageBidAnswer(loreHome, match, words);
+    emit({ type: "changed" });
+  });
   ipcMain.handle("checkin:dismiss", () => checkIns.expire().then(closeCheckIn));
   // APP-200: the Automations tab reads and changes routines through the CLI, then the clock looks again. Run now waits
   // its turn behind any run under way, so the owner's and the clock's never overlap.
@@ -340,22 +373,10 @@ function registerIpc(loreHome, schedule, watch, outgoing) {
   ipcMain.handle("appearance:read", () => appearance.read());
   ipcMain.handle("appearance:set", (_event, choice) => appearance.set(choice));
   ipcMain.handle("store:online", async () => {
-    // A store that already sells puts out what is waiting when it goes online, so the owner says yes to that first.
-    if (!(await outgoing.confirmed())) throw new Error("Your store stays as it was.");
     try {
-      let said = await storeOnline(loreHome);
-      if (said.includes("not signed in to Cloudflare")) {
-        await signInToCloudflare(loreHome);
-        said = await storeOnline(loreHome);
-      }
-      // A store this Mac didn't set up is never taken over or written to from here.
-      if (said.includes("already exists on this Cloudflare account")) throw new Error(STORE_ELSEWHERE);
-      if (said.includes("verify your email")) throw new Error(VERIFY_EMAIL);
-      if (!said.startsWith("The store is deployed")) {
-        console.error("The store did not go online:", said);
-        throw new Error("Your store didn't go online. Try again in a minute.");
-      }
+      await storeOnline(loreHome);
     } finally {
+      inboxAddress = undefined;
       emit({ type: "changed" });
     }
   });
@@ -387,8 +408,8 @@ function readThrough(loreHome, read) {
   return read;
 }
 
-/** Put each app's new items in line to be read. What an agent saved is on Today at once; reading it through after only
- * tidies it. Resolves to whether Today has a new card, for the caller to tell the window, once.
+/** Put each app's new items in line to be read. What an agent saved is on Today at once, as the memories it wrote; a
+ * reading after only judges them, and writes none of its own beside them. Resolves to whether Today has a new card, for the caller to tell the window, once.
  * @param {string} loreHome @param {Array<{name: string, connector?: string | null, added?: number, memories?: Array<{id: number, title: string}>}>} reads */
 async function queueReadings(loreHome, reads) {
   if (!reads.some((read) => read.added)) return false;
@@ -397,9 +418,12 @@ async function queueReadings(loreHome, reads) {
   for (const read of reads) {
     const next = reading.worthReading(read, apps);
     if (!next) continue;
-    if (next.by.kind === "agent" && read.memories?.length) {
+    if (next.by.kind === "agent") {
+      if (!read.memories?.length) continue;
       await showSaved(reading.saved(next, read.memories));
       shown = true;
+      agent?.synthesize({ ...next, judge: read.memories });
+      continue;
     }
     agent?.synthesize(next);
   }
@@ -475,10 +499,8 @@ function createWindow() {
     height: 760,
     minWidth: 760,
     minHeight: 620,
-    // The page paints its own cream everywhere but the sidebar, which shows the window's frosted sidebar material.
-    backgroundColor: "#00000000",
-    vibrancy: "sidebar",
-    visualEffectState: "followWindow",
+    // APP-281: one canvas. The page paints the sidebar too; the window's own colour only shows before the page loads.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0f1011" : "#fcfcfd",
     titleBarStyle: "hiddenInset",
     webPreferences: {
       preload: join(__dirname, "preload.cjs"),
@@ -501,13 +523,15 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const loreHome = process.env.LORE_HOME || join(app.getPath("home"), ".lore");
+  // Run from source, Electron would show its own icon in the Dock; the packaged app gets Lore's from forge.
+  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, "..", "packaging", "icon.png"));
+  const loreHome = LORE_HOME;
   // The owner's rhythm, kept by Lore while it is open; an hour missed while it was closed runs once, after setup.
   /** The sign-ins the owner has been told of. @type {Set<string>} */
   const told = new Set();
   const schedule = new Schedule(() => listRoutines(loreHome), (routine) => runNow(loreHome, routine));
   const watch = new Watch({
-    ready: () => hasStore(loreHome),
+    ready: () => hasInbox(loreHome),
     waiting: () => agentsWaiting(loreHome),
     read: (name) => readSource(loreHome, name),
     landed: async (reads) => {
@@ -531,9 +555,11 @@ app.whenReady().then(async () => {
   updates.start();
   await boot(loreHome, outgoing);
   watchSales(loreHome);
+  watchBids();
   watchAgents(watch);
   void newMemories.show();
   void checkIns.show();
+  void bids.show();
   void schedule.check();
   powerMonitor.on("resume", () => void schedule.check());
   app.on("activate", () => {
@@ -543,6 +569,27 @@ app.whenReady().then(async () => {
 
 /** Reading the ledger asks Cloudflare, so once a minute is plenty; coming back to the app checks at once. */
 const SALES_EVERY_MS = 60_000;
+
+/** A Mac notification for each open bid the owner's memories answer. The board is read now and then about every
+ * quarter hour, never on the owner's comings and goings, so its server can't tell when they use the app. */
+function watchBids() {
+  const look = async () => {
+    try {
+      const fresh = await bids.check();
+      // One bid opens its own page; a lot of them, the Inbox that lists them (APP-283).
+      const [only] = fresh.length === 1 ? fresh : [];
+      for (const words of bidNews(fresh)) sales.notify(words, () => reveal({ type: "show", view: "inbox", ...(only ? { bid: only.bid.id } : {}) }));
+      // Remembered only once the banners are up: one that failed is announced on the next look.
+      await bids.announced(fresh.map((match) => match.bid.id));
+      if (fresh.length) emit({ type: "changed" });
+    } catch (error) {
+      // Offline, or the board is down: the next look tries again.
+      console.error("Lore could not read the bids board:", error);
+    }
+    setTimeout(() => void look(), nextLook());
+  };
+  void look();
+}
 
 /** The store's address as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
 let storeAddress;
@@ -555,6 +602,16 @@ async function hasStore(loreHome) {
   if (![join(STORE, "wrangler.jsonc"), join(STORE, "node_modules", ".bin", "wrangler"), join(loreHome, "node", "wrangler.jsonc")].some((path) => existsSync(path))) return false;
   if (storeAddress === undefined) storeAddress = (await readState(loreHome).catch(() => null))?.node.url;
   return Boolean(storeAddress);
+}
+
+/** Where the owner's agents save as the last snapshot read it; undefined until one has been read. @type {string | null | undefined} */
+let inboxAddress;
+
+/** Only a store online for the owner's agents has an inbox, on their own Cloudflare or hosted by Lore (XC-088).
+ * @param {string} loreHome */
+async function hasInbox(loreHome) {
+  if (inboxAddress === undefined) inboxAddress = (await readState(loreHome).catch(() => null))?.node.agents ?? null;
+  return Boolean(inboxAddress);
 }
 
 /** What the owner's agents saved comes in while Lore is open: now, on coming back to the app, and at the watch's own
@@ -726,6 +783,20 @@ async function start(loreHome, outgoing) {
       sales.notify(checkin.announcement(posting), () => reveal({ type: "thread", task: "evening" }));
     },
     memoriesReady: async (read, report, wrote) => {
+      // An agent's saves, judged: what looks worth selling joins the card they are already on.
+      if (read.judge) {
+        const run = reading.judged(read, report);
+        if (!run.memories.length) return;
+        try {
+          await judgeMemories(loreHome, run.memories);
+        } catch (error) {
+          console.error("Lore could not record which memories look worth selling:", error);
+        }
+        await newMemories.extend(run);
+        emit({ type: "changed" });
+        emit({ type: "ready" });
+        return;
+      }
       await lore(loreHome, ["sync", "--source", "automation"]);
       const stored = JSON.parse(await lore(loreHome, ["search", "--source", "automation", "--limit", "0", "--json"]));
       const run = reading.landed(read, report, stored, join(loreHome, "memories"), wrote);
@@ -744,7 +815,7 @@ async function start(loreHome, outgoing) {
         emit({ type: "changed" });
         // Says what's waiting and asks for the look, so the owner knows it's worth a minute now.
         const what = offered.length === 1 ? "a collection" : `${offered.length} collections`;
-        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "today" }));
+        sales.notify({ title: `Lore suggested ${what} you could sell`, body: `Review? ${offered.join(" · ")}` }, () => reveal({ type: "show", view: "inbox" }));
       }
       // What the reading judged is kept before anything announces the memories, so a sheet opened at once offers
       // Draft for sale only where it makes sense. Failing to keep it never costs the owner their card or banner.
@@ -760,7 +831,7 @@ async function start(loreHome, outgoing) {
       const fromAgent = read.by.kind === "agent";
       await (fromAgent ? newMemories.extend(run) : newMemories.add(run));
       emit({ type: "ready" });
-      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "today" }));
+      if (!fromAgent) sales.notify(reading.announcement(run), () => reveal({ type: "show", view: "inbox" }));
       // Who wrote them is a nicety, kept last: failing to record it never costs the owner their memories' card or banner.
       try {
         await creditMemories(loreHome, run.memories.map((memory) => memory.id), read.by);

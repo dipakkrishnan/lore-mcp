@@ -1,29 +1,25 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineProject({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: {
-        // Point every test at a stub facilitator instead of the real
-        // x402.org endpoint; individual tests control its responses by
-        // mocking `globalThis.fetch` (see test/facilitator.ts). This is the
-        // only place the override is set — wrangler.jsonc's default vars
-        // deliberately carry none (MON-042). The API key
-        // is a fixture: the answer tests stub api.anthropic.com the same way.
-        bindings: {
-          LORE_FACILITATOR_URL: "https://facilitator.test",
-          CHECKOUT_URL: "https://checkout.test",
-          ANTHROPIC_API_KEY: "test-key"
-        }
-      }
-    })
-  ],
+// XC-099: two projects under one `vitest run`. `node` (vitest.unit.config.ts) runs the pure
+// modules' tests in plain node, files in parallel, in well under a second; `workerd`
+// (vitest.workerd.config.ts) is the Workers pool, which boots a Worker per file and so runs
+// one file at a time. `npm run test:unit` and `npm run test:component` pick one.
+// Lore's hosted stores are a third pool (vitest.hosted.config.ts, XC-088), run by `npm test`
+// with its own `-c`, since it is another Worker with another wrangler config.
+export default defineConfig({
   test: {
-    fileParallelism: false,
-    include: ["test/**/*.test.ts"],
-    setupFiles: ["./test/setup.ts"],
-    testTimeout: 15_000
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
+    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). Coverage is a
+    // root option: one istanbul report over both projects (the Workers pool supports istanbul
+    // only, and it instruments the node project the same). src/hosted belongs to the hosted
+    // Worker's report (vitest.hosted.config.ts), so the two reports partition src/ and CI sums
+    // them into one lore/node line in the step summary (.github/scripts/coverage_summary.py).
+    // No thresholds: XC-108 sets floors once a few weeks of numbers exist.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"],
+      exclude: ["src/hosted/**"]
+    }
   }
 });

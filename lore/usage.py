@@ -1,9 +1,10 @@
 """Anonymous usage events (APP-058): where installs get to, never what is in them.
 
 Each event is a closed name with at most one coded property, sent with the
-install's random id and the app version. A milestone is sent once per install
+install's random id and the app version. `app.installed` is only ever an install's
+first event, so each install is counted once. A milestone is sent once per install
 (so nothing reveals how much someone has written), `app.opened` once a day,
-and `cli.failed` each time. Nothing is sent until the owner has seen the
+and `cli.failed` and `store.failed` each time. Nothing is sent until the owner has seen the
 notice, and nothing at all with telemetry off. Every event sent is also
 appended to a local log the owner can read. Sending is best-effort and never
 blocks or fails a command. The relay re-checks every event against the same
@@ -18,6 +19,7 @@ import sqlite3
 import threading
 import urllib.request
 from datetime import datetime, timezone
+from typing import Callable, Mapping
 
 from . import __version__, feedback
 from .paths import home
@@ -47,6 +49,11 @@ CONNECTORS = (
     "feed",
     "agents",
 )
+# How a memory came in (XC-090): the owner capturing it, a personal agent saving
+# to the inbox, a connected app read, or Lore's own synthesis.
+SAVED_VIA = ("capture", "agent", "connector", "synthesis")
+# Which personal agent first saved to the inbox; inbox.AgentApp's values.
+AGENT_APPS = ("grok", "muse", "chatgpt", "claude", "instinct", "other")
 COMMANDS = (
     "setup",
     "sync",
@@ -64,14 +71,36 @@ COMMANDS = (
     "report-feedback",
     "other",
 )
-# name -> (how often it is sent, the one property it may carry and its values)
+# Why a store didn't go online (XC-085): a cause, never what the tools said.
+STORE_FAILURES = (
+    "email_unverified",
+    "no_subdomain",
+    "many_accounts",
+    "exists_elsewhere",
+    "not_signed_in",
+    "no_payout",
+    "timeout",
+    "not_answering",
+    "other",
+)
+# How far a new owner got through the app's first-run chat, each step once.
+FIRST_RUN_STEPS = ("apps", "agent", "store", "link", "saved", "skipped")
+# name ->(how often it is sent, the one property it may carry and its values)
 EVENTS: dict[str, tuple[str, tuple[str, tuple[str, ...]] | None]] = {
+    "app.installed": ("first", None),
     "app.opened": ("daily", None),
     "signin.completed": ("once", None),
+    "firstrun.step": ("once", ("step", FIRST_RUN_STEPS)),
     "source.connected": ("once", ("connector", CONNECTORS)),
-    "memory.saved": ("once", None),
+    # Once a day for each way in: how many days an install keeps saving, never how much.
+    "memory.saved": ("daily", ("via", SAVED_VIA)),
+    "agent.connected": ("once", ("agent", AGENT_APPS)),
+    "piece.drafted": ("once", None),
     "piece.approved": ("once", None),
+    "store.attempted": ("once", None),
+    "store.online": ("once", None),
     "store.opened": ("once", None),
+    "store.failed": ("always", ("reason", STORE_FAILURES)),
     "store.listed": ("once", None),
     "sale.seen": ("once", ("via", ("card", "agent"))),
     "cli.failed": ("always", ("command", COMMANDS)),
@@ -87,20 +116,57 @@ def notice_shown() -> None:
         store.set_setting(NOTICED_SETTING, True)
 
 
-def record(name: str, value: str = "") -> bool:
+# What carries an event off this machine; `_send` unless a caller brings its own.
+Sender = Callable[[dict[str, object]], None]
+
+
+def record(name: str, value: str = "", *, send: Sender | None = None) -> bool:
     """Send one event if it is allowed, due and consented to; True if sent.
-    Never fails the command that observed it."""
+    Never fails the command that observed it. `send` replaces the relay post
+    (XC-105): a caller that wants the event in hand, not on the wire."""
     frequency, prop = EVENTS[name]
     if prop and value not in prop[1]:
         raise ValueError(f"{name} can't carry {value!r}")
     try:
-        return _record(name, frequency, {prop[0]: value} if prop else {}, value)
+        # A value on an event that carries none is dropped here, not kept as a key.
+        return _record(
+            name,
+            frequency,
+            {prop[0]: value} if prop else {},
+            value if prop else "",
+            send=send,
+        )
     except (OSError, sqlite3.Error):
         return False
 
 
-def _record(name: str, frequency: str, props: dict[str, str], value: str) -> bool:
-    key = f"{name}:{value}" if frequency == "once" else name
+def event_key(name: str, frequency: str, value: str) -> str:
+    """Under what name an event's sending is remembered: with its value when the
+    value is what makes it a different event, or when it is sent once."""
+    return f"{name}:{value}" if frequency == "once" or value else name
+
+
+def due(frequency: str, key: str, sent: Mapping[str, str], today: str) -> bool:
+    """Whether an event is sent now, given what was sent before (XC-105): `once`
+    never again, `first` only before anything else, `daily` once a day, `always`."""
+    if frequency == "once" and key in sent:
+        return False
+    if frequency == "first" and sent:
+        return False
+    if frequency == "daily" and sent.get(key) == today:
+        return False
+    return True
+
+
+def _record(
+    name: str,
+    frequency: str,
+    props: dict[str, str],
+    value: str,
+    *,
+    send: Sender | None = None,
+) -> bool:
+    key = event_key(name, frequency, value)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     with Store() as store:
         if store.setting(ENABLED_SETTING, True) is False:
@@ -109,9 +175,7 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
             return False
         sent = store.setting(SENT_SETTING, {})
         sent = sent if isinstance(sent, dict) else {}
-        if frequency == "once" and key in sent:
-            return False
-        if frequency == "daily" and sent.get(key) == today:
+        if not due(frequency, key, sent, today):
             return False
         if frequency != "always":
             store.set_setting(SENT_SETTING, sent | {key: today})
@@ -121,7 +185,8 @@ def _record(name: str, frequency: str, props: dict[str, str], value: str) -> boo
         "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     _log(event)
-    _send(event)
+    # Looked up now, not at import, so a sender put in place later is the one used.
+    (_send if send is None else send)(event)
     return True
 
 

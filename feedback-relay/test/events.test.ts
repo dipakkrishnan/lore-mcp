@@ -2,8 +2,8 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { env, exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import contract from "../../contracts/usage_events.json";
-import { MAX_EVENTS, forward, parseBatch } from "../src/events";
-import worker from "../src/index";
+import { MAX_EVENTS, forward, parseBatch, siteBatch } from "../src/events";
+import worker, { SiteEvents } from "../src/index";
 
 const fetchWorker = ((input: RequestInfo | URL, init?: RequestInit) => exports.default.fetch(input, init)) as typeof fetch;
 const AT = "2026-10-09T12:00:00Z";
@@ -35,11 +35,86 @@ describe("usage events", () => {
     expect(parseBatch(batch(Array(MAX_EVENTS + 1).fill({ name: "store.opened", props: {}, at: AT })))).toBeNull();
   });
 
+  it("takes why a store didn't go online as a code, never in words", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "store.failed", props: { reason: "no_subdomain" }, at: AT },
+        { name: "store.failed", props: { reason: "Please verify ada@example.com" }, at: AT },
+        { name: "store.online", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([
+      { name: "store.failed", props: { reason: "no_subdomain" }, at: AT },
+      { name: "store.online", props: {}, at: AT }
+    ]);
+  });
+
+  it("takes how far a first run got as one of its steps, nothing else", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "firstrun.step", props: { step: "link" }, at: AT },
+        { name: "firstrun.step", props: { step: "Grok Bot" }, at: AT },
+        { name: "firstrun.step", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([{ name: "firstrun.step", props: { step: "link" }, at: AT }]);
+  });
+
   it("knows every event in the shared contract", () => {
     for (const [name, prop] of Object.entries(contract.events)) {
       const props = prop ? { [prop.prop]: prop.values[0] } : {};
       expect(parseBatch(batch([{ name, props, at: AT }]))?.events).toHaveLength(1);
     }
+  });
+
+  it("takes the site's agent counts as two codes under one site id, never a raw User-Agent", () => {
+    for (const name of contract.site_events.names) expect(siteBatch(name, "claudebot")).not.toBeNull();
+    expect(siteBatch("agent.catalog", "gptbot", new Date(AT))).toEqual({
+      install_id: "00000000000000000000000000005173",
+      version: "site",
+      events: [{ name: "agent.catalog", props: { agent: "gptbot" }, at: AT }]
+    });
+    expect(siteBatch("agent.catalog", "Mozilla/5.0 (Macintosh)")).toBeNull();
+    expect(siteBatch("store.opened", "gptbot")).toBeNull();
+  });
+
+  it("never takes a site count over the public /events route", () => {
+    expect(parseBatch(batch([{ name: "agent.catalog", props: { agent: "gptbot" }, at: AT }], { version: "site" }))?.events).toEqual([]);
+  });
+
+  it("forwards a site count through the binding-only entrypoint with no person profile and no IP", async () => {
+    const sent = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("{}"));
+    await new SiteEvents(createExecutionContext(), { ...env, POSTHOG_KEY: "phc_test" }).count("agent.llms", "curl");
+    await new SiteEvents(createExecutionContext(), { ...env, POSTHOG_KEY: "phc_test" }).count("agent.llms", "203.0.113.9");
+    expect(sent).toHaveBeenCalledTimes(1);
+    const { batch: sentBatch } = JSON.parse(sent.mock.calls[0][1]!.body as string) as { batch: Record<string, unknown>[] };
+    expect(sentBatch).toEqual([
+      {
+        event: "agent.llms",
+        distinct_id: "00000000000000000000000000005173",
+        timestamp: expect.stringMatching(/Z$/) as unknown,
+        properties: { agent: "curl", app_version: "site", $process_person_profile: false, $ip: null }
+      }
+    ]);
+  });
+
+  it("takes how a memory came in, and still takes the bare save older copies of Lore send", () => {
+    const parsed = parseBatch(
+      batch([
+        { name: "memory.saved", props: { via: "agent" }, at: AT },
+        { name: "memory.saved", props: {}, at: AT },
+        { name: "memory.saved", props: { via: "my notes" }, at: AT },
+        { name: "agent.connected", props: { agent: "grok" }, at: AT },
+        { name: "agent.connected", props: {}, at: AT },
+        { name: "piece.drafted", props: {}, at: AT }
+      ])
+    );
+    expect(parsed?.events).toEqual([
+      { name: "memory.saved", props: { via: "agent" }, at: AT },
+      { name: "memory.saved", props: {}, at: AT },
+      { name: "agent.connected", props: { agent: "grok" }, at: AT },
+      { name: "piece.drafted", props: {}, at: AT }
+    ]);
   });
 
   it("passes events to PostHog as an install id with no person profile", async () => {
