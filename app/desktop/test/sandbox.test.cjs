@@ -83,15 +83,45 @@ test("no command the agent runs reaches the network, in any task", { skip: proce
   }
 });
 
-test("the sandbox reads the agents' memories, never their credential files", async () => {
+test("only setup reads the agents' memories, and no task reads their credential files", async () => {
   const { sandboxPolicy } = await import("../src/agent.mjs");
   const home = await mkdtemp(join(tmpdir(), "lore-policy-"));
+  const history = [".claude/projects", ".codex/memories"].map((dir) => join(userInfo().homedir, dir));
   try {
-    const { allowRead } = sandboxPolicy({ loreHome: home }).filesystem;
-    for (const dir of [".claude/projects", ".codex/memories"]) assert.ok(allowRead.includes(join(userInfo().homedir, dir)), dir);
-    for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(userInfo().homedir, dir)), `${dir} root, which holds auth.json and credentials`);
+    // APP-196: setup lists and imports the agents' history; every other task, and the sandbox's default, never sees it.
+    for (const task of [...TASKS_ALL, undefined]) {
+      const { allowRead } = sandboxPolicy({ loreHome: home }, /** @type {AgentTask | undefined} */ (task)).filesystem;
+      for (const dir of history) assert.equal(allowRead.includes(dir), task === "setup", `${task}: ${dir}`);
+      for (const dir of [".claude", ".codex"]) assert.ok(!allowRead.includes(join(userInfo().homedir, dir)), `${task}: ${dir} root, which holds auth.json and credentials`);
+    }
   } finally {
     await rm(home, { recursive: true });
+  }
+});
+
+// Read-only against the account's real history, since the policy is anchored there; skipped where there is none (CI).
+const PROJECTS = join(userInfo().homedir, ".claude", "projects");
+test("the agents' history is out of reach of every tool outside setup", { skip: process.platform !== "darwin" || !existsSync(PROJECTS) }, async () => {
+  const { createSandboxedBashOperations, createSandboxedEditOperations, createSandboxedReadOperations } = await import("../src/agent.mjs");
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  const { root, loreHome, place } = await sandboxed();
+  // A small memory note to open, never a transcript, which can be larger than one read takes.
+  const { readdirSync, statSync } = require("node:fs");
+  const note = readdirSync(PROJECTS)
+    .flatMap((project) => { try { return readdirSync(join(PROJECTS, project, "memory")).map((name) => join(PROJECTS, project, "memory", name)); } catch { return []; } })
+    .find((path) => path.endsWith(".md") && statSync(path).isFile() && statSync(path).size < 65_536);
+  try {
+    for (const task of /** @type {AgentTask[]} */ (TASKS_ALL)) {
+      const result = await createSandboxedBashOperations(place, task).exec(`ls ${JSON.stringify(PROJECTS)} >/dev/null`, loreHome, { onData: () => {} });
+      assert.equal(result.exitCode === 0, task === "setup", `${task}: bash`);
+      if (!note) continue;
+      const opened = (/** @type {Promise<unknown>} */ promise) => promise.then(() => true, () => false);
+      assert.equal(await opened(createSandboxedReadOperations(place, task).access(note)), task === "setup", `${task}: read`);
+      assert.equal(await opened(createSandboxedEditOperations(place, task).readFile(note)), task === "setup", `${task}: edit`);
+    }
+  } finally {
+    await SandboxManager.reset();
+    await rm(root, { recursive: true, force: true });
   }
 });
 
