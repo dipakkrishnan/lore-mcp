@@ -303,6 +303,23 @@ describe("answer (paid) and result", () => {
     }
   });
 
+  it("forces a tool call every turn and stops after six model turns without an answer", async () => {
+    const model = scriptModel([
+      { tool: "memory_view", input: { public_id: FIXTURE_PUBLICATION_ID } }
+    ]);
+    mockFacilitator({ otherwise: model.otherwise });
+    const client = await connect();
+    try {
+      const ticket = await buyAnswer(client, "What does the fixture teach?");
+      const outcome = await pollResult(client, ticket);
+      expect(outcome.status).toBe("failed");
+      expect(model.requests).toHaveLength(6);
+      for (const request of model.requests) expect(request.tool_choice).toEqual({ type: "any" });
+    } finally {
+      await client.close();
+    }
+  });
+
   it("fails the ticket with the no-refund note when the model API errors", async () => {
     const model = scriptModel({ status: 500 });
     mockFacilitator({ otherwise: model.otherwise });
