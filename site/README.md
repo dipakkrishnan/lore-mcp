@@ -52,17 +52,21 @@ Runs in the local Workers runtime (miniflare); nothing reaches Cloudflare.
 
 ## Release asset
 
-The Download button requests the stable URL
-`https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip`.
-electron-forge's maker-zip emits a versioned name, so rename at upload:
+The Download button opens `/download` (src/download.js), which starts
+`https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.dmg`
+and says how to open Lore in three steps (XC-125). The disk image is the first
+install; the zip stays on every release for the app's own updates. Upload both
+under these stable names:
 
 ```sh
+cp app/desktop/out/make/Lore-*.dmg Lore-macOS-arm64.dmg
 cp app/desktop/out/make/zip/darwin/arm64/Lore-darwin-arm64-*.zip Lore-macOS-arm64.zip
-gh release upload <tag> Lore-macOS-arm64.zip --clobber
+gh release upload <tag> Lore-macOS-arm64.dmg Lore-macOS-arm64.zip --clobber
 ```
 
-Keep that name: the app updates itself through update.electronjs.org, which
+Keep the zip's name: the app updates itself through update.electronjs.org, which
 picks the mac asset by `-macOS`/`-darwin` and `-arm64` in its name (APP-126).
+Don't deploy this site before a release carries the `.dmg`, or the link 404s.
 
-The zip is far over Cloudflare's 25 MiB asset cap, so the binary lives on
+The files are far over Cloudflare's 25 MiB asset cap, so the binary lives on
 GitHub Releases; the Worker serves only this page.

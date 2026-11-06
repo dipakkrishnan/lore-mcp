@@ -112,9 +112,9 @@ describe("placing a bid", () => {
     expect(html).toContain(`<a class="quiet" data-share href="https://yourlore.dev/b/${id}">Share</a>`);
     expect(html).not.toMatch(/POST \/bids|callback_url|<code/);
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
-    const download = await call(`/download?bid=${id}`);
-    expect(download.status).toBe(302);
-    expect(download.headers.get("location")).toMatch(/releases\/latest\/download\/Lore-macOS-arm64\.zip$/);
+    const download = await call(`/download?bid=${id}`, { headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" } });
+    expect(download.status).toBe(200);
+    expect(await download.text()).toContain(`Once Lore is open, <a href="/b/${id}">answer the bid</a> you came from.`);
   });
 
   test("the /bids page carries a form that posts without a script", async () => {
