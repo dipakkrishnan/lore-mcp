@@ -727,8 +727,8 @@ function runState(text, tone = "off") {
   return node;
 }
 
-/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso */
-const recent = (iso) => Date.now() - new Date(iso).getTime() < 86_400_000;
+/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso @param {number} [now] */
+const recent = (iso, now = Date.now()) => now - new Date(iso).getTime() < 86_400_000;
 
 /** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
@@ -742,11 +742,9 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
 /** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
 const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
-/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
- * @param {Snapshot} s */
-function recentRuns(s) {
-  if (!s.jobs) return null;
-  const all = s.jobs.items;
+/** Activity's runs from the job log, newest first: the same run again and again (same kind, state, title and summary,
+ * one after another) as one entry with a count. @param {JobItem[]} all */
+function activityRuns(all) {
   /** @type {Array<{item: JobItem, summary: string, times: number}>} */
   const runs = [];
   all.forEach((item, index) => {
@@ -755,27 +753,46 @@ function recentRuns(s) {
     if (last && last.item.kind === item.kind && last.item.status === item.status && last.item.title === item.title && last.summary === summary) last.times++;
     else runs.push({ item, summary, times: 1 });
   });
+  return runs;
+}
+
+/** What one Activity row says: its label, its detail line, its state as a word and a tone, and the thread it opens, if
+ * any. A plain success has nothing more to show than the row already does; a run still going, or one that went wrong
+ * today, opens its thread when there is one. Older than that, it is history.
+ * @param {{item: JobItem, summary: string, times: number}} run @param {number} [now] */
+function activityRow({ item, summary, times }, now = Date.now()) {
+  const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean).join(" · ");
+  const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
+  const state = RUN_STATES[item.status] ?? item.status;
+  /** @type {"ok" | "attention" | "off"} */
+  const tone = item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off";
+  const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at, now)) ? JOB_TASK[item.kind] : undefined;
+  return { label, detail, state, tone, task };
+}
+
+/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
+ * @param {Snapshot} s */
+function recentRuns(s) {
+  if (!s.jobs) return null;
+  const runs = activityRuns(s.jobs.items);
   if (!runs.length) return null;
-  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
-    const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
-    const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
-    const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
-    // A plain success has nothing more to show than this row already does; a run still going, or one that went wrong
-    // today, opens its thread when there is one. Older than that, it is history.
-    const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at)) ? JOB_TASK[item.kind] : undefined;
-    if (!task) return row(label, detail.join(" · "), status, false);
+  return section("Activity", card(runs.slice(0, 6).map((run) => {
+    const { item } = run;
+    const { label, detail, state, tone, task } = activityRow(run);
+    const status = runState(state, tone);
+    if (!task) return row(label, detail, status, false);
     const node = el("div", "row");
     const open = el("button", "task-link");
     open.type = "button";
     const text = el("div", "t");
-    text.append(el("b", "sans", label), el("span", "", detail.join(" · ")));
+    text.append(el("b", "sans", label), el("span", "", detail));
     open.append(text, status);
     // A job whose owning session never reached a terminal state (e.g. it was
     // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
     // Without this, openTask falls back to null and the header fabricates
     // "Working · Starting" for a row the owner just saw chipped Failed/Unfinished.
     /** @type {TaskRecord} */
-    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: RUN_STATES[item.status] ?? item.status, updatedAt: item.finished_at ?? item.started_at };
+    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: state, updatedAt: item.finished_at ?? item.started_at };
     open.addEventListener("click", () => void openTask(task, undefined, fallback));
     node.append(open);
     return node;
@@ -902,12 +919,19 @@ function provenanceLine(memory) {
   return node;
 }
 
+/** What Today's next step turns on besides the snapshot: the renderer's own state, gathered so the rule can be run on
+ * any (APP-268). */
+function stepState() {
+  return { pushOffer, pushing, busy, candidates, extraDrafts, taskItems };
+}
+/** @typedef {ReturnType<typeof stepState>} StepState */
+
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
  * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
  * the store is being opened, repaired or updated.
- * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
-function nextStep(s) {
-  if (pushOffer || pushing || underWay("deploy")) return null;
+ * @param {Snapshot} s @param {StepState} [state] @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
+function nextStep(s, state = stepState()) {
+  if (state.pushOffer || state.pushing || underWay("deploy", state)) return null;
   if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
   const waiting = unpushed(s);
   const stale = stalePrice(s);
@@ -918,17 +942,17 @@ function nextStep(s) {
   }
   const approved = s.publications.counts.active;
   if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
-  if (candidates.length || extraDrafts.length) return "drafts";
-  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  if (state.candidates.length || state.extraDrafts.length) return "drafts";
+  const drafting = state.taskItems.some((item) => item.kind === "publish" && item.state !== "done");
   // An open publish thread is the step itself, under Unfinished.
   if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
   if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
   return null;
 }
 
-/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
-function underWay(kind) {
-  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind @param {Pick<StepState, "busy" | "taskItems">} [state] */
+function underWay(kind, state = { busy, taskItems }) {
+  return state.busy === kind || state.taskItems.some((item) => item.kind === kind && item.state === "working");
 }
 
 /** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
@@ -2368,13 +2392,23 @@ function openPriceSheet() {
 
 const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
 
+/** What the price sheet's entries come to, or why they are refused: a price above zero, and whole free copies when the
+ * CLI has them. @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies.
+ * @returns {{amount: number, copies: number | null} | {refused: string}} */
+function priceEntry(raw, rawCopies) {
+  const amount = parsePrice(raw);
+  if (amount === null) return { refused: `${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.` };
+  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) return { refused: `${WHOLE_COPIES}.` };
+  return { amount, copies };
+}
+
 /** Save what the price sheet says; a refusal is thrown, so the sheet says it in place. @param {string} raw
  * @param {string} [rawCopies] Absent when the CLI predates free copies. */
 async function savePrice(raw, rawCopies) {
-  const amount = parsePrice(raw);
-  if (amount === null) throw new Error(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`);
-  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
-  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) throw new Error(`${WHOLE_COPIES}.`);
+  const entry = priceEntry(raw, rawCopies);
+  if ("refused" in entry) throw new Error(entry.refused);
+  const { amount, copies } = entry;
   const before = snapshot?.pricing;
   const newCopies = copies !== null && copies !== before?.free_copies;
   pushOffer = false;
@@ -4616,10 +4650,14 @@ function openAgent(source) {
   }
 }
 
+/** What the FAQ says a buyer pays, from the price the owner has set, if any. @param {number | null} usd */
+function faqPrice(usd) {
+  return `Your price. ${typeof usd === "number" ? `Yours is ${price(usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens."}`;
+}
+
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
  * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
 function renderFaq(s) {
-  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens.";
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
@@ -4633,7 +4671,7 @@ function renderFaq(s) {
     ])),
     section("Getting paid", card([
       qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
-      qa("What does a buyer pay?", `Your price. ${prices}`),
+      qa("What does a buyer pay?", faqPrice(s.pricing.publication_usd)),
       qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
@@ -4734,11 +4772,19 @@ function updateRow(u) {
   return row(`Lore ${u.version}`, detail, cell(...trailing), false);
 }
 
+/** The Update button's state for where this copy stands: shown only when there is a newer Lore to move to, saying what
+ * a click does. @param {AppUpdate} next */
+function updateButton(next) {
+  return {
+    hidden: !(next.state === "ready" || (next.state === "outside" && next.newer)),
+    title: next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update"
+  };
+}
+
 /** The button at the top of the window, shown only when there is a newer Lore to move to. @param {AppUpdate} next */
 function showUpdate(next) {
   appUpdate = next;
-  updateBtn.hidden = !(next.state === "ready" || (next.state === "outside" && next.newer));
-  updateBtn.title = next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update";
+  Object.assign(updateBtn, updateButton(next));
   if (view === "settings") render();
 }
 
@@ -5033,13 +5079,20 @@ function render() {
   renderAccount();
 }
 
+/** What the workspace menu's first line says, and whether Sign out is offered: who is signed in and how the store stands.
+ * @param {AgentStatus | null} status @param {Snapshot | null} s */
+function accountState(status, s) {
+  const credential = status?.credentials[0] ?? null;
+  const [name] = provider(credential);
+  const store = s?.node.url ? ` · Store ${nodeLabel(s.node).toLowerCase()}` : "";
+  return { line: credential ? `Signed in with ${name}${store}` : "Not signed in", signOut: Boolean(credential) };
+}
+
 /** The workspace menu at the top of the sidebar: who is signed in and how the store stands, over Settings, help and sign-out. */
 function renderAccount() {
-  const credential = auth?.credentials[0];
-  const [name] = provider(credential);
-  const store = snapshot?.node.url ? ` · Store ${nodeLabel(snapshot.node).toLowerCase()}` : "";
-  accountLine.textContent = credential ? `Signed in with ${name}${store}` : "Not signed in";
-  signOutBtn.hidden = !credential;
+  const { line, signOut } = accountState(auth, snapshot);
+  accountLine.textContent = line;
+  signOutBtn.hidden = !signOut;
 }
 
 /** Memories and For Sale became Inventory's tabs, and Automations a section of Settings; anything that still asks for
@@ -5106,13 +5159,26 @@ function say(text, owner = false, stopped = false) {
  * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
+/** @typedef {typeof notices[number]} Notice */
+
+/** `items` with one more notice: a success replaces the plain successes before it, and plain notices (those without a
+ * key) stay at most three, the oldest leaving first; a notice told once, with a key, is left alone. @param {Notice[]} items @param {Notice} notice */
+function withNotice(items, notice) {
+  const next = [...(notice.attention ? items : items.filter((item) => item.attention || item.key)), notice];
+  const plain = next.filter((item) => !item.key);
+  if (plain.length > 3) next.splice(next.indexOf(plain[0]), 1);
+  return next;
+}
+
+/** The notices on screen: a plain one wherever the owner is, one told once only while Today is. @param {Notice[]} items @param {boolean} today */
+function shownNotices(items, today) {
+  return items.filter((item) => !item.key || today);
+}
+
 /** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention && !item.key);
-  notices.push({ text, attention, action });
-  const plain = notices.filter((item) => !item.key);
-  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
+  notices.splice(0, notices.length, ...withNotice(notices, { text, attention, action }));
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
 }
@@ -5155,7 +5221,7 @@ function drop(which) {
 }
 
 function renderNotices() {
-  const shown = notices.filter((item) => !item.key || onToday());
+  const shown = shownNotices(notices, onToday());
   status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");

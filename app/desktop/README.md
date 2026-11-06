@@ -33,6 +33,12 @@ channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
 reverse, or a `window.lore` member the renderer uses but preload does not expose,
 fails `test/ipc-contract.test.cjs`.
 
+`test/unit/renderer-*.test.cjs` run the renderer's rules without Electron: `support/renderer-harness.cjs`
+loads `src/index.html` and its scripts (`renderer.js` last) into jsdom with a recorded fake `window.lore`, and each
+test calls a top-level function with a snapshot and asserts the result. They check DOM structure and text, never
+layout: jsdom has no layout engine, so every box is 0×0 and nothing overlaps or clips. What a view looks like is
+still the walks' LAYOUT scan below, and `support/views.json` (APP-266) records which walk scans which view.
+
 Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
 check (the screenshots are written, never compared): once the page settles it
 scans the whole DOM in real Chromium for layout faults — a box wider than its
