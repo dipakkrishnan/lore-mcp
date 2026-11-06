@@ -4,13 +4,13 @@ title: Try pytest-xdist on the Python component tier
 priority: P3
 effort: XS
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-097, XC-104]
 blockers: [XC-097]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-04
 ---
 
 ## Problem
@@ -43,3 +43,46 @@ the CI job gets faster by more than the noise.
 
 - Workstream D4 of the test-pyramid plan. An experiment with a clear
   stopping rule; it does not change what is tested.
+- 2026-11-04, measured on fc0d74c1 (main after XC-097 part 1), the component
+  tier being `tests/` minus `tests/integration/`: 1,110 tests, 1 skipped,
+  2,498 subtests. `uv run python -m pytest tests --ignore=tests/integration
+  -q -p no:cacheprovider`, wall time on a 10-core M-series laptop:
+
+  | run | wall | pytest's own |
+  |---|---:|---:|
+  | serial (twice) | 80.2 s, 78.5 s | 78.9 s, 78.1 s |
+  | `-n auto` (10 workers, three times) | 16.9 s, 16.8 s, 17.0 s | 16.5 s, 16.4 s, 16.6 s |
+  | `-n 4` (twice) | 22.4 s, 22.6 s | 22.1 s, 22.3 s |
+  | `-n 2` | 40.1 s | 39.7 s |
+  | `-n 16` (oversubscribed) | 12.5 s | 12.1 s |
+  | `-n auto --dist loadfile` | 23.0 s | 22.7 s |
+
+  `-n 4` is the number that predicts CI (ubuntu-latest has four cores):
+  72% faster than serial locally. Every parallel run passed; eight runs
+  across five worker counts and two distributions found no failing or
+  flaking test, so no test needed isolating and none is marked serial. The
+  premise held: `LoreTestCase` gives each test its own `LORE_HOME`,
+  `LORE_STORE` and keyring, `NodeCase`'s stand-in node and `serving()` bind
+  port 0, `hermetic.py`'s sandbox is one `mkdtemp` per process, and the
+  tests that touch `os.environ` do so in their own worker process.
+- Coverage: `tests/gate.py` used to wrap pytest in `coverage run`, which
+  measures only the controller process, so under xdist it would have
+  reported `lore/` near 0%. It now runs `pytest --cov --cov-report=`
+  (pytest-cov, added to the dev group with pytest-xdist): each worker is
+  measured, the controller combines them into the one `.coverage` file, and
+  `coverage json` reads it as before. The per-file table from `-n auto` is
+  byte-identical to the serial one (24 files, all at or above the 90/90
+  floor; the floor is unchanged). The gate still passes any unknown argument
+  to pytest, so `-n auto` is given by the caller, not baked in: the CI job
+  passes it; `tests/integration/` is not run under it.
+- Python-unit CI job before this change, on main: 97 s (gate step 88 s) at
+  fc0d74c1; 119 s and 130 s on the two commits before XC-097 moved the
+  real-process tests out. After: see below once the PR has run.
+- Side finding: with pytest-cov active, the full run prints fourteen
+  `ResourceWarning: unclosed database in <sqlite3.Connection>` lines
+  (test_agents, test_cli, test_inbox, test_usage), serial or parallel; the
+  plain run and the old `coverage run` wrapper did not show them, most
+  likely because the garbage collector finalised those connections at a
+  moment pytest was not capturing warnings (a single test file under
+  pytest-cov shows none). They are pre-existing unclosed connections, not an
+  xdist effect, and the suite passes; closing them is a separate item.

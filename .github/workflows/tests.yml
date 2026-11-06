@@ -39,7 +39,11 @@ jobs:
       # half runs here. The per-file table lands in the step summary.
       # XC-097: the tests that start real processes live in tests/integration
       # and run in python-integration, so this tier is the in-process one.
-      - run: uv run python tests/gate.py --python-only --ignore=tests/integration
+      # XC-106: -n auto spreads it over pytest-xdist workers, one per core;
+      # every test owns a temp LORE_HOME and binds port 0, so nothing is
+      # shared. gate.py measures the workers through pytest-cov and still
+      # prints the one per-file table.
+      - run: uv run python tests/gate.py --python-only --ignore=tests/integration -n auto
 
   python-integration:
     name: Python integration tests
