@@ -856,9 +856,10 @@ function markTile(mark) {
   return node;
 }
 
-/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+/** "A", "A and B", "A, B and C", or "A, B and 2 more". @param {string[]} names */
 function named(names) {
-  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  if (names.length < 3) return names.join(" and ");
+  return names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
 /** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
@@ -1758,7 +1759,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -2162,7 +2163,11 @@ class FirstRunChat {
       return this.shown(chat);
     }
     if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
-    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
+    if (this.stage !== "saved") {
+      const wait = waitLine(who, true);
+      wait.append(button("Do this later", "secondary", () => this.leave("skipped")));
+      lore(this.connectCard(app, who), wait);
+    }
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
       this.closing(chat, lore, "What it saves");
@@ -2182,7 +2187,8 @@ class FirstRunChat {
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
    * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
   said(chat, lore) {
-    const said = notices.filter((item) => item.key);
+    // The note about Lore's own routines waits for the Inbox, so a new owner reads it once, not under every step.
+    const said = notices.filter((item) => item.key && item.key !== "automations");
     if (said.length) {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
@@ -2213,11 +2219,9 @@ class FirstRunChat {
       if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
-      const soon = choice === "muse";
-      option.disabled = soon;
       const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
       option.append(icon, el("span", "", label));
-      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      const hint = this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
       if (hint) option.append(el("small", "", hint));
       option.addEventListener("click", () => void this.choose(choice, label));
       list.append(option);
@@ -2244,10 +2248,18 @@ class FirstRunChat {
       foot.append(again);
     }
     if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    else if (this.handed && AGENT_WEB[app]) {
+      const handed = this.handed;
+      // Not on this Mac: its connector settings on the web, with the link already copied to paste there.
+      foot.append(button(`Open ${who}`, "primary", () => {
+        void navigator.clipboard.writeText(handed.connector_url).catch(() => undefined);
+        window.open(AGENT_WEB[app]);
+      }));
+    }
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", app === "instinct" ? "Key shown once" : "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once. Connectors makes a new one" : "Private link, shown once. Connectors makes a new one"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -3990,6 +4002,8 @@ function tiles(rows) {
   return grid;
 }
 
+/** Where an agent with no app on this Mac adds a connector on the web. @type {Partial<Record<AgentApp, string>>} */
+const AGENT_WEB = { claude: "https://claude.ai/settings/connectors" };
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
