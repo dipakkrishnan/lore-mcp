@@ -2251,10 +2251,9 @@ class FirstRunChat {
     else if (this.handed && AGENT_WEB[app]) {
       const handed = this.handed;
       // Not on this Mac: its connector settings on the web, with the link already copied to paste there.
-      foot.append(button(`Open ${who}`, "primary", () => {
-        void navigator.clipboard.writeText(handed.connector_url).catch(() => undefined);
-        window.open(AGENT_WEB[app]);
-      }));
+      foot.append(button(`Open ${who}`, "primary", () => void window.lore.copy(handed.connector_url)
+        .then(() => window.open(AGENT_WEB[app]))
+        .catch((error) => tell(reason(error, "Lore couldn't copy your link.")))));
     }
     if (this.handed) {
       const hint = el("span", "quiet-hint");

@@ -36,7 +36,7 @@ A Nov 6 walk of v0.1.24 as a new user, from yourlore.dev to the Inbox, found the
 
 ## Acceptance criteria
 
-- [ ] Launched outside Applications, the move prompt attaches to the window and the window stays responsive behind it.
+- [ ] Launched outside Applications, the move prompt is a sheet on Lore's window instead of an app-wide alert, and setup keeps running behind it.
 - [ ] Run from /Volumes, the prompt reads "Lore is running from its installer".
 - [ ] First run with three apps found says all three names; Muse is not offered in first run (Connectors still lists it).
 - [ ] The routines note shows once, on the Inbox, not in the first-run chat.
