@@ -449,7 +449,11 @@ class Node(ThreadingHTTPServer):
         return f"http://127.0.0.1:{self.server_port}"
 
     def __enter__(self) -> Node:
-        threading.Thread(target=self.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=self.serve_forever,
+            kwargs={"poll_interval": 0.01},
+            daemon=True,
+        ).start()
         return self
 
     def __exit__(self, *_: object) -> None:

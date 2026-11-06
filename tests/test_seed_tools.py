@@ -75,7 +75,11 @@ class Stub(ThreadingHTTPServer):
         stub = self
         self.calls: list[dict[str, Any]] = []
         super().__init__(("127.0.0.1", 0), Handler)
-        self.thread = threading.Thread(target=self.serve_forever, daemon=True)
+        self.thread = threading.Thread(
+            target=self.serve_forever,
+            kwargs={"poll_interval": 0.01},
+            daemon=True,
+        )
         self.thread.start()
 
     @property
@@ -164,7 +168,11 @@ class RecorderTest(LoreTestCase):
 
         handler = functools.partial(Quiet, directory=str(SEED / "corpus" / "blog"))
         server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
+        threading.Thread(
+            target=server.serve_forever,
+            kwargs={"poll_interval": 0.01},
+            daemon=True,
+        ).start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
         locator = f"http://127.0.0.1:{server.server_address[1]}"

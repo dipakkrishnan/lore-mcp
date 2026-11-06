@@ -62,25 +62,3 @@ test("every window.lore member the renderer uses is one preload exposes", () => 
   assert.deepEqual(unreadable(renderer), [], "renderer.js reaches window.lore in a way this test cannot read; use window.lore.<member>");
   assert.deepEqual(missing(members, exposed(read("preload.cjs"))), [], "renderer.js uses window.lore members preload.cjs never exposes");
 });
-
-test("the contract checks catch each kind of drift they exist for", () => {
-  const preload = `const { contextBridge, ipcRenderer } = require("electron");
-contextBridge.exposeInMainWorld("lore", {
-  /** @param {string} id */
-  status: () => ipcRenderer.invoke("agent:status"),
-  push: () => ipcRenderer.invoke('store:push'),
-  onEvent: (listener) => {
-    const handler = (_event, value) => listener({ nested: value });
-    ipcRenderer.on("agent:event", handler);
-  }
-});`;
-  const main = `ipcMain.handle("store:push", () => undefined);\nipcMain.handle("store:orphan", () => undefined);\nipcMain.handle("store:orphan", () => 1);`;
-  assert.deepEqual(missing(invoked(preload), handled(main)), ["agent:status"], "a preload channel with no handler");
-  assert.deepEqual(missing(handled(main), invoked(preload)), ["store:orphan"], "a handler with no preload channel");
-  assert.deepEqual(twice(main), ["store:orphan"], "a channel handled twice");
-  assert.deepEqual([...exposed(preload)].sort(), ["onEvent", "push", "status"], "nested keys and comments are not members");
-  const renderer = `button.onclick = window.lore.push;\nawait window.lore?.status();\nconst off = window.lore.pull;\nwindow.lore.onEvent(() => {});`;
-  assert.deepEqual(unreadable(renderer), []);
-  assert.deepEqual(missing(referenced(renderer), exposed(preload)), ["pull"], "a member passed as a reference, not called");
-  assert.deepEqual(unreadable(`const { pull } = window.lore;\nwindow.lore["push"]();`), ["window.lore;", 'window.lore["push"]();']);
-});

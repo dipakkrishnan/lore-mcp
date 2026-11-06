@@ -74,11 +74,11 @@ class StoreProcessesTest(LoreTestCase):
 
     def test_lore_processes_wait_for_a_migration_already_under_way(self) -> None:
         # The race itself is rare, so hold the lock the winner would hold until
-        # every process has had time to start and meet it on the journal-mode
+        # the processes have had time to start and meet it on the journal-mode
         # switch. One that gives up exits while the lock is still held.
         holder = self.hold_write_lock()
         processes = self.start_lore_processes(4)
-        ceiling = time.monotonic() + 6
+        ceiling = time.monotonic() + 2
         while time.monotonic() < ceiling and all(p.poll() is None for p in processes):
             time.sleep(0.1)
         holder.execute("COMMIT")

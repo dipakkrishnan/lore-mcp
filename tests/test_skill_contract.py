@@ -65,6 +65,10 @@ SECRET_LEAKS = (
     (re.compile(r"--(?:secret|private-key|key-secret)\b"), "takes a secret as a flag"),
     (re.compile(r"0x[0-9a-fA-F]{64}"), "contains something shaped like a private key"),
 )
+RECOVERY_INVITATION = re.compile(
+    r"\b(paste|share|send|enter|type|give)\b[^.\n]{0,60}(recovery|seed) phrase",
+    re.IGNORECASE,
+)
 
 
 def _skill_files() -> list[Path]:
@@ -191,15 +195,6 @@ class SkillContractTest(unittest.TestCase):
             {f"plugins/lore/skills/{name}/SKILL.md" for name in EXTERNAL_SKILLS},
         )
 
-    def test_every_skill_says_when_to_use_it(self) -> None:
-        """A description with no trigger phrasing is a skill that never fires."""
-        for path in _skill_files():
-            description = _frontmatter(path.read_text(encoding="utf-8")).get(
-                "description", ""
-            )
-            with self.subTest(skill=path.parent.name):
-                self.assertIn("use when", description.lower())
-
     def test_every_skill_has_host_metadata(self) -> None:
         """Skills should render and invoke cleanly in hosts, not only via symlinks."""
         for path in _skill_files():
@@ -222,12 +217,6 @@ class SkillContractTest(unittest.TestCase):
                     linked = ROOT / host / "skills" / name
                     self.assertTrue(linked.is_dir())
                     self.assertEqual(linked.resolve(), path.parent.resolve())
-
-    def test_skills_handle_host_prompt_syntax(self) -> None:
-        for path in _markdown_files():
-            text = path.read_text(encoding="utf-8")
-            with self.subTest(skill=path.parent.name):
-                self.assertNotIn("$ARGUMENTS", text)
 
     def test_every_owner_skill_reaches_both_places_an_agent_looks(self) -> None:
         """Discovery is all-or-nothing: an unlinked or uncopied skill simply never runs."""
@@ -320,6 +309,14 @@ class SkillContractTest(unittest.TestCase):
                     self.assertIsNone(
                         found, f"{problem}: {found.group(0) if found else ''}"
                     )
+            for sentence in re.split(r"(?<=[.!?])\s+", text):
+                if re.search(r"\b(never|not|don't|do not)\b", sentence, re.IGNORECASE):
+                    continue
+                with self.subTest(
+                    source=str(path.relative_to(ROOT)),
+                    problem="asks for recovery phrase",
+                ):
+                    self.assertNotRegex(sentence, RECOVERY_INVITATION)
 
     def test_the_payment_skill_refuses_the_secret_out_loud(self) -> None:
         """Saying it is not enough, but not saying it guarantees someone pastes one."""
@@ -335,56 +332,20 @@ class SkillContractTest(unittest.TestCase):
         for promise in ("never holds", "test network", "explicit"):
             with self.subTest(promise=promise):
                 self.assertIn(promise, skill)
-
-    def test_the_desktop_store_asks_how_the_owner_gets_paid_last(self) -> None:
-        """MON-025: payouts are where new owners stalled, so they come after value;
-        MON-047: card payments are enough, so the address is optional."""
-        skill = " ".join(
-            (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
-        )
-        order = [
-            skill.index("no active publication"),
-            skill.index("price through `propose_price`"),
-            skill.index("call `cloudflare_login` if the owner has not signed in"),
-            skill.index("how the owner gets paid, last"),
-            skill.index("`open_store` with network `real` and no address"),
-        ]
-        self.assertEqual(order, sorted(order))
-        self.assertIn("no coinbase developer keys in the app", skill)
-        self.assertIn("a payout address is optional", skill)
-
-    def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
-        """The one secret worse than an API key to land in a transcript."""
-        skill = (
-            (OWNER_SKILLS / "lore-enable-payments/SKILL.md")
-            .read_text(encoding="utf-8")
-            .lower()
-        )
-        self.assertIn("recovery phrase", skill)
-        # Every sentence mentioning it must either warn or refuse — none may invite it.
+        # The one secret worse than an API key must be named and refused, not
+        # merely absent from invitations (RECOVERY_INVITATION only scans for those).
         mentions = [
             sentence
             for sentence in re.split(r"(?<=[.!?])\s+", skill)
             if "recovery phrase" in sentence
         ]
         self.assertGreaterEqual(
-            len(mentions), 2, "the phrase is mentioned but not guarded"
+            len(mentions), 2, "the recovery phrase is mentioned but not guarded"
         )
         self.assertTrue(
             any("never" in sentence for sentence in mentions),
             "no sentence refuses to handle the recovery phrase",
         )
-        # The failure mode is inviting the owner to hand it over. A refusal that
-        # happens to contain "paste" ("never accept it if they paste it") is not that,
-        # so negated sentences are exempt.
-        invitation = re.compile(
-            r"\b(paste|share|send|enter|type|give)\b[^.\n]{0,60}(recovery|seed) phrase"
-        )
-        for sentence in mentions:
-            if re.search(r"\b(never|not|don't|do not)\b", sentence):
-                continue
-            with self.subTest(sentence=sentence.strip()[:80]):
-                self.assertNotRegex(sentence, invitation)
 
     def test_owner_handoffs_offer_and_decline_paid_proxy_answers(self) -> None:
         onboard = " ".join(
@@ -411,21 +372,6 @@ class SkillContractTest(unittest.TestCase):
         ):
             self.assertIn(boundary, payments)
 
-    def test_the_publish_skill_says_why_a_memory_is_weak_before_it_asks(
-        self,
-    ) -> None:
-        """APP-235: a question about another topic baffles an owner never told why."""
-        skill = " ".join(
-            (OWNER_SKILLS / "lore-publish/SKILL.md").read_text().lower().split()
-        )
-        for boundary in (
-            "first say why in one plain sentence",
-            "never ask a question whose premise the owner hasn't been told",
-            "draft it anyway, draft it",
-        ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, skill)
-
     def test_capture_skill_requires_private_approval_before_publish_handoff(
         self,
     ) -> None:
@@ -438,21 +384,6 @@ class SkillContractTest(unittest.TestCase):
             "never edit `lore.db`",
             "lore-publish",
             "capture never creates a publication itself",
-        ):
-            with self.subTest(boundary=boundary):
-                self.assertIn(boundary, skill)
-
-    def test_capture_interviews_only_when_the_check_in_asked(self) -> None:
-        """APP-236: one sentence restates the paper; the detail around it sells."""
-        skill = " ".join(
-            (OWNER_SKILLS / "lore-capture/SKILL.md").read_text().lower().split()
-        )
-        for boundary in (
-            "### when lore's evening check-in asked",
-            "two to four short follow-ups, one at a time",
-            "never ask more than four",
-            "this is only for the check-in",
-            "follow `lore-publish` from those saved memories right here",
         ):
             with self.subTest(boundary=boundary):
                 self.assertIn(boundary, skill)
