@@ -5,12 +5,12 @@ priority: P1
 effort: S
 component: desktop-app
 status: ready
-related: [APP-085, APP-105, APP-181]
+related: [APP-085, APP-105, APP-181, APP-273]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-10-31
 ---
 
 ## Problem
@@ -36,3 +36,9 @@ a seller can't see it or send it to us.
 ## Notes
 
 Filed from the 2026-10-06 new-seller audit.
+
+**2026-10-30:** both criteria that name the error need more than the approach above.
+Naming the cause needs uv's output captured, since `boot()` only gets `uv exited with
+N`. Sending the error, for a failure before `useRuntime`, waits on the decision in
+APP-273, because `lore report-feedback` isn't usable at that point. Failures after
+`useRuntime` can report through it today.
