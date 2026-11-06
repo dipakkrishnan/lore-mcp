@@ -133,6 +133,38 @@ BID_ID = r"^([a-z0-9]{10})?$"
 # Listed in the manifest only when the owner wrote them, so older readers see
 # the same entry shape as before.
 FREE_EXTRAS = ("sample", "useful_if", "not_useful_if")
+# A buyer judges a piece by its sample, so nothing goes on sale without one (MON-052).
+SAMPLE_NEEDED = (
+    "Add a free sample of at least two sentences: a short part of the piece "
+    "buyers can read before they pay. Lore won't put a piece on sale without one."
+)
+# The heading buyers see over a piece on the store, apart from the owner's own topic name.
+PUBLIC_TOPIC_LIMIT = 40
+TOPIC_NEEDED = (
+    "Give the piece a short public topic, the heading buyers see on your store "
+    f"(like “Travel”, up to {PUBLIC_TOPIC_LIMIT} characters). It can't be the "
+    "name of your private topic."
+)
+
+
+def sentences(text: str) -> list[str]:
+    return [part for part in re.split(r"(?<=[.!?])\s+", text.strip()) if part]
+
+
+def opening(content: str) -> str:
+    """A drafted sample: the first two sentences of the text, when that leaves
+    most of it to buy; empty when it doesn't."""
+    prose = " ".join(
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "---"))
+    )
+    excerpt = " ".join(sentences(prose)[:2])
+    if len(sentences(excerpt)) < 2 or len(excerpt) * 3 > len(prose):
+        return ""
+    return excerpt if len(excerpt) <= SAMPLE_LIMIT else ""
+
+
 # Copies of each piece given away before it costs anything (MON-040).
 FREE_COPIES_SETTING = "free_copies"
 FREE_COPIES = 3
@@ -1303,6 +1335,25 @@ class Store:
         self.db.commit()
         return publication_id
 
+    def for_sale(self, candidate: PublicationInput) -> PublicationInput:
+        """The candidate as it can go on sale: with a sample, and under a short
+        public topic in sentence case that isn't a private topic name."""
+        if len(sentences(candidate.sample)) < 2:
+            raise ValueError(SAMPLE_NEEDED)
+        ids = candidate.provenance
+        private = {
+            name.casefold()
+            for row in self.db.execute(
+                f"SELECT title,project FROM memories WHERE id IN ({','.join('?' * len(ids))})",
+                ids,
+            )
+            for name in (row["title"], row["project"])
+        }
+        topic = candidate.topic
+        if len(topic) > PUBLIC_TOPIC_LIMIT or topic.casefold() in private:
+            raise ValueError(TOPIC_NEEDED)
+        return candidate.model_copy(update={"topic": topic[0].upper() + topic[1:]})
+
     def _snapshot_sources(
         self, publication_id: int, memory_ids: list[int], when: str
     ) -> None:
@@ -1531,6 +1582,8 @@ class Store:
     def set_extras(self, extras: PublicationExtras) -> None:
         """Replace a live piece's free parts in place; nothing else about it changes."""
         publication = self.with_extras(extras)
+        if len(sentences(extras.sample)) < 2:
+            raise ValueError(SAMPLE_NEEDED)
         self.db.execute(
             "UPDATE publications SET sample=?,useful_if=?,not_useful_if=?,updated_at=? "
             "WHERE id=?",
@@ -1697,6 +1750,7 @@ class Store:
             kind=PublicationKind.CONTENT,
             topic=collection.title,
             teaser=title,
+            sample=opening(content),
             provenance=[memory_id],
         )
         self.db.execute(

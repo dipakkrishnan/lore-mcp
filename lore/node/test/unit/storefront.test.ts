@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { publicTopic } from "../../src/answer-state.js";
 import { publicationPage, storefront, unlockedPage } from "../../src/storefront.js";
 
 const A = "a".repeat(24);
@@ -70,6 +71,11 @@ describe("storefront", () => {
     expect(ld(html).itemListElement[0].item).not.toHaveProperty("offers");
   });
 
+  it("names a topic by its short public name in sentence case, never the detail after it (MON-052)", () => {
+    expect(publicTopic("Travel: window seat on United; beach trips for diving")).toBe("Travel");
+    expect(publicTopic("review interfaces thesis")).toBe("Review interfaces thesis");
+    expect(publicTopic("  ")).toBe("");
+  });
 });
 
 describe("publicationPage", () => {
@@ -99,6 +105,12 @@ describe("publicationPage", () => {
     expect(html).toContain("Not useful if you&#39;re solo");
     expect(html).not.toContain("<b>paragraph");
     expect(html).toContain('<meta property="og:description" content="First &lt;b&gt;paragraph&lt;/b&gt;. Second one.">');
+  });
+
+  it("says how long the piece runs (MON-052)", () => {
+    expect(publicationPage({ ...piece, words: 23 }, store)).toContain("<span>23 words</span>");
+    expect(publicationPage({ ...piece, words: 1234 }, store)).toContain("<span>About 1230 words</span>");
+    expect(publicationPage(piece, store)).not.toContain("words</span>");
   });
 
   it("renders without a sample or fit lines exactly as before", () => {

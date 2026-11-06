@@ -127,6 +127,25 @@ class CollectionTest(LoreTestCase):
             self.assertEqual(first.id, again.id)
             self.assertEqual(len(store.collection(collection.id).pieces), 1)
 
+    def test_a_piece_samples_its_opening_when_that_leaves_most_of_it_to_buy(
+        self,
+    ) -> None:
+        # MON-052: dropping text in is the owner's approval, and a store shows a
+        # piece on its own only with a free sample, so its opening becomes one.
+        long = (
+            "# Field notes\n\nWe shipped in March. The first week was quiet. "
+            + "Then the numbers came in, and they were not what we expected. " * 4
+        )
+        with Store() as store:
+            collection = store.new_collection()
+            sampled = store.add_to_collection(collection.id, "A", long)
+            short = store.add_to_collection(collection.id, "B", "One line. Two.")
+            self.assertEqual(
+                store.get_publication(sampled.public_id).sample,
+                "We shipped in March. The first week was quiet.",
+            )
+            self.assertEqual(store.get_publication(short.public_id).sample, "")
+
     def test_rename_retopics_its_pieces(self) -> None:
         with Store() as store:
             collection = store.new_collection()

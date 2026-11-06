@@ -71,7 +71,7 @@ describe("a collection, to agents", () => {
     try {
       const payload = textOf(await client.callTool({ name: "discover", arguments: {} }));
       expect(payload.collections).toEqual([
-        { id: COLLECTION, title: "The Full Shelf", price_usd: 2, pieces: [SECOND, FIXTURE_PUBLICATION_ID], value_usd: 0.02, tool: TOOL }
+        { id: COLLECTION, title: "The Full Shelf", price_usd: 2, pieces: [SECOND, FIXTURE_PUBLICATION_ID], value_usd: 0.01, tool: TOOL }
       ]);
       expect(JSON.stringify(payload)).not.toContain("owner-approved content");
     } finally {
@@ -104,9 +104,13 @@ describe("a collection, to people", () => {
     expect(await (await visit("/")).text()).toContain(`href="/p/${COLLECTION}"`);
     const html = await (await visit(`/p/${COLLECTION}`)).text();
     expect(html).toContain("The Full Shelf");
-    expect(html).toContain("a second teaser");
+    // A piece with no free sample still belongs to the collection, without a page of its own.
+    expect(html).toContain('<div class="card"><h3>a second teaser</h3>');
+    expect(html).not.toContain(`href="/p/${SECOND}"`);
+    expect(html).toContain(`href="/p/${FIXTURE_PUBLICATION_ID}"`);
     expect(html).toContain("Buy for $2.00");
-    expect(html).toContain("Worth $0.02 separately");
+    // Only a piece sold on its own counts toward what the pieces cost one by one.
+    expect(html).toContain("Worth $0.01 separately");
     expect(html).toContain(TOOL);
     expect(html).not.toContain("owner-approved content");
   });

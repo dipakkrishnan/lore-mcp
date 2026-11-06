@@ -210,7 +210,7 @@ export class LorePaidMCP extends McpAgent<Env> {
     const publication = (id: string) =>
       this.env.LORE_DB.prepare(
         `SELECT public_id AS id, title, content, topic, kind, updated_at
-         FROM publications WHERE public_id = ?1`
+         FROM publications WHERE public_id = ?1 AND trim(sample) <> ''`
       )
         .bind(id)
         .first<{ id: string; title: string }>();
@@ -386,14 +386,13 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
   }
   const set = sets.find((candidate) => candidate.id === id);
   if (!set) return undefined;
-  const entries = set.pieces.flatMap((member) => all.filter((piece) => piece.id === member));
   return {
     id,
     teaser: set.title,
     priceUsd: set.price_usd,
     sold: (copy) => `Collection: ${copy.title}`,
     copy: () => collectionCopy(env.LORE_DB, set),
-    page: (store, problem) => collectionPage(set, entries, store, priceOf(settings), problem)
+    page: (store, problem) => collectionPage(set, store, priceOf(settings), problem)
   };
 }
 
