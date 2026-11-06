@@ -7,7 +7,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "check": "tsc --noEmit",
-    "test": "tsx scripts/test.ts",
+    "test": "node --import tsx test/policy.test.ts && tsx scripts/test.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
