@@ -5,19 +5,25 @@ import { DOWNLOAD, escape, page } from "./layout.js";
 const FILE = "Lore-macOS-arm64.dmg";
 const BID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Which browser drew the request, by the convention each one's user agent follows. @returns {"chrome" | "safari" | "firefox" | "other"} */
+/** Which browser drew the request, by the convention each one's user agent follows. @returns {"chrome" | "edge" | "safari" | "firefox" | "other"} */
 export function browserOf(ua = "") {
   if (/Firefox\//.test(ua)) return "firefox";
-  if (/(Chrome|Chromium|CriOS|Edg)\//.test(ua)) return "chrome";
+  if (/Edg\//.test(ua)) return "edge";
+  if (/(Chrome|Chromium|CriOS)\//.test(ua)) return "chrome";
   if (/Version\/[\d.]+.*Safari\//.test(ua)) return "safari";
   return "other";
 }
 
-/** Only a Mac starts the download on its own; a phone or a PC is told where Lore runs. */
+/** Only a Mac starts the download on its own; a phone or a PC is told where Lore runs. An iPad asks for the desktop
+ * site with a Mac's user agent, so the page itself checks for touch and comes back with `touch=1` before the download starts. */
 const onMac = (ua = "") => /Macintosh|Mac OS X/.test(ua) && !/iPhone|iPad|Android/.test(ua);
+
+/** Runs before the refresh can fire: a touch screen behind a Mac user agent is an iPad, so it reloads as one. */
+const TOUCH = `<script>if(navigator.maxTouchPoints>1){const u=new URL(location.href);u.searchParams.set("touch","1");location.replace(u)}</script>`;
 
 const FIRST = {
   chrome: "Open the download from the arrow at the top right of Chrome",
+  edge: "Open the download from the arrow at the top right of Edge",
   safari: "Open the download from the arrow in Safari's toolbar",
   firefox: "Open the download from the arrow in Firefox's toolbar",
   other: "Open the download from your browser, or your Downloads folder"
@@ -53,6 +59,7 @@ const TOOLBARS = {
 <rect x="0" y="34" width="460" height="1" class="hair"/>${nav(24, 70)}${field(78, 70, 290)}${glyph(434, 70, '<path d="M-6-4h12M-6 0h12M-6 4h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>')}`
   })
 };
+TOOLBARS.edge = TOOLBARS.chrome;
 TOOLBARS.other = TOOLBARS.firefox;
 
 /** The toolbar with its downloads button lit, an arrow at it, and the file underneath, filling in. */
@@ -99,10 +106,10 @@ const STYLE = `
 /**
  * The page /download serves: on a Mac the download starts by itself (a refresh to the file, which the browser saves
  * and stays put), and three steps say what comes next. `bid` is the bid someone came to answer, if any.
- * @param {{ ua?: string, bid?: string | null }} [request]
+ * @param {{ ua?: string, bid?: string | null, touch?: boolean }} [request]
  */
-export function downloadPage({ ua = "", bid = null } = {}) {
-  const mac = onMac(ua);
+export function downloadPage({ ua = "", bid = null, touch = false } = {}) {
+  const mac = onMac(ua) && !touch;
   const browser = browserOf(ua);
   const back = bid && BID.test(bid) ? `/b/${bid}` : null;
   const steps = [
@@ -110,7 +117,7 @@ export function downloadPage({ ua = "", bid = null } = {}) {
     `Double-click <b>${FILE}</b>`,
     "In the window that opens, drag Lore into Applications, then open it from there"
   ];
-  const then = back ? `<p class="then">Once Lore is open, <a href="${escape(back)}">answer the bid</a> you came from.</p>` : "";
+  const then = back ? `<p class="then">Once Lore is open, the bid you came from is under <b>Bids</b>. <a href="${escape(back)}">See the bid</a></p>` : "";
   const fine = `<p class="fine">For Macs with Apple silicon · Notarized by Apple</p>`;
   // Off a Mac the steps can't be followed here: hand the page to the Mac (the share sheet offers AirDrop), or take the file.
   const body = mac
@@ -134,7 +141,7 @@ ${fine}
     canonical: "https://yourlore.dev/download",
     section: "download",
     head: STYLE,
-    tags: mac ? `<meta http-equiv="refresh" content="1;url=${DOWNLOAD}">` : "",
+    tags: mac ? `${TOUCH}<meta http-equiv="refresh" content="1;url=${DOWNLOAD}">` : "",
     body
   });
 }

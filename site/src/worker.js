@@ -173,7 +173,7 @@ const worker = {
     const url = new URL(request.url);
     if (url.pathname === "/") return new BidDesk(request, env, ctx, registry).home();
     if (url.pathname === "/download") {
-      const body = downloadPage({ ua: request.headers.get("user-agent") ?? "", bid: url.searchParams.get("bid") });
+      const body = downloadPage({ ua: request.headers.get("user-agent") ?? "", bid: url.searchParams.get("bid"), touch: url.searchParams.has("touch") });
       return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", vary: "user-agent" } });
     }
     if (isBidPath(url.pathname)) return new BidDesk(request, env, ctx, registry).respond();

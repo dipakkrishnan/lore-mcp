@@ -114,7 +114,7 @@ describe("placing a bid", () => {
     expect(html).toContain('<a href="/llms.txt">For agents</a>');
     const download = await call(`/download?bid=${id}`, { headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" } });
     expect(download.status).toBe(200);
-    expect(await download.text()).toContain(`Once Lore is open, <a href="/b/${id}">answer the bid</a> you came from.`);
+    expect(await download.text()).toContain(`the bid you came from is under <b>Bids</b>. <a href="/b/${id}">See the bid</a>`);
   });
 
   test("the /bids page carries a form that posts without a script", async () => {

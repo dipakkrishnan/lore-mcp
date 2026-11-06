@@ -38,7 +38,7 @@ describe("/download", () => {
   });
 
   test("names the browser in hand, and points at where its downloads button sits", () => {
-    expect([UA.chrome, UA.edge, UA.safari, UA.firefox, UA.windows, ""].map(browserOf)).toEqual(["chrome", "chrome", "safari", "firefox", "chrome", "other"]);
+    expect([UA.chrome, UA.edge, UA.safari, UA.firefox, UA.windows, ""].map(browserOf)).toEqual(["chrome", "edge", "safari", "firefox", "chrome", "other"]);
     expect(text(downloadPage({ ua: UA.safari }))).toContain("Open the download from the arrow in Safari&#39;s toolbar");
     expect(text(downloadPage({ ua: UA.firefox }))).toContain("Open the download from the arrow in Firefox&#39;s toolbar");
     expect(text(downloadPage({ ua: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Something/1" }))).toContain("Open the download from your browser, or your Downloads folder");
@@ -59,15 +59,28 @@ describe("/download", () => {
     }
   });
 
+  test("an iPad behind a Mac user agent checks for touch first, and with touch=1 gets the hand-off instead of the download", async () => {
+    expect(downloadPage({ ua: UA.safari })).toMatch(/<script>if\(navigator\.maxTouchPoints>1\).*<meta http-equiv="refresh"/);
+    const html = await (await call("/download?touch=1&bid=abc_123", UA.safari)).text();
+    expect(html).not.toContain('http-equiv="refresh"');
+    expect(html).toContain('data-share href="https://yourlore.dev/download?bid=abc_123"');
+  });
+
+  test("Edge is named as Edge, on Chrome's toolbar", () => {
+    const html = downloadPage({ ua: UA.edge });
+    expect(html).toContain("the arrow at the top right of Edge");
+    expect(html).toContain('<circle cx="392" cy="70" r="15" class="lit"/>');
+  });
+
   test("an iPhone sent on to the Mac keeps the bid it came from", () => {
     expect(downloadPage({ ua: UA.iphone, bid: "abc_123" })).toContain('data-share href="https://yourlore.dev/download?bid=abc_123"');
   });
 
   test("keeps the bid someone came to answer, and drops anything that isn't a bid id", async () => {
-    expect(await (await call("/download?bid=abc_123", UA.safari)).text()).toContain('<p class="then">Once Lore is open, <a href="/b/abc_123">answer the bid</a> you came from.</p>');
+    expect(await (await call("/download?bid=abc_123", UA.safari)).text()).toContain('<p class="then">Once Lore is open, the bid you came from is under <b>Bids</b>. <a href="/b/abc_123">See the bid</a></p>');
     for (const bid of ['"><script>alert(1)</script>', "../bids", "x".repeat(65)]) {
       const html = downloadPage({ ua: UA.safari, bid });
-      expect(html).not.toContain("answer the bid");
+      expect(html).not.toContain("See the bid");
       expect(html).not.toContain("<script>alert");
     }
   });
