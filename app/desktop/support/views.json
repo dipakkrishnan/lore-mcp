@@ -44,7 +44,7 @@
       "name": "Today",
       "about": "The next step at each stage (connect, sell, drafts to approve, open your store, update store, store not responding, nothing), How it works, Today's notices (usage events, automations), the extras batch (read, editing, confirm, approved), New memories cards (from an app, an agent, an owner routine), a suggested collection, the Check in card, request cards on the root (open_url stages, Open your store?), and a filed-feedback notice.",
       "scans": [
-        { "walk": "today", "widths": [1040, 900], "shots": ["today-e-connect", "today-d-sell", "today-c-drafts", "today-b2-open", "today-b-update", "today-a-store", "today-f-nothing"] },
+        { "walk": "today", "widths": [1040, 900], "shots": ["today-e-connect", "today-d-sell", "today-c-drafts", "today-b2-open", "today-b-update", "today-a-store", "today-f-nothing", "talk-inventory", "talk-listening"] },
         { "walk": "fresh", "widths": [1040], "shots": ["today-usage-notice", "today-automations-after-connect"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["today-bring-in", "today-publish"] },
         { "walk": "settings", "widths": [1040, 900], "shots": ["update-ready", "today-approvals", "today-extras-batch", "today-extras-editing", "today-extras-confirm", "today-extras-approved"] },
