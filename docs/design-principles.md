@@ -63,12 +63,13 @@ When in doubt, open Linear and copy its convention. Don't invent a third design.
 
 ## 7. Navigation
 
-- **The sidebar holds places, not actions:** Inbox, Inventory, Bids, Connectors. Automations live inside Connectors
-  (each connector's schedule) and in ⌘K. Settings, Help and sign-out sit in the workspace menu at the top-left.
+- **The sidebar holds places, not actions:** Inbox, Inventory, Bids, Connectors. Automations live in Settings
+  and in ⌘K. Settings, Help and sign-out sit in the workspace menu at the top-left.
 - **One status model per object.** A memory is Private, Draft, On sale or Taken down: exactly one, so the filter counts
   add up to the total.
 - **One way to create each thing.** New (⌘N) lists Memory, Collection and Automation; ⌘K reaches the same commands.
-  No second "Add" button in a page header.
+  No second "Add" button in a page header, with one exception: **Record a memory** on Inbox and Inventory, the voice
+  way in, because people don't use dictation they can't see (owner, Nov 5; APP-290).
 - **New is a small compose icon** next to search, not a full-width filled button.
 - **⌘K does everything.** It finds objects and runs every command ("Connect Granola", "Set price", "Go to Inventory").
   Every menu item shows its shortcut. ↑/↓ or J/K move through any list; Enter opens; Esc backs out.

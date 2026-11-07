@@ -35,17 +35,25 @@ test("announces only sales after the last one seen, one by one or as one lot", (
 test("an update downloads quietly, shows only when ready, and a copy outside Applications asks to move or links the download", async () => {
   const { EventEmitter } = require("node:events");
   const { Updates, DOWNLOAD } = require("../src/updates.cjs");
-  /** @param {{inApplications: boolean, answer: number, status?: number}} mac */
-  const updater = ({ inApplications, answer, status }) => {
+  /** @param {{inApplications: boolean, answer: number, status?: number, from?: string}} mac */
+  const updater = ({ inApplications, answer, status, from }) => {
     const calls = /** @type {string[]} */ ([]);
     const autoUpdater = Object.assign(new EventEmitter(), { checkForUpdates: () => calls.push("check"), quitAndInstall: () => calls.push("install") });
-    const app = { getVersion: () => "0.1.12", isPackaged: true, isInApplicationsFolder: () => inApplications, moveToApplicationsFolder: () => (calls.push("move"), true) };
-    const dialog = { showMessageBox: async (/** @type {{buttons: string[]}} */ box) => (calls.push(box.buttons[1]), { response: answer }) };
+    const app = { getVersion: () => "0.1.12", isPackaged: true, getAppPath: () => `${from ?? "/Users/owner/Downloads"}/Lore.app/Contents/Resources/app`, isInApplicationsFolder: () => inApplications, moveToApplicationsFolder: () => (calls.push("move"), true) };
+    const boxes = /** @type {Array<{on: unknown, message: string}>} */ ([]);
+    /** @param {...any} args */
+    const showMessageBox = async (...args) => {
+      const box = args.at(-1);
+      boxes.push({ on: args.length > 1 ? args[0] : undefined, message: box.message });
+      calls.push(box.buttons[1]);
+      return { response: answer };
+    };
+    const dialog = { showMessageBox };
     const shell = { openExternal: async (/** @type {string} */ url) => void calls.push(url) };
     const seen = /** @type {unknown[]} */ ([]);
     /** @param {string} url */
     const get = async (url) => (calls.push(url), status === undefined ? Promise.reject(new Error("offline")) : { status });
-    return { updates: new Updates({ app, autoUpdater, dialog, shell }, (update) => seen.push(update.state), get), autoUpdater, calls, seen };
+    return { updates: new Updates({ app, autoUpdater, dialog, shell }, (update) => seen.push(update.state), get), autoUpdater, calls, seen, boxes };
   };
 
   const inside = updater({ inApplications: true, answer: 0 });
@@ -71,6 +79,14 @@ test("an update downloads quietly, shows only when ready, and a copy outside App
   await new Promise((done) => setImmediate(done));
   assert.deepEqual(moved.calls.filter((call) => !call.startsWith("https://")), ["Not now", "move"]);
   assert.equal(moved.updates.update.newer, false, "unable to check reads as nothing newer");
+
+  // Opened from the installer: the ask says so, and sits on Lore's window instead of holding the whole app.
+  const window = { isDestroyed: () => false };
+  const mounted = updater({ inApplications: false, answer: 1, from: "/Volumes/Lore" });
+  mounted.updates.start(/** @type {any} */ (window));
+  await new Promise((done) => setImmediate(done));
+  assert.deepEqual(mounted.boxes, [{ on: window, message: "Lore is running from its installer" }]);
+  assert.equal(moved.boxes[0].message, "Move Lore to Applications so it can update itself");
 });
 
 test("the agent may open only the pages the payments skill sends an owner to", () => {
@@ -568,8 +584,11 @@ test("APP-246: an automation's collection is a suggestion: its memories by id or
     await kept.add({ at: "2", title: "Travel", memories: [7], from: "Weekly" });
     await kept.add({ at: "3", title: "pricing", memories: [4, 9], from: "Weekly" });
     assert.deepEqual((await kept.list()).map((each) => each.at), ["3", "2"], "a newer suggestion for the same name replaces the older");
-    await kept.drop("3");
-    assert.deepEqual((await kept.list()).map((each) => each.title), ["Travel"]);
+    await kept.add({ at: "4", title: "Hiring", memories: [2], from: "Weekly" });
+    await kept.add({ at: "4", title: "Evals", memories: [3], from: "Weekly" });
+    await kept.drop("PRICING");
+    await kept.drop("Hiring");
+    assert.deepEqual((await kept.list()).map((each) => each.title), ["Evals", "Travel"], "dropped by name, so one made in the same millisecond stays");
     await assert.rejects(kept.drop(3), /Invalid suggestion/);
   } finally {
     await rm(directory, { recursive: true });
