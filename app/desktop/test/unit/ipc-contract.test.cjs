@@ -7,7 +7,7 @@ const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 const { runInNewContext } = require("node:vm");
 
-const read = (/** @type {string} */ name) => readFileSync(join(__dirname, "..", "src", name), "utf8");
+const read = (/** @type {string} */ name) => readFileSync(join(__dirname, "..", "..", "src", name), "utf8");
 
 /** @param {string} source @param {RegExp} pattern */
 const all = (source, pattern) => [...source.matchAll(pattern)].map((m) => m[1]);

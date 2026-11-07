@@ -34,7 +34,7 @@ function keychain() {
 
 /** @param {import("node:test").TestContext} t */
 async function scratch(t) {
-  const { CredentialStore } = await import("../src/credentials.mjs");
+  const { CredentialStore } = await import("../../src/credentials.mjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-credentials-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const path = join(directory, "userData", "credentials.bin");
