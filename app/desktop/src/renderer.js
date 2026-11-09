@@ -2771,10 +2771,11 @@ class Unseen {
     this.#showing.clear();
   }
 
-  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  /** Mark a row New while its memory is, and watch for it on screen. The mark sits beside the title, not inside it, so a
+   * title cut short by its ellipsis never cuts the mark off with it (APP-270). @param {HTMLElement} row @param {number} id */
   watch(row, id) {
     if (!this.fresh(id)) return row;
-    row.querySelector(".say")?.append(el("span", "new-mark", "New"));
+    row.querySelector(".say")?.after(el("span", "new-mark", "New"));
     if (!this.seen.has(id)) {
       row.dataset.memory = String(id);
       this.#observer.observe(row);

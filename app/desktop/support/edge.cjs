@@ -1970,6 +1970,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("automations")`);
         const rowOf = (/** @type {string} */ name) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector("b")?.textContent === ${JSON.stringify(name)})`;
         const SUNDAY = "Every Sunday, remember what I read this week";
+        // The page reads the routines again on that "changed"; until it has, it still draws the two as paused.
+        const on = (/** @type {string} */ name) => `${rowOf(name)}?.querySelector(".switch")?.getAttribute("aria-checked") === "true" && Boolean(${rowOf(name)}.querySelector("[data-next]")?.dataset.next)`;
+        check("Lore's own routines, turned back on, show on with their next run", await waitFor(`${on("Evening check-in")} && ${on("Suggest collections")}`), await js(`[...document.querySelectorAll("#automations .row")].map((r) => r.textContent).join(" | ")`));
         check("Settings lists Lore's own automations first, then the owner's", await waitFor(`${rowOf(SUNDAY)}`) && await js(`document.querySelector("#title").textContent === "Settings" && [...document.querySelectorAll("#automations .row .t b")].map((b) => b.textContent).join("|")`) === `Read connected apps|Evening check-in|Suggest collections|${SUNDAY}`, await js(`[...document.querySelectorAll("#automations .row .t b")].map((b) => b.textContent).join("|")`));
         const text = await js(`document.querySelector("#automations").textContent`);
         const nexts = await js(`[...document.querySelectorAll("#content .row.routine")].map((r) => r.querySelector("[data-next]")?.dataset.next ?? "")`);
