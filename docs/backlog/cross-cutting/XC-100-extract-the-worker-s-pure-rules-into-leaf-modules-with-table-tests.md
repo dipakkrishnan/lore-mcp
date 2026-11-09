@@ -4,13 +4,13 @@ title: Extract the Worker's pure rules into leaf modules with table tests
 priority: P2
 effort: M
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-099, XC-101, XC-088]
 blockers: [XC-099]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -48,12 +48,14 @@ workerd tests keep passing unchanged, which is the proof the move was pure.
 
 ## Acceptance criteria
 
-- [ ] Each rule named in Problem lives in a leaf module with no
+- [x] Each rule named in Problem lives in a leaf module with no
       `cloudflare:workers` import and has a table test in `test/unit/`.
-- [ ] `src/index.ts` and `src/hosted/index.ts` still export only `default`.
-- [ ] Every existing workerd test passes unchanged.
-- [ ] The node project holds at least 60 tests after this item.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] `src/index.ts` and `src/hosted/index.ts` still export only `default`
+      (besides the Durable Object class each wrangler config binds, which
+      they always exported; see Notes).
+- [x] Every existing workerd test passes unchanged.
+- [x] The node project holds at least 60 tests after this item (258).
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it. The storefront pages
       the Worker serves are not scanned by any walk today; that gap predates
       this item and is noted, not widened.
@@ -65,3 +67,47 @@ workerd tests keep passing unchanged, which is the proof the move was pure.
   `contracts/mcp_tools.json`) stays in workerd: a pure export of the tool
   strings would lose the proof of what is registered at runtime. XC-101
   folds it into `request-path` to save its Worker boot.
+- Where each rule went (no new module imports a `cloudflare:` module; the node
+  project's guard test walks every unit test's import graph and passes):
+  - `src/routes.ts`: `pageRoute` (`/`, `/p/<id>`, `.json`, `/`), `postRoute`
+    (`/p/<id>/(paid|free)`), `freeCookie` and `freeCookieHeader` ->
+    `test/unit/routes.test.ts` (37 tests).
+  - `src/pricing.ts`: `priceOf`, `takesCards`, `storeFor` (now takes the
+    origin, not the URL), `findItem` (the lookup half of `sellable`),
+    `verifiable` (the session/account check before asking checkout) and
+    `paidBy` (receipt matching from `paidFor`) -> `pricing.test.ts` (38).
+  - `src/settings.ts`: `AnswerSettings`, `parseSettings(rows)` and the
+    fail-closed `CLOSED`; `readAnswerSettings` keeps the D1 query and calls
+    it -> `settings.test.ts` (31, including `readAnswerSettings` against a fake
+    D1 that throws, which pins the fail-closed default without a Worker).
+  - `src/answer/prompt.ts`: `systemPrompt`, `resolveModel`, `DEFAULT_MODEL`,
+    `AnswerEnv` -> `prompt.test.ts` (16).
+  - `src/answer/ticket.ts`: `overdue(job, now)` and `resultOf(job)`, the pure
+    halves of `ticketResult`, which keeps only the reads, the live-checkpoint
+    check and the expiring write -> `ticket.test.ts` (16).
+  - `src/agent-schema.ts`: `chars`, `key`, `Save` -> `agent-schema.test.ts` (32).
+  - `src/hosted/routes.ts` (XC-088): `STORE`, `storeOf`, and `otherOf` (host to
+    binding, prototype names refused) -> `hosted-routes.test.ts` (24).
+  Old import paths still work: `answer-state.ts` re-exports `AnswerSettings`,
+  `AnswerJob`, `ANSWER_DISCLOSURE` and `ESTIMATE_SECONDS`; `answer.ts`
+  re-exports `AnswerEnv`.
+- Premise correction: neither entry module ever exported only `default`.
+  `src/index.ts` also exports `LorePaidMCP` and `src/hosted/index.ts`
+  `HostedStore`: the Durable Object classes their wrangler configs bind, which
+  the runtime needs on the main module (`checkout.test.ts:132` pins the
+  checkout Worker, which has none). What this item holds is that no rule is
+  exported from them. `src/hosted/index.ts` also dropped its `STORE` export (it
+  lives in `hosted/routes.ts`; nothing imported it), and
+  `test/unit/entries.test.ts` reads both entry modules' source and fails if any
+  runtime export other than `default` and that class appears.
+- Measured locally (Node 25, M-series Mac): the node project went from 7 files /
+  61 tests to 15 files / 258 tests, in 0.38 s (`npm run test:unit`). The main
+  `npm run test:coverage` run is 33 files / 406 tests in 61 s; the 18 workerd
+  files and their 148 tests are untouched (`git diff origin/main --
+  lore/node/test` shows only new files under `test/unit/`). The hosted run is
+  1 file / 18 tests. Coverage, main report: statements 96.83%, branches 91.42%,
+  functions 97.26%, lines 98.38%; hosted report: 94.41 / 86.27 / 91.48 / 98.1%.
+- The "at least 60" floor was already met before this item: XC-099 left the
+  node project at 61 tests.
+- Layout scan: the diff is confined to `lore/node/src`, `lore/node/test/unit`,
+  this file and `INDEX.md`; no desktop walk or view is touched.

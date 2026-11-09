@@ -63,7 +63,15 @@ module.exports = {
   hooks: {
     generateAssets: () => {
       for (const script of ["icon.sh", "wheelhouse.sh", "node.sh", "whisper.sh"]) execFileSync(join(__dirname, "packaging", script), { stdio: "inherit" });
-    }
+    },
+    // The website hands out a disk image that opens on "drag Lore to Applications" (APP-291); the zip stays for updates.
+    postMake: (_config, results) =>
+      results.map((result) => {
+        if (result.platform !== "darwin") return result;
+        const dmg = join(__dirname, "out/make", `Lore-macOS-${result.arch}.dmg`);
+        execFileSync(join(__dirname, "packaging/dmg.sh"), [join(__dirname, "out", `Lore-darwin-${result.arch}`, "Lore.app"), dmg], { stdio: "inherit" });
+        return { ...result, artifacts: [...result.artifacts, dmg] };
+      })
   },
   makers: [{ name: "@electron-forge/maker-zip", platforms: ["darwin"] }]
 };

@@ -34,6 +34,10 @@ dev = [
 dev = [
     "pytest>=8",
     "coverage[toml]>=7.4",
+    # XC-106: the component tier runs with `-n auto`; pytest-cov is what lets
+    # tests/gate.py measure coverage across the xdist workers.
+    "pytest-xdist>=3.8.0",
+    "pytest-cov>=7.1.0",
 ]
 
 [tool.ruff]

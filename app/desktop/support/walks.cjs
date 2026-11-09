@@ -4,8 +4,8 @@
 //   --jobs N    walks at once (default 2: on a three-core macos-15 runner two side by side take as long as one
 //               alone; a third slows each walk two to two and a half times and fails a third of them)
 //   name ...    run only these walks
-// XC-077: this list is the one CI runs and `npm run test:edge` runs. `seconds` is the walk's time alone on a CI runner
-// (Oct 2026); it only orders the queue, longest first, so a rough figure is fine. `appearance` sets
+// XC-077: this list is the one CI runs and `npm run test:edge` runs. `seconds` is the walk's time on a CI runner (APP-270:
+// PR #679's run, Nov 2026, two at a time but for `agents`); it only orders the queue, longest first, so a rough figure is fine. `appearance` sets
 // LORE_EDGE_APPEARANCE for that walk: the app boots with that choice kept, and edge.cjs checks it is drawn so.
 // XC-084: a walk marked `solo` runs with nothing beside it: solo walks go first, one after another, then the rest
 // `--jobs` at a time. A solo walk that failed is retried last, alone again, after the shared pool has drained.
@@ -15,6 +15,9 @@
 // line is the count to trust (GitHub shows at most ten warnings per step). XC-072 counts a pass on retry as a flake: the
 // number it drives down is that line, not the job's colour.
 // LORE_WALKS_EDGE points at another script in place of edge.sh; test/walks.test.cjs uses it.
+// XC-108: test/unit/walks-budget.test.cjs holds this list to seven walks and 450 seconds unless one note like the next
+// line raises them, naming the item that allows it. APP-270's timings sum to 480; APP-271 brings them down and takes it out.
+// walks-budget: APP-271 allows 7 walks and 480 seconds: APP-270's measured timings, until APP-271 makes the walks cheaper
 const { spawn } = require("node:child_process");
 const { appendFileSync } = require("node:fs");
 const { loadavg } = require("node:os");
@@ -24,31 +27,22 @@ const { join } = require("node:path");
 const WALKS = [
   // XC-084: 258 app CLI calls and 105 fixture calls, each a Python start-up, and waits on a stand-in node that has to
   // answer in time: beside another walk it lost three first attempts in four CI runs, against one in twenty alone.
-  { name: "agents", seconds: 215, solo: true },
-  { name: "automations", seconds: 96 },
-  { name: "connectors", seconds: 55 },
-  { name: "store", seconds: 52 },
-  { name: "checkin", seconds: 46 },
-  { name: "fresh", seconds: 45 },
-  { name: "today", seconds: 43 },
-  { name: "settings", seconds: 40 },
-  { name: "seller", seconds: 38 },
-  { name: "cards", seconds: 37 },
-  { name: "schedule", seconds: 31 },
-  { name: "reading", seconds: 25 },
-  { name: "quiet", seconds: 25 },
-  { name: "update", seconds: 24 },
-  { name: "feedback", seconds: 21 },
-  { name: "sales", seconds: 20 },
-  { name: "obsidian", seconds: 20 },
-  { name: "sell", seconds: 14 },
-  { name: "inventory", seconds: 14 },
-  { name: "jobs", seconds: 13 },
+  { name: "agents", seconds: 192, solo: true },
+  // APP-270: what were the schedule, reading and automations walks, one after another in one launch.
+  { name: "routines", seconds: 98 },
+  // APP-270: with what the update, sell and inventory walks checked that only a live window can.
+  { name: "store", seconds: 63 },
+  { name: "connectors", seconds: 43 },
+  // APP-270: launches into the failed setup the provision walk did, and recovers from it first.
+  { name: "seller", seconds: 31 },
   // APP-247: the one check only a dark launch makes (a kept dark choice is applied at boot, before any branch runs)
-  // rides on the cheapest walk that never reads DARK. The connectors walk re-shoots its own surfaces in dark inside
-  // its light run, in place of a second connectors walk launched dark. `settings` stays light: its checks branch on DARK.
-  { name: "faq", appearance: "dark", seconds: 10 },
-  { name: "provision", seconds: 8 },
+  // rides on a walk that never reads DARK and whose views light walks scan too. The connectors and store walks
+  // re-shoot their own surfaces in dark inside their light runs, in place of walks launched dark.
+  // `settings` stays light: its checks branch on DARK, and it alone scans the price sheet and the sidebar's own state.
+  // APP-269, APP-270: `faq`, then `jobs`, carried the dark launch until each was retired; `checkin` carries it now,
+  // with their account-menu, Escape and FAQ checks. Its own views (the Inbox, a thread) are scanned light elsewhere.
+  { name: "checkin", appearance: "dark", seconds: 30 },
+  { name: "settings", seconds: 23 },
 ];
 // Past edge.sh's own watchdog (six minutes for agents), so a walk that hangs somewhere it does not watch still ends.
 const LIMIT_MS = 8 * 60_000;

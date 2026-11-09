@@ -16,6 +16,13 @@ criterion with the window, the value, the baseline from the item, and whether
 the value is inside it. It changes nothing; writing the figures into the items'
 Notes and ticking XC-083's boxes is the reader's job (the audit playbook).
 
+XC-107: it also reads the shape of the test pyramid. Every test job prints a
+`### Test tiers: <package>` table (.github/scripts/tier_summary.py) and the
+desktop job a `**Layout scan**: V of E views` line (views_scanned.py). For the
+last `--tier-runs` runs it reads those jobs' logs too and adds a table of each
+tier's latest test count and median seconds, the unit tiers' share of all
+tests, and the views the walks scanned.
+
 Usage:
     uv run python docs/backlog/agents/measure_ci_window.py --since 2026-10-27T13:50:00Z
     uv run python docs/backlog/agents/measure_ci_window.py --since ... --max-runs 250 --json runs.json
@@ -41,7 +48,17 @@ from pathlib import Path
 REPO = "dipakkrishnan/lore-mcp"
 WORKFLOW = "tests.yml"
 DESKTOP_JOB = "Desktop macOS checks"
-WALKS_STEP = "Run node support/walks.cjs --jobs 2"
+WALKS_STEP = "Desktop walks"
+# XC-107: the jobs that print a tier table, in the order the report lists them.
+TIER_JOBS = (
+    "Python unit tests",
+    "Python integration tests",
+    DESKTOP_JOB,
+    "Node component tests",
+    "Feedback relay component tests",
+    "Card checkout component tests",
+    "Site component tests",
+)
 
 AGENTS_FIRST_RE = re.compile(r"##\[group\](PASS|FAIL) agents(?: \(alone\))? \((\d+)s")
 RETRIED_RE = re.compile(r"(\d+) of (\d+) walks passed on retry\.")
@@ -49,6 +66,12 @@ RETRY_GROUP_RE = re.compile(r"##\[group\]PASS (.+?) on retry")
 CACHE_RE = re.compile(
     r"Cache (not found for input keys|restored from key|saved with key)"
 )
+TIMESTAMP_RE = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
+TIER_TITLE_RE = re.compile(r"^### Test tiers: (.+)$")
+TIER_ROW_RE = re.compile(
+    r"^\| (?P<tier>[^|]+?) \| (?P<tests>\d+) \| \d+ \| \d+ \| \d+ \|[^|]*\| (?P<seconds>\d+(?:\.\d+)?) \|$"
+)
+VIEWS_RE = re.compile(r"\*\*Layout scan\*\*: (\d+) of (\d+) views")
 
 
 @dataclass
@@ -73,6 +96,10 @@ class Run:
     walks_total: int | None = None
     retried_walks: list[str] = field(default_factory=list)
     cache: str | None = None  # miss | hit | None
+    # XC-107: {"package", "tier", "tests", "seconds"} per tier table row, when read.
+    tiers: list[dict[str, object]] = field(default_factory=list)
+    views_scanned: int | None = None  # V from "**Layout scan**: V of E views"
+    views_expected: int | None = None
 
 
 @dataclass
@@ -132,11 +159,37 @@ def parse_walks_log(text: str) -> dict[str, object]:
     cache = CACHE_RE.search(text)
     if cache:
         facts["cache"] = "miss" if cache.group(1).startswith("not found") else "hit"
+    views = VIEWS_RE.search(text)
+    if views:
+        facts["views_scanned"] = int(views.group(1))
+        facts["views_expected"] = int(views.group(2))
     return facts
 
 
-def fetch_runs(since: str, max_runs: int) -> list[Run]:
-    """Every `tests.yml` run created at or after `since`, oldest first, with its desktop facts."""
+def parse_tiers(text: str) -> list[dict[str, object]]:
+    """The rows of every `### Test tiers` table a job log printed; a `not run` row has no count and is left out."""
+    rows: dict[tuple[str, str], dict[str, object]] = {}
+    package: str | None = None
+    for raw in text.splitlines():
+        line = TIMESTAMP_RE.sub("", raw).rstrip()
+        title = TIER_TITLE_RE.match(line)
+        if title:
+            package = title.group(1)
+            continue
+        row = TIER_ROW_RE.match(line)
+        if row and package:
+            rows[(package, row.group("tier"))] = {
+                "package": package,
+                "tier": row.group("tier"),
+                "tests": int(row.group("tests")),
+                "seconds": float(row.group("seconds")),
+            }
+    return list(rows.values())
+
+
+def fetch_runs(since: str, max_runs: int, tier_runs: int = 10) -> list[Run]:
+    """Every `tests.yml` run created at or after `since`, oldest first, with its desktop facts,
+    and for the last `tier_runs` of them the tier tables every test job printed."""
     runs: list[Run] = []
     page = 1
     while len(runs) < max_runs:
@@ -160,23 +213,29 @@ def fetch_runs(since: str, max_runs: int) -> list[Run]:
             )
         page += 1
     runs = sorted(runs, key=lambda r: r.created_at)[:max_runs]
-    for run in runs:
+    for index, run in enumerate(runs):
         jobs = gh_json(f"repos/{REPO}/actions/runs/{run.id}/jobs?per_page=100")
         assert isinstance(jobs, dict)
-        desktop = next(
-            (j for j in jobs.get("jobs", []) if j["name"] == DESKTOP_JOB), None
-        )
-        if desktop is None:
-            continue
-        run.desktop_conclusion = desktop["conclusion"]
-        run.desktop_started_at = desktop["started_at"]
-        run.desktop_completed_at = desktop["completed_at"]
-        if desktop["conclusion"] in ("success", "failure"):
-            facts = parse_walks_log(
-                gh_text(f"repos/{REPO}/actions/jobs/{desktop['id']}/logs")
-            )
-            for key, value in facts.items():
-                setattr(run, key, value)
+        read_tiers = index >= len(runs) - tier_runs
+        for job in sorted(
+            (j for j in jobs.get("jobs", []) if j["name"] in TIER_JOBS),
+            key=lambda j: TIER_JOBS.index(j["name"]),
+        ):
+            desktop = job["name"] == DESKTOP_JOB
+            if desktop:
+                run.desktop_conclusion = job["conclusion"]
+                run.desktop_started_at = job["started_at"]
+                run.desktop_completed_at = job["completed_at"]
+            if job["conclusion"] not in ("success", "failure") or not (
+                desktop or read_tiers
+            ):
+                continue
+            text = gh_text(f"repos/{REPO}/actions/jobs/{job['id']}/logs")
+            if desktop:
+                for key, value in parse_walks_log(text).items():
+                    setattr(run, key, value)
+            if read_tiers:
+                run.tiers += parse_tiers(text)
     return runs
 
 
@@ -291,6 +350,54 @@ def figures(runs: list[Run]) -> list[Figure]:
     return rows
 
 
+def tier_lines(runs: list[Run]) -> list[str]:
+    """XC-107: each tier's latest count and median seconds, the unit share, and the views scanned."""
+    read = [r for r in runs if r.tiers]
+    lines = ["", "### Test tiers (XC-107)", ""]
+    if not read:
+        lines.append("No run in the window printed a tier table.")
+    else:
+        latest: dict[tuple[str, str], int] = {}
+        seconds: dict[tuple[str, str], list[float]] = {}
+        for run in read:
+            for row in run.tiers:
+                key = (str(row["package"]), str(row["tier"]))
+                tests, took = row["tests"], row["seconds"]
+                assert isinstance(tests, int) and isinstance(took, (int, float))
+                latest[key] = tests
+                seconds.setdefault(key, []).append(float(took))
+        total = sum(latest.values())
+        unit = sum(count for (_, tier), count in latest.items() if tier == "Unit")
+        # One package's tiers together, packages and tiers in the order first seen.
+        packages = list(dict.fromkeys(package for package, _ in latest))
+        order = sorted(latest, key=lambda key: packages.index(key[0]))
+        lines += [
+            f"From the tier tables of the last {len(read)} runs that printed one"
+            f" (runs {read[0].id} to {read[-1].id}).",
+            "",
+            "| Package | Tier | Tests, latest | Seconds, median | Runs |",
+            "|---|---|---:|---:|---:|",
+            *(
+                f"| {package} | {tier} | {latest[(package, tier)]}"
+                f" | {statistics.median(seconds[(package, tier)]):.1f}"
+                f" | {len(seconds[(package, tier)])} |"
+                for package, tier in order
+            ),
+            "",
+            f"Unit tiers hold {percent(unit, total)} of the tests counted.",
+        ]
+    scanned = [r for r in runs if r.views_scanned is not None]
+    if scanned:
+        last = scanned[-1]
+        low = min(scanned, key=lambda r: r.views_scanned or 0)
+        lines.append(
+            f"Layout scan: the latest run scanned {last.views_scanned} of"
+            f" {last.views_expected} views; the fewest in the window was"
+            f" {low.views_scanned} (run {low.id})."
+        )
+    return lines
+
+
 def report(runs: list[Run], since: str) -> str:
     rows = figures(runs)
     verdict = {True: "inside", False: "WORSE", None: "window too short"}
@@ -311,6 +418,7 @@ def report(runs: list[Run], since: str) -> str:
     lines += [
         "",
         f"XC-082 cache: {len(hits)} hits, {len(misses)} misses among the runs whose desktop job ran.",
+        *tier_lines(runs),
     ]
     return "\n".join(lines) + "\n"
 
@@ -323,6 +431,12 @@ def main(argv: list[str]) -> int:
         help="ISO time the window starts (default: the stack's merge)",
     )
     parser.add_argument("--max-runs", type=int, default=250)
+    parser.add_argument(
+        "--tier-runs",
+        type=int,
+        default=10,
+        help="read the tier tables of this many of the latest runs (one log per test job each)",
+    )
     parser.add_argument("--json", type=Path, help="also write the per-run facts here")
     parser.add_argument(
         "--from-json", type=Path, help="read per-run facts from here instead of the API"
@@ -331,7 +445,7 @@ def main(argv: list[str]) -> int:
     if args.from_json:
         runs = [Run(**raw) for raw in json.loads(args.from_json.read_text())]
     else:
-        runs = fetch_runs(args.since, args.max_runs)
+        runs = fetch_runs(args.since, args.max_runs, args.tier_runs)
     if args.json:
         args.json.write_text(json.dumps([asdict(r) for r in runs], indent=1))
     sys.stdout.write(report(runs, args.since))
