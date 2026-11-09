@@ -24,9 +24,15 @@ export default defineProject({
   ],
   test: {
     name: "workerd",
-    // One file at a time: a Worker boots per file (MCP-003), and the files share the D1 seed in
-    // test/setup.ts, mutate env.LORE_WALLET and spy on globalThis.fetch. XC-101 revisits this.
-    fileParallelism: false,
+    // Files run in parallel (XC-101). It is safe because nothing crosses a file: this pool (0.23)
+    // starts a Miniflare of its own for each file, so each file has its own workerd, its own D1
+    // (test/setup.ts seeds it per file), and its own isolate, where the env.LORE_WALLET mutation
+    // and the globalThis.fetch spies stay. MCP-003 ran files one at a time while a Worker cold start
+    // took most of a test's timeout. XC-101 cut the files that boot one to seven (paid-path, answer,
+    // agent, card, free, collections, empty-store), so fewer start at once, and the hooks that
+    // warm a file's Worker carry 30-60 s timeouts. If cold starts begin timing out here, set this
+    // back to false before raising timeouts.
+    fileParallelism: true,
     include: ["test/**/*.test.ts"],
     // Lore's hosted stores are another Worker, with their own pool (vitest.hosted.config.ts);
     // test/unit/ is the node project (vitest.unit.config.ts).

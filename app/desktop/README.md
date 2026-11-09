@@ -20,11 +20,17 @@ npm --prefix app/desktop run test:capture   # attended capture against a disposa
 npm --prefix app/desktop run test:edge      # every renderer walk, driven under real Electron, two at a time
 ```
 
-`test:edge` runs `support/walks.cjs`, which holds the one list of walks (each with
-its measured time) and runs them two at a time, longest first;
-`node app/desktop/support/walks.cjs faq store` runs just those. CI (`desktop-check`
-in `.github/workflows/tests.yml`, macOS) runs `check`, `test`, the same list with
-`node support/walks.cjs --jobs 2`, and `package` (XC-077). A new walk is one line
+`test:edge` runs `support/walks.cjs`, which holds the one list of seven walks (each
+with its measured time) and runs them two at a time, longest first, after `agents`,
+which runs alone; `node app/desktop/support/walks.cjs checkin store` runs just those.
+Each walk is one persona's journey, the checks only a live Electron window can make,
+and the layout scans of its views; a rule that a fake `window.lore` can drive is a
+unit test instead (APP-270). CI (`desktop-check`
+in `.github/workflows/tests.yml`, macOS) runs `check`, the unit tier, the component
+tier, the same list with `node support/walks.cjs --jobs 2`, and `package`, in that
+order, each step only if the one before it passed (XC-077, XC-107). Its step summary
+has a table of each tier's tests and seconds and a line saying how many of the views
+in `support/views.json` the walks' layout scan reached that run. A new walk is one line
 in `support/walks.cjs`; CI picks it up from there. Keep walks two at a time: on a
 three-core CI runner a third slows every walk and fails some. A walk needs no
 provider or Cloudflare credential. `test:capture` is the one suite CI does not
@@ -33,8 +39,20 @@ channel exposed in `preload.cjs` with no `ipcMain.handle` in `main.cjs`, or the
 reverse, or a `window.lore` member the renderer uses but preload does not expose,
 fails `test/ipc-contract.test.cjs`.
 
+`test/unit/renderer-*.test.cjs` run the renderer's rules without Electron: `support/renderer-harness.cjs`
+loads `src/index.html` and its scripts (`renderer.js` last) into jsdom with a recorded fake `window.lore`, and each
+test calls a top-level function with a snapshot and asserts the result. They check DOM structure and text, never
+layout: jsdom has no layout engine, so every box is 0×0 and nothing overlaps or clips. What a view looks like is
+still the walks' LAYOUT scan below, and `support/views.json` (APP-266) records which walk scans which view.
+
+A unit test that checks what the app sends `lore` (argv, stdin, the launch key) or what it makes of the answer
+requires `support/fake-cli.cjs` before anything loads `src/state.cjs`: `fakeCli(answer)` makes the CLI a function in
+the test's own process and records every call, so nothing starts (APP-272). The real CLI, through
+`support/scratch.cjs`, is for `test/component/`'s few round trips, one per surface the app depends on.
+
 Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
-check (the screenshots are written, never compared): once the page settles it
+check (the screenshots are written, never compared, and on CI not written at
+all: `LORE_EDGE_IMAGES=1` keeps them there, `=0` drops them here): once the page settles it
 scans the whole DOM in real Chromium for layout faults — a box wider than its
 room, text or a control cut off or clipped by the box around it, a one-line
 label wrapping, neighbours drawn over each other, text or the focused control
@@ -47,6 +65,13 @@ labels; `test/views.test.cjs` fails when a `shot()` label has no row, a row
 names a label or walk that is gone, or the widths disagree with edge.cjs and
 main.cjs. Only a `shot()` under Electron counts as a layout check: a jsdom or
 `node:vm` assertion never does, because neither lays anything out (APP-266).
+
+A walk waits on the thing it is waiting for: `waitFor` on the page, `until` on what
+the walk itself records (notifications, readings, calls), `idle` for no call from
+the page being out. A fixed `sleep` stays only where nothing can be watched or the
+time is itself the point, and its comment says which (APP-271). Each walk ends
+with two `TIME` lines saying where its time went: the scans, the fixed sleeps, and
+its longest stretches between checks.
 
 To look at a view without clicking through, render it to a PNG:
 

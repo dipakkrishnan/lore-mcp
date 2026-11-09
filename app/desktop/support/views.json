@@ -9,10 +9,10 @@
     "A view with no scans is one the walks drive but never shot(): it has no layout check today."
   ],
   "window": { "width": 1040, "from": "src/main.cjs createWindow" },
-  "narrow": { "width": 900, "walks": ["today", "store", "connectors", "automations", "settings", "agents"], "from": "support/edge.cjs NARROW, less the scenarios under dead" },
+  "narrow": { "width": 900, "walks": ["store", "connectors", "routines", "settings", "agents"], "from": "support/edge.cjs NARROW, less the scenarios under dead" },
   "dark": {
     "about": "Shots drawn dark: every shot of a walk walks.cjs launches with appearance dark, and these shots of light walks that flip the appearance mid-walk.",
-    "walks": ["faq"],
+    "walks": ["checkin"],
     "shots": ["settings-connected-dark", "export-manage-dark", "settings-appearance-dark", "account-menu-dark-mode-on", "inventory-rows-dark"]
   },
   "views": [
@@ -21,8 +21,7 @@
       "name": "Welcome (sign-in) with the provisioning banner",
       "about": "#welcome before sign-in: the setup-failed banner with Try again, then the sign-in it recovers to; the sign-in with its usage-events notice and See what's sent (APP-250).",
       "scans": [
-        { "walk": "provision", "widths": [1040], "shots": ["provision-failed", "provision-recovered"] },
-        { "walk": "fresh", "widths": [1040], "shots": ["welcome-usage"] }
+        { "walk": "seller", "widths": [1040], "shots": ["provision-failed", "provision-recovered"] }
       ]
     },
     {
@@ -42,31 +41,23 @@
     {
       "id": "today",
       "name": "Today",
-      "about": "The next step at each stage (connect, sell, drafts to approve, open your store, update store, store not responding, nothing), How it works, Today's notices (usage events, automations), the extras batch (read, editing, confirm, approved), New memories cards (from an app, an agent, an owner routine), a suggested collection, the Check in card, request cards on the root (open_url stages, Open your store?), and a filed-feedback notice.",
+      "about": "The next step at each stage (connect, sell, drafts to approve, open your store, update store, store not responding, nothing), How it works, Today's notices (usage events, automations), the extras batch (read, editing, confirm, approved), New memories cards (from an app, an agent, an owner routine), a suggested collection, the Check in card, and request cards on the root (open_url stages, Open your store?). A filed-feedback notice is no longer shot since APP-270 retired the feedback walk; test/unit/renderer-feedback.test.cjs checks what it says.",
       "scans": [
-        { "walk": "today", "widths": [1040, 900], "shots": ["today-e-connect", "today-d-sell", "today-c-drafts", "today-b2-open", "today-b-update", "today-a-store", "today-f-nothing", "talk-inventory", "talk-listening"] },
-        { "walk": "fresh", "widths": [1040], "shots": ["today-usage-notice", "today-automations-after-connect"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["today-bring-in", "today-publish"] },
         { "walk": "settings", "widths": [1040, 900], "shots": ["update-ready", "today-approvals", "today-extras-batch", "today-extras-editing", "today-extras-confirm", "today-extras-approved"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-today", "agents-today-see-them"] },
-        { "walk": "reading", "widths": [1040], "shots": ["reading-today-working", "reading-today-ready"] },
-        { "walk": "schedule", "widths": [1040], "shots": ["schedule-today-ready"] },
-        { "walk": "automations", "widths": [1040, 900], "shots": ["automations-today-owner-routine", "automations-suggested-collection"] },
         { "walk": "checkin", "widths": [1040], "shots": ["checkin-today"] },
-        { "walk": "quiet", "widths": [1040], "shots": ["checkin-quiet-today"] },
-        { "walk": "sales", "widths": [1040], "shots": ["sales-today-top", "sales-today"] },
-        { "walk": "feedback", "widths": [1040], "shots": ["feedback-filed"] },
-        { "walk": "seller", "widths": [1040], "shots": ["open-stage-one", "open-stage-two", "seller-approved-offer"] }
+        { "walk": "seller", "widths": [1040], "shots": ["open-stage-one", "open-stage-two", "seller-approved-offer"] },
+        { "walk": "routines", "widths": [1040, 900], "shots": ["schedule-today-ready", "reading-today-working", "reading-today-ready", "automations-today-owner-routine", "automations-suggested-collection"] }
       ]
     },
     {
       "id": "thread",
       "name": "A thread (capture, publish, Open your store, Evening check-in)",
-      "about": "The task view: #log with owner bubbles, the thinking line, steps (working and folded open), a question card with the payout fieldset, the composer; a capture joined from Today, a publish thread started from an app or from pasted writing, a check-in thread on its first and second day.",
+      "about": "The task view: #log with owner bubbles, the thinking line, steps (working and folded open), a question card with the payout fieldset, the composer; a capture joined from Today, a publish thread started from an app (one started from pasted writing is test/unit/renderer-sell.test.cjs since APP-270), a check-in thread on its first and second day, a new memory's thread opened listening with its dictation bar (APP-290).",
       "scans": [
-        { "walk": "store", "widths": [1040, 900], "shots": ["root-capture-joined"] },
+        { "walk": "store", "widths": [1040, 900], "shots": ["talk-listening", "root-capture-joined"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["publish-from-app"] },
-        { "walk": "sell", "widths": [1040], "shots": ["sell-drafting"] },
         { "walk": "seller", "widths": [1040], "shots": ["payout-card-by-card", "payout-card", "conversation-bubble", "thinking-bubble", "working-steps", "steps-open"] },
         { "walk": "checkin", "widths": [1040], "shots": ["checkin-thread", "checkin-thread-day-two"] }
       ]
@@ -76,11 +67,9 @@
       "name": "Inventory, Private shelf (memories)",
       "about": "show(\"memories\") and the places that land on it: the empty state, the header with Sell something you wrote, rows grouped by source with marks, New marks, the source-filter chip, an attention notice over the list.",
       "scans": [
-        { "walk": "fresh", "widths": [1040], "shots": ["memories-empty"] },
-        { "walk": "sell", "widths": [1040], "shots": ["inventory-sell-writing"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-see-them-sheet", "agents-see-them-notification", "agents-see-them-card", "agents-see-them-inventory", "agents-reopened-see-them", "agents-filter-chip"] },
-        { "walk": "reading", "widths": [1040], "shots": ["reading-inventory-from"] },
-        { "walk": "seller", "widths": [1040], "shots": ["memories-error-notice"] }
+        { "walk": "seller", "widths": [1040], "shots": ["memories-error-notice"] },
+        { "walk": "routines", "widths": [1040, 900], "shots": ["reading-inventory-from"] }
       ]
     },
     {
@@ -88,12 +77,9 @@
       "name": "Inventory, All and On sale (pieces, Sales, Ready to sell), with taken-down pieces in their own folded group",
       "about": "show(\"store\") and show(\"inventory\"): one-line rows grouped by source, pieces on sale and not yet pushed, the Sales ledger, a pending removal, a piece under Ready to sell, a row's take-down confirm, and the folded Taken down group.",
       "scans": [
-        { "walk": "inventory", "widths": [1040], "shots": ["inventory-rows", "inventory-taken-down", "inventory-rows-dark"] },
-        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "store-unpushed", "store-removal-pending", "store-push-first", "store-take-down"] },
-        { "walk": "fresh", "widths": [1040], "shots": ["store-empty"] },
+        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "inventory-rows-dark", "store-take-down", "store-removal-pending", "store-push-first"] },
         { "walk": "settings", "widths": [1040, 900], "shots": ["store-card", "store-price-editor-saved"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-nothing-for-sale", "agents-ready-to-sell"] },
-        { "walk": "sales", "widths": [1040], "shots": ["sales-list", "sales-for-sale"] },
         { "walk": "seller", "widths": [1040], "shots": ["store"] }
       ]
     },
@@ -102,7 +88,7 @@
       "name": "Collection wizard (pick memories)",
       "about": "#content .pick rows with the wizard lead and foot, opened from a suggested collection's Review.",
       "scans": [
-        { "walk": "automations", "widths": [1040, 900], "shots": ["automations-suggestion-review"] }
+        { "walk": "routines", "widths": [1040, 900], "shots": ["automations-suggestion-review"] }
       ]
     },
     {
@@ -110,50 +96,43 @@
       "name": "Connectors",
       "about": "Your apps catalog (every app by name with its mark, connected rows with counts), Your agents (offer, a connected agent, after disconnect), notices over it (next step to sell, Read again found nothing, scrolled to the bottom), and the page in dark. Labels named settings-* here date from when Connectors lived in Settings.",
       "scans": [
-        { "walk": "obsidian", "widths": [1040], "shots": ["settings-obsidian-offered", "settings-obsidian-connected"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["settings-catalog", "connected-next-step", "notice-in-view", "granola-connected", "settings-connected", "settings-connected-dark"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-offer", "agents-connected", "agents-disconnected"] },
-        { "walk": "schedule", "widths": [1040], "shots": ["schedule-connectors"] }
+        { "walk": "routines", "widths": [1040, 900], "shots": ["schedule-connectors"] }
       ]
     },
     {
       "id": "automations",
       "name": "Automations",
-      "about": "Lore's own routines first, then the owner's: switches, Change time, Run now, Remove; a reading taken over from Codex; every one on by default with no notice; after pausing, retiming and removing.",
+      "about": "Lore's own routines first, then the owner's: switches, Change time, Run now, Remove; every one on by default with no notice; after pausing, retiming and removing. A reading taken over from Codex is no longer shot since APP-270 retired the jobs walk; test/unit/renderer-routines.test.cjs checks its row.",
       "scans": [
-        { "walk": "jobs", "widths": [1040], "shots": ["automations-taken-over"] },
-        { "walk": "fresh", "widths": [1040], "shots": ["automations-no-notice", "automations-on-by-default"] },
-        { "walk": "automations", "widths": [1040, 900], "shots": ["automations", "automations-after"] }
+        { "walk": "routines", "widths": [1040, 900], "shots": ["automations", "automations-after"] }
       ]
     },
     {
       "id": "settings",
       "name": "Settings",
-      "about": "One scrolling page, so each scan covers every section in the DOM; the shot's name says where it was scrolled. Sections seen: Account, Your store (address with Live and Update, price, payouts, paid answers, marketplace), Get paid (By card in each Stripe state), Lore <version> (update states, Move to Applications), Light or dark, Anonymous usage, Where it lives, Activity (with runs and empty). account-menu-dark-mode-* scan this page under the open account menu.",
+      "about": "One scrolling page, so each scan covers every section in the DOM; the shot's name says where it was scrolled. Sections seen: Account, Your store (address with Live and Update, price, payouts, paid answers, marketplace), Get paid (By card on; its other Stripe states are test/unit/renderer-cards.test.cjs since APP-270 retired the cards walk), Lore <version> (update states, Move to Applications), Light or dark, Anonymous usage, Where it lives, Activity (with a run; its rows are test/unit/renderer-activity.test.cjs). account-menu-dark-mode-* scan this page under the open account menu.",
       "scans": [
-        { "walk": "jobs", "widths": [1040], "shots": ["settings-activity", "settings-activity-empty"] },
-        { "walk": "update", "widths": [1040], "shots": ["update-settings"] },
         { "walk": "store", "widths": [1040, 900], "shots": ["settings-store"] },
-        { "walk": "settings", "widths": [1040, 900], "shots": ["settings-top", "settings-your-store", "settings-updates", "settings-appearance-dark", "settings-appearance-light", "settings-usage-off", "account-menu-dark-mode-off", "account-menu-dark-mode-on"] },
-        { "walk": "sales", "widths": [1040], "shots": ["sales-activity"] },
-        { "walk": "cards", "widths": [1040], "shots": ["cards-offer", "cards-waiting", "cards-price-warning", "cards-on"] }
+        { "walk": "settings", "widths": [1040, 900], "shots": ["settings-top", "settings-your-store", "settings-updates", "settings-appearance-light", "settings-appearance-dark", "account-menu-dark-mode-on", "account-menu-dark-mode-off", "settings-usage-off", "settings-activity"] }
       ]
     },
     {
       "id": "faq",
       "name": "FAQ (Help & FAQ)",
-      "about": "The FAQ tab, drawn dark (the faq walk launches dark).",
+      "about": "The FAQ tab, drawn dark: the checkin walk launches dark and opens it from the account menu (APP-270; the faq walk, then the jobs walk, did until each was retired).",
       "scans": [
-        { "walk": "faq", "widths": [1040], "shots": ["faq"] }
+        { "walk": "checkin", "widths": [1040], "shots": ["faq"] }
       ]
     },
     {
       "id": "account-menu",
       "name": "Account menu",
-      "about": "#account-menu popover over the page: who is signed in, Settings, Help & FAQ, Report feedback, the Dark mode switch off and on, Sign out. A popover is not modal, so the page under it (Today in faq, Settings in settings) is scanned too.",
+      "about": "#account-menu popover over the page: who is signed in, Settings, Help & FAQ, Report feedback, the Dark mode switch off and on, Sign out. A popover is not modal, so the page under it (Settings in checkin and in settings) is scanned too.",
       "scans": [
-        { "walk": "faq", "widths": [1040], "shots": ["account-menu"] },
-        { "walk": "settings", "widths": [1040, 900], "shots": ["account-menu-dark-mode-off", "account-menu-dark-mode-on"] }
+        { "walk": "settings", "widths": [1040, 900], "shots": ["account-menu-dark-mode-on", "account-menu-dark-mode-off"] },
+        { "walk": "checkin", "widths": [1040], "shots": ["account-menu"] }
       ]
     },
     {
@@ -161,7 +140,6 @@
       "name": "Connect or Manage an app (sheet)",
       "about": "Modal, so only the sheet is scanned: a vault picker, a change refused in place, an address field with a problem line, an export's how-to, Manage (Read again, Read once, Sign in again, Disconnect), a Mac app's tile (Claude Code), and Manage in dark.",
       "scans": [
-        { "walk": "obsidian", "widths": [1040], "shots": ["obsidian-choose", "obsidian-manage"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["obsidian-change-refused", "error-in-sheet", "granola-signed-out", "export-how-to", "export-manage", "export-manage-dark"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-history-connect"] }
       ]
@@ -169,7 +147,7 @@
     {
       "id": "source-disconnect",
       "name": "Disconnect an app? (sheet)",
-      "about": "The one-question confirm naming the vault. The obsidian walk drives it but takes no shot while it is open: no layout check today.",
+      "about": "The one-question confirm naming the vault. No walk opens it since APP-269 retired the obsidian walk, which never shot it either; test/unit/renderer-vault.test.cjs drives it in jsdom, which lays nothing out: no layout check today.",
       "scans": []
     },
     {
@@ -185,7 +163,7 @@
       "name": "Agent setup and new-link sheets",
       "about": "Modal. Waiting for an agent to ask to sign in; Connect <agent> with its steps, message or link, routine message and the shimmering wait; the first save counted with See them; A new link for <agent>; ChatGPT connected after Allow; Other with address, key and instructions; Instinct's text-first sheet and its one save.",
       "scans": [
-        { "walk": "agents", "widths": [1040, 900], "shots": ["agents-grok-sign-in", "agents-setup", "agents-grok-setup", "agents-first-save", "agents-new-key", "agents-grok-new-key", "agents-claude-setup", "agents-claude-new-key", "agents-chatgpt-setup", "agents-allowed", "agents-other-setup", "agents-instinct-setup", "agents-instinct-saved"] }
+        { "walk": "agents", "widths": [1040, 900], "shots": ["agents-grok-sign-in", "agents-setup", "agents-first-save", "agents-new-key", "agents-claude-setup", "agents-claude-new-key", "agents-chatgpt-setup", "agents-allowed", "agents-other-setup", "agents-instinct-setup", "agents-instinct-saved"] }
       ]
     },
     {
@@ -218,8 +196,7 @@
       "about": "Modal. A memory's head with where it came from, its actions (Draft for sale, Edit, More) and menu.",
       "scans": [
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-memory-from"] },
-        { "walk": "seller", "widths": [1040], "shots": ["memory-actions"] },
-        { "walk": "feedback", "widths": [1040], "shots": ["feedback-other-sheet-survives"] }
+        { "walk": "seller", "widths": [1040], "shots": ["memory-actions"] }
       ]
     },
     {
@@ -244,7 +221,6 @@
       "name": "Update your store (changes sheet)",
       "about": "Modal confirm naming what goes on sale, comes off, or changes price, with Cancel and Confirm; the newer-store update from Lore.",
       "scans": [
-        { "walk": "update", "widths": [1040], "shots": ["update-confirm"] },
         { "walk": "store", "widths": [1040, 900], "shots": ["store-confirm-changes"] }
       ]
     },
@@ -253,13 +229,13 @@
       "name": "Automation sheet (New automation; one opened)",
       "about": "Modal form-sheet: the prompt, title and Repeat/On/At, empty and filled; one of the owner's own opened to reword.",
       "scans": [
-        { "walk": "automations", "widths": [1040, 900], "shots": ["automations-new-empty", "automations-new", "automations-open"] }
+        { "walk": "routines", "widths": [1040, 900], "shots": ["automations-new-empty", "automations-new", "automations-open"] }
       ]
     },
     {
       "id": "change-time-sheet",
       "name": "Change time (sheet)",
-      "about": "The cadence, day and hour selects. The automations walk drives it twice but takes no shot while it is open: no layout check today.",
+      "about": "The cadence, day and hour selects. The routines walk drives it twice but takes no shot while it is open: no layout check today.",
       "scans": []
     },
     {
@@ -267,13 +243,13 @@
       "name": "Sell something you wrote (sheet)",
       "about": "Modal: the pasted writing and Draft it for sale.",
       "scans": [
-        { "walk": "sell", "widths": [1040], "shots": ["sell-paste"] }
+        { "walk": "store", "widths": [1040, 900], "shots": ["sell-paste"] }
       ]
     },
     {
       "id": "feedback-sheet",
       "name": "Report feedback (sheet)",
-      "about": "The feedback form. The feedback walk fills and sends it but shoots only after it has closed itself: no layout check today.",
+      "about": "The feedback form. No walk opens it since APP-270 retired the feedback walk, which shot only after the form had closed itself; test/unit/renderer-feedback.test.cjs drives it in jsdom, which lays nothing out: no layout check today.",
       "scans": []
     },
     {
@@ -287,15 +263,13 @@
     {
       "id": "preview-window",
       "name": "Preview page window",
-      "about": "The draft's buyer page in its own script-less BrowserWindow. The sell walk writes sell-preview.png from it with capturePage alone; the LAYOUT scan runs only in the app window, so it has no layout check.",
+      "about": "The draft's buyer page in its own script-less BrowserWindow. The store walk opens it and checks its webPreferences (APP-270, from the retired sell walk); the LAYOUT scan runs only in the app window, so it has no layout check.",
       "scans": []
     }
   ],
   "dead": {
-    "about": "Scenarios edge.cjs still carries that walks.cjs does not run, so their shot() labels scan nothing in CI. APP-265 deletes them; empty this list as it does. Each label is filed under the view it would scan.",
+    "about": "Scenarios edge.cjs carries that walks.cjs does not run, so their shot() labels scan nothing in CI. APP-265 deleted listing and extras. firstrun stays: it is run by hand (support/edge.sh firstrun; APP-215, XC-090) though walks.cjs does not run it, so its labels still scan nothing in CI. Each label is filed under the view it would scan.",
     "scenarios": [
-      { "scenario": "listing", "views": { "settings": ["settings-list-offer", "settings-list-pending"] } },
-      { "scenario": "extras", "views": { "today": ["extras-card", "extras-approved"] } },
       { "scenario": "firstrun", "views": { "first-run": ["firstrun-greeting", "firstrun-apps-failed", "firstrun-apps-connected", "firstrun-pick", "firstrun-store", "firstrun-connect", "firstrun-resumed", "firstrun-saved"], "inventory-private": ["firstrun-see-them"], "today": ["firstrun-skipped-today"] } }
     ]
   }

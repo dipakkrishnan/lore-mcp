@@ -7,14 +7,19 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
-    // XC-098: report-only coverage, on with `--coverage` (npm run test:coverage). Coverage is a
-    // root option: one istanbul report over both projects (the Workers pool supports istanbul
-    // only, and it instruments the node project the same); CI reads coverage/coverage-summary.json
-    // into one line of the step summary. No thresholds until XC-108.
+    // XC-098: coverage, on with `--coverage` (npm run test:coverage). Coverage is a root option:
+    // one istanbul report over both projects (the Workers pool supports istanbul only, and it
+    // instruments the node project the same); CI reads coverage/coverage-summary.json into one
+    // line of the step summary.
+    // XC-108: `thresholds` is the floor; below it `npm run test:coverage`, and so CI's component
+    // tests, fail. Set 2026-11-09 a little under main's numbers (808a33d8, run 42584807851):
+    // statements 100% (211/211), branches 100% (166/166). Never lower it, and never exclude a file
+    // to meet it.
     coverage: {
       provider: "istanbul",
       reporter: ["text-summary", "json-summary"],
-      include: ["src/**"]
+      include: ["src/**"],
+      thresholds: { statements: 99, branches: 99 }
     }
   }
 });
