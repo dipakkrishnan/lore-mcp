@@ -17,7 +17,6 @@
 // LORE_WALKS_EDGE points at another script in place of edge.sh; test/walks.test.cjs uses it.
 // XC-108: test/unit/walks-budget.test.cjs holds this list to seven walks and 450 seconds unless one note like the next
 // line raises them, naming the item that allows it. APP-270's timings sum to 480; APP-271 brings them down and takes it out.
-// walks-budget: APP-271 allows 7 walks and 480 seconds: APP-270's measured timings, until APP-271 makes the walks cheaper
 const { spawn } = require("node:child_process");
 const { appendFileSync } = require("node:fs");
 const { loadavg } = require("node:os");
@@ -43,6 +42,8 @@ const WALKS = [
   // with their account-menu, Escape and FAQ checks. Its own views (the Inbox, a thread) are scanned light elsewhere.
   { name: "checkin", appearance: "dark", seconds: 30 },
   { name: "settings", seconds: 23 },
+  // XC-108 proof, never merged: an eighth walk with no walks-budget note.
+  { name: "proof", seconds: 5 },
 ];
 // Past edge.sh's own watchdog (six minutes for agents), so a walk that hangs somewhere it does not watch still ends.
 const LIMIT_MS = 8 * 60_000;
