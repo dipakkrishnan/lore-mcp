@@ -292,10 +292,8 @@
     }
   ],
   "dead": {
-    "about": "Scenarios edge.cjs still carries that walks.cjs does not run, so their shot() labels scan nothing in CI. APP-265 deletes them; empty this list as it does. Each label is filed under the view it would scan.",
+    "about": "Scenarios edge.cjs carries that walks.cjs does not run, so their shot() labels scan nothing in CI. APP-265 deleted listing and extras. firstrun stays: it is run by hand (support/edge.sh firstrun; APP-215, XC-090) though walks.cjs does not run it, so its labels still scan nothing in CI. Each label is filed under the view it would scan.",
     "scenarios": [
-      { "scenario": "listing", "views": { "settings": ["settings-list-offer", "settings-list-pending"] } },
-      { "scenario": "extras", "views": { "today": ["extras-card", "extras-approved"] } },
       { "scenario": "firstrun", "views": { "first-run": ["firstrun-greeting", "firstrun-apps-failed", "firstrun-apps-connected", "firstrun-pick", "firstrun-store", "firstrun-connect", "firstrun-resumed", "firstrun-saved"], "inventory-private": ["firstrun-see-them"], "today": ["firstrun-skipped-today"] } }
     ]
   }
