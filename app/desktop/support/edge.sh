@@ -2,9 +2,18 @@
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
 # Scenarios: seller | store | connectors | checkin | routines | settings | agents | firstrun
 set -euo pipefail
+# APP-271: when seeding ended and when Electron did, for the TIME line at the end.
+began=$SECONDS
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$desktop_dir/../.." && pwd)"
+# APP-271: once uv has built the project's environment (CI's `uv sync --locked` does), it goes first on PATH, as
+# `uv run` would put it, and each `uv run X` below is X straight: `uv run` looks at the lock again every time.
+uv_run=(uv run)
+if [[ -x "$repo_root/.venv/bin/python" ]]; then
+  export PATH="$repo_root/.venv/bin:$PATH" VIRTUAL_ENV="$repo_root/.venv"
+  uv_run=(env)
+fi
 root="$(mktemp -d "${TMPDIR:-/tmp}/lore-edge.XXXXXX")"
 mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
@@ -21,11 +30,11 @@ echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/ap
 # are test/unit/renderer-empty-states.test.cjs since APP-269 retired the fresh walk.)
 [[ "$scenario" == "connectors" || "$scenario" == "agents" || "$scenario" == "firstrun" ]] || (
   cd "$repo_root"
-  echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
-  echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
+  echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | "${uv_run[@]}" lore capture apply - >/dev/null
+  echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | "${uv_run[@]}" lore publication draft - >/dev/null
 )
 if [[ "$scenario" == "store" ]]; then
-  (cd "$repo_root" && uv run python -c "import time
+  (cd "$repo_root" && "${uv_run[@]}" python -c "import time
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
@@ -46,7 +55,7 @@ if [[ "$scenario" == "settings" ]]; then
   export PATH="$root/bin:$PATH"
   echo '{"sellers":[{"node":"https://lore-edge.example.workers.dev/mcp"}]}' > "$root/marketplace.json"
   export LORE_MARKETPLACE_URL="file://$root/marketplace.json"
-  (cd "$repo_root" && uv run python -c "import time
+  (cd "$repo_root" && "${uv_run[@]}" python -c "import time
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://lore-edge.example.workers.dev/mcp')
@@ -61,7 +70,7 @@ with Store() as store:
  store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])
  # APP-270: one finished run, so Settings ends on its Activity section, scanned here since the jobs and sales walks went.
  store.finish_job(store.start_job('capture', timeout_minutes=60), 'succeeded', summary='captured')"
-  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | uv run lore publication extras draft - >/dev/null)
+  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | "${uv_run[@]}" lore publication extras draft - >/dev/null)
 fi
 if [[ "$scenario" == "routines" ]]; then
   # APP-270: Lore's own rhythm in one walk, which was three (schedule, reading, automations).
@@ -71,9 +80,9 @@ if [[ "$scenario" == "routines" ]]; then
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
-  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
   printf '# Two\n\nA second lesson, written after the vault was connected.\n' > "$root/Edge Vault/two.md"
-  (cd "$repo_root" && uv run python -c "
+  (cd "$repo_root" && "${uv_run[@]}" python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
@@ -86,11 +95,11 @@ for routine in routines.list():
         routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
   # APP-200: the owner has one routine of their own, added now, so nothing of theirs is owed at launch.
-  (cd "$repo_root" && uv run lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
   # APP-213: one memory Lore wrote before it kept who each came from.
   mkdir -p "$LORE_HOME/memories"
   printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
-  (cd "$repo_root" && uv run lore sync --source automation >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore sync --source automation >/dev/null)
 fi
 if [[ "$scenario" == "checkin" ]]; then
   # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while
@@ -99,14 +108,14 @@ if [[ "$scenario" == "checkin" ]]; then
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
-  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
-  (cd "$repo_root" && uv run python -c "
+  (cd "$repo_root" && "${uv_run[@]}" lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
 now = datetime.now(timezone.utc)
 automation.Routines(clock=lambda: now - timedelta(days=2)).change('checkin', paused=False, cadence='daily', hour=(now - timedelta(hours=1)).astimezone().hour)")
   printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
-  (cd "$repo_root" && uv run lore sources read >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore sources read >/dev/null)
 fi
 if [[ "$scenario" == "connectors" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a
@@ -126,7 +135,7 @@ if [[ "$scenario" == "connectors" || "$scenario" == "routines" ]]; then
   # CAP-009: Granola's server stood in for by a local one that asks no sign-in, and a keyring that
   # keeps nothing, so the owner's Keychain is never touched. The connectors walk stops it to see the app fail.
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  (cd "$repo_root" && exec uv run python tests/fixtures/granola.py "$port" >"$root/granola.log" 2>&1) &
+  (cd "$repo_root" && exec "${uv_run[@]}" python tests/fixtures/granola.py "$port" >"$root/granola.log" 2>&1) &
   export LORE_EDGE_GRANOLA_PID=$! LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
   trap 'kill "$LORE_EDGE_GRANOLA_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
@@ -148,10 +157,16 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   export LORE_EDGE_D1="$root/d1.sqlite" LORE_EDGE_KEYRING="$root/keyring.json" LORE_EDGE_REPO="$repo_root"
   export PYTHONPATH="$repo_root" PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  (cd "$repo_root" && exec uv run python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
+  (cd "$repo_root" && exec "${uv_run[@]}" python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
   export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
+  node_from=$SECONDS
+  # APP-271: the node says it is listening once its socket is bound (inbox.py prints the line after it binds), checked
+  # every tenth of a second; then the same request as before, once. Said with the TIME lines at the end.
+  for _ in $(seq 1 300); do grep -q "Lore agent endpoint at" "$root/agent.log" 2>/dev/null && break; sleep 0.1; done
+  listening=$((SECONDS - node_from))
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
+  node_took="; the stand-in node listened after ${listening}s and answered after $((SECONDS - node_from))s"
 fi
 # A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
 # never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
@@ -166,6 +181,7 @@ def _dump(signum, frame):
 signal.signal(signal.SIGTERM, _dump)
 PY
 export PYTHONPATH="$root/pyhooks${PYTHONPATH:+:$PYTHONPATH}" LORE_CLI_STACK="$root/cli-stack.log"
+# APP-271: on CI every shot() scans and keeps no picture; LORE_EDGE_IMAGES=1 keeps them there too.
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
@@ -177,6 +193,7 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "routines" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
 # beside the walk log and printed when the walk fails (XC-111).
+seeded=$SECONDS
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
@@ -191,7 +208,11 @@ fi
 # Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
 code=0
 wait "$walk" 2>/dev/null || code=$?
+ran=$SECONDS
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
+# APP-271: where the walk's time went (edge.cjs's TIME lines), said but never judged.
+grep -E "^TIME" "$root/walk.log" || true
+echo "TIME $scenario, edge.sh: seeding $((seeded - began))s${node_took:-}, Electron $((ran - seeded))s"
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
