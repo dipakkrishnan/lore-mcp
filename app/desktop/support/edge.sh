@@ -154,9 +154,12 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
   node_from=$SECONDS
+  # APP-271: the node says it is listening once its socket is bound (inbox.py prints the line after it binds), checked
+  # every tenth of a second; then the same request as before, once. Said with the TIME lines at the end.
+  for _ in $(seq 1 300); do grep -q "Lore agent endpoint at" "$root/agent.log" 2>/dev/null && break; sleep 0.1; done
+  listening=$((SECONDS - node_from))
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
-  # APP-271: said with the TIME lines at the end.
-  node_took="; the stand-in node answered after $((SECONDS - node_from))s"
+  node_took="; the stand-in node listened after ${listening}s and answered after $((SECONDS - node_from))s"
 fi
 # A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
 # never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
