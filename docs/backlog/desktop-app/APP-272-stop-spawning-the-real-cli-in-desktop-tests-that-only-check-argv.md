@@ -112,3 +112,7 @@ sandbox tests as component tests, darwin-gated as today.
   into files node --test can run side by side, or setting the budget for
   the tiers separately (XC-107). Status stays in-progress until one of
   those is decided.
+- After merging main at 6ff5e4b2 (APP-267's `src/ipc.cjs`, XC-100/101/102,
+  XC-107), locally: unit 342 tests (main's new ones included) in 2.4 s,
+  component 54 tests in 21.3 s; `npm run check` clean. `ipc.cjs` takes its
+  CLI bridge as a parameter and needed no change here.
