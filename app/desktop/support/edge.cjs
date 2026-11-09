@@ -1613,6 +1613,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("See them closes the sheet and lands on Inventory, filtered to Grok Bot", await waitFor(`document.querySelector("#title").textContent === "Inventory" && !document.querySelector("dialog.sheet[open]") && (${chip}) === "Grok Bot×"`), await js(chip));
         check("…with both things Grok Bot saved marked New, and nothing else", await waitFor(`${isNew("How I price sync placements")} && ${isNew("Quote sync fees in the buyer's currency")}`) && (await js(`document.querySelectorAll("#content .invrow").length`)) === 2, await js(listed));
         await shot("agents-see-them-sheet");
+        // APP-271: on screen, they are taken as seen (unseen.#look) before the owner moves on, which the notification's
+        // "seen already" below rests on. Leaving at once sometimes went before that.
+        const seenFirst = await waitFor(`unseen.seen.size >= 2`, 20);
+        const seenState = await js(`JSON.stringify({ seen: [...unseen.seen], visible: document.visibilityState, focused: document.hasFocus() })`);
         await js(`window.__lore.show("connectors")`);
         // APP-233: what Grok saved is announced as it comes in, while the reading of it is still held.
         await until(() => notes.length, 15_000);
@@ -1640,7 +1644,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         notes[0].handlers.click();
         check("clicking it lands on what Grok Bot saved, in Inventory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…just the two things it saved, seen already, with nothing of Lore's beside them", await waitFor(`Boolean(${rowOf("How I price sync placements")}) && Boolean(${rowOf("Quote sync fees in the buyer's currency")})`) && (await js(`document.querySelectorAll("#content .invrow").length`)) === 2 && !(await js(`Boolean(document.querySelector("#content .new-mark"))`)), `${await js(listed)} ${await js(`JSON.stringify({ since: unseen.since, seen: [...unseen.seen], before: [...unseen.before], arrivals: snapshot.library.items.map((i) => i.arrival), focused: document.hasFocus() })`)}`);
+        check("…just the two things it saved, seen already, with nothing of Lore's beside them", await waitFor(`Boolean(${rowOf("How I price sync placements")}) && Boolean(${rowOf("Quote sync fees in the buyer's currency")})`) && (await js(`document.querySelectorAll("#content .invrow").length`)) === 2 && !(await js(`Boolean(document.querySelector("#content .new-mark"))`)), `${await js(listed)} ${await js(`JSON.stringify({ since: unseen.since, seen: [...unseen.seen], before: [...unseen.before], arrivals: snapshot.library.items.map((i) => i.arrival), focused: document.hasFocus(), visible: document.visibilityState })`)}; on the first visit ${seenFirst ? "seen" : "never seen"}: ${seenState}`);
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("inbox")`);
         const card = `[...document.querySelectorAll("#content .irow.memories")].find((r) => r.textContent.includes("from Grok Bot"))`;
