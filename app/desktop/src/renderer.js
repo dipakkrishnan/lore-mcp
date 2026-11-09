@@ -16,6 +16,7 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
+const talkBtn = /** @type {HTMLButtonElement} */ ($("#talk"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const darkMode = $("#dark-mode");
@@ -872,9 +873,10 @@ function markTile(mark) {
   return node;
 }
 
-/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+/** "A", "A and B", "A, B and C", or "A, B and 2 more". @param {string[]} names */
 function named(names) {
-  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  if (names.length < 3) return names.join(" and ");
+  return names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
 /** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
@@ -1291,7 +1293,7 @@ class InboxView {
         const app = apps.find((each) => each.id === source?.connector);
         return { open: () => { if (app && source) openConnection(app, source); else show("connectors"); } };
       }
-      case "checkin": return { open: () => void openTask("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
+      case "checkin": return { open: () => void talk.begin("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
       case "task": return { open: () => void openTask(/** @type {AgentTask} */ (ref), taskItems.find((item) => item.kind === ref)) };
       case "reading": return { open: () => void openTask("synthesize") };
       case "memories": {
@@ -1781,7 +1783,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -2185,7 +2187,11 @@ class FirstRunChat {
       return this.shown(chat);
     }
     if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
-    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
+    if (this.stage !== "saved") {
+      const wait = waitLine(who, true);
+      wait.append(button("Do this later", "secondary", () => this.leave("skipped")));
+      lore(this.connectCard(app, who), wait);
+    }
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
       this.closing(chat, lore, "What it saves");
@@ -2205,7 +2211,8 @@ class FirstRunChat {
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
    * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
   said(chat, lore) {
-    const said = notices.filter((item) => item.key);
+    // The note about Lore's own routines waits for the Inbox, so a new owner reads it once, not under every step.
+    const said = notices.filter((item) => item.key && item.key !== "automations");
     if (said.length) {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
@@ -2236,11 +2243,9 @@ class FirstRunChat {
       if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
-      const soon = choice === "muse";
-      option.disabled = soon;
       const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
       option.append(icon, el("span", "", label));
-      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      const hint = this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
       if (hint) option.append(el("small", "", hint));
       option.addEventListener("click", () => void this.choose(choice, label));
       list.append(option);
@@ -2267,10 +2272,17 @@ class FirstRunChat {
       foot.append(again);
     }
     if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    else if (this.handed && AGENT_WEB[app]) {
+      const handed = this.handed;
+      // Not on this Mac: its connector settings on the web, with the link already copied to paste there.
+      foot.append(button(`Open ${who}`, "primary", () => void window.lore.copy(handed.connector_url)
+        .then(() => window.open(AGENT_WEB[app]))
+        .catch((error) => tell(reason(error, "Lore couldn't copy your link.")))));
+    }
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", app === "instinct" ? "Key shown once" : "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once. Connectors makes a new one" : "Private link, shown once. Connectors makes a new one"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -4023,6 +4035,8 @@ function tiles(rows) {
   return grid;
 }
 
+/** Where an agent with no app on this Mac adds a connector on the web. @type {Partial<Record<AgentApp, string>>} */
+const AGENT_WEB = { claude: "https://claude.ai/settings/connectors" };
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
@@ -5052,6 +5066,8 @@ function render() {
   // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
   captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
+  // APP-290: talking to Lore is one click from the two lists where memories show up.
+  talkBtn.hidden = welcoming || Boolean(detail) || (view !== "inbox" && view !== "inventory");
   header.classList.toggle("compact", welcoming || Boolean(detail));
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
@@ -5277,6 +5293,7 @@ function syncComposer() {
   input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
+  talk.listen();
 }
 
 function clearRequest() {
@@ -6679,7 +6696,11 @@ composer.addEventListener("submit", async (event) => {
   input.style.height = "";
   await send(text || "Please read the attached files.");
 });
-input.addEventListener("input", () => fit(input));
+input.addEventListener("input", () => {
+  fit(input);
+  // Typing takes over from talking.
+  if (talk.kind && !recorder) talk.end();
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
@@ -6698,7 +6719,9 @@ function dictationMode(mode) {
   if (mode) composer.dataset.mode = mode;
   else delete composer.dataset.mode;
   dictationBox.hidden = !mode;
-  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
+  // A new thread says what to talk about; after that Lore's own question does.
+  const opener = talk.kind === "capture" && !lines.length ? "Tell Lore what you figured out. " : "";
+  dictationText.textContent = mode === "listening" ? (talk.kind ? `Listening… ${opener}Enter sends it, Esc stops.` : "Listening…") : mode === "transcribing" ? "Transcribing…" : "";
   dictate.disabled = mode === "transcribing";
   dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
@@ -6740,40 +6763,104 @@ function wav(chunks) {
   for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
   return buffer;
 }
-dictate.addEventListener("click", async () => {
-  if (recorder) {
-    const active = recorder;
-    recorder = null;
-    clearTimeout(dictationLimit);
-    dictationMode("transcribing");
-    let text = "";
-    try {
-      text = await window.lore.transcribe(wav(await active.stop()));
-    } catch (error) {
-      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
-    }
-    dictationMode(null);
-    input.value = spoken + text;
-    fit(input);
-    input.focus({ preventScroll: true });
-    return;
-  }
+/** Starts listening into the composer, after what is already typed. */
+async function startDictation() {
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
+      talk.end();
       tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
-    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
+    dictationLimit = window.setTimeout(() => void finishDictation(), MAX_DICTATION_MS);
   } catch (error) {
+    talk.end();
     tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
-});
+}
+
+/** Stops listening and puts what was said in the composer; talking it through, it goes to Lore at once. */
+async function finishDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  dictationMode("transcribing");
+  let text = "";
+  try {
+    text = (await window.lore.transcribe(wav(await active.stop()))).trim();
+  } catch (error) {
+    talk.end();
+    console.error(error);
+    tell(`Lore couldn't transcribe that. ${DICTATE_HINT}`, true);
+  }
+  dictationMode(null);
+  input.value = spoken + text;
+  fit(input);
+  // Talking it through listens for the first turn only; after that the owner picks the microphone or the keyboard.
+  const send = Boolean(talk.kind && text);
+  talk.end();
+  if (send) composer.requestSubmit();
+  else input.focus({ preventScroll: true });
+}
+
+/** Esc while listening: what was said is dropped, and talking it through ends. */
+async function cancelDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  talk.end();
+  await active.stop();
+  dictationMode(null);
+  input.focus({ preventScroll: true });
+}
+
+dictate.addEventListener("click", () => void (recorder ? finishDictation() : startDictation()));
+talkBtn.addEventListener("click", () => void talk.begin("capture"));
+
+/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening, and
+ * Done or Enter sends what was said. Only the first turn listens on its own; typing, Esc, leaving the thread or saying
+ * nothing ends it sooner. */
+const talk = {
+  /** The thread being talked through. @type {"capture" | "evening" | null} */
+  kind: /** @type {"capture" | "evening" | null} */ (null),
+  opening: false,
+  starting: false,
+  /** @param {"capture" | "evening"} kind */
+  async begin(kind) {
+    this.kind = kind;
+    this.opening = true;
+    try {
+      if (kind === "capture") await startCapture();
+      else await openTask("evening");
+    } finally {
+      this.opening = false;
+    }
+    this.listen();
+  },
+  end() {
+    this.kind = null;
+    dictationMode(recorder ? "listening" : null);
+  },
+  /** Listens when its thread waits on the owner's words: no card to approve, nothing typed, Lore not working. */
+  listen() {
+    if (!this.kind || this.opening || this.starting) return;
+    // Leaving the thread ends it even mid-listen: the recorder is stopped and its audio dropped, not left hot offscreen.
+    if (detailTask !== this.kind || view !== "inbox") return void (recorder ? cancelDictation() : this.end());
+    // A card to approve ends it too: the owner is asked to look, not listened over.
+    if (recorder) return void (shownRequest()?.current && cancelDictation());
+    // The owner speaks first in a new thread; after that, only once Lore has answered.
+    if (lines.at(-1)?.owner || busy || composer.hidden || input.disabled || shownRequest()?.current || input.value.trim()) return;
+    this.starting = true;
+    void startDictation().finally(() => { this.starting = false; });
+  }
+};
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
 function attach(paths) {
@@ -7067,6 +7154,13 @@ welcomeRetry.addEventListener("click", () => {
   void window.lore.retrySetup();
 });
 document.addEventListener("keydown", (event) => {
+  // While listening, Enter is done and Esc stops; neither reaches the page beneath.
+  if (recorder && (event.key === "Enter" || event.key === "Escape")) {
+    event.preventDefault();
+    event.stopPropagation();
+    void (event.key === "Enter" ? finishDictation() : cancelDictation());
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }

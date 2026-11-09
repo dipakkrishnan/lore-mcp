@@ -552,7 +552,7 @@ app.whenReady().then(async () => {
   await appearance.apply();
   createWindow();
   await new Promise((loaded) => window?.webContents.once("did-finish-load", () => loaded(undefined)));
-  updates.start();
+  updates.start(window);
   await boot(loreHome, outgoing);
   watchSales(loreHome);
   watchBids();
