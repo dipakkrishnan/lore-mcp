@@ -20,9 +20,12 @@ npm --prefix app/desktop run test:capture   # attended capture against a disposa
 npm --prefix app/desktop run test:edge      # every renderer walk, driven under real Electron, two at a time
 ```
 
-`test:edge` runs `support/walks.cjs`, which holds the one list of walks (each with
-its measured time) and runs them two at a time, longest first;
-`node app/desktop/support/walks.cjs jobs store` runs just those. CI (`desktop-check`
+`test:edge` runs `support/walks.cjs`, which holds the one list of seven walks (each
+with its measured time) and runs them two at a time, longest first, after `agents`,
+which runs alone; `node app/desktop/support/walks.cjs checkin store` runs just those.
+Each walk is one persona's journey, the checks only a live Electron window can make,
+and the layout scans of its views; a rule that a fake `window.lore` can drive is a
+unit test instead (APP-270). CI (`desktop-check`
 in `.github/workflows/tests.yml`, macOS) runs `check`, the unit tier, the component
 tier, the same list with `node support/walks.cjs --jobs 2`, and `package`, in that
 order, each step only if the one before it passed (XC-077, XC-107). Its step summary

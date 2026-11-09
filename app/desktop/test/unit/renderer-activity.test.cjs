@@ -119,3 +119,21 @@ test("an owner with no runs yet, or a CLI with none to give, sees no Activity se
     assert.match(w.text("#content"), /Account/);
   }
 });
+
+// APP-270: the `jobs` walk's last Activity check, from before it was folded: the record is read from the snapshot, not
+// kept by the page, so leaving Settings and coming back draws it again.
+test("history survives leaving Settings and returning", async () => {
+  const w = load();
+  w.lore.answer("snapshot", emptySnapshot({ jobs: { items: [job({ summary: "Saved what you approved" })] } }));
+  w.signIn();
+  await w.idle();
+  w.call("show", "settings");
+  assert.match(w.text("#content"), /Saved what you approved/);
+  w.call("show", "memories");
+  await w.idle();
+  assert.doesNotMatch(w.text("#content"), /Saved what you approved/, "Inventory carries no Activity");
+  w.call("show", "settings");
+  await w.idle();
+  assert.equal(w.all("#content .section").at(-1)?.querySelector("h2")?.textContent, "Activity");
+  assert.match(w.text("#content"), /Saved what you approved/);
+});
