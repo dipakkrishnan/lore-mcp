@@ -140,15 +140,29 @@ jobs:
       # limit). The walks below reuse it.
       - run: uv sync --locked
         working-directory: .
-      # XC-098: `npm test` under node's own coverage (--experimental-test-coverage,
-      # Node 20+; the Node 24 pinned above has it). Report-only: the next step
-      # turns coverage/lcov.info into one line of the step summary and never
-      # fails on a number. node:test counts lines, not statements, and knows
-      # only the files the tests loaded.
-      - run: npm run test:coverage
+      # XC-097: the desktop suite runs as two tiers, unit first (test/unit
+      # starts no process, tiers.test.cjs holds that) then component (the tests
+      # that spawn `uv run lore`). Each runs under node's own coverage
+      # (XC-098: --experimental-test-coverage, Node 20+; the Node 24 pinned
+      # above has it), teed to a log so tier_summary.py can put its size and
+      # time in the step summary. Report-only: neither summary step fails on a
+      # number. node:test counts lines, not statements, and knows only the
+      # files the tests loaded.
+      - name: Desktop unit tests
+        run: set -o pipefail; npm run test:unit:coverage 2>&1 | tee unit.log
+      - name: Unit tier in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/tier_summary.py --name "Desktop unit tests" --log unit.log
+      - name: Desktop component tests
+        run: set -o pipefail; npm run test:component:coverage 2>&1 | tee component.log
+      - name: Component tier in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/tier_summary.py --name "Desktop component tests" --log component.log
+      # The two tiers cover the same sources, so their lcov files are unioned
+      # per line and branch, not summed.
       - name: Coverage line in the step summary (report-only)
         if: always()
-        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/lcov.info
+        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/unit.lcov coverage/component.lcov
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
