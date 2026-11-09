@@ -4,13 +4,13 @@ title: Fill the activation funnel's missing steps (agent connected, drafted, any
 priority: P1
 effort: S
 component: cross-cutting
-status: ideation
+status: in-review
 related: [APP-250, XC-085, XC-092, APP-058, XC-067, CAP-036]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-02
 ---
 
 ## Problem
@@ -39,5 +39,12 @@ Record `memory.saved` on every save path. Add a relay-checked `surface` envelope
 - [ ] No counts, names, or content in any property.
 
 ## Notes
+
+Built (Nov 2): `memory.saved{via: capture|agent|connector|synthesis}` once a day per way in,
+`agent.connected{agent}` on an agent's first inbox save, and `piece.drafted`. "Welcome
+completed" is covered by APP-250's `app.installed` and the first-run chat's `firstrun.step`.
+Left out: the `surface` envelope field. The app already sends its own version
+(`LORE_APP_VERSION`), so only a bare-terminal CLI reports `0.1.0`; worth its own item if
+that breakdown matters.
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.

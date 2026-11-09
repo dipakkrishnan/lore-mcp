@@ -116,7 +116,7 @@ competitor to B.
   minimal Linux desktops have no Secret Service and
   `isEncryptionAvailable()` returns false, which `credentials.mjs` treats as
   fatal.
-- Release: the desktop CI job runs on `macos-14` only and releases are built
+- Release: the desktop CI job runs on `macos-15` only and releases are built
   and notarized by hand on one Mac. Windows and Linux need runners, signing
   secrets, and a download page per platform (APP-040).
 
