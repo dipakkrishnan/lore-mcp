@@ -1,6 +1,7 @@
-// Whole turns of the scripted agent (pi's stand-in model over the real sandbox and CLI): cards, captures, readings,
-// check-ins, routines through the CLI, and the decisions only Electron main may pipe. XC-097: split from
-// test/unit/agent.test.cjs; a turn runs LoreAgent.prompt, which spawns through the sandbox, so these are component tests.
+// Whole turns of the scripted agent (pi's stand-in model over the real sandbox): cards, readings, check-ins, and the
+// decisions only Electron main may pipe, through the real CLI. XC-097: split from test/unit/agent.test.cjs; a turn runs
+// LoreAgent.prompt, which spawns through the sandbox, so these are component tests. APP-272: the memory card and the
+// routines, which check only what the app sends `lore`, run against a stand-in in test/unit/agent.test.cjs.
 const assert = require("node:assert/strict");
 const { mkdir, mkdtemp, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
@@ -31,30 +32,6 @@ test("an agent's question never carries the app's full-text block to the owner",
   } finally {
     agent.dispose();
     await rm(loreHome, { recursive: true, force: true });
-  }
-});
-
-test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async () => {
-  const { captureMemories } = require("../../src/state.cjs");
-  const { validSaved, validEntries } = await import("../../src/agent.mjs");
-  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
-  try {
-    assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
-    assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
-    for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(201), content: "c" }], [{ title: "t", content: "c", project: 3 }], [{ title: "t", content: "c", project: "p".repeat(201) }], "nope"]) {
-      assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
-    }
-    // The card's ceiling is the CLI's ceiling: what validEntries lets through, the CLI saves.
-    assert.equal(validEntries([{ title: "t".repeat(200), content: "c" }]), true);
-    assert.deepEqual(await captureMemories(home, []), []);
-    const saved = await captureMemories(home, [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }]);
-    assert.equal(validSaved(saved), true);
-    assert.deepEqual(saved.map(({ status, title }) => ({ status, title })), [{ status: "added", title: "Hire management before rapid growth" }]);
-    assert.equal((await readState(home)).library.counts.private, 1);
-    await assert.rejects(captureMemories(home, [{ title: "", content: "x" }]));
-    assert.equal((await readState(home)).library.counts.private, 1);
-  } finally {
-    await rm(home, { recursive: true });
   }
 });
 
@@ -111,6 +88,8 @@ test("a refused sign-in refresh asks the owner to sign in again; no model error 
   }
 });
 
+// APP-272: the real round trip for `lore publication decide`: the attended gate refuses a piped or forged decision,
+// and admits this launch's key through support/scratch.cjs's attended_cli.py.
 test("only Electron main can pipe a decision, and only for a card that is drafted", async () => {
   const { decide } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -141,6 +120,7 @@ test("only Electron main can pipe a decision, and only for a card that is drafte
   }
 });
 
+// APP-272: the real round trip for `lore publication extras`: drafted by the agent, decided only on the launch key.
 test("new free parts for a live piece are staged by the agent and decided only by Electron main", async () => {
   const { lore, decide, extrasCandidates, decideExtras } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -504,28 +484,5 @@ test("a run the owner started is done only once its reading and check-in are", a
     assert.deepEqual(order, ["read", "checked"]);
   } finally {
     await rm(loreHome, { recursive: true, force: true });
-  }
-});
-
-test("routines are added, paused, retimed and removed through the CLI, refused before it when malformed, and kept across a restart", async () => {
-  const { listRoutines, changeRoutine, addRoutine } = require("../../src/state.cjs");
-  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
-    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
-  }
-  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
-  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
-  const directory = await mkdtemp(join(tmpdir(), "lore-routines-"));
-  try {
-    const added = await addRoutine(directory, "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
-    assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
-    await changeRoutine(directory, "checkin", "pause");
-    await changeRoutine(directory, added.id, "time", { cadence: "daily", hour: 7, day: 0 });
-    const kept = await listRoutines(directory);
-    assert.deepEqual(kept.map((routine) => [routine.id, routine.built_in, routine.paused, routine.cadence, routine.hour]), [["synthesis", true, false, "daily", 9], ["checkin", true, true, "weekdays", 18], ["collect", true, false, "weekly", 10], [added.id, false, false, "daily", 7]]);
-    await assert.rejects(changeRoutine(directory, "checkin", "remove"), /paused, not removed/);
-    await changeRoutine(directory, added.id, "remove");
-    assert.deepEqual((await listRoutines(directory)).map((routine) => routine.id), ["synthesis", "checkin", "collect"]);
-  } finally {
-    await rm(directory, { recursive: true });
   }
 });

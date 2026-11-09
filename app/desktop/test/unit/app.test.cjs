@@ -1,5 +1,6 @@
 // The rest of the desktop app, in process: updates, sales, the renderer's contracts, what collections and agents refuse
-// before any CLI call, first run, appearance and the styles. XC-097: the tests that run a real or stub binary are in
+// before any CLI call, what the blueprint and collections send it (APP-272, against a stand-in in this process), first
+// run, appearance and the styles. XC-097: the tests that run a real or stub binary are in
 // test/component/app.test.cjs; nothing here starts a process (test/unit/tiers.test.cjs holds that line).
 // APP-248: the sandbox, store and agent tests moved to sandbox/store/agent.test.cjs so node --test runs them in parallel.
 const assert = require("node:assert/strict");
@@ -7,9 +8,9 @@ const { access, mkdtemp, readdir, readFile, rm, writeFile } = require("node:fs/p
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { test } = require("node:test");
-// state.cjs reads its store folder once, on require: point it at scratch, never the owner's Application Support.
-process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
-process.once("exit", () => require("node:fs").rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
+// Required before anything loads ../../src/state.cjs: scratch store and launch keys, and a CLI that is a function in
+// this process (APP-272), so what the app sends `lore` is checked without starting one.
+const { fakeCli, json } = require("../../support/fake-cli.cjs");
 
 test("announces only sales after the last one seen, one by one or as one lot", () => {
   const { announcements, marker, unseen } = require("../../src/sales.cjs");
@@ -184,6 +185,67 @@ test("collection changes are refused before any CLI call unless well formed", as
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("the blueprint proposal boundary accepts only the CLI's bounded shape, and goes to the CLI over stdin", async () => {
+  const { validBlueprint } = await import("../../src/agent.mjs");
+  const { lore } = require("../../src/state.cjs");
+  // The CLI's own ceiling, read from its source, so the two cannot drift apart without this failing.
+  const ceiling = Number((await readFile(join(__dirname, "../../../../lore/blueprint.py"), "utf8")).match(/^MAX_TEXT_LENGTH = (\d+)$/m)?.[1]);
+  assert.ok(ceiling > 0, "lore/blueprint.py names MAX_TEXT_LENGTH");
+  const valid = {
+    version: 1,
+    name: "Ada",
+    persona: "professor",
+    organizing_axis: "knowledge",
+    topic_outline: ["distributed systems"],
+    focus_topics: ["consensus"],
+    general_areas: [],
+    storytelling: "Concise lectures"
+  };
+  assert.equal(validBlueprint(valid), true);
+  assert.equal(validBlueprint({ ...valid, storytelling: "x".repeat(ceiling) }), true, "what the CLI takes, the card takes");
+  for (const invalid of [
+    { ...valid, version: 2 },
+    { ...valid, persona: "wizard" },
+    { ...valid, topic_outline: [] },
+    { ...valid, source_path: "/etc/passwd" },
+    { ...valid, storytelling: "x".repeat(ceiling + 1) }
+  ]) assert.equal(validBlueprint(invalid), false);
+  const calls = fakeCli();
+  await lore("/lore-home", ["blueprint", "apply", "-"], JSON.stringify(valid));
+  assert.deepEqual(calls.map((call) => [call.args, JSON.parse(/** @type {string} */ (call.input)).name]), [[["blueprint", "apply", "-"], "Ada"]]);
+});
+
+test("a collection is made, filled, renamed, priced and deleted through the CLI, owner's words over stdin or after --", async () => {
+  const { newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../../src/state.cjs");
+  const calls = fakeCli((args) => {
+    if (args[1] === "new") return json({ id: 7, title: "Untitled collection" });
+    if (args[1] === "add") return json({ added: [{ publication_id: 3, public_id: "p3", title: "-starts with a dash" }, { publication_id: 4, public_id: "p4", title: "Pricing notes" }] });
+    return undefined;
+  });
+  const home = "/lore-home";
+  const made = await newCollection(home);
+  assert.equal(made.title, "Untitled collection");
+  const note = "/notes/pricing-notes.md";
+  const { added } = await addToCollection(home, made.id, { items: [{ title: " -starts with a dash ", content: "Demos beat decks. " }], files: [note, "relative/skipped.md"], memories: [5, 0] });
+  assert.equal(added.length, 2);
+  await renameCollection(home, made.id, " -Sales playbook ");
+  await priceCollection(home, made.id, 12);
+  await removeFromCollection(home, made.id, 3);
+  await priceCollection(home, made.id, 0);
+  await deleteCollection(home, made.id);
+  assert.deepEqual(calls.map((call) => call.args), [
+    ["collection", "new"],
+    ["collection", "add", "7", "-"],
+    ["collection", "rename", "7", "--", "-Sales playbook"],
+    ["collection", "price", "7", "12"],
+    ["collection", "remove", "7", "3"],
+    ["collection", "price", "7", "0"],
+    ["collection", "delete", "7"]
+  ]);
+  assert.deepEqual(JSON.parse(/** @type {string} */ (calls[1].input)), { memories: [5], items: [{ title: "-starts with a dash", content: "Demos beat decks." }], files: [note] }, "pasted text, absolute files and real ids only, over stdin");
+  assert.ok(calls.every((call) => /^[0-9a-f]{64}$/.test(String(call.env.LORE_ATTENDED_KEY))), "each is the owner's click, so each carries this launch's key");
 });
 
 test("connecting a personal agent validates what it is and what it is called before any CLI call", async () => {
