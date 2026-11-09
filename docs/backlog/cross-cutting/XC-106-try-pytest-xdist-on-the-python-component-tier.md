@@ -4,13 +4,13 @@ title: Try pytest-xdist on the Python component tier
 priority: P3
 effort: XS
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-097, XC-104]
 blockers: [XC-097]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-04
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -31,12 +31,12 @@ the CI job gets faster by more than the noise.
 
 ## Acceptance criteria
 
-- [ ] The `python-unit` job runs with `-n auto` and is at least 20% faster
+- [x] The `python-unit` job runs with `-n auto` and is at least 20% faster
       than the serial run on the same commit, or Notes record why not and
       the flag is left off.
-- [ ] Any test that failed under xdist is fixed for the shared state it
+- [x] Any test that failed under xdist is fixed for the shared state it
       exposed, with the cause in Notes.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
@@ -77,7 +77,7 @@ the CI job gets faster by more than the noise.
   passes it; `tests/integration/` is not run under it.
 - Python-unit CI job before this change, on main: 97 s (gate step 88 s) at
   fc0d74c1; 119 s and 130 s on the two commits before XC-097 moved the
-  real-process tests out. After: see below once the PR has run.
+  real-process tests out. After: see the 2026-11-09 note.
 - Side finding: with pytest-cov active, the full run prints fourteen
   `ResourceWarning: unclosed database in <sqlite3.Connection>` lines
   (test_agents, test_cli, test_inbox, test_usage), serial or parallel; the
@@ -86,3 +86,26 @@ the CI job gets faster by more than the noise.
   moment pytest was not capturing warnings (a single test file under
   pytest-cov shows none). They are pre-existing unclosed connections, not an
   xdist effect, and the suite passes; closing them is a separate item.
+- 2026-11-09, delivered by PR #661 (merged `bdada87f`); `-n auto` is on.
+  `Python unit tests` job on main (`gh run view <id> --json jobs`):
+
+  | run | commit | gate | job | gate step |
+  |---|---|---|---:|---:|
+  | 42570213129 | `fb25a8e5` (#661's parent) | serial | 108 s | 100 s |
+  | 42570854056 | `bdada87f` (#661) | `-n auto` | 38 s | 31 s |
+
+  65% faster on the job and 69% on the gate step. The serial job on ten
+  main runs sampled from `fc0d74c1` to `fb25a8e5` ranged 97-126 s (gate
+  step 88-117 s), so the change is far outside the noise; there is one CI
+  sample after on main so far (the PR's own run 42570236557 took 39 s).
+  On the same commit locally (`bdada87f`, 10-core
+  M-series): serial `gate.py --python-only --ignore=tests/integration`
+  1,118 passed, 1 skipped in 77.4 s; with `-n auto` the same 1,118 in
+  18.3 s (76% faster), every file at or above 90/90, and `cli.py`,
+  `deploy.py` and `snapshot.py` identical in both tables.
+- No test failed under xdist: the eight parallel runs above, the PR's CI
+  run 42570236557, main run 42570854056 and the local run here are all green, so
+  nothing needed fixing or marking serial.
+- Layout scan: #661 touches `tests.yml`, `pyproject.toml`, `uv.lock`,
+  `tests/gate.py`, `docs/test-plan-handoff.md` and backlog files, nothing
+  under `app/`.
