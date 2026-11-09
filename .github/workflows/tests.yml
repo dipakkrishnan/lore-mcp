@@ -180,10 +180,11 @@ jobs:
         if: always()
         run: python3 ../../.github/scripts/tier_summary.py --title app/desktop --tier Unit unit.log --tier Component component.log
       # The two tiers cover the same sources, so their lcov files are unioned
-      # per line and branch, not summed.
-      - name: Coverage line in the step summary (report-only)
+      # per line and branch, not summed. XC-108: and held to package.json's
+      # coverageFloor; below it this step fails.
+      - name: Coverage line and floor in the step summary
         if: always()
-        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/unit.lcov coverage/component.lcov
+        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/unit.lcov coverage/component.lcov --floor package.json
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
@@ -291,6 +292,7 @@ jobs:
       # two Workers' coverage-summary.json files into one lore/node line of the
       # step summary and never fails on a number. The first run covers both the
       # node and the workerd project, so the unit tests run again here, instrumented.
+      # XC-108: each run fails below the floor in its vitest config's coverage.thresholds.
       - name: Run the mocked-facilitator test suite (MON-010)
         run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
@@ -350,7 +352,8 @@ jobs:
       # XC-099: unit tests first, in plain node; see node-component.
       - name: Unit tests in plain node (XC-099)
         run: set -o pipefail; npm run test:unit 2>&1 | tee unit.log
-      # XC-098: with istanbul instrumentation; report-only, see node-component.
+      # XC-098: with istanbul instrumentation; see node-component. XC-108: fails
+      # below the floor in vitest.config.ts's coverage.thresholds.
       - name: Run the stubbed-GitHub test suite (XC-028)
         run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
@@ -429,7 +432,8 @@ jobs:
       # XC-099: unit tests first, in plain node; see node-component.
       - name: Unit tests in plain node (XC-099)
         run: set -o pipefail; npm run test:unit 2>&1 | tee unit.log
-      # XC-098: with istanbul instrumentation; report-only, see node-component.
+      # XC-098: with istanbul instrumentation; see node-component. XC-108: fails
+      # below the floor in vitest.config.ts's coverage.thresholds.
       - name: Run the stubbed-Stripe test suite (XC-039)
         run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
