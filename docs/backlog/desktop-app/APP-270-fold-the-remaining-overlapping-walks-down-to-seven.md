@@ -4,13 +4,13 @@ title: Fold the remaining overlapping walks down to seven
 priority: P1
 effort: L
 component: desktop-app
-status: ready
+status: in-progress
 related: [APP-266, APP-267, APP-268, APP-269, APP-271, XC-084, XC-108]
 blockers: [APP-269]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-09
 ---
 
 ## Problem
