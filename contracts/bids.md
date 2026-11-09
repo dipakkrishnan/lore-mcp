@@ -134,7 +134,7 @@ cookie). With the key (cookie or `Authorization: Bearer`), `/b/:id.json` adds
 
 | Route | What it does |
 |---|---|
-| `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post always saves a card: it gets a 303 to Stripe's setup page, which returns to `/b/:id`, and the key cookie. JSON gets a 201 with `{id, url, status_url, expires, card}`, where `status_url` is `/b/:id.json`; with `"card": true` it also gets `card_url` (Stripe's setup page, for the agent's person), `key` and `manage_url`. When checkout can't make a setup page, a 502 says so plainly. Needs no account. Rate-limited per client and globally (a 429 with a plain sentence), and `BidBook` refuses more than 100 new bids an hour, because the rate-limit bindings count per Cloudflare location. No IP is stored. `usd` is whole dollars, 5–1000. |
+| `POST /bids` | Place a bid. Takes a form post (`question`, `usd`, `market`, `email`, `callback_url`) or the same fields as JSON. A form post saves a card: it gets a 303 to Stripe's setup page, which returns to `/b/:id`, and the key cookie; with `card=skip` (the form's agent box) it opens at once without one, like an agent's JSON bid, and gets a 303 to `/b/:id`. JSON gets a 201 with `{id, url, status_url, expires, card}`, where `status_url` is `/b/:id.json`; with `"card": true` it also gets `card_url` (Stripe's setup page, for the agent's person), `key` and `manage_url`. When checkout can't make a setup page, a 502 says so plainly. Needs no account. Rate-limited per client and globally (a 429 with a plain sentence), and `BidBook` refuses more than 100 new bids an hour, because the rate-limit bindings count per Cloudflare location. No IP is stored. `usd` is whole dollars, 5–1000. |
 | `GET /bids` | The board (XC-114). |
 | `GET /bids/stats.json` | What the board polls: `{bids, offered, markets, tape, tape_key, board, board_key}`, the counts plus the ticker and columns as HTML, each with a key that moves only on real news. |
 | `GET /bids.json` | `{bids: [public shape…], walked_away}` for bids that are open or answered (a bid whose charge is out isn't listed), carded first, newest first. `walked_away` counts bids that were answered and then ended unfilled (MON-051). |
@@ -199,7 +199,9 @@ SQLite full-text index). A bid matches at 0.5 or more; the corpus in
 `tests/fixtures/bids` puts every answerable bid at 0.62+ and every other bid,
 near misses included, at 0.31 or less. Only bids that are `open` or
 `answered` and inside their week match. The app keeps the matches in its own
-data folder with the bids the owner dismissed. Every change to that file
+data folder with the bids the owner dismissed, and the last board it read
+(each bid's id, question, amount, market, link and close date), which the Bids
+page lists (APP-288) without reading the board again. Every change to that file
 goes through one queue. A match counts as announced only after its
 notification is up.
 

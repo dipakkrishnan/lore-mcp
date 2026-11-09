@@ -25,6 +25,7 @@ import json
 import os
 import re
 import secrets
+import socketserver
 import sqlite3
 import subprocess
 import sys
@@ -443,6 +444,13 @@ class Node(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", port), Handler)
         self.endpoint = endpoint
         self.lock = threading.Lock()
+
+    def server_bind(self) -> None:
+        # APP-271: bind as TCPServer does, without HTTPServer's reverse lookup of the host
+        # (socket.getfqdn): on a macOS CI runner that lookup of 127.0.0.1 took about 35 s,
+        # which the agents walk spent waiting for this node before it began.
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
 
     @property
     def url(self) -> str:

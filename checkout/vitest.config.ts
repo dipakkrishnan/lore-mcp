@@ -1,27 +1,25 @@
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
-import { defineProject } from "vitest/config";
+import { defineConfig } from "vitest/config";
 
-export default defineProject({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" },
-      miniflare: {
-        // Every test points at a stubbed Stripe and a stubbed store (see
-        // test/stubs.ts); no test reaches the real Stripe API.
-        bindings: {
-          STRIPE_API: "https://stripe.test",
-          STRIPE_SECRET_KEY: "sk_test_not_a_real_key",
-          STRIPE_WEBHOOK_SECRET: "whsec_test_not_a_real_secret",
-          STRIPE_PLATFORM_WEBHOOK_SECRET: "whsec_test_platform_not_a_real_secret",
-          ACCOUNT_TOKEN_SECRET: "not_a_real_token_secret"
-        },
-        // A stand-in for yourlore.dev's BidRail entrypoint, recording what the rail told it.
-        workers: [{ name: "yourlore-site", modules: true, scriptPath: "./test/fake-site.js", compatibilityDate: "2026-06-11" }]
-      }
-    })
-  ],
+// XC-099: two projects under one `vitest run`. `node` (vitest.unit.config.ts) runs the pure
+// modules' tests in plain node, files in parallel; `workerd` (vitest.workerd.config.ts) is the
+// Workers pool, which boots a Worker per file and so runs one file at a time.
+// `npm run test:unit` and `npm run test:component` pick one.
+export default defineConfig({
   test: {
-    fileParallelism: false,
-    include: ["test/**/*.test.ts"]
+    projects: ["./vitest.unit.config.ts", "./vitest.workerd.config.ts"],
+    // XC-098: coverage, on with `--coverage` (npm run test:coverage). Coverage is a root option:
+    // one istanbul report over both projects (the Workers pool supports istanbul only, and it
+    // instruments the node project the same); CI reads coverage/coverage-summary.json into one
+    // line of the step summary.
+    // XC-108: `thresholds` is the floor; below it `npm run test:coverage`, and so CI's component
+    // tests, fail. Set 2026-11-09 a little under main's numbers (808a33d8, run 42584807851):
+    // statements 96.95% (318/328), branches 95.43% (293/307). Raise it as coverage rises; never
+    // lower it, and never exclude a file to meet it.
+    coverage: {
+      provider: "istanbul",
+      reporter: ["text-summary", "json-summary"],
+      include: ["src/**"],
+      thresholds: { statements: 96, branches: 94.5 }
+    }
   }
 });
