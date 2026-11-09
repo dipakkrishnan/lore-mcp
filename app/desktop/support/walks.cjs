@@ -29,25 +29,22 @@ const WALKS = [
   { name: "connectors", seconds: 55 },
   { name: "store", seconds: 52 },
   { name: "checkin", seconds: 46 },
-  { name: "fresh", seconds: 45 },
-  { name: "today", seconds: 43 },
   { name: "settings", seconds: 40 },
   { name: "seller", seconds: 38 },
   { name: "cards", seconds: 37 },
   { name: "schedule", seconds: 31 },
   { name: "reading", seconds: 25 },
-  { name: "quiet", seconds: 25 },
   { name: "update", seconds: 24 },
   { name: "feedback", seconds: 21 },
   { name: "sales", seconds: 20 },
-  { name: "obsidian", seconds: 20 },
   { name: "sell", seconds: 14 },
   { name: "inventory", seconds: 14 },
-  { name: "jobs", seconds: 13 },
   // APP-247: the one check only a dark launch makes (a kept dark choice is applied at boot, before any branch runs)
-  // rides on the cheapest walk that never reads DARK. The connectors walk re-shoots its own surfaces in dark inside
-  // its light run, in place of a second connectors walk launched dark. `settings` stays light: its checks branch on DARK.
-  { name: "faq", appearance: "dark", seconds: 10 },
+  // rides on the cheapest walk that never reads DARK and whose views light walks scan too. The connectors walk
+  // re-shoots its own surfaces in dark inside its light run, in place of a second connectors walk launched dark.
+  // `settings` stays light: its checks branch on DARK, and it alone scans the price sheet and the sidebar's own state.
+  // APP-269: `faq` carried the dark launch until it was retired; `jobs` carries it now, with faq's account-menu and FAQ shots.
+  { name: "jobs", appearance: "dark", seconds: 15 },
   { name: "provision", seconds: 8 },
 ];
 // Past edge.sh's own watchdog (six minutes for agents), so a walk that hangs somewhere it does not watch still ends.

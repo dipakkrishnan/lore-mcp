@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | update | jobs | fresh | feedback | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | inventory | cards | sales | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | feedback | connectors | reading | schedule | checkin | automations | sell | inventory | cards | sales | settings | agents | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,10 +16,10 @@ export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
 echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/appearance.json"
-# A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
-# does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
-# owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" || "$scenario" == "firstrun" ]] || (
+# The connectors persona's home stays empty: a seller with no agents, whose first memories come from their apps. So
+# does the agents one: an owner whose first memories are what their personal agent saves. (An empty Lore's own views
+# are test/unit/renderer-empty-states.test.cjs since APP-269 retired the fresh walk.)
+[[ "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "firstrun" ]] || (
   cd "$repo_root"
   echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
   echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
@@ -163,14 +163,6 @@ with Store() as store:
  store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])"
   echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | uv run lore publication extras draft - >/dev/null)
 fi
-if [[ "$scenario" == "obsidian" ]]; then
-  # APP-124: a vault Obsidian knows about, so Connect has something to offer without a path.
-  mkdir -p "$root/obsidian" "$root/Edge Vault"
-  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
-  printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
-  printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
-  export OBSIDIAN_HOME="$root/obsidian"
-fi
 if [[ "$scenario" == "schedule" ]]; then
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
   # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
@@ -198,10 +190,10 @@ if [[ "$scenario" == "automations" ]]; then
   (cd "$repo_root" && echo '{"executor": "lore", "cadence": "daily", "hour": 9}' | uv run lore profile - >/dev/null)
   (cd "$repo_root" && uv run lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
 fi
-if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
+if [[ "$scenario" == "checkin" ]]; then
   # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while
-  # Lore was closed. The note read in since is its one new item; the stand-in model either finds it worth asking
-  # about (checkin) or not (quiet). The check-in itself reads nothing.
+  # Lore was closed. The note read in since is its one new item, and the stand-in model finds it worth asking about.
+  # The check-in itself reads nothing.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
@@ -234,12 +226,6 @@ if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   export LORE_EDGE_GRANOLA_PID=$! LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
   trap 'kill "$LORE_EDGE_GRANOLA_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
-fi
-if [[ "$scenario" == "today" ]]; then
-  # APP-214: an empty home, no Claude Code or Codex, and a vault to connect at the last stage.
-  mkdir -p "$root/Edge Vault"
-  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
-  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex" OBSIDIAN_HOME="$root/obsidian"
 fi
 if [[ "$scenario" == "reading" ]]; then
   # APP-213: one memory Lore wrote before it kept who each came from.

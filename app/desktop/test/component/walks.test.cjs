@@ -60,58 +60,58 @@ const walk = (names, env, { ci = true } = {}) => {
   return { code: result.status, out: result.stdout, err: result.stderr, table, attempts, windows };
 };
 
-// `jobs` and `provision` are light walks with no appearance of their own; `faq` is the one launched dark (APP-247).
+// `sell` and `provision` are light walks with no appearance of their own; `jobs` is the one launched dark (APP-247, APP-269).
 test("walks that pass first time are run once and the summary says no walk was retried", () => {
-  const { code, out, table, attempts } = walk(["jobs", "provision"], {});
+  const { code, out, table, attempts } = walk(["sell", "provision"], {});
   assert.equal(code, 0, out);
-  assert.deepEqual(attempts, { "jobs-light": 1, "provision-light": 1 });
-  assert.match(out, /::group::PASS jobs \(\d+s, load [\d.]+\)\n/);
+  assert.deepEqual(attempts, { "sell-light": 1, "provision-light": 1 });
+  assert.match(out, /::group::PASS sell \(\d+s, load [\d.]+\)\n/);
   assert.doesNotMatch(out, /::warning|::error|retrying|on retry \(/);
   assert.match(table, /^### Desktop walks\n/);
-  assert.match(table, /\| jobs \| pass \| \d+s \|/);
+  assert.match(table, /\| sell \| pass \| \d+s \|/);
   assert.match(table, /2\/2 walks passed in \d+s, 2 at a time\.\n0 of 2 walks passed on retry\.\n$/);
 });
 
 test("a walk that fails then passes is retried once, leaves the step green, and is reported three ways", () => {
-  const { code, out, table, attempts } = walk(["jobs", "provision"], { FAKE_FAIL_ONCE: "jobs" });
+  const { code, out, table, attempts } = walk(["sell", "provision"], { FAKE_FAIL_ONCE: "sell" });
   assert.equal(code, 0, out);
-  assert.deepEqual(attempts, { "jobs-light": 2, "provision-light": 1 });
-  const first = out.indexOf("::group::FAIL jobs (");
-  const second = out.indexOf("::group::PASS jobs on retry (");
+  assert.deepEqual(attempts, { "sell-light": 2, "provision-light": 1 });
+  const first = out.indexOf("::group::FAIL sell (");
+  const second = out.indexOf("::group::PASS sell on retry (");
   assert.ok(first >= 0 && second > first, "the first attempt's FAIL group comes before the retry's PASS group");
-  assert.match(out, /::group::FAIL jobs \(\d+s, load [\d.]+\), retrying\nattempt 1 of jobs-light\nFAIL jobs boom\n::endgroup::\n/);
-  assert.match(out, /::group::PASS jobs on retry \(\d+s, load [\d.]+\)\nattempt 2 of jobs-light\nPASS ok\n::endgroup::\n::warning title=jobs passed on retry::FAIL jobs boom\n/);
+  assert.match(out, /::group::FAIL sell \(\d+s, load [\d.]+\), retrying\nattempt 1 of sell-light\nFAIL sell boom\n::endgroup::\n/);
+  assert.match(out, /::group::PASS sell on retry \(\d+s, load [\d.]+\)\nattempt 2 of sell-light\nPASS ok\n::endgroup::\n::warning title=sell passed on retry::FAIL sell boom\n/);
   assert.doesNotMatch(out, /::error/);
-  assert.match(table, /\| jobs \| pass \(retry\) \| \d+s \+ \d+s \|/);
+  assert.match(table, /\| sell \| pass \(retry\) \| \d+s \+ \d+s \|/);
   assert.match(table, /\| provision \| pass \| \d+s \|/);
   assert.match(table, /2\/2 walks passed in \d+s, 2 at a time\.\n1 of 2 walks passed on retry\.\n$/);
 });
 
 test("a walk that fails twice fails the step with both attempts' logs, an error annotation and a FAIL row, and no third try", () => {
-  const { code, out, table, attempts } = walk(["jobs", "provision"], { FAKE_FAIL_ALWAYS: "jobs" });
+  const { code, out, table, attempts } = walk(["sell", "provision"], { FAKE_FAIL_ALWAYS: "sell" });
   assert.equal(code, 1);
-  assert.deepEqual(attempts, { "jobs-light": 2, "provision-light": 1 });
-  assert.equal(out.match(/::group::FAIL jobs/g)?.length, 2);
-  assert.match(out, /::group::FAIL jobs on retry \(\d+s, load [\d.]+\)\nattempt 2 of jobs-light\nFAIL jobs boom\n::endgroup::\n::error title=jobs walk failed::Failed twice\. Open the "FAIL jobs" groups in this step's log\.\n/);
+  assert.deepEqual(attempts, { "sell-light": 2, "provision-light": 1 });
+  assert.equal(out.match(/::group::FAIL sell/g)?.length, 2);
+  assert.match(out, /::group::FAIL sell on retry \(\d+s, load [\d.]+\)\nattempt 2 of sell-light\nFAIL sell boom\n::endgroup::\n::error title=sell walk failed::Failed twice\. Open the "FAIL sell" groups in this step's log\.\n/);
   assert.doesNotMatch(out, /::warning/);
-  assert.match(table, /\| jobs \| \*\*FAIL\*\* \| \d+s \+ \d+s \|/);
+  assert.match(table, /\| sell \| \*\*FAIL\*\* \| \d+s \+ \d+s \|/);
   assert.match(table, /1\/2 walks passed in \d+s, 2 at a time\.\n0 of 2 walks passed on retry\.\n$/);
 });
 
 test("a walk with an appearance is launched with it on every attempt and reported under its full label", () => {
-  const { code, out, table, attempts } = walk(["connectors", "faq"], { FAKE_FAIL_ONCE: "faq" });
+  const { code, out, table, attempts } = walk(["connectors", "jobs"], { FAKE_FAIL_ONCE: "jobs" });
   assert.equal(code, 0, out);
-  assert.deepEqual(attempts, { "connectors-light": 1, "faq-dark": 2 });
-  assert.match(out, /::group::FAIL faq \(dark\) \(\d+s, load [\d.]+\), retrying\nattempt 1 of faq-dark\n/);
-  assert.match(out, /::warning title=faq \(dark\) passed on retry::FAIL faq boom\n/);
+  assert.deepEqual(attempts, { "connectors-light": 1, "jobs-dark": 2 });
+  assert.match(out, /::group::FAIL jobs \(dark\) \(\d+s, load [\d.]+\), retrying\nattempt 1 of jobs-dark\n/);
+  assert.match(out, /::warning title=jobs \(dark\) passed on retry::FAIL jobs boom\n/);
   assert.match(table, /\| connectors \| pass \| \d+s \|/);
-  assert.match(table, /\| faq \(dark\) \| pass \(retry\) \| \d+s \+ \d+s \|/);
+  assert.match(table, /\| jobs \(dark\) \| pass \(retry\) \| \d+s \+ \d+s \|/);
   assert.match(table, /1 of 2 walks passed on retry\.\n$/);
 });
 
 // XC-084: `agents` is the walk marked solo in support/walks.cjs.
 test("a solo walk runs first with nothing beside it, and its retry runs last, alone again", () => {
-  const { code, out, table, windows } = walk(["agents", "jobs", "provision", "sell"], { FAKE_SLOW: "agents jobs", FAKE_FAIL_ONCE: "agents" });
+  const { code, out, table, windows } = walk(["agents", "inventory", "provision", "sell"], { FAKE_SLOW: "agents inventory", FAKE_FAIL_ONCE: "agents" });
   assert.equal(code, 0, out);
   const agents = windows.filter((w) => w.key === "agents-light").sort((a, b) => a.attempt - b.attempt);
   const others = windows.filter((w) => w.key !== "agents-light");
@@ -124,7 +124,7 @@ test("a solo walk runs first with nothing beside it, and its retry runs last, al
   assert.ok(others.every((w) => w.started >= agents[0].ended), "the shared pool starts after the solo first attempt ends");
   assert.ok(agents[1].started >= Math.max(...others.map((w) => w.ended)), "the solo retry runs after the shared pool has drained");
   assert.ok(others.some((w) => others.some((o) => o !== w && o.started < w.ended && o.ended > w.started)), "the shared walks still run two at a time");
-  assert.match(out, /Walking agents, sell, jobs, provision \(2 at a time; agents alone\)\n/);
+  assert.match(out, /Walking agents, sell, inventory, provision \(2 at a time; agents alone\)\n/);
   assert.match(out, /::group::FAIL agents \(alone\) \(\d+s, load [\d.]+\), retrying\n/);
   assert.match(out, /::group::PASS agents on retry \(alone\) \(\d+s, load [\d.]+\)\n/);
   assert.match(out, /::warning title=agents passed on retry::FAIL agents boom\n/);
@@ -133,10 +133,10 @@ test("a solo walk runs first with nothing beside it, and its retry runs last, al
 });
 
 test("outside CI the same run prints plain headings and no workflow commands", () => {
-  const { code, out } = walk(["jobs"], { FAKE_FAIL_ONCE: "jobs" }, { ci: false });
+  const { code, out } = walk(["sell"], { FAKE_FAIL_ONCE: "sell" }, { ci: false });
   assert.equal(code, 0, out);
-  assert.match(out, /\n== FAIL jobs \(\d+s, load [\d.]+\), retrying\n/);
-  assert.match(out, /\n== PASS jobs on retry \(\d+s, load [\d.]+\)\n/);
+  assert.match(out, /\n== FAIL sell \(\d+s, load [\d.]+\), retrying\n/);
+  assert.match(out, /\n== PASS sell on retry \(\d+s, load [\d.]+\)\n/);
   assert.doesNotMatch(out, /::/);
   assert.match(out, /1 of 1 walks passed on retry\.\n$/);
 });

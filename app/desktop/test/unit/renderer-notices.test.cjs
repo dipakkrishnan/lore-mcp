@@ -1,4 +1,4 @@
-// APP-268: the Inbox notice state machine (APP-211; the Inbox was Today until APP-283), as the `fresh` walk drives it
+// APP-268: the Inbox notice state machine (APP-211; the Inbox was Today until APP-283), as the `fresh` walk drove it until APP-269 retired it,
 // with a busy CLI: a notice told once a sign-in, shown only on the Inbox, remembered as said only once seen, its failed
 // write tried again on the next load, and
 // dropped whole by a sign-out. The pure rules (withNotice, shownNotices) are tabled; the rest is driven through the

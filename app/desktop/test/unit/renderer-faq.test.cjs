@@ -1,4 +1,4 @@
-// APP-268: the FAQ's wording (APP-118) as the `faq` walk asserts it: what it says, what it never promises, and the one
+// APP-268: the FAQ's wording (APP-118) as the `faq` walk asserted it until APP-269 retired it: what it says, what it never promises, and the one
 // line that turns on state (the owner's price), run on faqPrice() and renderFaq() from the loaded renderer.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
