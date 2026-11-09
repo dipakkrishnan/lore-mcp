@@ -97,11 +97,17 @@ spy if they are what breaks; revert if cold starts time out as MCP-003 saw.
     file's entry in `coverage-summary.json` is identical before and after.
 - CI, `Node component tests` on main before this change (runs 42570213129,
   42570854056, 42572100253, 42572962023, 42573468736, 42573916648): job
-  111-189 s, its `test:coverage` step 50-86 s. The criterion's three
-  consecutive green main runs under 60 s can only be read after merge, so it
-  stays open, and with it this item. The job also spends time on checkout,
-  setup-node and `npm ci` that no test change can remove; if that floor keeps
-  the job over 60 s, the criterion needs restating against the test step.
+  111-189 s, its `test:coverage` step 50-86 s. On this PR (run 42575255200):
+  job 101 s, `test:coverage` step 32 s (vitest's own duration 25.4 s for the
+  node and workerd projects, 2.9 s for hosted), coverage 918/948 statements as
+  before. The criterion's three consecutive green main runs can only be read
+  after merge, so it stays open, and with it this item. It is unlikely to be
+  met as written: on that run about 69 s of the job is outside the test step
+  (checkout, setup-node, `npm ci`, the unit tier, the coverage summary), more
+  than the whole 60 s budget. The job's "90 s today" looks like it already
+  included that floor. The test step, which this item can move, went from
+  50-86 s to 32 s. The criterion likely needs restating against the test
+  step, for example "the `test:coverage` step is under 40 s".
 - Comments that named the removed files now name their new homes
   (`scripts/smoke.ts`, `scripts/surface.ts`, two `test/unit/` headers). One
   outside `lore/node` still names `lore/node/test/mcp-contract.test.ts`: the
