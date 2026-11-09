@@ -1,43 +1,17 @@
-import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, reachable, retrieveSession } from "./stripe.js";
+import { ACCOUNT, CARD_MINIMUM_USD, PIECE, keyFits, listing, storeOrigin } from "./store.js";
+import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, reachable, retrieveIntent, retrieveSession } from "./stripe.js";
 import { webhook } from "./webhooks.js";
 
-/** Cards can't charge less; a store priced below this offers no card checkout. */
-const CARD_MINIMUM_USD = 0.5;
+export { BidCards } from "./bids.js";
 
-const PIECE = /^[0-9a-f]{24}$/;
-const ACCOUNT = /^acct_[A-Za-z0-9]+$/;
-const SESSION = /^cs_[A-Za-z0-9_]+$/;
-
-/** What a store says about one piece at /p/<id>.json; only fields its pages already show for free. */
-type Listing = { id: string; teaser: string; price_usd: number; stripe_account: string; test: boolean };
+/** A Checkout Session, or a bid's direct charge (MON-054); either one opens the piece it paid for. */
+const SESSION = /^(cs|pi)_[A-Za-z0-9_]+$/;
 
 const text = (status: number, message: string) =>
   new Response(`${message}\n`, { status, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
-
-/** A store origin exactly as a store page posts it; plain http only for a store running on this machine. */
-function storeOrigin(value: string): string | null {
-  try {
-    const url = new URL(value);
-    const local = url.protocol === "http:" && ["localhost", "127.0.0.1"].includes(url.hostname);
-    return (url.protocol === "https:" || local) && url.origin === value ? url.origin : null;
-  } catch {
-    return null;
-  }
-}
-
-async function listing(origin: string, piece: string): Promise<Listing | null> {
-  try {
-    const response = await fetch(`${origin}/p/${piece}.json`);
-    if (!response.ok) return null;
-    const found: Listing = await response.json();
-    return found.id === piece ? found : null;
-  } catch {
-    return null;
-  }
-}
 
 async function create(request: Request, env: Env): Promise<Response> {
   const form = await request.formData().catch(() => null);
@@ -54,7 +28,7 @@ async function create(request: Request, env: Env): Promise<Response> {
   if (!ACCOUNT.test(found.stripe_account) || !(found.price_usd >= CARD_MINIMUM_USD)) {
     return text(409, "This store doesn't take cards.");
   }
-  if (found.test && !/^[rs]k_test_/.test(env.STRIPE_SECRET_KEY)) {
+  if (!keyFits(found, env)) {
     return text(409, "This is a test store, so it can't take a real card payment.");
   }
   try {
@@ -79,7 +53,8 @@ async function verify(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
   if (!SESSION.test(session) || !ACCOUNT.test(account)) return json({ error: "a session and an account are required" }, 400);
   try {
-    const [found, bound] = await Promise.all([retrieveSession(env, account, session), boundStore(env, account)]);
+    const lookup = session.startsWith("pi_") ? retrieveIntent(env, account, session) : retrieveSession(env, account, session);
+    const [found, bound] = await Promise.all([lookup, boundStore(env, account)]);
     const origin = found.metadata.origin ?? "";
     return json({
       // Paid into an account its seller tied to this very store: anyone can open an account

@@ -271,6 +271,13 @@ function storeChanges(state, updated = [], deploy) {
   return changes;
 }
 
+/** APP-231: the newer store this Lore ships, as the owner's card names it. */
+const LATEST = { group: "", label: "Store", to: "The latest from Lore" };
+
+/** What an update puts out, and the newer store too when the one online is older than this Lore's: a deploy always
+ * puts out the store this Lore ships. @param {Snapshot} state @param {StoreChange[]} changes */
+const withLatest = (state, changes) => (state.node.store === "outdated" ? [...changes, LATEST] : changes);
+
 /** Only taking pieces down goes out without the owner's yes. @param {StoreChange[]} changes */
 const asks = (changes) => changes.some((change) => change.group !== COMING_OFF);
 
@@ -290,9 +297,11 @@ class Outgoing {
     for (const id of ids) this.updated.add(id);
   }
 
-  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. */
+  /** What an update with no deploy terms of its own would put out, as the owner's card lists it. Every caller deploys
+   * it, so the newer store goes out with it. */
   async changes() {
-    return storeChanges(await readState(this.loreHome), this.updated);
+    const state = await readState(this.loreHome);
+    return withLatest(state, storeChanges(state, this.updated));
   }
 
   /** Whether the owner said yes to what an update with no terms of its own puts out; one with nothing to confirm goes ahead. */
@@ -302,12 +311,21 @@ class Outgoing {
   }
 
   /** Push the pieces and price of a store that sells, once the owner says yes to what it puts out; one with nothing
-   * to confirm goes ahead. Resolves to whether it went. */
-  async push() {
+   * to confirm goes ahead. Resolves to whether it went. `latest`, the owner's own optional Update where the store
+   * shows, also puts out the newer store this Lore ships (APP-231), as it was last opened: for sale on its network and
+   * payout, or for agents only. Every other push leaves the store as it is, so it never asks about more than it says. */
+  async push({ latest = false } = {}) {
     const state = await readState(this.loreHome);
-    if (!state.node.selling) return false;
+    const newer = latest && state.node.store === "outdated";
+    if (!state.node.selling && !newer) return false;
     const changes = storeChanges(state, this.updated);
-    if (asks(changes) && !(await this.confirm("Update your store", changes))) return false;
+    const out = newer ? [...changes, LATEST] : changes;
+    if (asks(out) && !(await this.confirm("Update your store", out))) return false;
+    if (newer) {
+      const said = await this.deploy(state.node.selling ? redeploy() : ["node", "deploy", "--inbox-only"]);
+      if (!said.startsWith("The store is deployed")) throw new Error(said.split("\n").filter((line) => !line.startsWith(STORE_LOG)).join("\n"));
+      return true;
+    }
     await lore(this.loreHome, ["push"], "");
     this.updated.clear();
     return true;
@@ -319,6 +337,14 @@ class Outgoing {
     if (said.startsWith("The store is deployed")) this.updated.clear();
     return said;
   }
+}
+
+/** A store for sale goes out again as its last deploy recorded it: its network, and its payout address when it has
+ * one; a store that sells by card alone has only the network. @returns {string[]} */
+function redeploy() {
+  const payout = recordedPayout();
+  const network = payout?.network ?? recordedNetwork();
+  return ["node", "deploy", ...(network ? ["--network", network] : []), ...(payout ? ["--wallet", payout.address] : [])];
 }
 
 /**
@@ -333,12 +359,21 @@ class Outgoing {
  */
 async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, outgoing) {
   if (inboxOnly) {
+    // XC-088: with no store of their own on Cloudflare, Lore hosts one for the owner's agents in seconds.
+    if (!(await readState(loreHome)).node.url) {
+      const yes = await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few seconds");
+      if (!yes) return "The owner chose not to put the store online right now.";
+      return storeOnline(loreHome).then(
+        () => "The store is online for the owner's agents, hosted by Lore: nothing for sale.",
+        (/** @type {Error} */ error) => `The store did not go online: ${error.message.replace(/\.$/, "")}.`
+      );
+    }
     const changes = await outgoing.changes();
     const yes = asks(changes)
       ? await outgoing.confirm("Update your store", changes)
       : await confirmed(ask, "Your store", "Put your store online so your agents can save to it? Nothing goes on sale.", "Put it online", "Takes a few minutes");
     if (!yes) return "The owner chose not to put the store online right now.";
-    return outgoing.deploy(["node", "deploy", "--inbox-only"]);
+    return deployAsked(loreHome, outgoing, ask, ["node", "deploy", "--inbox-only"]);
   }
   if (asked !== undefined && asked !== "real" && asked !== "test") return "The store opens on real money or the test network; nothing else.";
   if (wallet !== undefined && !ADDRESS.test(wallet)) return "That payout address is not valid; ask the owner for it again.";
@@ -360,16 +395,35 @@ async function openStore(loreHome, { network: asked, wallet, inboxOnly }, ask, o
     if (!byCard) payout = answer;
   }
   const state = await readState(loreHome);
-  const changes = storeChanges(state, outgoing.updated, { network, payout, recorded });
+  const changes = withLatest(state, storeChanges(state, outgoing.updated, { network, payout, recorded }));
   const moved = payout !== null && recorded && recorded.address.toLowerCase() !== payout.toLowerCase();
   const heading = !state.node.selling ? "Open your store" : moved ? "Change where your sales are paid" : "Update your store";
   if (asks(changes) && !(await outgoing.confirm(heading, changes))) return "The owner chose not to change the store right now.";
-  const said = await outgoing.deploy(["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
+  const said = await deployAsked(loreHome, outgoing, ask, ["node", "deploy", "--network", network, ...(payout === null ? [] : ["--wallet", payout])]);
   // Said plainly, so the agent never reads a card-only store's missing payout address as something left undone.
   return byCard && said.startsWith("The store is deployed") ? `${said}\n${BY_CARD_ONLY}` : said;
 }
 
-const BY_CARD_ONLY = "It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
+/** XC-087: a Cloudflare sign-in with several accounts asks the owner which one the store goes on, once; the CLI
+ * remembers the answer, and the deploy runs again there. @param {string} loreHome @param {Outgoing} outgoing @param {Ask} ask
+ * @param {string[]} args */
+async function deployAsked(loreHome, outgoing, ask, args) {
+  const said = await outgoing.deploy(args);
+  if (!said.includes("more than one account")) return said;
+  const accounts = /** @type {Array<{id: string, name: string}>} */ (JSON.parse(await lore(loreHome, ["node", "accounts", "--json"])));
+  // Two accounts with one name are told apart by the start of their id.
+  const label = (/** @type {{id: string, name: string}} */ account) => (accounts.filter((other) => other.name === account.name).length > 1 ? `${account.name} (${account.id.slice(0, 6)})` : account.name);
+  const question = "Which Cloudflare account should your store go on?";
+  const answer = (await ask([{ question, header: "Cloudflare", options: accounts.map((account) => ({ label: label(account), description: "Your store goes here" })), multiSelect: false }]))?.[question];
+  const chosen = accounts.find((account) => label(account) === answer);
+  if (!chosen) return "The owner didn't choose a Cloudflare account, so the store did not go online.";
+  return outgoing.deploy([...args, "--account", chosen.id]);
+}
+
+const BY_CARD_ONLY ="It sells by card: buyers pay on each piece's page, and Stripe pays the owner's bank. There is no payout address to set, and nothing else is left to do.";
+
+/** Where a failed deploy's whole story is, for the agent; the owner hears only why. */
+const STORE_LOG = "Everything Cloudflare said is in ";
 
 /** Run one deploy the owner said yes to, and say how it went. @param {string} loreHome @param {string[]} args */
 async function deployStore(loreHome, args) {
@@ -379,18 +433,21 @@ async function deployStore(loreHome, args) {
     // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
     return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {
-    const said = [...lines].reverse().find((line) => line.startsWith("lore: ")) ?? lines.at(-1) ?? "the deploy stopped";
+    // XC-085: the CLI says why on its own last line; one that ends in a colon has the why on the next.
+    const at = lines.reduce((found, line, index) => (line.startsWith("lore: ") ? index : found), -1);
+    const why = at < 0 ? lines.at(-1) ?? "the deploy stopped" : lines[at].endsWith(":") && lines[at + 1] ? `${lines[at]} ${lines[at + 1]}` : lines[at];
+    const said = why.replace(/^lore: /, "").replace(/:$/, "");
     // A change that stopped halfway is said in the CLI's own plain words, so the owner hears it however the deploy ended.
     const half = lines.find((line) => line.startsWith("! Your store may be half-updated"))?.slice(2);
-    return [`The deploy did not finish: ${said.replace(/^lore: /, "").replace(/:$/, "")}.`, ...(half ? [half] : [])].join("\n");
+    return [`The deploy did not finish: ${/[.!?]$/.test(said) ? said : `${said}.`}`, ...(half ? [half] : []), `${STORE_LOG}${join(loreHome, "logs", "store.log")}.`].join("\n");
   }
 }
 
-/** APP-215: the store online for the owner's agents only, from the first-run chat, where the owner's tap is the yes:
- * nothing goes on sale, so there is no network, payout or price to confirm. Resolves to how it went, as a deploy says.
- * @param {string} loreHome */
-function storeOnline(loreHome) {
-  return deployStore(loreHome, ["node", "deploy", "--inbox-only"]);
+/** XC-088: a place online for the owner's agents to save to, hosted by Lore in seconds with no account to make; an
+ * owner whose store runs on their own Cloudflare keeps that one. Nothing goes on sale, so there is nothing to confirm.
+ * Rejects in the CLI's own words. @param {string} loreHome */
+async function storeOnline(loreHome) {
+  await lore(loreHome, ["node", "host"]);
 }
 
 /** How long a Cloudflare sign-in waits on the browser before it gives up. */
@@ -467,9 +524,18 @@ async function readState(loreHome) {
   return /** @type {Snapshot} */ (value);
 }
 
+/** A list of records from the CLI, or a refusal naming it: what it parsed is otherwise handed on unchecked (APP-060).
+ * @param {string} output @param {string} what */
+function records(output, what) {
+  const value = JSON.parse(output);
+  if (Array.isArray(value) && value.every((row) => row !== null && typeof row === "object")) return value;
+  console.error(`lore returned ${what} that is not a list of records: ${output.slice(0, 200)}`);
+  throw new Error(`Lore returned unreadable ${what}`);
+}
+
 /** @param {string} loreHome @returns {Promise<Sale[]>} */
 async function readSales(loreHome) {
-  return JSON.parse(await lore(loreHome, ["node", "sales", "--json"]));
+  return records(await lore(loreHome, ["node", "sales", "--json"]), "sales");
 }
 
 /** How often each piece's page was opened, keyed by its public id. @param {string} loreHome @returns {Promise<Record<string, number>>} */
@@ -486,10 +552,35 @@ async function searchMemories(loreHome, query) {
   return JSON.parse(await lore(loreHome, ["search", ...terms, "--status", "private", "--limit", "30", "--json"]));
 }
 
+/** The bids on the board that the owner's kept memories answer, decided here (APP-274). The board goes in on stdin,
+ * as a decision would, so no question a stranger wrote is ever read as an option. @param {string} loreHome @param {unknown} board
+ * @returns {Promise<BidMatch[]>} */
+async function matchBids(loreHome, board) {
+  return records(await lore(loreHome, ["bids", "match"], JSON.stringify(board)), "bid matches");
+}
+
+/** Stage a bid's answer beside the drafts already waiting, replacing an earlier answer to the same bid. The app, not
+ * the model, says which memories it draws on and which bid it answers. @param {string} loreHome @param {BidMatch} match
+ * @param {BidDraft} words */
+async function stageBidAnswer(loreHome, match, words) {
+  const topic = match.bid.market && match.bid.market !== "unsorted" ? match.bid.market : "answers";
+  const answer = { ...words, kind: "claim", topic, provenance: match.memories.map((memory) => memory.id), bid: match.bid.id };
+  const waiting = (await candidates(loreHome)).filter((draft) => draft.bid !== match.bid.id);
+  await lore(loreHome, ["publication", "draft", "-"], JSON.stringify([...waiting, answer]));
+}
+
 /** @param {string} loreHome @param {unknown} id @returns {Promise<Memory>} */
 async function readMemory(loreHome, id) {
   if (!Number.isInteger(id) || /** @type {number} */ (id) < 1) throw new Error("Invalid memory");
   return JSON.parse(await lore(loreHome, ["memory", "show", String(id), "--json"]));
+}
+
+/** Each kept memory's one-line gist by id, read only where the owner chooses among them; the snapshot carries no memory's words.
+ * @param {string} loreHome @returns {Promise<Record<string, string>>} */
+async function readGists(loreHome) {
+  const value = JSON.parse(await lore(loreHome, ["memory", "gists"]));
+  if (!value || typeof value !== "object" || Array.isArray(value) || !Object.values(value).every((gist) => typeof gist === "string")) throw new Error("Lore returned unreadable gists");
+  return value;
 }
 
 /** How many memories one `lore memory credit` names, as the CLI takes them. */
@@ -594,15 +685,16 @@ async function newCollection(loreHome, title) {
 }
 
 /** Pasted text and dropped files, each kept as one piece of the collection. Over stdin, never argv.
- * @param {string} loreHome @param {unknown} id @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input
+ * @param {string} loreHome @param {unknown} id @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input
  * @returns {Promise<{added: Array<{publication_id: number, public_id: string, title: string}>}>} */
 async function addToCollection(loreHome, id, input) {
   const which = collectionId(id);
   const items = (input.items ?? []).map((item) => ({ title: String(item.title ?? "").trim(), content: String(item.content ?? "").trim() }));
   const files = (input.files ?? []).filter((path) => typeof path === "string" && path.startsWith("/"));
+  const memories = (input.memories ?? []).filter((id) => Number.isInteger(id) && id > 0);
   if (items.some((item) => !item.content)) throw new Error("There's nothing to add in that text");
-  if (!items.length && !files.length) throw new Error("Drop a file or paste some text first");
-  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ items, files })));
+  if (!memories.length && !items.length && !files.length) throw new Error("Choose a memory, drop a file or paste some text first");
+  return JSON.parse(await lore(loreHome, ["collection", "add", which, "-"], JSON.stringify({ memories, items, files })));
 }
 
 /** @param {string} loreHome @param {unknown} id @param {string} title */
@@ -635,7 +727,7 @@ async function deleteCollection(loreHome, id) {
 
 /** @param {string} loreHome @returns {Promise<PublicationCandidate[]>} */
 async function candidates(loreHome) {
-  return JSON.parse(await lore(loreHome, ["publication", "candidates"]));
+  return records(await lore(loreHome, ["publication", "candidates"]), "drafts");
 }
 
 /** @param {string} loreHome @param {PublicationCandidate} original @param {PublicationCandidate} candidate @param {boolean} approve */
@@ -777,7 +869,7 @@ async function removeSource(loreHome, name, keep) {
 }
 
 /** What a personal agent connected from the app can be (CAP-036). Muse has no way to take a link yet (APP-217). */
-const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "other"]);
+const AGENT_APPS = new Set(["grok", "chatgpt", "claude", "instinct", "other"]);
 
 /** @param {unknown} name */
 function agentSource(name) {
@@ -901,7 +993,10 @@ module.exports = {
   readSales,
   readViews,
   searchMemories,
+  matchBids,
+  stageBidAnswer,
   readMemory,
+  readGists,
   judgeMemories,
   creditMemories,
   renameMemory,

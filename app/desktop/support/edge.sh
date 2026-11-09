@@ -1,6 +1,6 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | inventory | cards | sales | extras | settings | agents | today | firstrun
 set -euo pipefail
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,6 +10,8 @@ mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
 # Usage events from a walk go nowhere: a closed local port, refused at once.
 export LORE_USAGE_URL="http://127.0.0.1:9/events"
+# Nor does a walk read the real bids board (APP-274): the look fails at once and the walk sees no matches.
+export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 # APP-215: only the firstrun walk meets the first-run chat; every other walk starts past it, as an owner who skipped it.
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
@@ -113,6 +115,46 @@ const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
 fi
+if [[ "$scenario" == "update" ]]; then
+  # APP-231: a store this Mac put online for sale before Lore kept which store it was: only its payout record says so.
+  (cd "$repo_root" && uv run python -c "import time
+from lore.store import Store
+with Store() as store:
+ store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
+  mkdir -p "$LORE_STORE"
+  echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
+fi
+if [[ "$scenario" == "inventory" ]]; then
+  # APP-282: a library shaped like a real one. Memories kept from three places, pieces drafted one memory at a time (so
+  # each piece's topic is that memory's whole sentence of a title), and a piece taken down beside a live copy of itself.
+  # The store is a stand-in: its live state is cached and its ledger is empty, so nothing reaches Cloudflare.
+  echo '[{"title":"Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip","content":"Book the boat dives early.","project":"personal"},{"title":"Travel: window seat on United or American; beach trips chosen for diving and poke","content":"Window seat, always.","project":"personal"},{"title":"Packing a dive kit for carry-on only","content":"Mask and computer in the carry-on.","project":"personal"},{"title":"Notarizing an Electron app without stapling surprises","content":"Staple after notarizing.","project":"lore-mcp"},{"title":"Code signing fails silently on .bin symlinks","content":"Dereference the symlinks first.","project":"lore-mcp"},{"title":"Auto-update from GitHub releases: three gotchas","content":"Publish the yml with the zip.","project":"lore-mcp"},{"title":"What the first three trial users got stuck on","content":"Cold start, the wallet gate, the explainer.","project":"lore-mcp"}]' | (cd "$repo_root" && uv run lore capture apply - >/dev/null)
+  (cd "$repo_root" && uv run python -c "import time
+from datetime import datetime, timedelta, timezone
+from lore.store import Store
+with Store() as store:
+ ids = {row['title']: row['id'] for row in store.db.execute('SELECT id,title FROM memories')}
+ for at, memory in enumerate(ids.values()):
+  store.db.execute('UPDATE memories SET updated_at=? WHERE id=?', ((datetime.now(timezone.utc) - timedelta(days=3 * at)).isoformat(), memory))
+ store.db.commit()
+ def piece(title):
+  return store.add_publication(title=title, content='paid text', topic=title, teaser=title, provenance=[ids[title]])
+ piece('Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip')
+ store.revoke_publication(piece('Travel: window seat on United or American; beach trips chosen for diving and poke'))
+ piece('Travel: window seat on United or American; beach trips chosen for diving and poke')
+ piece('Notarizing an Electron app without stapling surprises')
+ store.set_setting('price_usd', 1.0)
+ store.set_setting('node_url', 'https://store.example/mcp')
+ store.set_setting('node_selling', True)
+ live = [p.public_id for p in store.list_publications() if p.active]
+ store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 1.0, 'payout': '0x' + 'a' * 40}, 'ids': live})")
+  mkdir -p "$LORE_STORE/node_modules/.bin"
+  printf '#!/bin/sh\nprintf "[{\\"results\\": []}, {\\"results\\": []}]"\n' > "$LORE_STORE/node_modules/.bin/wrangler"
+  chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
+  : > "$LORE_STORE/.installed"
+fi
 if [[ "$scenario" == "extras" ]]; then
   # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
   (cd "$repo_root" && uv run python -c "
@@ -156,7 +198,8 @@ if [[ "$scenario" == "obsidian" ]]; then
 fi
 if [[ "$scenario" == "schedule" ]]; then
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
-  # ago has a note written since, and Lore was closed at every 9 AM in between.
+  # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
+  # hours from now, so the walk never runs across it.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
@@ -165,7 +208,13 @@ if [[ "$scenario" == "schedule" ]]; then
   (cd "$repo_root" && uv run python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
-automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': 9})
+automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
+# Only the reading is owed: it is two days old, and Lore's other routines are paused, so neither a weekly one's
+# Sunday nor any hour the walk starts just short of is owed too (XC-123; tests/test_automation.py pins the clock).
+routines = automation.Routines()
+for routine in routines.list():
+    if routine['id'] != 'synthesis':
+        routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
 fi
 if [[ "$scenario" == "automations" ]]; then
@@ -245,6 +294,19 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
 fi
+# A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
+# never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
+mkdir -p "$root/pyhooks"
+cat > "$root/pyhooks/sitecustomize.py" <<'PY'
+import faulthandler, os, signal, sys
+def _dump(signum, frame):
+    with open(os.environ["LORE_CLI_STACK"], "a") as f:
+        f.write(f"\n=== pid {os.getpid()} argv {sys.argv} got signal {signum}\n")
+        faulthandler.dump_traceback(f, all_threads=True)
+    os._exit(143)
+signal.signal(signal.SIGTERM, _dump)
+PY
+export PYTHONPATH="$root/pyhooks${PYTHONPATH:+:$PYTHONPATH}" LORE_CLI_STACK="$root/cli-stack.log"
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
@@ -252,7 +314,9 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
 [[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
-"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>/dev/null &
+# Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
+# beside the walk log and printed when the walk fails (XC-111).
+"$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
 timed_out=""
@@ -266,7 +330,19 @@ fi
 # Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
 code=0
 wait "$walk" 2>/dev/null || code=$?
-grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || code=1
+grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
+# A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
+# thread's stack is there; the whole sample runs to megabytes), so the log of a CI run whose files are gone by the
+# time anyone reads it still holds what went wrong (XC-077).
+if [[ "$code" != 0 ]]; then
+  echo "--- $root/walk.log"
+  cat "$root/walk.log"
+  if [[ -s "$root/hang.txt" ]]; then echo "--- $root/hang.txt (first 120 lines)"; head -n 120 "$root/hang.txt"; fi
+  # What the app and the walk's stand-in servers said, so a connect that failed can be read from CI alone.
+  for said in app granola agent cli-stack; do
+    if [[ -s "$root/$said.log" ]]; then echo "--- $root/$said.log (last 80 lines)"; tail -n 80 "$root/$said.log"; fi
+  done
+fi
 exit "$code"

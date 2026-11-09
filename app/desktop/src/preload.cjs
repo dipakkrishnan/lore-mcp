@@ -15,12 +15,17 @@ contextBridge.exposeInMainWorld("lore", {
   respond: (response) => ipcRenderer.invoke("agent:respond", response),
   /** @param {{providerId: string, type: "oauth" | "api_key", secret?: string}} input */
   login: (input) => ipcRenderer.invoke("auth:login", input),
+  cancelLogin: () => ipcRenderer.invoke("auth:cancel"),
   /** @param {string} providerId */
   logout: (providerId) => ipcRenderer.invoke("auth:logout", providerId),
   /** @param {string} query */
   search: (query) => ipcRenderer.invoke("search:query", query),
   /** @param {number} id */
   memory: (id) => ipcRenderer.invoke("memory:read", id),
+  gists: () => ipcRenderer.invoke("memory:gists"),
+  suggestions: () => ipcRenderer.invoke("suggestions:list"),
+  /** @param {string} title */
+  dropSuggestion: (title) => ipcRenderer.invoke("suggestions:drop", title),
   /** @param {number} id @param {string} title */
   renameMemory: (id, title) => ipcRenderer.invoke("memory:rename", id, title),
   /** @param {number} id @param {string} content */
@@ -41,7 +46,7 @@ contextBridge.exposeInMainWorld("lore", {
   approveExtras: (decisions) => ipcRenderer.invoke("publication:approve-extras", decisions),
   /** @param {number} id */
   revoke: (id) => ipcRenderer.invoke("publication:revoke", id),
-  push: () => ipcRenderer.invoke("store:push"),
+  push: (/** @type {boolean} */ latest) => ipcRenderer.invoke("store:push", latest === true),
   /** @param {number} amount */
   setPrice: (amount) => ipcRenderer.invoke("pricing:set", amount),
   /** @param {number} count */
@@ -59,8 +64,10 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {number} id */
   deleteCollection: (id) => ipcRenderer.invoke("collection:delete", id),
   revealHome: () => ipcRenderer.invoke("home:reveal"),
-  /** @param {"noticed" | "app.opened"} name */
-  usage: (name) => ipcRenderer.invoke("usage:record", name),
+  /** @param {number} id */
+  revealMemory: (id) => ipcRenderer.invoke("memory:reveal", id),
+  /** Main checks the name, and the step the first-run chat's event carries. @param {string} name @param {FirstRunStep} [step] */
+  usage: (name, step) => ipcRenderer.invoke("usage:record", name, step),
   /** @param {boolean} on */
   setTelemetry: (on) => ipcRenderer.invoke("telemetry:set", on),
   usageLog: () => ipcRenderer.invoke("telemetry:log"),
@@ -139,6 +146,10 @@ contextBridge.exposeInMainWorld("lore", {
   /** @param {string} id @param {string} text @param {string} [title] */
   editRoutine: (id, text, title) => ipcRenderer.invoke("routines:edit", id, text, title),
   dismissCheckIn: () => ipcRenderer.invoke("checkin:dismiss"),
+  /** @param {string} id */
+  draftBid: (id) => ipcRenderer.invoke("bids:draft", id),
+  /** @param {string} id */
+  dismissBid: (id) => ipcRenderer.invoke("bids:dismiss", id),
   openPrivacySettings: () => ipcRenderer.invoke("settings:privacy"),
   /** @param {File} file */
   pathFor: (file) => webUtils.getPathForFile(file),

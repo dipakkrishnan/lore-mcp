@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
+from dataclasses import dataclass
 from http.client import HTTPResponse
 from itertools import islice
 from pathlib import Path
@@ -10,9 +11,16 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
-from . import automation, blueprint, deploy, feedback, sources
+from . import automation, blueprint, deploy, feedback, hosted, sources
 from .paths import claude_home, home
-from .store import FREE_COPIES, FREE_COPIES_SETTING, JOB_SUMMARIES, Store
+from .store import (
+    FREE_COPIES,
+    FREE_COPIES_SETTING,
+    JOB_SUMMARIES,
+    Collection,
+    OwnerJob,
+    Store,
+)
 
 
 class ManifestEntry(BaseModel):
@@ -133,9 +141,27 @@ def _live_state(node_url: str | None) -> tuple[dict[str, object], set[str] | Non
 LIVE_CACHE_SECONDS = 60
 
 
-def _cached_live_state(
-    node_url: str | None,
-) -> tuple[dict[str, object], set[str] | None]:
+LiveState = tuple[dict[str, object], set[str] | None]
+
+
+def fresh_live(cached: object, node_url: str, now: float) -> LiveState | None:
+    """What a kept probe answer still says about `node_url` at `now`, or nothing
+    when it is for another address, too old, or not a probe answer at all (XC-105)."""
+    if not (
+        isinstance(cached, dict)
+        and cached.get("url") == node_url
+        and now - float(cached.get("checked_at", 0)) < LIVE_CACHE_SECONDS
+    ):
+        return None
+    ids = cached.get("ids")
+    live = dict(cached["live"])
+    # A cache written before this field existed is still fresh enough to
+    # trust for liveness; it just has nothing to say about the price.
+    live.setdefault("price_usd", None)
+    return live, set(ids) if isinstance(ids, list) else None
+
+
+def _cached_live_state(node_url: str | None) -> LiveState:
     """The probe is three round trips at up to 5 s each and runs on every
     desktop refresh, so its answer is kept briefly; `forget_live` drops it
     when a push changes what the node holds."""
@@ -144,17 +170,9 @@ def _cached_live_state(
     with Store() as store:
         cached = store.setting("node_live", None)
     now = time.time()
-    if (
-        isinstance(cached, dict)
-        and cached.get("url") == node_url
-        and now - float(cached.get("checked_at", 0)) < LIVE_CACHE_SECONDS
-    ):
-        ids = cached.get("ids")
-        live = dict(cached["live"])
-        # A cache written before this field existed is still fresh enough to
-        # trust for liveness; it just has nothing to say about the price.
-        live.setdefault("price_usd", None)
-        return live, set(ids) if isinstance(ids, list) else None
+    kept = fresh_live(cached, node_url, now)
+    if kept is not None:
+        return kept
     live, ids = _live_state(node_url)
     with Store() as store:
         store.set_setting(
@@ -206,44 +224,130 @@ def _claude_project_labels() -> dict[str, str]:
     return labels
 
 
-def build() -> dict[str, object]:
+@dataclass(frozen=True)
+class Rows:
+    """What one snapshot reads from the store, as plain data (XC-105)."""
+
+    sources_configured: bool
+    sources: list[dict[str, object]]
+    # Memory inventory rows with their provenance applied, internal fields still on.
+    memories: list[dict[str, object]]
+    # Publication inventory rows, their `active` flag still on.
+    publications: list[dict[str, object]]
+    collections: list[Collection]
+    # As stored: a number, or anything else an older store left there.
+    publication_price: object
+    answer_price: object
+    answer_enabled: bool
+    free_copies: object
+    telemetry_enabled: bool
+    telemetry_noticed: bool
+    automations_noticed: bool
+    node_url: str | None
+    node_selling: bool
+    agents_url: str | None
+    jobs: list[OwnerJob]
+
+
+@dataclass(frozen=True)
+class Surroundings:
+    """What one snapshot reads from the file system and this build, as plain data."""
+
+    home: str
+    # The Claude Code project slug of a folder under the owner's home starts
+    # with this; it is dropped when no session labels the slug.
+    slug_prefix: str
+    project_labels: dict[str, str]
+    blueprint_configured: bool
+    profile_configured: bool
+    schedule: object
+    feedback_available: bool
+    store_state: Literal["current", "outdated", "unknown"]
+
+
+def _rows(store: Store) -> Rows:
+    """Read the snapshot's rows from the store, deciding nothing."""
     missing = object()
-    with Store() as store:
-        configured = store.setting("sources", missing)
-        registry = sources.Registry(store)
-        source_entries = registry.entries()
-        memories = registry.provenance(store.memory_inventory())
-        publications = store.publication_inventory()
-        collections = store.collections()
-        publication_price = store.setting("price_usd", None)
-        answer_price = store.setting("answer_price_usd", 0.0)
-        answer_enabled = store.setting("answer_enabled", False) is True
-        free_copies = store.setting(FREE_COPIES_SETTING, FREE_COPIES)
-        telemetry_enabled = store.setting("telemetry_enabled", True) is not False
-        telemetry_noticed = store.setting("telemetry_noticed", False) is True
-        automations_noticed = store.setting(automation.NOTICED, False) is True
-        node_url = store.setting("node_url", None)
-        node_selling = deploy.selling(store)
+    registry = sources.Registry(store)
+    node_url = store.setting("node_url", None)
+    return Rows(
+        sources_configured=store.setting("sources", missing) is not missing,
+        sources=registry.entries(),
+        memories=registry.provenance(store.memory_inventory()),
+        publications=store.publication_inventory(),
+        collections=store.collections(),
+        publication_price=store.setting("price_usd", None),
+        answer_price=store.setting("answer_price_usd", 0.0),
+        answer_enabled=store.setting("answer_enabled", False) is True,
+        free_copies=store.setting(FREE_COPIES_SETTING, FREE_COPIES),
+        telemetry_enabled=store.setting("telemetry_enabled", True) is not False,
+        telemetry_noticed=store.setting("telemetry_noticed", False) is True,
+        automations_noticed=store.setting(automation.NOTICED, False) is True,
+        node_url=node_url if isinstance(node_url, str) else None,
+        node_selling=deploy.selling(store),
+        agents_url=hosted.agent_address(store),
         # Reading concedes jobs whose liveness claim expired, so an interrupted
         # run turns visibly incomplete on the next refresh without a scheduler.
-        jobs = store.recent_jobs(limit=20)
-
-    piece_price = (
-        float(publication_price) if isinstance(publication_price, (int, float)) else 0.0
+        jobs=store.recent_jobs(limit=20),
     )
-    live, live_ids = _cached_live_state(node_url if isinstance(node_url, str) else None)
-    labels = _claude_project_labels()
-    prefix = "-" + str(Path.home()).strip("/").replace("/", "-") + "-"
-    for memory in memories:
-        for internal in ("source", "origin", "source_path"):
-            memory.pop(internal)
-        project = str(memory.pop("project"))
-        memory["project_label"] = labels.get(project) or project.removeprefix(prefix)
-    for publication in publications:
-        active = bool(publication.pop("active"))
-        public_id = publication["public_id"]
-        publication["state"] = "approved" if active else "revoked"
+
+
+def _surroundings(node_url: str | None) -> Surroundings:
+    """Read what the snapshot says about this Mac and this build."""
+    return Surroundings(
+        home=str(home()),
+        slug_prefix="-" + str(Path.home()).strip("/").replace("/", "-") + "-",
+        project_labels=_claude_project_labels(),
+        blueprint_configured=blueprint.blueprint_path().is_file(),
+        profile_configured=automation.profile_path().is_file(),
+        schedule=automation.schedule_state(),
+        # Whether this build can send feedback at all. The Desktop app hides
+        # its Report Feedback button when it cannot, so a release with no
+        # relay pinned shows no Send it could not honor (XC-028).
+        feedback_available=feedback.available(),
+        # Whether the store online is the one this Lore ships (APP-231).
+        store_state=deploy.store_state(node_url),
+    )
+
+
+def build() -> dict[str, object]:
+    """Fetch, then assemble: the store, the node probe (cached), the file system."""
+    with Store() as store:
+        rows = _rows(store)
+    live_state = _cached_live_state(rows.node_url)
+    return assemble(rows, live_state, _surroundings(rows.node_url))
+
+
+def assemble(
+    rows: Rows, live_state: LiveState, surroundings: Surroundings
+) -> dict[str, object]:
+    """The desktop snapshot from plain data: no store, no network, no file system
+    (XC-105). The inputs are left as they were."""
+    live, live_ids = live_state
+    piece_price = (
+        float(rows.publication_price)
+        if isinstance(rows.publication_price, (int, float))
+        else 0.0
+    )
+    memories = []
+    for row in rows.memories:
+        memory = {
+            key: value
+            for key, value in row.items()
+            if key not in ("source", "origin", "source_path", "project")
+        }
+        project = str(row["project"])
+        memory["project_label"] = surroundings.project_labels.get(
+            project
+        ) or project.removeprefix(surroundings.slug_prefix)
+        memories.append(memory)
+    publications = []
+    for row in rows.publications:
+        publication = {key: value for key, value in row.items() if key != "active"}
+        public_id = row["public_id"]
+        publication["state"] = "approved" if bool(row["active"]) else "revoked"
         publication["live"] = None if live_ids is None else public_id in live_ids
+        publications.append(publication)
 
     publication_counts = {
         "active": sum(p["state"] == "approved" for p in publications),
@@ -252,25 +356,22 @@ def build() -> dict[str, object]:
 
     return {
         "version": 1,
-        "home": str(home()),
+        "home": surroundings.home,
         "setup": {
-            "sources_configured": configured is not missing,
-            "blueprint_configured": blueprint.blueprint_path().is_file(),
-            "profile_configured": automation.profile_path().is_file(),
-            "schedule": automation.schedule_state(),
-            "telemetry_enabled": telemetry_enabled,
-            "telemetry_noticed": telemetry_noticed,
-            "automations_noticed": automations_noticed,
+            "sources_configured": rows.sources_configured,
+            "blueprint_configured": surroundings.blueprint_configured,
+            "profile_configured": surroundings.profile_configured,
+            "schedule": surroundings.schedule,
+            "telemetry_enabled": rows.telemetry_enabled,
+            "telemetry_noticed": rows.telemetry_noticed,
+            "automations_noticed": rows.automations_noticed,
         },
-        # Whether this build can send feedback at all. The Desktop app hides
-        # its Report Feedback button when it cannot, so a release with no
-        # relay pinned shows no Send it could not honor (XC-028).
-        "feedback": {"available": feedback.available()},
+        "feedback": {"available": surroundings.feedback_available},
         "library": {
             "counts": {
                 "private": sum(m["status"] == "private" for m in memories),
             },
-            "sources": source_entries,
+            "sources": rows.sources,
             "items": memories,
         },
         "publications": {
@@ -294,19 +395,22 @@ def build() -> dict[str, object]:
                         sum(p.active for p in c.pieces) * piece_price, 2
                     ),
                 }
-                for c in collections
+                for c in rows.collections
             ]
         },
         "pricing": {
-            "publication_usd": publication_price,
-            "answer_usd": answer_price if answer_enabled else None,
-            "answer_enabled": answer_enabled,
-            "free_copies": free_copies,
+            "publication_usd": rows.publication_price,
+            "answer_usd": rows.answer_price if rows.answer_enabled else None,
+            "answer_enabled": rows.answer_enabled,
+            "free_copies": rows.free_copies,
         },
         "node": {
-            "url": node_url if isinstance(node_url, str) else None,
+            "url": rows.node_url,
+            # Where the owner's agents save: their own store's, or the one Lore hosts (XC-088).
+            "agents": rows.agents_url,
             # False while the store is online only for the owner's agents (XC-069).
-            "selling": node_selling,
+            "selling": rows.node_selling,
+            "store": surroundings.store_state,
             "live": live,
         },
         # Owner-run history. The stored summary is a code; the prose is applied
@@ -325,7 +429,7 @@ def build() -> dict[str, object]:
                     "started_at": item.started_at,
                     "finished_at": item.finished_at,
                 }
-                for item in jobs
+                for item in rows.jobs
             ]
         },
     }

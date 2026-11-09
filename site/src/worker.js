@@ -1,145 +1,190 @@
-// yourlore.dev/marketplace: the Lore sellers list, rendered as a page people and
-// browsing agents can read without running a script. The list itself stays in
-// the lore-marketplace repo; this only draws it. Every other path is the static site.
+// yourlore.dev/marketplace: the markets buyers browse, each filled with the pieces sellers
+// listed in it, drawn as plain pages people and browsing agents can read without a script.
+// The registry stays in the lore-marketplace repo and each piece's words come from its
+// own store; this only draws them. /bids and /b/:id are the bid book (src/bid-routes.js).
+// / is the home page, drawn around the live bids (src/home.js); /download starts the app's download and says how to open it (src/download.js).
+import { frontDoor } from "./agents.js";
+import { BidDesk, isBidPath } from "./bid-routes.js";
+import { countDemand } from "./demand.js";
+import { downloadPage } from "./download.js";
+import { clip, date, escape, money, page, plural } from "./layout.js";
+import { Exchange, sellersOf } from "./markets.js";
+
+export { BidRail } from "./bid-rail.js";
+export { BidBook } from "./bids.js";
 
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";
-const LIST_URL = "https://yourlore.dev/marketplace.json";
-const BUYER_SKILL = "https://github.com/dipakkrishnan/lore-mcp/tree/main/plugins/lore/skills/lore-buy";
-const DOWNLOAD = "https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip";
-const MAINNET = "eip155:8453";
-const TOPICS_SHOWN = 8;
-const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const HOME = "https://yourlore.dev/marketplace";
+const ROWS_SHOWN = 3;
+const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const sentence = (text) => (/^[A-Z][a-z]/.test(text) ? text[0].toLowerCase() + text.slice(1) : text);
+const searchable = (m) => [m.name, m.tab, ...m.rows.flatMap((r) => [r.question, r.sample, r.usefulIf, r.seller.name])].join(" ").toLowerCase();
 
-const escape = (text) =>
-  String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const money = (usd) => `$${usd < 0.01 ? usd : usd.toFixed(2)}`;
-const date = (iso) => {
-  const parsed = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
-  return Number.isNaN(parsed.getTime()) ? "" : day.format(parsed);
-};
+const SEARCH_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
-const https = (url) => {
-  try {
-    return new URL(url).protocol === "https:";
-  } catch {
-    return false;
-  }
-};
-const collection = (entry) =>
-  typeof entry?.title === "string" && typeof entry.price_usd === "number" && entry.price_usd > 0
-    ? { title: entry.title, price_usd: entry.price_usd, pieces: Number(entry.pieces) || 0 }
-    : null;
-// The list is hand-editable and filed from issues, so only well-formed entries with an https store are shown.
-const listed = (seller) =>
-  typeof seller?.name === "string" && typeof seller.price_usd === "number" && https(seller.store) && !seller.down_since
-    ? {
-        ...seller,
-        topics: Array.isArray(seller.topics) ? seller.topics.map(String) : [],
-        publications: Number(seller.publications) || 0,
-        collections: Array.isArray(seller.collections) ? seller.collections.map(collection).filter(Boolean) : []
-      }
-    : null;
+const offer = (row) => ({
+  "@type": "Product",
+  name: row.question,
+  url: row.url,
+  ...(row.sample ? { description: row.sample } : {}),
+  offers: { "@type": "Offer", price: row.price, priceCurrency: "USD", url: row.url, seller: { "@type": "Person", name: row.seller.name, url: row.seller.store } }
+});
 
-const MARK = `<svg class="mark" viewBox="0 0 26 26" aria-hidden="true"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"/><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" fill="none" stroke="var(--bg)" stroke-width="1.7"/></svg>`;
+const row = (r) =>
+  `<li class="row"><a href="${escape(r.url)}"><span><span class="q">${escape(r.question)}</span><span class="who">${escape(r.seller.name)}${r.seller.test ? " · test store" : ""}</span></span><span class="pill">${money(r.price)}</span></a></li>`;
 
-const STYLE = `
-:root{--bg:#f7f3ea;--surface:#fffdf8;--ink:#1d1f1c;--muted:#6c6f69;--line:#e6e1d6;--accent:#244f3d;--accent-soft:#e3ece6;--serif:ui-serif,"New York",Georgia,serif;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace}
-@media (prefers-color-scheme:dark){:root{--bg:#141613;--surface:#1c1f1b;--ink:#ecebe6;--muted:#a3a69f;--line:#2e322d;--accent:#8fc3a6;--accent-soft:#223129}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
-a{color:inherit}
-main{max-width:760px;margin:0 auto;padding:28px 16px 64px}
-.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;color:var(--muted);margin-bottom:48px}
-.bar a{text-decoration:none}.bar a:hover{color:var(--ink)}
-.brand{display:inline-flex;align-items:center;gap:8px;color:var(--ink);font-weight:600}
-.mark{width:22px;height:22px;color:var(--accent)}
-h1{font:500 clamp(32px,6.5vw,46px)/1.1 var(--serif);letter-spacing:-.015em;margin:0 0 12px}
-.lede{color:var(--muted);font-size:18px;margin:0 0 28px;max-width:34em}
-.filter{width:100%;height:44px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font:15px var(--sans);margin:0 0 20px}
-.filter:focus{outline:2px solid var(--accent);outline-offset:1px}
-.sellers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
-.seller{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
-.seller h2{font:500 22px/1.25 var(--serif);margin:0 0 4px}
-.seller h2 a{text-decoration:none}.seller h2 a:hover{color:var(--accent)}
-.facts{font-size:14px;color:var(--muted);margin:0 0 14px}
-.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px;padding:0;list-style:none}
-.chip{padding:3px 10px;border:1px solid var(--line);border-radius:999px;font-size:13px;color:var(--muted)}
-.collections{list-style:none;margin:0 0 16px;padding:0;font-size:14px}
-.collections li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--line)}
-.collections span{color:var(--muted);white-space:nowrap}
-.visit{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;background:var(--accent);color:var(--bg);font-weight:600;font-size:14px;text-decoration:none}
-.visit:hover{filter:brightness(1.08)}
-.empty{padding:32px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
-.foot{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:48px}
-@media (max-width:600px){.foot{grid-template-columns:1fr}}
-.panel{border:1px solid var(--line);border-radius:14px;padding:18px 20px;font-size:14px;color:var(--muted)}
-.panel h3{font:500 17px var(--serif);color:var(--ink);margin:0 0 6px}
-.panel p{margin:0 0 8px}
-.panel a{color:var(--accent);font-weight:600;text-decoration:none}
-code{font:12.5px var(--mono);background:var(--accent-soft);color:var(--ink);padding:2px 6px;border-radius:6px}
-.endpoint{display:block;margin:4px 0 12px;padding:8px 10px;overflow-x:auto;white-space:nowrap;user-select:all}
-`;
-
-// Filters the already-rendered cards; the page is complete without it.
-const FILTER = `const f=document.querySelector(".filter"),c=[...document.querySelectorAll(".seller")],e=document.querySelector(".none");f.hidden=false;f.addEventListener("input",()=>{const q=f.value.trim().toLowerCase();let n=0;for(const s of c){const m=!q||s.dataset.search.includes(q);s.hidden=!m;n+=m}e.hidden=n>0})`;
-
-function sellerCard(seller) {
-  const topics = seller.topics;
-  const shown = topics.slice(0, TOPICS_SHOWN).map((topic) => `<li class="chip">${escape(topic)}</li>`).join("");
-  const more = topics.length > TOPICS_SHOWN ? `<li class="chip">+${topics.length - TOPICS_SHOWN} more</li>` : "";
-  const count = seller.publications;
-  const sets = seller.collections;
-  const facts = [
-    ...(seller.network === MAINNET ? [] : ["test store"]),
-    `${count} ${count === 1 ? "piece" : "pieces"}`,
-    ...(sets.length ? [`${sets.length} ${sets.length === 1 ? "collection" : "collections"}`] : []),
-    `${money(seller.price_usd)} each`,
-    ...(typeof seller.answer_price_usd === "number" ? [`questions ${money(seller.answer_price_usd)}`] : []),
-    ...(date(seller.listed) ? [`listed ${date(seller.listed)}`] : [])
-  ].join(" · ");
-  const shelf = sets.length
-    ? `<ul class="collections">${sets.map((set) => `<li>${escape(set.title)}<span>${set.pieces} ${set.pieces === 1 ? "piece" : "pieces"} · ${money(set.price_usd)}</span></li>`).join("")}</ul>`
-    : "";
-  const search = `${seller.name} ${topics.join(" ")} ${sets.map((set) => set.title).join(" ")}`.toLowerCase();
-  return `<li class="seller" data-search="${escape(search)}"><h2><a href="${escape(seller.store)}">${escape(seller.name)}</a></h2><p class="facts">${facts}</p><ul class="chips">${shown}${more}</ul>${shelf}<a class="visit" href="${escape(seller.store)}">Visit store →</a></li>`;
+function card(m) {
+  const people = sellersOf(m);
+  return `<li class="card" data-search="${escape(searchable(m))}"><h3><span class="glyph" aria-hidden="true">${escape(m.name[0])}</span><a href="/marketplace/${m.id}">${escape(m.name)}</a></h3>
+<ul class="rows">${m.rows.slice(0, ROWS_SHOWN).map(row).join("")}</ul>
+<div class="foot-row"><span>${plural(m.rows.length, "piece")} · ${plural(people.length, "seller")}</span><a href="/marketplace/${m.id}">Open market →</a></div></li>`;
 }
 
-export function marketplacePage(list) {
-  const sellers = (Array.isArray(list?.sellers) ? list.sellers : []).map(listed).filter(Boolean).sort((a, b) => b.publications - a.publications);
-  const data = {
+/** The latest events as list items, and a key that changes only when they do, so the strip redraws on real news. */
+function latest(exchange) {
+  const events = exchange.recent(5);
+  const item = (e) =>
+    e.row
+      ? `<li data-k="${escape(`${e.day}:${e.row.id}`)}"><a href="${escape(e.row.url)}"><time>${date(e.day)}</time>Updated in ${escape(e.market.name)}: ${escape(clip(e.row.question, 48))}</a></li>`
+      : `<li data-k="${escape(`${e.day}:${e.seller.name}`)}"><a href="${escape(e.seller.store)}"><time>${date(e.day)}</time>${escape(e.seller.name)} opened a store</a></li>`;
+  return { html: events.map(item).join(""), key: events.map((e) => `${e.day}:${e.row ? e.row.id : e.seller.name}`).join("|") };
+}
+
+function tape(exchange) {
+  const { html, key } = latest(exchange);
+  if (!html) return "";
+  return `<div class="tape"><span>Latest</span><ul data-live="latest" data-key="${escape(key)}">${html}</ul></div>`;
+}
+
+function stores(exchange) {
+  if (!exchange.sellers.length) return "";
+  const store = (s) =>
+    `<li><a href="${escape(s.store)}"><b>${escape(s.name)}</b><span>${[...(s.test ? ["test store"] : []), plural(s.publications, "piece"), plural(s.markets?.size ?? 0, "market"), `${money(s.price_usd)} each`].join(" · ")}</span><em>Visit store →</em></a></li>`;
+  return `<h2 class="part">Stores</h2><ul class="stores">${exchange.sellers.map(store).join("")}</ul>`;
+}
+
+/** The markets, by tab, optionally narrowed by a search and a seller. */
+export function marketplacePage(exchange, { tab = "", q = "", seller = "" } = {}) {
+  const tabs = exchange?.tabs ?? [];
+  const current = tabs.find((t) => slug(t) === tab) ?? "";
+  const who = exchange?.sellers.find((s) => slug(s.name) === seller);
+  const query = q.trim().toLowerCase();
+  const shown = (exchange?.markets ?? []).filter(
+    (m) => (!current || m.tab === current) && (!who || m.rows.some((r) => r.seller === who)) && (!query || searchable(m).includes(query))
+  );
+  const link = (t) => {
+    const params = new URLSearchParams({ ...(t ? { tab: slug(t) } : {}), ...(who ? { seller: slug(who.name) } : {}) });
+    return `/marketplace${params.size ? `?${params}` : ""}`;
+  };
+  const sellerPick = exchange?.sellers.length
+    ? `<form method="get" action="/marketplace">${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<select name="seller" aria-label="Seller"><option value="">All sellers</option>${exchange.sellers.map((s) => `<option value="${escape(slug(s.name))}"${s === who ? " selected" : ""}>${escape(s.name)}</option>`).join("")}</select> <button type="submit">Go</button></form>`
+    : "";
+  const sections = (current ? [current] : tabs)
+    .map((t) => [t, shown.filter((m) => m.tab === t)])
+    .filter(([, list]) => list.length)
+    .map(([t, list]) => `<section class="tab"><h2>${escape(t)}</h2><ul class="grid">${list.map(card).join("")}</ul></section>`)
+    .join("");
+  const body = !exchange
+    ? `<p class="empty">The markets can't be loaded right now. Try again in a minute.</p>`
+    : !exchange.markets.length
+      ? `<p class="empty">No market has a listing yet.</p>`
+      : `${sections}<p class="empty none"${shown.length ? " hidden" : ""}>Nothing here matches that yet.</p>`;
+  const count = (key, n, one) => `<li><b data-stat="${key}" aria-label="${n}">${n}</b>${n === 1 ? one : `${one}s`}</li>`;
+  const head = `<header class="head"><div><h1>Markets</h1>
+${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "market")}${count("pieces", exchange.pieces, "piece")}${count("sellers", exchange.sellers.length, "seller")}</ul>` : ""}</div>
+<form class="search" method="get" action="/marketplace" role="search">${SEARCH_ICON}${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<input type="search" name="q" value="${escape(q)}" placeholder="Search questions, markets, sellers" aria-label="Search the markets"></form></header>
+<div class="tabs"><ul>${["", ...tabs].map((t) => `<li><a href="${link(t)}"${t === current ? ' class="on" aria-current="page"' : ""}>${escape(t || "All")}</a></li>`).join("")}</ul>${sellerPick}</div>`;
+  const data = exchange && {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    name: "Lore marketplace",
-    url: "https://yourlore.dev/marketplace",
-    numberOfItems: sellers.length,
-    itemListElement: sellers.map((seller, index) => ({
-      "@type": "ListItem",
-      position: index + 1,
-      item: { "@type": "Person", name: seller.name, url: seller.store, knowsAbout: seller.topics }
-    }))
+    name: "Lore markets",
+    url: HOME,
+    numberOfItems: exchange.pieces,
+    itemListElement: exchange.markets.flatMap((m) => m.rows.map((r) => ({ ...offer(r), category: m.name }))).map((item, i) => ({ "@type": "ListItem", position: i + 1, item }))
   };
-  const body = list
-    ? sellers.length
-      ? `<input class="filter" type="search" placeholder="Filter by topic or name" aria-label="Filter sellers" hidden><ul class="sellers">${sellers.map(sellerCard).join("")}</ul><p class="empty none" hidden>No seller matches that yet.</p>`
-      : `<p class="empty">No stores are listed yet.</p>`
-    : `<p class="empty">The list of sellers can't be loaded right now. Try again in a minute.</p>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lore marketplace</title><meta name="description" content="People selling what they learned firsthand. Descriptions are free; every payment goes straight to the seller.">
-<link rel="canonical" href="https://yourlore.dev/marketplace"><link rel="alternate" type="application/json" href="${LIST_URL}"><style>${STYLE}</style>
-<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script></head>
-<body><main><nav class="bar"><a class="brand" href="/">${MARK}Lore</a><a href="/">Get Lore</a></nav>
-<h1>Lore marketplace</h1><p class="lede">People selling what they learned firsthand. Each store belongs to one person: reading the descriptions is free, and every payment goes straight to them.</p>
-${body}
-<div class="foot"><section class="panel"><h3>For agents</h3><p>Every listed store, as JSON:</p><code class="endpoint">${LIST_URL}</code><p>Each store answers <code>discover</code> for free and <code>get</code> to buy.</p><a href="${BUYER_SKILL}">Get the buyer skill →</a></section>
-<section class="panel"><h3>Sell what you know</h3><p>Lore turns what you've already written into pieces you approve, then opens a store that pays you directly.</p><a href="${DOWNLOAD}">Download for macOS →</a></section></div>
-</main><script>${FILTER}</script></body></html>`;
+  return page({
+    title: "Lore markets",
+    description: "Browse markets of firsthand experience. Read free samples; every payment goes straight to the person who lived it.",
+    canonical: HOME,
+    section: "markets",
+    body: `${head}${exchange ? tape(exchange) : ""}${body}${exchange ? stores(exchange) : ""}`,
+    data
+  });
 }
 
-export default {
-  async fetch(request, env) {
+/** One market: every piece listed in it, with its free sample and a way to buy. */
+export function marketPage(exchange, id) {
+  const m = exchange?.market(id);
+  if (!m) {
+    return page({
+      title: "Market not found · Lore",
+      description: "This market isn't listed.",
+      canonical: HOME,
+      section: "markets",
+      body: `<p class="crumb"><a href="/marketplace">Markets</a></p><h1>Not listed</h1><p class="lede">${exchange ? "No market by that name has a listing." : "The markets can't be loaded right now. Try again in a minute."}</p><p><a class="go" href="/marketplace">All markets →</a></p>`
+    });
+  }
+  const people = sellersOf(m);
+  const item = (r) =>
+    `<li class="offer"><div><h2><a href="${escape(r.url)}">${escape(r.question)}</a></h2>${r.sample ? `<blockquote>${escape(r.sample)}</blockquote>` : ""}${r.usefulIf ? `<p class="fit">Useful if ${escape(sentence(r.usefulIf))}</p>` : ""}<p class="by">From <a href="${escape(r.seller.store)}">${escape(r.seller.name)}</a>${r.seller.test ? " · test store" : ""}${r.updated ? ` · updated ${date(r.updated)}` : ""}</p></div>
+<div class="buy"><a class="go" href="${escape(r.url)}">View &amp; buy · ${money(r.price)} →</a></div></li>`;
+  const nearby = exchange.markets.filter((other) => other.tab === m.tab && other !== m);
+  return page({
+    title: `${m.name} · Lore markets`,
+    description: `${plural(m.rows.length, "firsthand piece")} on ${m.name.toLowerCase()}, from ${plural(people.length, "seller")}. Samples are free.`,
+    canonical: `${HOME}/${m.id}`,
+    section: "markets",
+    alternate: `${HOME}/${m.id}.json`,
+    body: `<p class="crumb"><a href="/marketplace">Markets</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
+<ul class="stats"><li><b>${m.rows.length}</b>${m.rows.length === 1 ? "piece" : "pieces"}</li><li><b>${people.length}</b>${people.length === 1 ? "seller" : "sellers"}</li><li><b>${money(Math.min(...m.rows.map((r) => r.price)))}</b>lowest price</li></ul>
+<ul class="offers">${m.rows.map(item).join("")}</ul>${nearby.length ? `<h2 class="part">More in ${escape(m.tab)}</h2><ul class="related">${nearby.map((o) => `<li><a href="/marketplace/${o.id}">${escape(o.name)} · ${o.rows.length}</a></li>`).join("")}</ul>` : ""}`,
+    data: { "@context": "https://schema.org", "@type": "ItemList", name: m.name, url: `${HOME}/${m.id}`, numberOfItems: m.rows.length, itemListElement: m.rows.map((r, i) => ({ "@type": "ListItem", position: i + 1, item: offer(r) })) }
+  });
+}
+
+const html = (body, status = 200, cache = "public, max-age=60") =>
+  new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": cache } });
+
+/** The registry, parsed, or null when it can't be loaded. */
+async function registry() {
+  try {
+    const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
+    return response.ok ? await response.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+const NOT_FOUND = page({
+  title: "Not found · Lore",
+  description: "Nothing lives at this address.",
+  canonical: "https://yourlore.dev/",
+  body: `<h1>Not found</h1><p class="lede">Nothing lives at this address.</p><p><a class="go" href="/">Go to Lore</a></p>`
+});
+
+/** A static file, or the site's own not-found page. */
+async function asset(request, env) {
+  const found = await env.ASSETS.fetch(request);
+  return found.status === 404 ? html(NOT_FOUND, 404) : found;
+}
+
+const worker = {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/") return new BidDesk(request, env, ctx, registry).home();
+    if (url.pathname === "/download") {
+      const body = downloadPage({ ua: request.headers.get("user-agent") ?? "", bid: url.searchParams.get("bid"), touch: url.searchParams.has("touch") });
+      return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", vary: "user-agent" } });
+    }
+    if (isBidPath(url.pathname)) return new BidDesk(request, env, ctx, registry).respond();
     const json = url.pathname === "/marketplace.json";
-    if (!json && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return env.ASSETS.fetch(request);
+    const stats = url.pathname === "/marketplace/stats.json";
+    const door = !stats && frontDoor(url.pathname);
+    if (door) return door({ request, env, ctx, exchange: () => Exchange.from(LIST), self: (path) => worker.fetch(new Request(new URL(path, url)), env, ctx) });
+    const [, id] = url.pathname.match(/^\/marketplace\/([a-z0-9-]+)\/?$/) ?? [];
+    if (!json && !id && !stats && url.pathname !== "/marketplace" && url.pathname !== "/marketplace/") return asset(request, env);
+    if (json) countDemand("agent.json", request, env, ctx);
+    let list;
     try {
       const response = await fetch(LIST, { cf: { cacheTtl: 300, cacheEverything: true } });
       if (!response.ok) throw new Error(`marketplace list: ${response.status}`);
@@ -148,15 +193,21 @@ export default {
           headers: { "content-type": "application/json; charset=utf-8", "cache-control": "public, max-age=60", "access-control-allow-origin": "*" }
         });
       }
-      return new Response(marketplacePage(await response.json()), {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" }
-      });
+      list = await response.json();
     } catch {
-      if (json) return Response.json({ error: "the seller list can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
+      if (json || stats) return Response.json({ error: "the seller list can't be loaded right now" }, { status: 502, headers: { "cache-control": "no-store" } });
       // Rendered as "can't be loaded right now"; the page itself still answers.
-      return new Response(marketplacePage(null), {
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
-      });
+      return html(id ? marketPage(null, id) : marketplacePage(null), 200, "no-store");
     }
+    const exchange = await Exchange.load(list);
+    if (stats) {
+      const { html, key } = latest(exchange);
+      return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length, latest: html, latest_key: key }, { headers: { "cache-control": "public, max-age=30" } });
+    }
+    if (id) return html(marketPage(exchange, id), exchange.market(id) ? 200 : 404);
+    const params = url.searchParams;
+    return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));
   }
 };
+
+export default worker;

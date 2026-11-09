@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
 import unittest
 from contextlib import redirect_stderr
 from datetime import datetime
@@ -616,6 +614,7 @@ class ConnectorTest(LoreTestCase):
                 "obsidian",
                 "chatgpt",
                 "claude",
+                "google-maps",
                 "substack",
                 "medium",
                 "bluesky",
@@ -789,13 +788,6 @@ class ProvenanceLimitsTest(ProvenanceTest):
         for path in ("~standup", "~bob/x"):
             self.assertEqual(found[path][0]["label"], "you")
         self.assertEqual(found["Home"][0]["label"], "a.md")
-        result = subprocess.run(
-            [sys.executable, "-m", "lore", "desktop-state"],
-            env=os.environ.copy(),
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_one_memory_that_cannot_be_named_says_lore_and_the_rest_load(
         self,

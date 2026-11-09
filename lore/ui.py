@@ -3,15 +3,27 @@ from __future__ import annotations
 import os
 import sys
 import textwrap
+from typing import Mapping, TextIO
 
 from .store import Memory, Publication
 
-COLOR = sys.stdout.isatty() and "NO_COLOR" not in os.environ
 CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
 
 
+def COLOR(
+    stdout: TextIO | None = None, environ: Mapping[str, str] | None = None
+) -> bool:
+    """Whether output is painted: a terminal is listening and NO_COLOR is unset.
+
+    Pure given a stream and an environment (XC-105); without them it asks the
+    process's own, on every call, so a stream redirected after import is seen."""
+    stream = sys.stdout if stdout is None else stdout
+    variables = os.environ if environ is None else environ
+    return stream.isatty() and "NO_COLOR" not in variables
+
+
 def paint(code: str, text: str) -> str:
-    return f"\033[{code}m{text}\033[0m" if COLOR else text
+    return f"\033[{code}m{text}\033[0m" if COLOR() else text
 
 
 def logo() -> None:

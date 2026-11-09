@@ -27,6 +27,8 @@ file first for the shared rules, then read the specific task file.
    multiple components, that's a signal it belongs in `cross-cutting/` (`XC`
    prefix), not a reason to invent a second id for it elsewhere.
 5. **Update `updated:` to today's date** whenever you touch an item file.
+6. **UI work follows `docs/design-principles.md`.** Any item that changes `app/desktop/src` or `site/` runs the
+   `design-review` skill before it opens a PR, and its PR attaches dark-mode screenshots.
 
 ## How the automations chain these
 

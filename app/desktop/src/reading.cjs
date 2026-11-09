@@ -52,6 +52,7 @@ function landed(reading, report, stored, folder, wrote = []) {
   /** @type {Map<number, ReadyMemory>} */
   const memories = new Map();
   for (const entry of [...report.memories, ...wrote.map((file) => ({ file, worth_selling: false, why: "" }))]) {
+    if (!entry.file) continue;
     const path = resolve(folder, entry.file);
     const memory = stored.find((candidate) => candidate.status === "private" && resolve(candidate.source_path) === path);
     if (!memory || !path.startsWith(folder + sep) || memories.has(memory.id)) continue;
@@ -59,6 +60,18 @@ function landed(reading, report, stored, folder, wrote = []) {
     memories.set(memory.id, { id: memory.id, title: memory.title, sell: entry.worth_selling && !kept, work: kept, why: entry.why });
   }
   return { title: reading.title, read: report.read || reading.added, memories: [...memories.values()], at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
+}
+
+/** What a reading judged of an agent's saves, by id, as the card that shows them already holds them: only the saves it
+ * was given, so an id the model made up is never shown. @param {Reading} reading @param {ReadingReport} report @returns {ReadyRun} */
+function judged(reading, report) {
+  /** @type {ReadyMemory[]} */
+  const memories = [];
+  for (const save of reading.judge ?? []) {
+    const verdict = report.memories.find((entry) => entry.id === save.id);
+    if (verdict) memories.push({ id: save.id, title: save.title, sell: verdict.worth_selling, work: false, why: verdict.why });
+  }
+  return { title: reading.title, read: reading.judge?.length ?? 0, memories, at: new Date().toISOString(), seen: false, by: reading.by, ...(reading.from ? { from: reading.from } : {}) };
 }
 
 /** APP-233: what one of the owner's agents saved, for Today as soon as it is read in. The agent wrote them as memories
@@ -163,6 +176,59 @@ class Ready {
   }
 }
 
+/** APP-246: collections an automation suggests, kept until the owner reviews or dismisses each. A suggestion only ever
+ * opens Lore's own picker with its memories ticked; nothing goes in a collection, or on sale, without the owner. */
+class Suggestions {
+  /** @type {Promise<unknown>} */
+  #turn = Promise.resolve();
+
+  /** @param {string} file */
+  constructor(file) {
+    this.file = file;
+  }
+
+  /** Newest first; a missing or damaged file reads as none. @returns {Promise<CollectionSuggestion[]>} */
+  async list() {
+    try {
+      const kept = JSON.parse(await readFile(this.file, "utf8"));
+      return Array.isArray(kept) ? kept : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** A newer suggestion for the same name replaces the older. @param {CollectionSuggestion} suggestion */
+  add(suggestion) {
+    const same = (/** @type {CollectionSuggestion} */ each) => each.title.toLowerCase() === suggestion.title.toLowerCase();
+    return this.#change((kept) => [suggestion, ...kept.filter((each) => !same(each))].slice(0, KEPT));
+  }
+
+  /** By name, which is unique here; one run can suggest several in the same millisecond. @param {unknown} title */
+  async drop(title) {
+    if (typeof title !== "string") throw new Error("Invalid suggestion");
+    await this.#change((kept) => kept.filter((each) => each.title.toLowerCase() !== title.toLowerCase()));
+  }
+
+  /** @param {(kept: CollectionSuggestion[]) => CollectionSuggestion[]} change */
+  #change(change) {
+    const next = this.#turn.then(async () => {
+      const kept = change(await this.list());
+      await writeFile(`${this.file}.tmp`, JSON.stringify(kept));
+      await rename(`${this.file}.tmp`, this.file);
+    });
+    this.#turn = next.catch(() => undefined);
+    return next;
+  }
+}
+
+/** The memories an automation's suggested collection should hold: the ids it named, and the files it named that Lore
+ * keeps as private memories. @param {NonNullable<ReadingReport["collections"]>[number]} asked @param {Array<{id: number, status: string, source_path: string}>} stored @param {string} folder */
+function suggested(asked, stored, folder) {
+  const files = new Set((asked.files ?? []).map((file) => resolve(folder, file)));
+  const named = stored.filter((memory) => memory.status === "private" && files.has(resolve(memory.source_path))).map((memory) => memory.id);
+  return [...new Set([...(asked.memories ?? []), ...named])];
+}
+
 /** How many memories one report of what the owner saw may name. */
 const SEEN_AT_ONCE = 500;
 
@@ -248,4 +314,4 @@ class Badge {
   }
 }
 
-module.exports = { many, plural, worthReading, asking, landed, saved, announcement, Ready, Badge, Seen, seenIds };
+module.exports = { many, plural, worthReading, asking, landed, judged, saved, announcement, Ready, Badge, Seen, seenIds, Suggestions, suggested };

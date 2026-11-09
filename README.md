@@ -60,9 +60,9 @@ codex plugin add lore@lore-marketplace
 ```
 
 Restart the Codex app to browse Lore in its Plugins directory, or start a new
-Claude or Codex session after installation. The plugin packages only the four
-owner workflows; repository-maintenance skills are not included. The `lore`
-command remains the local, owner-controlled runtime.
+Claude or Codex session after installation. The plugin packages the same
+`lore-*` skills the installer copies; repository-maintenance skills are not
+included. The `lore` command remains the local, owner-controlled runtime.
 
 Set `LORE_HOME` to use a location other than `~/.lore`. Lore also respects
 `CODEX_HOME` and `CLAUDE_HOME` when discovering agent data.
