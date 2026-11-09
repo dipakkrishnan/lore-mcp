@@ -24,7 +24,7 @@ from contextlib import contextmanager
 from fnmatch import fnmatch
 from importlib import resources
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Iterator, Literal, cast
 
 from pydantic import BaseModel, TypeAdapter
 
@@ -904,28 +904,22 @@ def deploy(
     `inbox_only` puts the store online for the owner's own agents before
     anything is for sale (XC-069): only the Cloudflare sign-in is needed, and
     the price and payout guards wait for the deploy that opens it for sale."""
-    if inbox_only and (wallet or network):
-        raise ValueError(
-            "--inbox-only puts your store online with nothing for sale, so it takes "
-            "no payout address or network; leave them off, or drop --inbox-only to sell"
-        )
-    if wallet and not WALLET.fullmatch(wallet):
-        raise ValueError(
-            "wallet must be a public EVM address: 0x plus 40 hex characters"
-        )
-    if not shutil.which("npm"):
-        raise OSError(NEEDS_NODE)
-
     with Store() as store:
         configured_price = store.setting("price_usd", None)
         already_selling = selling(store)
         chosen = choice(store)
-    if inbox_only and os.environ.get("LORE_ADOPT_EXISTING_D1") and chosen is not False:
-        # Reconnecting an existing store starts from no address, which an
-        # inbox-only deploy would take for a new store and close for sale.
-        raise ValueError(
-            "You're reconnecting an existing store; run the full store setup so it keeps selling."
-        )
+    refusal = deploy_preconditions(
+        wallet,
+        network,
+        inbox_only=inbox_only,
+        npm_found=shutil.which("npm") is not None,
+        configured_price=configured_price,
+        already_selling=already_selling,
+        chosen=chosen,
+        reconnecting=bool(os.environ.get("LORE_ADOPT_EXISTING_D1")),
+    )
+    if refusal is not None:
+        raise refusal
     if inbox_only:
         # A store open for sale keeps charging its owner's price, so that price
         # must be one it can charge, exactly as for a full deploy.
@@ -938,37 +932,88 @@ def deploy(
     return _recorded_deploy(_valid_price(configured_price), wallet, network)
 
 
-def _valid_price(configured_price: object) -> float:
-    """The owner's price, or a plain refusal naming what to set."""
+def deploy_preconditions(
+    wallet: str | None,
+    network: str | None,
+    *,
+    inbox_only: bool,
+    npm_found: bool,
+    configured_price: object,
+    already_selling: bool,
+    chosen: bool | None,
+    reconnecting: bool,
+) -> ValueError | OSError | None:
+    """The first reason this deploy must not start, or none (XC-105).
+
+    Pure: the caller reads the world (`npm` on the PATH, the store's price and
+    selling choice, the `LORE_ADOPT_EXISTING_D1` flag) and this decides. The
+    order is the order the owner hears them in: the arguments first, then the
+    toolchain, then what the store says.
+    """
+    if inbox_only and (wallet or network):
+        return ValueError(
+            "--inbox-only puts your store online with nothing for sale, so it takes "
+            "no payout address or network; leave them off, or drop --inbox-only to sell"
+        )
+    if wallet and not WALLET.fullmatch(wallet):
+        return ValueError(
+            "wallet must be a public EVM address: 0x plus 40 hex characters"
+        )
+    if not npm_found:
+        return OSError(NEEDS_NODE)
+    if inbox_only and reconnecting and chosen is not False:
+        # Reconnecting an existing store starts from no address, which an
+        # inbox-only deploy would take for a new store and close for sale.
+        return ValueError(
+            "You're reconnecting an existing store; run the full store setup so it keeps selling."
+        )
+    if inbox_only and not already_selling:
+        # Nothing is for sale yet, so no price is needed; one the node can't
+        # charge is simply left out of the build.
+        return None
+    return _price_refusal(configured_price)
+
+
+def _price_refusal(configured_price: object) -> ValueError | None:
+    """Why the owner's price can't be charged, in the words that say what to set."""
     if configured_price is None:
-        raise ValueError(
+        return ValueError(
             "no publication price is set; set one with `lore price <USD>` before deploying"
         )
     if isinstance(configured_price, bool) or not isinstance(
         configured_price, (int, float)
     ):
-        raise ValueError(
+        return ValueError(
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
         )
     if not math.isfinite(configured_price):
-        raise ValueError(
+        return ValueError(
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
         )
     if configured_price == 0:
-        raise ValueError(
+        return ValueError(
             "publications are free (`lore price 0`), which needs no deployed node; "
             "set a positive price with `lore price <USD>` to deploy, or stop here"
         )
     # The floor keeps the guard and the price formatter in agreement: anything
     # below 1e-6 renders as `PRICE_USD = 0`, a paid node that charges nothing.
     if configured_price < MINIMUM_PRICE:
-        raise ValueError(
+        return ValueError(
             f"the publication price must be a number of at least ${MINIMUM_PRICE:.6f}; "
             "set it with `lore price <USD>` and rerun"
         )
-    return float(configured_price)
+    return None
+
+
+def _valid_price(configured_price: object) -> float:
+    """The owner's price, or a plain refusal naming what to set."""
+    refusal = _price_refusal(configured_price)
+    if refusal is not None:
+        raise refusal
+    # Whatever _price_refusal let through is a finite number at or above the floor.
+    return float(cast("int | float", configured_price))
 
 
 def _priced(configured: object) -> float | None:

@@ -1,5 +1,8 @@
-import { ACCOUNT, CARD_MINIMUM_USD, PIECE, keyFits, listing, storeOrigin } from "./store.js";
+import { cents, takesCards } from "./pricing.js";
+import { receipt } from "./receipt.js";
+import { ACCOUNT, PIECE, keyFits, listing, storeOrigin } from "./store.js";
 import { StripeError, bindStore, boundStore, cardPayments, createAccount, createSession, onboardingLink, reachable, retrieveIntent, retrieveSession } from "./stripe.js";
+import { owns, token } from "./token.js";
 import { webhook } from "./webhooks.js";
 
 export { BidCards } from "./bids.js";
@@ -25,7 +28,7 @@ async function create(request: Request, env: Env): Promise<Response> {
   // Price, payee and name all come from the store itself, never the buyer's form.
   const found = await listing(origin, piece);
   if (!found) return text(404, "This piece isn't for sale.");
-  if (!ACCOUNT.test(found.stripe_account) || !(found.price_usd >= CARD_MINIMUM_USD)) {
+  if (!takesCards(found)) {
     return text(409, "This store doesn't take cards.");
   }
   if (!keyFits(found, env)) {
@@ -39,7 +42,7 @@ async function create(request: Request, env: Env): Promise<Response> {
       origin,
       piece,
       name: found.teaser.slice(0, 250),
-      cents: Math.round(found.price_usd * 100)
+      cents: cents(found.price_usd)
     });
     if (!session.url) throw new StripeError(502);
     return Response.redirect(session.url, 303);
@@ -55,48 +58,18 @@ async function verify(url: URL, env: Env): Promise<Response> {
   try {
     const lookup = session.startsWith("pi_") ? retrieveIntent(env, account, session) : retrieveSession(env, account, session);
     const [found, bound] = await Promise.all([lookup, boundStore(env, account)]);
-    const origin = found.metadata.origin ?? "";
-    return json({
-      // Paid into an account its seller tied to this very store: anyone can open an account
-      // and pay themselves, but only the seller can tie it to their store.
-      paid: found.payment_status === "paid" && origin !== "" && bound === origin,
-      piece: found.metadata.piece ?? "",
-      origin,
-      payment_intent: found.payment_intent ?? "",
-      amount_usd: (found.amount_total ?? 0) / 100
-    });
+    return json(receipt(found, bound));
   } catch (error) {
     if (error instanceof StripeError && error.status === 404) return json({ paid: false });
     return json({ error: "Stripe is unreachable" }, 502);
   }
 }
 
-/**
- * Proof that a caller is the seller this Worker opened an account for. Only the
- * desktop app that asked for the account gets it, so an account id read off a
- * store page can't be used to open that seller's Stripe form. Keyed on its own
- * secret so a Stripe key can be rolled without logging sellers out.
- */
-async function signer(env: Env): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", new TextEncoder().encode(env.ACCOUNT_TOKEN_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
-}
-
-const hex = (bytes: ArrayBuffer) => [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-
-async function token(env: Env, account: string): Promise<string> {
-  return hex(await crypto.subtle.sign("HMAC", await signer(env), new TextEncoder().encode(account)));
-}
-
-async function owns(env: Env, account: string, given: string): Promise<boolean> {
-  if (!ACCOUNT.test(account) || !/^[0-9a-f]{64}$/.test(given)) return false;
-  const bytes = new Uint8Array(given.match(/../g)!.map((pair) => parseInt(pair, 16)));
-  return crypto.subtle.verify("HMAC", await signer(env), bytes, new TextEncoder().encode(account));
-}
-
 async function openAccount(env: Env): Promise<Response> {
   try {
     const account = await createAccount(env);
-    return json({ account, token: await token(env, account) });
+    // The seller's proof of the account (token.ts); every later call about it must carry this.
+    return json({ account, token: await token(env.ACCOUNT_TOKEN_SECRET, account) });
   } catch {
     return json({ error: "Stripe is unreachable" }, 502);
   }
@@ -104,7 +77,7 @@ async function openAccount(env: Env): Promise<Response> {
 
 async function onboard(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
-  if (!(await owns(env, account, url.searchParams.get("token") ?? ""))) return text(403, "This link isn't yours to open.");
+  if (!(await owns(env.ACCOUNT_TOKEN_SECRET, account, url.searchParams.get("token") ?? ""))) return text(403, "This link isn't yours to open.");
   try {
     // An expired form sends the seller back here, which makes a fresh one.
     return Response.redirect(await onboardingLink(env, account, url.href, `${url.origin}/onboarded`), 303);
@@ -122,7 +95,7 @@ async function bind(request: Request, env: Env): Promise<Response> {
   };
   const account = field("account");
   const origin = storeOrigin(field("origin"));
-  if (!(await owns(env, account, field("token")))) return json({ error: "not your account" }, 403);
+  if (!(await owns(env.ACCOUNT_TOKEN_SECRET, account, field("token")))) return json({ error: "not your account" }, 403);
   if (!origin) return json({ error: "a store address is required" }, 400);
   try {
     await bindStore(env, account, origin);
@@ -134,7 +107,7 @@ async function bind(request: Request, env: Env): Promise<Response> {
 
 async function accountStatus(url: URL, env: Env): Promise<Response> {
   const account = url.searchParams.get("account") ?? "";
-  if (!(await owns(env, account, url.searchParams.get("token") ?? ""))) return json({ error: "not your account" }, 403);
+  if (!(await owns(env.ACCOUNT_TOKEN_SECRET, account, url.searchParams.get("token") ?? ""))) return json({ error: "not your account" }, 403);
   try {
     return json(await cardPayments(env, account));
   } catch {
