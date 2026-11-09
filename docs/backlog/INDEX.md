@@ -408,6 +408,7 @@ obsolete), then `priority` (P0 → P3).
 | [AUT-011](./automation-synthesis/AUT-011-run-now-says-when-it-is-done.md) | Run now says when it is done | P1 | S | automation-synthesis | completed | AUT-008, AUT-010, APP-200 | — | — | — |
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
+| [XC-128](./cross-cutting/XC-128-fix-the-two-flakes-main-hit-after-the-test-pyramid.md) | Fix the two flakes main hit after the test pyramid | P1 | S | cross-cutting | completed | XC-106, APP-270, XC-124, XC-109 | — | — | — |
 | [XC-103](./cross-cutting/XC-103-unit-test-the-bridge-s-payment-policy-outside-its-stdio-script.md) | Unit-test the bridge's payment policy outside its stdio script | P2 | S | cross-cutting | completed | XC-099 | — | — | — |
 | [XC-108](./cross-cutting/XC-108-set-coverage-floors-and-guard-the-walk-budget-and-the-view-table.md) | Set coverage floors and guard the walk budget and the view table | P2 | S | cross-cutting | completed | XC-098, APP-266, APP-270, XC-099, XC-096 | XC-098, APP-266, APP-270 | — | — |
 | [XC-107](./cross-cutting/XC-107-run-the-unit-tiers-first-and-report-every-tier-s-size-and-time.md) | Run the unit tiers first and report every tier's size and time | P2 | S | cross-cutting | completed | XC-097, XC-083, XC-108 | XC-097 | — | — |
