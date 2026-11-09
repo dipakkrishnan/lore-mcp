@@ -3,7 +3,7 @@
 The Cloudflare Worker (`lore/node/src/index.ts`) declares its own copy of each
 tool's name, description, and required arguments — nothing keeps the two
 surfaces in agreement short of a human re-reading both files. This test and
-its Node counterpart (`lore/node/test/mcp-contract.test.ts`) each check their
+its Node counterpart (`lore/node/test/paid-path.test.ts`) each check their
 own surface against the same checked-in `contracts/mcp_tools.json`: a tool
 added, renamed, or reworded on either side without updating that file fails
 here or there, whichever surface drifted.

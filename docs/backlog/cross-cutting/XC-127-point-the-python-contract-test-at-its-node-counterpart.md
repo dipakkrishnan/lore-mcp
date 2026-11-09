@@ -4,7 +4,7 @@ title: Point the Python contract test's docstring at its Node counterpart
 priority: P3
 effort: XS
 component: cross-cutting
-status: ready
+status: completed
 related: [MCP-002, XC-101]
 blockers: []
 dependencies: []
@@ -30,7 +30,26 @@ this is still `paid-path.test.ts`.
 
 ## Acceptance criteria
 
-- [ ] The docstring names a Node test file that exists and reads
+- [x] The docstring names a Node test file that exists and reads
       `contracts/mcp_tools.json`.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
+
+## Notes
+
+**Implementation 2026-11-09:** `grep -rl mcp_tools.json lore/node/test` on
+main `1ab670b1` returns only `lore/node/test/paid-path.test.ts`. It imports the
+contract at line 17, and its "MCP tool contract" block under "before anyone
+pays" runs the check. The docstring now names that file. It names the file
+and not the `describe` block, so a later move of the block inside the file
+does not make the docstring stale again.
+
+Layout scan: the diff touches only `tests/test_mcp_contract.py` and backlog
+docs. Nothing under `app/` changes, so no walk and no scanned view is
+affected.
+
+Possible follow-up, not done here: `docs/test-plan-handoff.md` still lists
+`mcp-contract` among the Node test files. That list predates XC-101 and
+probably names other files XC-101 folded away. Historical item files that
+mention `mcp-contract.test.ts` (MCP-002, XC-003, XC-100, XC-101) are records
+and are left as written.
