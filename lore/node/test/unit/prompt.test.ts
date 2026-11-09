@@ -1,4 +1,4 @@
-// XC-100: the answer agent's system prompt and model choice, without tracing or a Worker. answer-unready.test.ts
+// XC-100: the answer agent's system prompt and model choice, without tracing or a Worker. answer.test.ts
 // still covers how the Worker advertises `answer` from the same choice.
 import { describe, expect, it } from "vitest";
 import { type AnswerEnv, DEFAULT_MODEL, resolveModel, systemPrompt } from "../../src/answer/prompt.js";
