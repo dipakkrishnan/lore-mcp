@@ -157,7 +157,7 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   export LORE_EDGE_D1="$root/d1.sqlite" LORE_EDGE_KEYRING="$root/keyring.json" LORE_EDGE_REPO="$repo_root"
   export PYTHONPATH="$repo_root" PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  (cd "$repo_root" && exec "${uv_run[@]}" python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
+  (cd "$repo_root" && exec "${uv_run[@]}" python -X importtime -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
   export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
   node_from=$SECONDS
@@ -166,7 +166,8 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   for _ in $(seq 1 300); do grep -q "Lore agent endpoint at" "$root/agent.log" 2>/dev/null && break; sleep 0.1; done
   listening=$((SECONDS - node_from))
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
-  node_took="; the stand-in node listened after ${listening}s and answered after $((SECONDS - node_from))s"
+  slowest="$(grep "import time:" "$root/agent.log" | sort -t'|' -k2 -n -r | head -4 | tr -s ' ' | tr '\n' ';' || true)"
+  node_took="; the stand-in node listened after ${listening}s and answered after $((SECONDS - node_from))s; slowest imports: ${slowest}"
 fi
 # A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
 # never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
