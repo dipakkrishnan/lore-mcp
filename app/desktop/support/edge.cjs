@@ -780,7 +780,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("each piece shows its price by the piece", await js(`[...document.querySelectorAll("#content .invrow")].filter((r) => r.dataset.key.startsWith("piece:")).every((r) => r.querySelector(".cost").textContent === "$0.75")`));
         // APP-282, APP-289, from the retired inventory walk (APP-270): a group header reads as a label on its own band, and
         // the rows are the Inbox's size. What Inventory lists, and in what order, is test/unit/renderer-inventory.test.cjs.
-        check("a group header reads as a label: medium weight, on its own band, and its rows the Inbox's size", await js(`(() => { const head = getComputedStyle(document.querySelector("#content .igroup")); const row = getComputedStyle(document.querySelector("#content .invrow .say")); return head.fontWeight === "500" && row.fontSize === "13px" && document.querySelector("#content .invrow").getBoundingClientRect().height === 36 && head.backgroundColor !== getComputedStyle(document.querySelector("#content .inv")).backgroundColor; })()`));
+        // XC-128: this failed on busy CI runners (load 51-86; twice on #598's main run, once on #685's) and never locally,
+        // even under load. It now waits for the app to go quiet and the look to hold, then checks, saying what it measured.
+        const looks = `(() => { const head = document.querySelector("#content .igroup"), row = document.querySelector("#content .invrow"), inv = document.querySelector("#content .inv"); if (!head || !row || !inv) return { missing: [!head && "igroup", !row && "invrow", !inv && "inv"].filter(Boolean) }; const h = getComputedStyle(head); return { weight: h.fontWeight, size: getComputedStyle(row.querySelector(".say")).fontSize, height: row.getBoundingClientRect().height, band: h.backgroundColor, under: getComputedStyle(inv).backgroundColor }; })()`;
+        const labelled = `((g) => g.weight === "500" && g.size === "13px" && g.height === 36 && g.band !== g.under)(${looks})`;
+        await idle();
+        await waitFor(labelled, 20);
+        check("a group header reads as a label: medium weight, on its own band, and its rows the Inbox's size", await js(labelled), JSON.stringify(await js(looks)));
         // APP-211, from the retired sales walk (APP-270): sale amounts read in the UI font with even figures.
         const amounts = `[...document.querySelectorAll("#content *")].filter((n) => !n.children.length && /\\$\\d/.test(n.textContent))`;
         check("no sale amount is monospace, and every one has even figures", await js(`${amounts}.length > 2 && ${amounts}.every((n) => !/mono/i.test(getComputedStyle(n).fontFamily) && getComputedStyle(n).fontVariantNumeric.includes("tabular-nums"))`), await js(`${amounts}.map((n) => n.textContent + " " + getComputedStyle(n).fontFamily + " " + getComputedStyle(n).fontVariantNumeric).join(" | ")`));
