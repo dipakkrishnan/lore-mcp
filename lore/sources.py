@@ -20,6 +20,7 @@ from html.parser import HTMLParser
 from http.client import HTTPException
 from pathlib import Path, PurePosixPath
 from typing import (
+    TYPE_CHECKING,
     AsyncIterator,
     Awaitable,
     Callable,
@@ -36,15 +37,6 @@ from xml.etree.ElementTree import Element, ParseError
 import anyio
 import httpx2
 from defusedxml.ElementTree import fromstring
-from mcp import Client
-from mcp.client.auth import (
-    AuthorizationCodeResult,
-    OAuthClientProvider,
-    OAuthFlowError,
-)
-from mcp.client.streamable_http import streamable_http_client
-from mcp.shared.auth import OAuthClientMetadata
-from mcp.types import TextContent
 from pydantic import (
     AliasChoices,
     AliasPath,
@@ -57,11 +49,18 @@ from pydantic import (
 )
 from pydantic.dataclasses import dataclass
 
-from . import __version__
+from . import __version__, usage
 from .inbox import AgentApp, Forget, Inbox, InboxError, Opened
 from .paths import claude_home, codex_home, home, obsidian_home
 from .signin import Keychain, Loopback
 from .store import Contributor, Memory, Store
+
+# STO-006: the MCP SDK is about two thirds of `import lore.cli` (220 of 325 ms), and only
+# the hosted readers use it, so it is imported where it is called. These names appear in
+# annotations only; with `from __future__ import annotations` they never evaluate.
+if TYPE_CHECKING:
+    from mcp import Client
+    from mcp.client.auth import AuthorizationCodeResult, OAuthClientProvider
 
 Kind = Literal["folder", "export", "feed", "mcp", "agent"]
 
@@ -434,9 +433,13 @@ class Obsidian(Connector):
         """Under the path a connected vault's source keeps, so one already read is known by
         it; a path that can't be resolved (a link that loops) is offered as Obsidian names it."""
         try:
-            return self.reader.locate(path)[0]
+            located = self.reader.locate(path)[0]
         except (OSError, RuntimeError):
+            # Python 3.12 and older raise on a link that loops.
             return path
+        # Python 3.13 and newer resolve as far as they can and stop on the link
+        # itself, so a located path that is still a link is one that loops.
+        return path if Path(located).is_symlink() else located
 
 
 class Role(Enum):
@@ -707,6 +710,8 @@ class TakeoutExport(ExportReader):
     the starred places, and each review. Every other product in it is ignored."""
 
     product = "google-maps"
+    # A saved list can be one place's name; each entry is something the owner chose.
+    sentence = 1
     reviews = "Reviews.json"
     starred = "Saved Places.json"
 
@@ -1400,6 +1405,9 @@ class HostedReader(Reader):
 
     @asynccontextmanager
     async def connect(self, auth: OAuthClientProvider) -> AsyncIterator[Client]:
+        from mcp import Client
+        from mcp.client.streamable_http import streamable_http_client
+
         async with (
             httpx2.AsyncClient(auth=auth) as http,
             Client(
@@ -1414,6 +1422,9 @@ class HostedReader(Reader):
         redirect: Callable[[str], Awaitable[None]] | None = None,
         callback: Callable[[], Awaitable[AuthorizationCodeResult]] | None = None,
     ) -> OAuthClientProvider:
+        from mcp.client.auth import OAuthClientProvider
+        from mcp.shared.auth import OAuthClientMetadata
+
         # Without a redirect handler an expired sign-in raises instead of opening a browser.
         return OAuthClientProvider(
             self.source.locator,
@@ -1479,6 +1490,8 @@ class HostedReader(Reader):
 
     @staticmethod
     async def _call(client: Client, tool: str, arguments: dict[str, object]) -> str:
+        from mcp.types import TextContent
+
         answer = await client.call_tool(tool, arguments)
         text = "\n".join(
             block.text for block in answer.content if isinstance(block, TextContent)
@@ -1498,6 +1511,8 @@ def _says(error: BaseException, phrase: str) -> bool:
 
 def _refused(error: BaseException) -> bool:
     """Whether a failure, however deep in the SDK's task groups, was the sign-in's."""
+    from mcp.client.auth import OAuthFlowError
+
     if isinstance(error, OAuthFlowError):
         return True
     return any(_refused(inner) for inner in getattr(error, "exceptions", ()))
@@ -2100,6 +2115,8 @@ class Registry:
             if result != "unchanged":
                 brought.append(key)
         reader.settle()
+        if brought:
+            self._saved(source)
         if source.origin != "automation":
             try:
                 self.store.credit_source(source.name, source.contributor())
@@ -2116,6 +2133,17 @@ class Registry:
             at=datetime.now(timezone.utc).isoformat(), state=reader.failure or state
         )
         return stats
+
+    @staticmethod
+    def _saved(source: Source) -> None:
+        """Count the day something came in, by which way; an agent's first save also
+        says that agent is connected."""
+        if source.kind == "agent":
+            usage.record("memory.saved", "agent")
+            usage.record("agent.connected", source.app or "other")
+        else:
+            automated = source.origin == "automation"
+            usage.record("memory.saved", "synthesis" if automated else "connector")
 
     def provenance(self, rows: list[dict[str, object]]) -> list[dict[str, object]]:
         """Fill in `sources` for each memory with nobody on record: who its source says

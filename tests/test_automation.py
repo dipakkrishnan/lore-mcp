@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import sys
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -523,7 +525,7 @@ class TakeOverTest(LoreTestCase):
         launched = automation.Routines(clock=lambda: local(14, 19))
         launched.take_over()
         listed = launched.list()
-        self.assertEqual([(r["due"], r["result"]) for r in listed], [(False, "")] * 2)
+        self.assertEqual([(r["due"], r["result"]) for r in listed], [(False, "")] * 3)
         self.assertEqual(listed[1]["next_run"], local(15, 18).isoformat())
 
     def test_only_the_app_moves_it(self) -> None:
@@ -559,15 +561,20 @@ class OnByDefaultTest(LoreTestCase):
     def test_with_no_profile_lore_reads_each_morning_and_checks_in_at_six(
         self,
     ) -> None:
-        reading, check_in = automation.Routines(clock=lambda: local(14, 8)).list()
+        reading, check_in, collect = automation.Routines(
+            clock=lambda: local(14, 8)
+        ).list()
         self.assertEqual(
             (reading["cadence"], reading["hour"], reading["paused"]),
             ("daily", 9, False),
         )
         self.assertEqual((check_in["cadence"], check_in["hour"]), ("weekdays", 18))
         self.assertFalse(check_in["paused"])
+        self.assertEqual(
+            (collect["cadence"], collect["day"], collect["hour"]), ("weekly", 6, 10)
+        )
         later = automation.Routines(clock=lambda: local(14, 10)).list()
-        self.assertEqual([r["due"] for r in later], [True, False])
+        self.assertEqual([r["due"] for r in later], [True, False, False])
         self.assertEqual(automation.schedule_state()["hour"], 9)
 
     def test_a_pause_kept_by_an_earlier_build_stays(self) -> None:
@@ -583,19 +590,26 @@ class OnByDefaultTest(LoreTestCase):
             )
         )
         listed = automation.Routines(clock=lambda: local(14, 21)).list()
-        self.assertEqual([(r["paused"], r["due"]) for r in listed], [(True, False)] * 2)
+        self.assertEqual(
+            [(r["paused"], r["due"]) for r in listed[:2]], [(True, False)] * 2
+        )
         self.assertEqual(listed[1]["hour"], 20)
+        self.assertFalse(listed[2]["paused"], "one Lore added since is on")
 
     def test_turning_on_by_default_never_runs_one_at_once(self) -> None:
         # Upgraded at 7 PM on a weekday, long after both hours had passed.
         upgraded = automation.Routines(clock=lambda: local(14, 19)).list()
-        self.assertEqual([r["due"] for r in upgraded], [False, False])
+        self.assertEqual([r["due"] for r in upgraded], [False, False, False])
         self.assertEqual(
             [r["next_run"] for r in upgraded],
-            [local(15, 9).isoformat(), local(15, 18).isoformat()],
+            [
+                local(15, 9).isoformat(),
+                local(15, 18).isoformat(),
+                local(18, 10).isoformat(),
+            ],
         )
         relaunched = automation.Routines(clock=lambda: local(14, 23)).list()
-        self.assertEqual([r["due"] for r in relaunched], [False, False])
+        self.assertEqual([r["due"] for r in relaunched], [False, False, False])
 
     def test_being_told_is_remembered(self) -> None:
         def told() -> object:
@@ -761,6 +775,96 @@ class CheckInTest(LoreTestCase):
         self.assertTrue(automation.Routines().saved["checkin"].paused)
 
 
+class ClosedForTwoDaysTest(LoreTestCase):
+    """XC-123: what a launch owes after Lore was closed two days, on a New York clock
+    pinned to either side of midnight and of both daylight-saving changes in 2026."""
+
+    MOMENTS = (
+        datetime(2026, 10, 31, 23, 59),  # Saturday, the night the clocks go back
+        datetime(2026, 11, 1, 0, 30),
+        datetime(2026, 11, 1, 1, 30),  # the first 1:30 AM, daylight time
+        datetime(2026, 11, 1, 1, 30, fold=1),  # the second, standard time
+        datetime(2026, 11, 1, 23, 59),  # Sunday, after the weekly 10 AM
+        datetime(2026, 11, 2, 0, 0),
+        datetime(2026, 11, 2, 0, 30),
+        datetime(2026, 3, 7, 23, 59),  # the night the clocks go forward
+        datetime(2026, 3, 8, 0, 30),
+        datetime(2026, 3, 8, 3, 0),  # an hour after 2 AM, which never happened
+    )
+
+    def setUp(self) -> None:
+        super().setUp()
+        new_york = patch.dict(os.environ, {"TZ": "America/New_York"})
+        new_york.start()
+        time.tzset()
+        # Cleanups run last first: the old zone is put back, then read again.
+        self.addCleanup(time.tzset)
+        self.addCleanup(new_york.stop)
+
+    def closed(self, now: datetime, others_paused: bool) -> automation.Routines:
+        """Lore's routines as of `now`, with the reading set up two days before it and
+        twelve hours off its hour, as the schedule walk seeds them."""
+        shutil.rmtree(self.lore_home / "automation", ignore_errors=True)
+        hour = (now.hour + 12) % 24
+        automation.save_profile({"executor": "lore", "cadence": "daily", "hour": hour})
+        if others_paused:
+            routines = automation.Routines(clock=lambda: now)
+            for routine in routines.list():
+                if routine["id"] != "synthesis":
+                    routines.change(str(routine["id"]), paused=True)
+        automation.Routines(clock=lambda: now - timedelta(days=2)).adopt()
+        return automation.Routines(clock=lambda: now)
+
+    @staticmethod
+    def at(now: datetime) -> automation.Routines:
+        return automation.Routines(clock=lambda: now)
+
+    @staticmethod
+    def owed(routines: automation.Routines) -> list[object]:
+        return [routine["id"] for routine in routines.list() if routine["due"]]
+
+    def test_the_launch_owes_the_reading_once_and_nothing_else(self) -> None:
+        for moment in self.MOMENTS:
+            now = moment.astimezone()
+            with self.subTest(now=now.isoformat()):
+                self.assertEqual(self.owed(self.closed(now, True)), ["synthesis"])
+                # A walk takes about a minute; nothing else comes due in it.
+                later = now + timedelta(minutes=1)
+                self.assertEqual(self.owed(self.at(later)), ["synthesis"])
+                with patch("lore.sources.Registry.read", return_value=[]):
+                    self.at(later).run("synthesis")
+                reading = self.at(later).get("synthesis")
+                self.assertFalse(reading.listed()["due"])
+                # Next at its own hour on the wall clock, whichever way it moved.
+                next_run = datetime.fromisoformat(str(reading.listed()["next_run"]))
+                self.assertEqual(next_run.astimezone().hour, (now.hour + 12) % 24)
+                self.assertLess(next_run - later, timedelta(days=1, hours=1))
+
+    def test_a_weekly_hour_missed_while_closed_is_owed_once_the_days_after(
+        self,
+    ) -> None:
+        """Every routine set up two days back, as the walk once seeded them: the
+        Sunday 10 AM collections were owed from then until Tuesday 10 AM, which is
+        right for the app and why the walk saw two runs just after midnight."""
+        for moment, owed in (
+            (datetime(2026, 10, 31, 23, 59), False),
+            (datetime(2026, 11, 1, 9, 59), False),
+            (datetime(2026, 11, 1, 10, 0), True),
+            (datetime(2026, 11, 1, 23, 59), True),
+            (datetime(2026, 11, 2, 0, 0), True),
+            (datetime(2026, 11, 2, 0, 30), True),
+            (datetime(2026, 11, 3, 9, 59), True),
+            (datetime(2026, 11, 3, 10, 0), False),
+        ):
+            now = moment.astimezone()
+            with self.subTest(now=now.isoformat()):
+                routines = self.closed(now, False)
+                self.assertEqual("collect" in self.owed(routines), owed)
+                if owed:
+                    routines.run("collect")
+                    self.assertNotIn("collect", self.owed(routines))
+
+
 class AutomationsTest(LoreTestCase):
     """APP-200: every routine in one list, Lore's own first, and the owner's own."""
 
@@ -773,19 +877,35 @@ class AutomationsTest(LoreTestCase):
         routines = clock.list()
         self.assertEqual(
             [(r["id"], r["built_in"]) for r in routines],
-            [("synthesis", True), ("checkin", True), (added["id"], False)],
+            [
+                ("synthesis", True),
+                ("checkin", True),
+                ("collect", True),
+                (added["id"], False),
+            ],
         )
-        mine = routines[2]
+        mine = routines[3]
         self.assertEqual(mine["name"], "Every Sunday, remember what I read this week")
         self.assertEqual(mine["next_run"], local(18, 18).isoformat(), "a Sunday")
-        for built_in in ("synthesis", "checkin"):
+        for built_in in ("synthesis", "checkin", "collect"):
             with self.assertRaisesRegex(ValueError, "paused, not removed"):
                 automation.Routines().remove(built_in)
         with captured():
             self.assertEqual(cli.main(["automation", "remove", str(added["id"])]), 0)
         self.assertEqual(
-            [r["id"] for r in automation.Routines().list()], ["synthesis", "checkin"]
+            [r["id"] for r in automation.Routines().list()],
+            ["synthesis", "checkin", "collect"],
         )
+
+    def test_lores_collections_routine_hands_the_app_its_own_sentence(self) -> None:
+        """APP-246: Lore's weekly look for collections runs like the owner's own, on
+        a sentence the owner can't edit, and only ever suggests."""
+        routines = automation.Routines(clock=lambda: local(14, 12))
+        [collect] = [r for r in routines.list() if r["id"] == "collect"]
+        self.assertEqual((collect["kind"], collect["built_in"]), ("ask", True))
+        asked = str(routines.get("collect").run()["ask"])
+        self.assertIn("collections", asked)
+        self.assertIn("Write no new memories", asked)
 
     def test_an_owners_routine_hands_its_sentence_to_the_app_and_keeps_its_result(
         self,

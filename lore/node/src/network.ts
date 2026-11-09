@@ -14,6 +14,7 @@ import type { FacilitatorConfig } from "@x402/core/http";
 
 export const TESTNET = "eip155:84532"; // Base Sepolia, play money
 export const MAINNET = "eip155:8453"; // Base, real money
+export const TEST_FACILITATOR = "https://x402.org/facilitator"; // test networks only
 export const KEYLESS_FACILITATOR = "https://facilitator.payai.network";
 
 // LORE_NETWORK and the CDP credentials arrive as deploy-time configuration
@@ -40,7 +41,7 @@ export function networkLabel(env: NetworkEnv): string {
 
 export function facilitator(env: NetworkEnv): FacilitatorConfig {
   if (network(env) === TESTNET) {
-    return { url: env.LORE_FACILITATOR_URL || "https://x402.org/facilitator" };
+    return { url: env.LORE_FACILITATOR_URL || TEST_FACILITATOR };
   }
   if (!env.CDP_API_KEY_ID && !env.CDP_API_KEY_SECRET) {
     return { url: env.LORE_FACILITATOR_URL || KEYLESS_FACILITATOR };

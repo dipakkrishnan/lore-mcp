@@ -15,9 +15,8 @@ const content = $("#content");
 const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
-const addMemoryBtn = /** @type {HTMLButtonElement} */ ($("#add-memory"));
-const sellWritingBtn = /** @type {HTMLButtonElement} */ ($("#sell-writing"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
+const talkBtn = /** @type {HTMLButtonElement} */ ($("#talk"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const darkMode = $("#dark-mode");
@@ -41,19 +40,21 @@ const paletteInput = /** @type {HTMLInputElement} */ ($("#palette-input"));
 const paletteList = $("#palette-list");
 const paletteEnter = $("#palette-enter");
 const mainEl = $("#main");
+const stepper = $("#stepper");
+const pageTabs = $("#page-tabs");
+const stepperAt = $("#stepper-at");
+const stepUp = /** @type {HTMLButtonElement} */ ($("#step-up"));
+const stepDown = /** @type {HTMLButtonElement} */ ($("#step-down"));
 const header = /** @type {HTMLElement} */ (mainEl.querySelector("header"));
 const navButtons = /** @type {HTMLButtonElement[]} */ ([...document.querySelectorAll("nav button")]);
 
-/** @typedef {"today" | "inventory" | "collection" | "connectors" | "automations" | "faq" | "settings"} View */
-/** @typedef {"all" | "private" | "sale" | "down"} Shelf */
+/** @typedef {"inbox" | "bid" | "memory" | "drafts" | "inventory" | "bids" | "collection" | "connectors" | "faq" | "settings"} View */
 /** @type {Snapshot | null} */
 let snapshot = null;
 /** The apps Lore can connect, read once from the CLI's catalog. @type {SourceApp[]} */
 let apps = [];
 /** What the owner's personal agents have saved, as their store counts it; null until Connectors asks. @type {AgentEntry[] | null} */
 let agents = null;
-/** Connecting an agent put the store online first; once it is, the sheet picks up where it left off. */
-let agentAfterStore = false;
 /** Whether Cloudflare's sign-in is waiting on the owner's browser, wherever the store is going online. */
 let signingIn = false;
 /** Whatever waits on an agent's save (its setup sheet, the first-run chat), told whatever Lore brings in from the
@@ -71,15 +72,37 @@ const running = new Set();
 /** @type {AgentStatus | null} */
 let auth = null;
 /** @type {View} */
-let view = "today";
+let view = "inbox";
 /** Which of Inventory's tabs is open. @type {Shelf} */
 let shelf = "all";
 /** Inventory shows only what this agent or app brought in, until the owner removes its chip (APP-212). @type {{id: string, label: string} | null} */
 let inventoryFrom = null;
 /** The collection open in its own view. @type {number | null} */
 let openCollectionId = null;
+/** A new collection's name before it exists: it is made only when its first memories go in, so leaving the first
+ * step leaves nothing behind. @type {string | null} */
+let collectionPending = null;
 /** Text pasted into the open collection and not added yet; kept across renders. */
 let collectionDraft = "";
+/** What each kept memory is about in a line, read when the picker first shows; null until then. @type {Record<string, string> | null} */
+let gists = null;
+let gistsAsked = false;
+/** What the owner typed into the picker's search, kept across redraws. */
+let pickQuery = "";
+/** Memories ticked to add to the open collection; kept across renders. @type {Set<number>} */
+const collectionPicks = new Set();
+/** Whether the open collection shows drop and paste, the less common way to fill it. */
+let collectionPasting = false;
+/** Whether a collection that already has pieces shows the picker to add more. */
+let collectionAdding = false;
+/** A suggestion under review shows only its own memories, not every one kept; null shows them all. @type {number[] | null} */
+let pickBundle = null;
+/** The suggestion being reviewed: it leaves Today only once its memories go in, so stepping away keeps it. @type {CollectionSuggestion | null} */
+let reviewing = null;
+/** A new collection made one step at a time: 1 choose, 2 name, 3 price; 0 once it's set up. @type {0 | 1 | 2 | 3} */
+let collectionStep = 0;
+/** The name the chosen memories suggest, offered on the naming step. */
+let collectionSuggestion = "";
 /** What the open collection is doing, said on the button doing it. @type {"" | "adding" | "pricing" | "naming"} */
 let collectionBusy = "";
 let editingCollectionPrice = false;
@@ -89,11 +112,21 @@ let task = "capture";
 let taskItems = [];
 /** What Lore read from connected apps, newest first, until the owner clears it. @type {ReadyRun[]} */
 let readyRuns = [];
+/** Collections automations suggested, until the owner reviews or dismisses each (APP-246). @type {CollectionSuggestion[]} */
+let suggestions = [];
 /** The evening check-in waiting for the owner; null on every day Lore found nothing worth asking. @type {CheckIn | null} */
 let checkIn = null;
 /** How many loads have started, bumped too by what the owner dismisses here; only the newest load's answer is shown,
  * so one that started before a "Not today" never brings the card back. */
 let loads = 0;
+/** Task news heard while a load was out, by kind, with the load it arrived during: newer than what that load read
+ * from disk, so it is laid over that load's tasks when it lands. @type {Map<string, {task: TaskRecord, during: number}>} */
+const heardTasks = new Map();
+
+/** `items` with one task's news: a finished task leaves, any other goes first. @param {TaskRecord[]} items @param {TaskRecord} news */
+const withTask = (items, news) => news.state === "done"
+  ? items.filter((item) => item.kind !== news.kind)
+  : [news, ...items.filter((item) => item.kind !== news.kind)].slice(0, 3);
 /** @type {AgentTask | null} */
 let detailTask = null;
 /** @type {TaskRecord | null} */
@@ -158,7 +191,8 @@ function resetBlueprintGhost() {
   blueprintSlot.replaceChildren();
 }
 
-const RING = `<svg viewBox="0 0 26 26" fill="none"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="currentColor"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12" stroke="var(--accent)" stroke-width="1.7"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7" stroke="var(--accent)" stroke-width="1.7"></path></svg>`;
+/** Lore's own mark, the app icon as the sidebar draws it, so it reads the same wherever it shows (APP-289). */
+const RING = `<svg viewBox="100 100 824 824"><rect x="100" y="100" width="824" height="824" rx="185" fill="#244f3d"></rect><g transform="translate(512 512) scale(25.5) translate(-13 -13)" fill="none" stroke="#244f3d" stroke-width="1.7"><rect x="4.5" y="5" width="17" height="16" rx="3.2" fill="#fffdf8" stroke="none"></rect><path d="M3 11.2L4.5 10.6C8 9.2 10.5 12.2 13 10.9S18.5 9.6 21.5 11.2L23 12"></path><path d="M3 16.9L4.5 16.3C8 15 10.5 17.8 13 16.6S18.5 15 21.5 16.8L23 17.7"></path></g></svg>`;
 const RENAME_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7V4h16v3M9 20h6M12 4v16"></path></svg>`;
 const EDIT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"></path></svg>`;
 const COPY_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"></rect><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"></path></svg>`;
@@ -180,14 +214,12 @@ const EXPLORERS = { "eip155:8453": "https://basescan.org", "eip155:84532": "http
 const REAL_MONEY = "I'm ready to switch my store to real money.";
 const SETUP_INTENT = "Let's set up my Lore.";
 const STORE_INTENT = "Help me open my store.";
-const AGENT_STORE_INTENT = "Put my store online so my personal agents can save to it. Nothing goes on sale until I choose to sell it.";
 const REDEPLOY_PRICE = "I changed my publication price. Redeploy my store so buyers pay the new amount.";
 const STORE_FIX = "My store isn't responding. Find out why and bring it back online.";
 // Six decimals, not the default two: a price can run below a cent, and rounding
 // $0.000001 up to $0.01 would misstate what a buyer pays. Six is the CLI's floor.
 const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 6 });
 const shortDate = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" });
-const longDate = new Intl.DateTimeFormat("en-US", { weekday: "long", month: "long", day: "numeric" });
 const TASK_TITLES = { capture: "Capture a memory", setup: "Set up your Lore", publish: "Publish from your Lore", deploy: "Open your store", synthesize: "Read what came in", checkin: "Look over today", evening: "Evening check-in" };
 /** Stands in for the composer while a card in another thread holds the turn; its button opens that thread. @type {AgentTask | null} */
 let waitingTask = null;
@@ -226,7 +258,7 @@ function reason(error, fallback) {
 /** @param {HTMLTextAreaElement} area */
 function fit(area) {
   area.style.height = "";
-  area.style.height = `${Math.min(area.scrollHeight, 200)}px`;
+  area.style.height = `${area.classList.contains("answer") ? area.scrollHeight : Math.min(area.scrollHeight, 200)}px`;
 }
 
 /** @param {string} className */
@@ -260,7 +292,7 @@ class Entrance {
   }
 }
 
-/** @param {string} label @param {"primary" | "secondary" | "quiet"} kind @param {() => void} onClick @param {string} [icon] */
+/** @param {string} label @param {"primary" | "secondary" | "quiet" | "quiet neutral"} kind @param {() => void} onClick @param {string} [icon] */
 function button(label, kind, onClick, icon) {
   const node = el("button", `btn ${kind} sm`, label);
   node.type = "button";
@@ -280,21 +312,7 @@ function row(label, detail, trailing, serif = true) {
   return node;
 }
 
-marked.use({ renderer: { html: () => "" } });
 const FRONTMATTER = /^---\n([\s\S]*?)\n---\n*/;
-
-/** @param {string} text */
-function markdown(text) {
-  const node = el("div", "md");
-  node.innerHTML = marked.parse(text, { async: false });
-  for (const link of node.querySelectorAll("a")) {
-    const href = link.getAttribute("href") ?? "";
-    if (!/^https?:\/\//i.test(href)) link.removeAttribute("href");
-    else { link.target = "_blank"; link.rel = "noreferrer"; }
-  }
-  for (const image of node.querySelectorAll("img")) image.remove();
-  return node;
-}
 
 /** @param {{id: number, title: string}} memory @param {AgentTask} [from] The thread the agent should continue from.
  * @param {boolean} [anyway] Whether the owner chose to draft it though Lore judged it not worth selling. */
@@ -335,177 +353,304 @@ function inline(label, onClick) {
   return node;
 }
 
-/** Render a memory's content as markdown, pulling the description out of any frontmatter. @param {string} content */
-function renderMemoryBody(content) {
+/** Render a memory's content as markdown, pulling the description out of any frontmatter, the title out of the body,
+ * and an agent's bookkeeping into properties (APP-284). @param {string} content @param {string} title */
+function renderMemoryBody(content, title) {
   const meta = content.match(FRONTMATTER)?.[1] ?? "";
-  const node = markdown(content.replace(FRONTMATTER, ""));
-  node.classList.add("body");
+  const text = new MemoryText(title, content.replace(FRONTMATTER, "")).read();
+  const node = el("div", "md body");
+  for (const part of text.parts) {
+    if ("keywords" in part) node.append(el("p", "keywords", part.keywords));
+    else node.append(...markdown(part.markdown).childNodes);
+  }
   const description = meta.match(/^description:\s*(.+)$/m)?.[1].trim().replace(/^(["'])(.*)\1$/, "$2");
   if (description) node.prepend(el("p", "lede", description));
+  /** @type {[string, string][]} */
+  const props = [["Project", text.project], ["Updated", text.updated ? when(text.updated) : ""], ["Scope", text.scope]];
+  const shown = props.filter(([, value]) => value);
+  if (shown.length) {
+    const list = el("dl", "props memory-props");
+    for (const [label, value] of shown) {
+      const item = el("div", "prop");
+      item.append(el("dt", "", label), el("dd", "", value));
+      list.append(item);
+    }
+    node.prepend(list);
+  }
   return node;
 }
 
 /** @param {number} id */
-async function openMemory(id) {
-  hidePeek();
-  /** @type {Memory} */
-  let memory;
-  try {
-    memory = await window.lore.memory(id);
-  } catch (error) {
-    tell(reason(error, "Lore could not open that."), true);
-    return;
+function openMemory(id) {
+  return memoryPage.open(id);
+}
+
+/** APP-282: a memory's own page, laid out as a bid's: its title, its body as prose, Activity at the foot, and its
+ * properties in a column beside it. ↑/↓ step through the list it was opened from; Esc goes back. */
+class MemoryPage {
+  /** @type {Memory | null} */
+  memory = null;
+  /** Where it was opened from, which its breadcrumb and Esc go back to. @type {View} */
+  from = "inventory";
+  /** The page as drawn, kept across redraws so an edit in progress survives a refresh. @type {{key: string, node: HTMLElement} | null} */
+  built = null;
+  menu = el("div", "menu inv-menu");
+
+  constructor() {
+    this.menu.popover = "auto";
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "More");
+    document.body.append(this.menu);
   }
-  closeSheet();
-  // A native modal: focus stays inside, Escape closes it, and focus returns to what opened it.
-  const sheet = el("dialog", "sheet");
-  sheet.setAttribute("aria-label", memory.title);
-  const panel = el("div", "card sheet-panel");
-  const head = el("div", "sheet-head");
-  const text = el("div", "t");
-  const titleLabel = el("b", "", memory.title);
-  text.append(titleLabel, provenanceLine(memory));
-  // A memory Lore judged not worth selling says why in one quiet line instead (APP-235). Drafting it anyway stays a
-  // step away, except for work, which is never offered for sale.
-  const kept = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
-  if (kept) {
-    const note = el("span", "sale-note", kept.work ? "Work · stays private" : ["Private", kept.why].filter(Boolean).join(" · "));
-    if (!kept.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
-    text.append(note);
+
+  /** How one contributor brought a memory in: "Saved by" an agent, "Read from" an app. @param {MemorySource} source */
+  static verb(source) {
+    return { agent: "Saved by", app: "Read from", routine: "Written by", capture: source.mark === "file" ? "Brought in from" : "Written by", lore: "Written by" }[source.kind];
   }
-  const close = el("button", "icon-btn", "×");
-  close.type = "button";
-  close.setAttribute("aria-label", "Close");
-  close.addEventListener("click", closeSheet);
-  // One action stands out, Draft for sale; Edit is an icon, and Rename and Delete wait in a menu, so the title keeps
-  // its width and Delete is never a click away from selling.
-  const actions = el("div", "sheet-actions");
-  const menu = el("div", "menu sheet-menu");
-  menu.popover = "auto";
-  menu.setAttribute("role", "menu");
-  menu.setAttribute("aria-label", "More");
-  /** @param {string} label @param {string} icon @param {() => void} onClick */
-  const item = (label, icon, onClick) => {
-    const node = el("button", "", label);
-    node.type = "button";
-    node.setAttribute("role", "menuitem");
-    node.insertAdjacentHTML("afterbegin", icon);
-    node.addEventListener("click", () => { menu.hidePopover(); onClick(); });
-    return node;
-  };
-  const removeItem = item("Delete", TRASH_ICON, () => startDelete());
-  removeItem.classList.add("danger");
-  menu.append(item("Rename", RENAME_ICON, () => startRename()), el("hr"), removeItem);
-  menu.addEventListener("toggle", (event) => {
-    const open = /** @type {ToggleEvent} */ (event).newState === "open";
-    more.setAttribute("aria-expanded", String(open));
-    if (open) /** @type {HTMLElement | null} */ (menu.querySelector("button"))?.focus();
-  });
-  /** @param {string} label @param {string} icon @param {(() => void) | undefined} onClick */
-  const iconButton = (label, icon, onClick) => {
+
+  /** @param {number} id */
+  async open(id) {
+    hidePeek();
+    /** @type {Memory} */
+    let memory;
+    try {
+      memory = await window.lore.memory(id);
+    } catch (error) {
+      tell(reason(error, "Lore could not open that."), true);
+      return;
+    }
+    closeSheet();
+    if (palette.open) palette.close();
+    if (view !== "memory") this.from = view;
+    this.memory = memory;
+    this.built = null;
+    if (this.from === "inventory") inventoryView.selected = inventoryView.shown.find((row) => row.memory === id)?.key ?? `memory:${id}`;
+    show("memory");
+  }
+
+  /** The memories the page steps through: Inventory's, in its order, when it was opened from there. */
+  ids() {
+    return this.from === "inventory" ? inventoryView.shown.flatMap((row) => (row.memory === undefined ? [] : [row.memory])) : [];
+  }
+
+  /** @param {number} by */
+  step(by) {
+    const ids = this.ids();
+    const next = ids[ids.indexOf(this.memory?.id ?? -1) + by];
+    if (next !== undefined) void this.open(next);
+  }
+
+  back() {
+    show(this.from);
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const memory = this.memory;
+    if (!memory) return [el("p", "caught-up", "This memory is gone")];
+    const drafted = candidates.some((candidate) => candidate.provenance.includes(memory.id));
+    const key = JSON.stringify([memory, drafted]);
+    if (this.built?.key !== key) this.built = { key, node: this.build(s, memory, drafted) };
+    return [this.built.node];
+  }
+
+  /** @param {Snapshot} s @param {Memory} memory @param {boolean} drafted */
+  build(s, memory, drafted) {
+    const main = el("div", "page-col");
+    const heading = el("h2", "ptitle", memory.title);
+    const body = renderMemoryBody(memory.content, memory.title);
+    body.classList.add("read");
+    // An agent's bookkeeping is a property, not part of what the memory says (APP-284).
+    const kept = body.querySelector(".memory-props");
+    kept?.remove();
+    const actions = el("div", "page-actions");
+    const note = el("p", "lede page-note");
+    const verdict = memory.verdict && !memory.verdict.sell ? memory.verdict : null;
+    const idle = () => {
+      note.replaceChildren();
+      note.title = "";
+      note.hidden = !verdict;
+      if (verdict) {
+        // A memory Lore judged not worth selling says so in one short line; the model's reason is its tooltip (APP-235,
+        // APP-289). Work is never offered for sale.
+        note.append(verdict.work ? "Work · stays private" : "Lore keeps this private");
+        if (!verdict.work) note.title = verdict.why;
+        if (!verdict.work) note.append(" · ", inline("Draft anyway", () => void publishMemory(memory, undefined, true)));
+      }
+      const sell = drafted ? button("Review draft", "secondary", () => show("drafts")) : verdict ? null : button("Draft for sale", "secondary", () => void publishMemory(memory), SALE_ICON);
+      actions.replaceChildren(...(sell ? [sell] : []), this.icon("Edit", EDIT_ICON, () => edit()), this.more([["Rename", RENAME_ICON, () => rename()], ["Delete", TRASH_ICON, () => remove()]]));
+    };
+    const edit = () => {
+      const area = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
+      area.value = memory.content;
+      area.setAttribute("aria-label", "Memory content");
+      body.replaceWith(area);
+      fit(area);
+      area.addEventListener("input", () => fit(area));
+      area.focus();
+      const cancel = () => { area.replaceWith(body); idle(); };
+      const save = async () => {
+        const value = area.value.trim();
+        if (!value || value === memory.content) return cancel();
+        try {
+          this.memory = await window.lore.editMemory(memory.id, value);
+        } catch (error) {
+          tell(reason(error, "Lore could not save that."), true);
+          return;
+        }
+        await load();
+      };
+      area.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+        else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); }
+      });
+      actions.replaceChildren(button("Cancel", "secondary", cancel), button("Save", "primary", () => void save()));
+    };
+    const rename = () => {
+      const input = el("input", "draft-title ptitle");
+      input.type = "text";
+      input.value = memory.title;
+      input.setAttribute("aria-label", "Memory title");
+      heading.replaceWith(input);
+      input.focus();
+      input.select();
+      const cancel = () => { input.replaceWith(heading); idle(); };
+      const save = async () => {
+        const value = input.value.trim();
+        if (!value || value === memory.title) return cancel();
+        try {
+          this.memory = await window.lore.renameMemory(memory.id, value);
+        } catch (error) {
+          tell(reason(error, "Lore could not rename that."), true);
+          return;
+        }
+        await load();
+      };
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); void save(); }
+        else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancel(); }
+      });
+      actions.replaceChildren(button("Cancel", "secondary", cancel), button("Save", "primary", () => void save()));
+    };
+    const remove = () => {
+      note.hidden = false;
+      note.replaceChildren("Delete this memory? Lore won't bring it back.");
+      note.title = "";
+      const sure = button("Delete", "quiet", () => void act(async () => {
+        await window.lore.deleteMemory(memory.id);
+        this.memory = null;
+        tell(`Deleted ${memory.title}.`);
+        this.back();
+      }));
+      sure.classList.add("destructive");
+      actions.replaceChildren(button("Cancel", "secondary", idle), sure);
+    };
+    idle();
+    main.append(heading, note, body, actions, el("h3", "sec", "Activity"), bidPage.timeline(this.activity(memory, drafted)));
+    const layout = el("div", "page memory-page");
+    layout.append(main, this.properties(s, memory, drafted, kept));
+    return layout;
+  }
+
+  /** What happened to it, oldest first: who brought it in, what Lore judged of it, and a draft made from it.
+   * @param {Memory} memory @param {boolean} drafted */
+  activity(memory, drafted) {
+    /** @type {Array<{actor: string, glyph: string, text: string, before?: string, on?: string, mark?: HTMLElement}>} */
+    const entries = [...memory.sources].reverse().map((source) => ({
+      before: MemoryPage.verb(source),
+      actor: source.kind === "capture" && source.mark !== "file" ? "you" : source.label,
+      glyph: source.kind === "lore" ? "lore" : "memory",
+      text: "",
+      on: source.at ? when(source.at) : undefined,
+      mark: source.kind === "lore" ? undefined : markTile(sourceMark(source))
+    }));
+    // Nothing on record says where it came from, so the page says so rather than guessing.
+    if (!entries.length) entries.push({ actor: "", glyph: "help", text: "Where it came from isn't recorded" });
+    const verdict = memory.verdict;
+    if (verdict) entries.push({ actor: "Lore", glyph: "lore", text: verdict.sell ? "judged it worth selling" : verdict.work ? "kept it private: it's about work" : "kept it private" });
+    if (drafted) entries.push({ actor: "Lore", glyph: "draft", text: "drafted it for sale" });
+    return entries;
+  }
+
+  /** @param {Snapshot} s @param {Memory} memory @param {boolean} drafted @param {Element | null} kept */
+  properties(s, memory, drafted, kept) {
+    const side = el("div", "page-side");
+    const list = el("dl", "props");
+    /** @param {string} label @param {(string | HTMLElement)[]} value */
+    const prop = (label, ...value) => {
+      const item = el("div", "prop");
+      const dd = el("dd");
+      dd.append(...value);
+      item.append(el("dt", "", label), dd);
+      list.append(item);
+    };
+    prop("Status", chip(drafted ? "Draft" : "Private", drafted ? "pending" : ""));
+    // Where it came from: who brought it in first, the file or post it was read from, and when.
+    const first = memory.sources.at(-1);
+    if (first) {
+      const mark = markTile(sourceMark(first));
+      mark.title = `${MemoryPage.verb(first)} ${first.label}`;
+      prop("Source", mark, el("span", "from", first.kind === "capture" && first.mark !== "file" ? "You" : first.label));
+    } else prop("Source", "Unknown");
+    const path = memory.source_path;
+    if (/^https?:\/\//.test(path)) {
+      const link = outLink(`${path.replace(/^https?:\/\/(www\.)?/, "").replace(/[?#].*$/, "").slice(0, 32)} ↗`, path, "quiet-link");
+      link.title = path;
+      prop("From", link);
+    } else if (/^(\/|~\/)/.test(path)) {
+      const finder = inline("Show in Finder", () => void window.lore.revealMemory(memory.id));
+      finder.title = path;
+      prop("From", finder);
+    }
+    if (first?.at) prop("Saved", when(first.at));
+    prop("Topic", s.library.items.find((item) => item.id === memory.id)?.project_label || memory.project || "Unsorted");
+    if (drafted && typeof s.pricing.publication_usd === "number") prop("Price", dollars(s.pricing.publication_usd));
+    prop("Updated", when(memory.updated_at));
+    if (kept) list.append(...kept.children);
+    side.append(list);
+    return side;
+  }
+
+  /** @param {string} label @param {string} paths @param {() => void} onClick */
+  icon(label, paths, onClick) {
     const node = el("button", "icon-btn");
     node.type = "button";
-    node.setAttribute("aria-label", label);
     node.title = label;
-    node.insertAdjacentHTML("afterbegin", icon);
-    if (onClick) node.addEventListener("click", onClick);
+    node.setAttribute("aria-label", label);
+    node.innerHTML = paths;
+    node.addEventListener("click", onClick);
     return node;
-  };
-  const more = iconButton("More", MORE_ICON, undefined);
-  more.classList.add("sheet-more");
-  more.setAttribute("aria-haspopup", "menu");
-  more.popoverTargetElement = menu;
-  function showActions() {
-    actions.replaceChildren(...(kept ? [] : [button("Draft for sale", "primary", () => void publishMemory(memory), SALE_ICON)]), iconButton("Edit", EDIT_ICON, startEdit), more);
   }
-  function startDelete() {
-    // The question sits under the title like the sale note, so asking never squeezes the title.
-    const asking = el("span", "sale-note", "Delete this memory? Lore won't bring it back.");
-    const back = () => { asking.remove(); showActions(); };
-    const remove = button("Delete", "quiet", () => void act(async () => {
-      await window.lore.deleteMemory(memory.id);
-      closeSheet();
-      tell(`Deleted ${memory.title}.`);
-    }).then((done) => { if (!done) back(); }));
-    remove.classList.add("destructive");
-    text.append(asking);
-    actions.replaceChildren(button("Cancel", "secondary", back), remove);
-  }
-  /** @type {HTMLElement} */
-  let body = renderMemoryBody(memory.content);
-  function startRename() {
-    const input = el("input", "draft-title");
-    input.type = "text";
-    input.value = memory.title;
-    input.setAttribute("aria-label", "Memory title");
-    titleLabel.replaceWith(input);
-    input.focus();
-    input.select();
-    actions.replaceChildren(button("Cancel", "secondary", cancelRename), button("Save", "primary", () => void saveRename()));
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") { event.preventDefault(); void saveRename(); }
-      else if (event.key === "Escape") { event.preventDefault(); cancelRename(); }
+
+  /** The … beside the page's actions: Rename and Delete. @param {Array<[string, string, () => void]>} items */
+  more(items) {
+    const more = this.icon("More", MORE_ICON, () => {
+      this.menu.replaceChildren(...items.map(([label, icon, run], at) => {
+        const item = el("button", at === items.length - 1 ? "danger" : "", label);
+        item.type = "button";
+        item.setAttribute("role", "menuitem");
+        item.insertAdjacentHTML("afterbegin", icon);
+        item.addEventListener("click", () => { this.menu.hidePopover(); run(); });
+        return item;
+      }));
+      this.menu.showPopover({ source: more });
+      /** @type {HTMLElement | null} */ (this.menu.querySelector("button"))?.focus();
     });
-    function cancelRename() {
-      input.replaceWith(titleLabel);
-      showActions();
-    }
-    async function saveRename() {
-      const title = input.value.trim();
-      if (!title || title === memory.title) { cancelRename(); return; }
-      try {
-        memory = await window.lore.renameMemory(memory.id, title);
-      } catch (error) {
-        say(reason(error, "Lore could not rename that."));
-        return;
-      }
-      titleLabel.textContent = memory.title;
-      sheet.setAttribute("aria-label", memory.title);
-      cancelRename();
-      void load();
-    }
+    more.setAttribute("aria-haspopup", "menu");
+    return more;
   }
-  function startEdit() {
-    const textarea = /** @type {HTMLTextAreaElement} */ (el("textarea", "body-edit"));
-    textarea.value = memory.content;
-    textarea.setAttribute("aria-label", "Memory content");
-    body.replaceWith(textarea);
-    textarea.focus();
-    actions.replaceChildren(button("Cancel", "secondary", cancelEdit), button("Save", "primary", () => void saveEdit()));
-    textarea.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelEdit(); }
-      else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void saveEdit(); }
-    });
-    function cancelEdit() {
-      textarea.replaceWith(body);
-      showActions();
-    }
-    async function saveEdit() {
-      const value = textarea.value.trim();
-      if (!value || value === memory.content) { cancelEdit(); return; }
-      try {
-        memory = await window.lore.editMemory(memory.id, value);
-      } catch (error) {
-        tell(reason(error, "Lore could not save that."), true);
-        return;
-      }
-      body = renderMemoryBody(memory.content);
-      textarea.replaceWith(body);
-      showActions();
-      void load();
-    }
+
+  /** ↑/↓ or K/J to the memory before or after, Esc back. @param {KeyboardEvent} event */
+  key(event) {
+    if (event.key === "ArrowUp" || event.key === "k") this.step(-1);
+    else if (event.key === "ArrowDown" || event.key === "j") this.step(1);
+    else if (event.key === "Escape") this.back();
+    else return false;
+    return true;
   }
-  showActions();
-  head.append(text, actions, close);
-  panel.append(head, body);
-  sheet.append(panel, menu);
-  // The panel fills the dialog, so a click that lands on the dialog itself came from the backdrop.
-  sheet.addEventListener("click", (event) => { if (event.target === sheet) closeSheet(); });
-  sheet.addEventListener("close", () => sheet.remove());
-  document.body.append(sheet);
-  sheet.showModal();
-  close.focus();
 }
+
+const memoryPage = new MemoryPage();
 
 function closeSheet() {
   /** @type {HTMLDialogElement | null} */ (document.querySelector("dialog.sheet[open]"))?.close();
@@ -582,8 +727,8 @@ function runState(text, tone = "off") {
   return node;
 }
 
-/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso */
-const recent = (iso) => Date.now() - new Date(iso).getTime() < 86_400_000;
+/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso @param {number} [now] */
+const recent = (iso, now = Date.now()) => now - new Date(iso).getTime() < 86_400_000;
 
 /** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
@@ -597,11 +742,9 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
 /** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
 const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
-/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
- * @param {Snapshot} s */
-function recentRuns(s) {
-  if (!s.jobs) return null;
-  const all = s.jobs.items;
+/** Activity's runs from the job log, newest first: the same run again and again (same kind, state, title and summary,
+ * one after another) as one entry with a count. @param {JobItem[]} all */
+function activityRuns(all) {
   /** @type {Array<{item: JobItem, summary: string, times: number}>} */
   const runs = [];
   all.forEach((item, index) => {
@@ -610,27 +753,46 @@ function recentRuns(s) {
     if (last && last.item.kind === item.kind && last.item.status === item.status && last.item.title === item.title && last.summary === summary) last.times++;
     else runs.push({ item, summary, times: 1 });
   });
+  return runs;
+}
+
+/** What one Activity row says: its label, its detail line, its state as a word and a tone, and the thread it opens, if
+ * any. A plain success has nothing more to show than the row already does; a run still going, or one that went wrong
+ * today, opens its thread when there is one. Older than that, it is history.
+ * @param {{item: JobItem, summary: string, times: number}} run @param {number} [now] */
+function activityRow({ item, summary, times }, now = Date.now()) {
+  const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean).join(" · ");
+  const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
+  const state = RUN_STATES[item.status] ?? item.status;
+  /** @type {"ok" | "attention" | "off"} */
+  const tone = item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off";
+  const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at, now)) ? JOB_TASK[item.kind] : undefined;
+  return { label, detail, state, tone, task };
+}
+
+/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
+ * @param {Snapshot} s */
+function recentRuns(s) {
+  if (!s.jobs) return null;
+  const runs = activityRuns(s.jobs.items);
   if (!runs.length) return null;
-  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
-    const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
-    const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
-    const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
-    // A plain success has nothing more to show than this row already does; a run still going, or one that went wrong
-    // today, opens its thread when there is one. Older than that, it is history.
-    const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at)) ? JOB_TASK[item.kind] : undefined;
-    if (!task) return row(label, detail.join(" · "), status, false);
+  return section("Activity", card(runs.slice(0, 6).map((run) => {
+    const { item } = run;
+    const { label, detail, state, tone, task } = activityRow(run);
+    const status = runState(state, tone);
+    if (!task) return row(label, detail, status, false);
     const node = el("div", "row");
     const open = el("button", "task-link");
     open.type = "button";
     const text = el("div", "t");
-    text.append(el("b", "sans", label), el("span", "", detail.join(" · ")));
+    text.append(el("b", "sans", label), el("span", "", detail));
     open.append(text, status);
     // A job whose owning session never reached a terminal state (e.g. it was
     // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
     // Without this, openTask falls back to null and the header fabricates
     // "Working · Starting" for a row the owner just saw chipped Failed/Unfinished.
     /** @type {TaskRecord} */
-    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: RUN_STATES[item.status] ?? item.status, updatedAt: item.finished_at ?? item.started_at };
+    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: state, updatedAt: item.finished_at ?? item.started_at };
     open.addEventListener("click", () => void openTask(task, undefined, fallback));
     node.append(open);
     return node;
@@ -680,32 +842,9 @@ function explorer(network) {
   return EXPLORERS[/** @type {keyof typeof EXPLORERS} */ (network ?? "")] ?? EXPLORERS["eip155:8453"];
 }
 
-/** @param {Snapshot["node"]["live"]} live @param {string} [className] */
-function payoutLink(live, className) {
-  return live.payout ? outLink("Payouts ↗", `${explorer(live.network)}/address/${live.payout}`, className) : null;
-}
-
-/** @param {Snapshot["node"]} node */
-function storeAddress(node) {
-  const url = /** @type {string} */ (node.url);
-  const box = el("span", "address");
-  box.append(el("span", "host", url.replace(/^https?:\/\//, "").replace(/\/mcp$/, "")));
-  const console = workerConsole(url);
-  if (console) box.append(outLink("Cloudflare ↗", console, "quiet-link"));
-  const payouts = payoutLink(node.live, "quiet-link");
-  if (payouts) box.append(payouts);
-  return box;
-}
-
 /** Open for sale, not only online for the owner's agents (XC-069). @param {Snapshot | null} s */
 function forSale(s) {
   return Boolean(s?.node.url) && s?.node.selling !== false;
-}
-
-/** Past midnight is still the evening to someone up late; morning starts at 5. */
-function greeting() {
-  const hour = new Date().getHours();
-  return hour < 5 ? "Good evening." : hour < 12 ? "Good morning." : hour < 18 ? "Good afternoon." : "Good evening.";
 }
 
 /** A line icon from its strokes. @param {string} paths */
@@ -720,6 +859,8 @@ const STEP_ICONS = {
   store: lineIcon(`<path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9 20v-6h6v6"></path>`),
   publish: lineIcon(`<path d="M20 12l-8 8-9-9V3h8z"></path><circle cx="7.5" cy="7.5" r="1.5"></circle>`),
   update: lineIcon(`<path d="M12 15V4M7.5 8.5L12 4l4.5 4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path>`),
+  collection: $("nav [data-view=inventory] svg").outerHTML,
+  ask: lineIcon(`<path d="M20.5 12a8 8 0 0 1-11.8 7L3.5 20.5l1.5-5A8 8 0 1 1 20.5 12z"></path>`),
   memory: lineIcon(`<path d="M7 3.5h7l4 4V20a.5.5 0 0 1-.5.5h-10A.5.5 0 0 1 7 20z"></path><path d="M14 3.5V8h4M10 12.5h5M10 16h5"></path>`)
 };
 
@@ -732,9 +873,10 @@ function markTile(mark) {
   return node;
 }
 
-/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+/** "A", "A and B", "A, B and C", or "A, B and 2 more". @param {string[]} names */
 function named(names) {
-  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  if (names.length < 3) return names.join(" and ");
+  return names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
 /** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
@@ -778,12 +920,19 @@ function provenanceLine(memory) {
   return node;
 }
 
+/** What Today's next step turns on besides the snapshot: the renderer's own state, gathered so the rule can be run on
+ * any (APP-268). */
+function stepState() {
+  return { pushOffer, pushing, busy, candidates, extraDrafts, taskItems };
+}
+/** @typedef {ReturnType<typeof stepState>} StepState */
+
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
  * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
  * the store is being opened, repaired or updated.
- * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
-function nextStep(s) {
-  if (pushOffer || pushing || underWay("deploy")) return null;
+ * @param {Snapshot} s @param {StepState} [state] @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
+function nextStep(s, state = stepState()) {
+  if (state.pushOffer || state.pushing || underWay("deploy", state)) return null;
   if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
   const waiting = unpushed(s);
   const stale = stalePrice(s);
@@ -794,17 +943,17 @@ function nextStep(s) {
   }
   const approved = s.publications.counts.active;
   if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
-  if (candidates.length || extraDrafts.length) return "drafts";
-  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  if (state.candidates.length || state.extraDrafts.length) return "drafts";
+  const drafting = state.taskItems.some((item) => item.kind === "publish" && item.state !== "done");
   // An open publish thread is the step itself, under Unfinished.
   if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
   if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
   return null;
 }
 
-/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
-function underWay(kind) {
-  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind @param {Pick<StepState, "busy" | "taskItems">} [state] */
+function underWay(kind, state = { busy, taskItems }) {
+  return state.busy === kind || state.taskItems.some((item) => item.kind === kind && item.state === "working");
 }
 
 /** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
@@ -834,20 +983,31 @@ function displayTasks() {
   return taskItems.filter((item) => !QUIET_TASKS.has(item.kind) && !(item.kind === "deploy" && storeDone(item)) && !(item.kind === "evening" && checkIn) && (item.state === "working" || recent(item.updatedAt))).slice(0, 3);
 }
 
-/** The evening check-in leads Today: the questions Lore would like five minutes on, and a way to say not today. @param {CheckIn} asked */
+/** The evening check-in leads Today: a card shaped like New memories, its questions whole beneath it, and a way to say not today.
+ * @param {CheckIn} asked */
 function checkInCard(asked) {
-  const answer = button("Answer", "primary", () => void openTask("evening"));
-  const later = button("Not today", "quiet", () => {
+  const answer = () => void openTask("evening");
+  const later = inline("Not today", () => {
     loads++;
     checkIn = null;
     render();
     void window.lore.dismissCheckIn();
   });
-  const [first, ...rest] = asked.questions;
-  return section("Check in", card([
-    row(first.question, "Five minutes? Lore saves only what you approve.", cell(later, answer), false),
-    ...rest.map((each) => row(each.question, `About ${each.title}`, cell(), false))
-  ]));
+  const head = el("div", "row routine ready-head");
+  const text = el("div", "t");
+  text.append(el("b", "sans", asked.questions.length === 1 ? "A question about today" : `${asked.questions.length} questions about today`), el("span", "", "Five minutes? Lore saves only what you approve."));
+  head.append(markTile(STEP_ICONS.ask), text, later, button("Answer", "primary", answer));
+  const items = el("div", "ready-items");
+  for (const each of asked.questions) {
+    const question = row(each.question, `About ${each.title}`, undefined, false);
+    question.addEventListener("click", answer);
+    items.append(question);
+  }
+  const box = el("div", "ready-group open check-in");
+  box.append(head, items);
+  const list = el("div", "routines today-cards");
+  list.append(box);
+  return section("Check in", list);
 }
 
 /** A reading under way, as one quiet row. @param {TaskRecord} item */
@@ -950,7 +1110,7 @@ function readyGroup(key, runs, sources) {
 
 /** The owner is looking at the new memories, so the dock stops counting them. */
 function noticeReady() {
-  if (view !== "today" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
+  if (view !== "inbox" || detailTask || !document.hasFocus() || readyRuns.every((run) => run.seen)) return;
   readyRuns = readyRuns.map((run) => ({ ...run, seen: true }));
   void window.lore.seenMemories();
 }
@@ -963,56 +1123,599 @@ function draftsPhase() {
 /** Threads whose agent can stage a publication draft. */
 const DRAFTING = new Set(["publish", "capture", "evening"]);
 
-/** Drafts to approve, and the push after approving. @param {Snapshot} s */
-function drafts(s) {
+/** Drafts to approve, and the push after approving; without a bid's answer, which its own page approves.
+ * @param {Snapshot} s @param {boolean} [answers] Whether a bid's answer is listed too, as it is in the thread that drafted it. */
+function drafts(s, answers = true) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  if (candidates.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(), el("span", "hint", "Buyers only ever get what you approve here.")));
+  const listed = answers ? candidates : candidates.filter((candidate) => !candidate.bid);
+  if (listed.length || extraDrafts.length) parts.push(section("Approve what to sell", approvals(listed), el("span", "hint", "Buyers only ever get what you approve here.")));
   if (pushOffer || pushing) parts.push(seamCard());
   if (pushedNote) parts.push(pushReceipt(s));
   return parts;
 }
 
-/** What came in, and the one thing to do next. @param {Snapshot} s */
-function renderToday(s) {
-  if (firstRun.active && !detailTask) return firstRun.parts(s);
+/** A thread's own cards: drafts and the push after approving where it drafts, the next rung once setup or the store is done. @param {Snapshot} s */
+function threadParts(s) {
   /** @type {HTMLElement[]} */
   const parts = [];
-  // A check-in leads Today, on the rare day there is one.
-  if (detailTask) {
-    // Drafts and the push after approving show in the threads that draft, as on Today.
-    if (DRAFTING.has(detailTask)) parts.push(...drafts(s));
-    if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
-    if (detailTask === "deploy" && signingIn) parts.push(signInCard());
-    return parts;
-  }
-  // A check-in leads Today, on the rare day there is one.
-  if (checkIn) parts.push(checkInCard(checkIn));
-  if (!s.library.counts.private && howItWorks.shown()) parts.push(howItWorks.line());
-  const reading = taskItems.find((item) => item.kind === "synthesize" && item.state === "working");
-  if (reading) parts.push(readingRow(reading));
-  if (readyRuns.length) parts.push(memoriesReady(readyRuns));
-  const step = nextStep(s);
-  if (step === "drafts") parts.push(...drafts(s));
-  else if (step) parts.push(nextStepCard(step));
-  const shown = displayTasks();
-  if (shown.length) {
-    const list = el("div", "routines today-cards");
-    for (const item of shown) {
-      const row = el("div", "row routine");
-      const open = el("button", "task-link");
-      open.type = "button";
-      const text = el("div", "t");
-      text.append(el("b", "sans", item.title), el("span", "", item.phase));
-      open.append(text, runState(TASK_STATES[item.state], item.state === "working" ? "ok" : item.state === "needs_you" ? "attention" : "off"));
-      open.addEventListener("click", () => void openTask(item.kind, item));
-      row.append(markTile(ROUTINE_ICONS.ask), open);
-      list.append(row);
-    }
-    parts.push(section("Unfinished", list));
-  }
-  if (step !== "drafts") parts.push(...drafts(s));
+  if (DRAFTING.has(/** @type {AgentTask} */ (detailTask))) parts.push(...drafts(s));
+  if ((detailTask === "setup" || detailTask === "deploy") && detailRecord?.state === "done") parts.push(nextRung(s));
+  if (detailTask === "deploy" && signingIn) parts.push(signInCard());
   return parts;
+}
+
+/** APP-283: the home view. A thread or the first-run chat when one is open; otherwise one row per thing that needs the
+ * owner, and "You're all caught up" when nothing does. @param {Snapshot} s */
+function renderInbox(s) {
+  if (firstRun.active && !detailTask) return firstRun.parts(s);
+  if (detailTask) return threadParts(s);
+  const rows = inbox.rows(s);
+  if (readyRuns.length) noticeReady();
+  if (!rows.length) return [el("p", "caught-up", "You're all caught up")];
+  return [inbox.list(rows)];
+}
+
+/** Drafts waiting on the owner, opened from the Inbox; a bid's answer is approved on the bid's own page. @param {Snapshot} s */
+function renderDrafts(s) {
+  const parts = drafts(s, false);
+  return parts.length ? parts : [el("p", "caught-up", "No drafts to approve")];
+}
+
+/** 16px line glyphs, one set: what each Inbox row and timeline entry is about. */
+const GLYPHS = {
+  bid: `<circle cx="8" cy="8" r="5.75"></circle><path d="M9.9 6.2c-.3-.6-1-.95-1.9-.95-1.05 0-1.85.6-1.85 1.4 0 1.9 3.85 1 3.85 2.9 0 .8-.8 1.4-2 1.4-.9 0-1.65-.4-1.95-1M8 4.1v1.15M8 10.75v1.15"></path>`,
+  draft: `<circle cx="8" cy="8" r="5.75"></circle><path d="M8 2.25a5.75 5.75 0 0 1 0 11.5z" fill="currentColor" stroke="none"></path>`,
+  sold: `<circle cx="8" cy="8" r="6" fill="currentColor" stroke="none"></circle><path d="M5.5 8.2l1.7 1.7 3.3-3.6" stroke="var(--bg)"></path>`,
+  alert: `<path d="M8 2.5l6 10.5H2z"></path><path d="M8 6.75v2.75M8 11.3v.1"></path>`,
+  ask: `<path d="M2.5 4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-3 2.5V11h-.5a1 1 0 0 1-1-1z"></path>`,
+  memory: `<path d="M4 2.5h5.5L12 5v8.5H4z"></path><path d="M6 8h4M6 10.5h4"></path>`,
+  collection: `<path d="M2.5 4.5a1 1 0 0 1 1-1h3L8 5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z"></path>`,
+  store: `<path d="M2.5 6l1-3h9l1 3M2.5 6v7.5h11V6M2.5 6h11M6.5 13.5v-4h3v4"></path>`,
+  connect: `<path d="M6 2.5v3M10 2.5v3"></path><path d="M4.5 5.5h7V8a3.5 3.5 0 0 1-7 0z"></path><path d="M8 11.5v2"></path>`,
+  sell: `<path d="M13.5 8l-5.5 5.5-6-6V2.5h5.5z"></path><circle cx="5.25" cy="5.25" r="1"></circle>`,
+  update: `<path d="M8 10V2.5M5 5.5l3-3 3 3"></path><path d="M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10"></path>`,
+  unfinished: `<circle cx="8" cy="8" r="5.75" stroke-dasharray="2.2 2.2"></circle>`,
+  working: `<circle cx="8" cy="8" r="5.75" stroke-dasharray="2.2 2.2"></circle><path d="M8 5v3l2 1.25"></path>`,
+  help: `<circle cx="8" cy="8" r="5.75"></circle><path d="M6.3 6.3a1.8 1.8 0 0 1 3.5.5c0 1.2-1.8 1.4-1.8 2.6"></path><path d="M8 11.3v.1"></path>`,
+  check: `<path d="M3.5 8.5l3 3 6-6.5"></path>`,
+  lock: `<rect x="3.5" y="7" width="9" height="6.5" rx="1"></rect><path d="M5.5 7V5.25a2.5 2.5 0 0 1 5 0V7"></path>`,
+  person: `<circle cx="8" cy="5.5" r="2.5"></circle><path d="M3 13.5c.6-2.4 2.6-3.5 5-3.5s4.4 1.1 5 3.5"></path>`,
+  up: `<path d="M4.5 9.5L8 6l3.5 3.5"></path>`,
+  down: `<path d="M4.5 6.5L8 10l3.5-3.5"></path>`,
+  next: `<path d="M6.5 4.5L10 8l-3.5 3.5"></path>`
+};
+// Each next step and its mark, in the Inbox's one set.
+Object.assign(GLYPHS, { publish: GLYPHS.sell });
+
+/** @param {string} name @param {string} [className] */
+function glyph(name, className = "glyph") {
+  const node = el("span", `${className} g-${name}`);
+  node.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${GLYPHS[/** @type {keyof typeof GLYPHS} */ (name)] ?? GLYPHS.unfinished}</svg>`;
+  return node;
+}
+
+/** Inbox rows the owner marked Done that nothing else clears (a sale, the how-it-works row): kept in this window's
+ * storage, so a sale seen stays seen across launches. */
+class Cleared {
+  key = "lore.inbox.cleared";
+
+  /** @returns {Set<string>} */
+  read() {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(this.key) ?? "[]"));
+    } catch {
+      return new Set();
+    }
+  }
+
+  /** @param {string} rowKey */
+  add(rowKey) {
+    const kept = [...this.read(), rowKey].slice(-200);
+    try {
+      localStorage.setItem(this.key, JSON.stringify(kept));
+    } catch {}
+  }
+}
+
+/** The Inbox as the owner sees it: the rows from what Lore holds, the one selected, and each row's verb and Done. */
+class InboxView {
+  cleared = new Cleared();
+  /** The selected row, by key, so a redraw keeps it. */
+  selected = "";
+  /** What each row does, by key, as the last draw made them. @type {Map<string, {open: () => void, done?: () => void}>} */
+  actions = new Map();
+  /** The last rows drawn. @type {InboxRow[]} */
+  shown = [];
+
+  /** Everything that needs the owner, as Today used to show it in cards. @param {Snapshot} s @returns {InboxRow[]} */
+  rows(s) {
+    const cleared = this.cleared.read();
+    const step = nextStep(s);
+    const groups = this.groups();
+    const kept = new Map(privateMemories(s).map((memory) => [memory.id, memory.title]));
+    const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
+    const week = Date.now() - 7 * 86_400_000;
+    const problems = s.library.sources.flatMap((source) => {
+      const app = apps.find((each) => each.id === source.connector);
+      // An agent of the owner's answers through their store, and says how it stands on Connectors.
+      if (!app || app.id === "agent" || !source.state || source.state === "off") return [];
+      const state = stateOf(app, source);
+      if (state.ok) return [];
+      const says = state === SIGNED_OUT ? "is signed out" : source.state === "needs_permission" ? "needs access" : "stopped reading";
+      return [{ key: source.name, name: source.label || app.name, says, verb: state === SIGNED_OUT ? "Sign in" : "Fix" }];
+    });
+    /** @type {InboxInput} */
+    const input = {
+      bids: s.bidMatches ?? [],
+      drafts: candidates,
+      drafting: bidPage.drafting,
+      answered: answeredBids(s),
+      updates: extraDrafts.length,
+      offer: pushOffer && !pushing ? { label: forSale(s) ? "What you approved isn't on your store yet" : "What you approved isn't on sale yet", action: forSale(s) ? "Push now" : "Open your store" } : null,
+      problems,
+      step: step && step !== "drafts" ? { label: step.label, action: step.action, mark: step.mark, ...(step.mark === "update" ? { what: step.detail } : {}) } : null,
+      checkIn,
+      tasks: displayTasks(),
+      reading: taskItems.find((item) => item.kind === "synthesize" && item.state === "working") ?? null,
+      ready: [...groups].map(([key, runs]) => ({ key, from: runs[0].from ?? "", title: runs[0].title, memories: runs.reduce((sum, run) => sum + run.memories.length, 0), selling: runs.reduce((sum, run) => sum + run.memories.filter((memory) => memory.sell).length, 0), saves: runs.reduce((sum, run) => sum + run.read, 0), at: runs[0].at })),
+      suggestions: live.map(({ each, memories }) => ({ at: each.at, title: each.title, count: memories.length })),
+      sales: Array.isArray(sales) ? sales.filter((sale) => Date.parse(sale.sold_at) > week && !cleared.has(`sale:${sale.tx}`)) : [],
+      help: !s.library.counts.private && howItWorks.shown()
+    };
+    const rows = new Inbox().rows(input);
+    this.actions = new Map(rows.map((row) => [row.key, this.act(row, s, step, groups, live)]));
+    return rows;
+  }
+
+  /** New memories by who brought them, newest first, as one row each. */
+  groups() {
+    /** @type {Map<string, ReadyRun[]>} */
+    const groups = new Map();
+    for (const run of readyRuns) {
+      const key = run.by?.id ?? run.title;
+      groups.set(key, [...(groups.get(key) ?? []), run]);
+    }
+    return groups;
+  }
+
+  /** What a row's verb and its Done do.
+   * @param {InboxRow} row @param {Snapshot} s @param {ReturnType<typeof nextStep>} step @param {Map<string, ReadyRun[]>} groups
+   * @param {Array<{each: CollectionSuggestion, memories: number[]}>} live @returns {{open: () => void, done?: () => void}} */
+  act(row, s, step, groups, live) {
+    const ref = row.ref ?? "";
+    switch (row.kind) {
+      case "bid": return { open: () => bidPage.open(ref), done: () => void bidPage.dismiss(ref) };
+      case "draft": return { open: () => show("drafts") };
+      case "step": return { open: row.key === "offer" ? (forSale(s) ? () => void pushNow() : () => { pushOffer = false; void startDeploy(); }) : step && step !== "drafts" ? step.run : () => undefined };
+      case "problem": {
+        const source = s.library.sources.find((each) => each.name === ref);
+        const app = apps.find((each) => each.id === source?.connector);
+        return { open: () => { if (app && source) openConnection(app, source); else show("connectors"); } };
+      }
+      case "checkin": return { open: () => void talk.begin("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
+      case "task": return { open: () => void openTask(/** @type {AgentTask} */ (ref), taskItems.find((item) => item.kind === ref)) };
+      case "reading": return { open: () => void openTask("synthesize") };
+      case "memories": {
+        const runs = groups.get(ref) ?? [];
+        const by = runs[0]?.by;
+        return {
+          open: () => (by?.kind === "agent" ? seeFrom({ id: by.id, label: by.label }) : show("memories")),
+          done: () => {
+            /** @type {ReadyKey[]} */
+            const keys = runs.map((run) => ({ at: run.at, by: run.by?.id ?? null }));
+            loads++;
+            readyRuns = readyRuns.filter((run) => !keys.some((each) => each.at === run.at && each.by === (run.by?.id ?? null)));
+            render();
+            void window.lore.dismissMemories(keys);
+          }
+        };
+      }
+      case "suggestion": {
+        // A suggestion is known by its name: one run can suggest several in the same millisecond (APP-289).
+        const found = live.find(({ each }) => each.title === ref);
+        const alike = found ? (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === found.each.title.toLowerCase()) : [];
+        return { open: () => { if (found) reviewSuggestion(found.each, found.memories, alike.length === 1 ? alike[0] : undefined); }, done: () => { if (found) void dropSuggestion(found.each); } };
+      }
+      case "sale": return { open: () => show("store"), done: () => { this.cleared.add(row.key); render(); } };
+      case "help": return { open: () => show("faq"), done: () => { howItWorks.close(); render(); } };
+    }
+    return { open: () => undefined };
+  }
+
+  /** The rows, one line each: glyph, sentence, Done on hover, age, verb. @param {InboxRow[]} rows */
+  list(rows) {
+    this.shown = rows;
+    if (!rows.some((row) => row.key === this.selected)) this.selected = rows[0]?.key ?? "";
+    const list = el("div", "inbox");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Inbox");
+    const age = new Inbox();
+    for (const row of rows) {
+      const actions = this.actions.get(row.key);
+      const node = el("div", `irow ${row.kind}`);
+      node.setAttribute("role", "listitem");
+      node.dataset.key = row.key;
+      node.classList.toggle("sel", row.key === this.selected);
+      const text = el("span", "say");
+      const words = [row.amount && el("b", "amt", row.amount), row.lead && el("span", "sub", row.lead), row.title, row.tail && el("span", "sub", row.tail)].filter(Boolean);
+      text.append(...words.flatMap((word, at) => (at ? [" ", word] : [word])));
+      text.title = text.textContent ?? "";
+      if (row.kind === "reading") text.classList.add("shimmer");
+      node.append(glyph(row.glyph), text);
+      if (actions?.done) {
+        const done = el("button", "icon-btn done");
+        done.type = "button";
+        done.title = "Done · E";
+        done.setAttribute("aria-label", `Done: ${text.textContent}`);
+        done.innerHTML = glyph("check").innerHTML;
+        done.addEventListener("click", (event) => { event.stopPropagation(); actions.done?.(); });
+        node.append(done);
+      }
+      node.append(el("span", "age", age.age(row.at)));
+      const verb = button(row.verb, "quiet", () => actions?.open());
+      verb.classList.add("verb");
+      node.append(verb);
+      node.addEventListener("click", (event) => {
+        if (event.target instanceof Element && event.target.closest("button")) return;
+        actions?.open();
+      });
+      node.addEventListener("mousemove", () => this.select(row.key));
+      list.append(node);
+    }
+    return list;
+  }
+
+  /** @param {string} key */
+  select(key) {
+    if (this.selected === key) return;
+    this.selected = key;
+    for (const node of content.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === key);
+    content.querySelector(".irow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens, E is Done. @param {KeyboardEvent} event @returns {boolean} Whether it was the Inbox's key. */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.key === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.key);
+      return true;
+    }
+    const row = this.shown[at];
+    if (!row) return false;
+    if (event.key === "Enter") { this.actions.get(row.key)?.open(); return true; }
+    if (event.key === "e") { this.actions.get(row.key)?.done?.(); return true; }
+    return false;
+  }
+
+  /** How many rows wait, for the sidebar. @param {Snapshot} s */
+  count(s) {
+    return firstRun.active ? 0 : this.rows(s).length;
+  }
+}
+
+const inbox = new InboxView();
+
+/** Bids whose answer the owner approved. @param {Snapshot} s */
+function answeredBids(s) {
+  return new Set([...bidPage.approved.keys(), ...s.publications.items.filter((item) => item.bid && item.state === "approved").map((item) => item.bid ?? "")]);
+}
+
+/** APP-288: the bids on the board, every one or only those the owner's memories answer, one line each, from what the
+ * app already read. */
+class BidsView {
+  /** @type {BidsInput["tab"]} */
+  tab = "matches";
+  /** The selected row, by bid id, so a redraw keeps it. */
+  selected = "";
+  /** The last rows drawn. @type {BidRow[]} */
+  shown = [];
+
+  /** @param {Snapshot} s @param {BidsInput["tab"]} [tab] */
+  rows(s, tab = this.tab) {
+    const drafted = new Set(candidates.flatMap((candidate) => (candidate.bid ? [candidate.bid] : [])));
+    return new Inbox().bids({ matches: s.bidMatches ?? [], board: s.bidBoard ?? [], tab, drafting: bidPage.drafting, drafted, answered: answeredBids(s) });
+  }
+
+  /** The two text tabs beside the title, each with its count. @param {Snapshot} s */
+  tabs(s) {
+    return /** @type {const} */ ([["matches", "Matches what I know"], ["all", "All"]]).map(([id, label]) => {
+      const tab = el("button", "ptab");
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(this.tab === id));
+      tab.append(label, el("span", "n", String(this.rows(s, id).length)));
+      tab.addEventListener("click", () => { this.tab = id; render(); });
+      return tab;
+    });
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const rows = this.rows(s);
+    this.shown = rows;
+    if (!rows.length) return [el("p", "caught-up", this.tab === "all" ? "No open bids" : "Nothing on the board matches what you know yet")];
+    if (!rows.some((row) => row.id === this.selected)) this.selected = rows[0].id;
+    const list = el("div", "inbox bids");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Bids");
+    for (const row of rows) {
+      const node = el("div", "irow brow");
+      node.setAttribute("role", "listitem");
+      node.dataset.key = row.id;
+      node.classList.toggle("sel", row.id === this.selected);
+      const question = el("span", "say", row.question);
+      question.title = row.question;
+      const left = el("span", "age left");
+      left.append(row.pill ? chip(row.pill.label, row.pill.tint) : row.left);
+      const strength = signal(row.strength);
+      strength.title = ["No match", "", "Good match", "Strong match"][row.strength];
+      node.append(el("b", "amt", row.amount), question, el("span", "mkt", row.market), left, strength);
+      node.addEventListener("click", () => bidPage.open(row.id, "bids"));
+      node.addEventListener("mousemove", () => this.select(row.id));
+      list.append(node);
+    }
+    return [list];
+  }
+
+  /** @param {string} id */
+  select(id) {
+    if (this.selected === id) return;
+    this.selected = id;
+    for (const node of content.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === id);
+    content.querySelector(".irow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens. @param {KeyboardEvent} event @returns {boolean} Whether it was the page's key. */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.id === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.id);
+      return true;
+    }
+    if (event.key === "Enter" && this.shown[at]) { bidPage.open(this.shown[at].id, "bids"); return true; }
+    return false;
+  }
+}
+
+const bidsView = new BidsView();
+
+/** A bid's own page (APP-283): the question, what Lore found that answers it, the answer once drafted, and its
+ * timeline, with its properties in a column beside it. */
+class BidPage {
+  /** The Status pill's tint by where the bid stands: open is money waiting, an answer under way is amber, ready is done. */
+  static TINTS = { matched: "live", unmatched: "", drafting: "pending", drafted: "pending", approved: "live", expired: "", dismissed: "" };
+
+  /** The bid open now. */
+  id = "";
+  /** The bid as last seen, so a page stays readable once its bid is dismissed or ends. @type {BidMatch | null} */
+  last = null;
+  /** Bids whose answer Lore is drafting. @type {Set<string>} */
+  drafting = new Set();
+  /** Bids dismissed this launch; the main process forgets them for good. @type {Set<string>} */
+  dismissed = new Set();
+  /** What the owner approved, by bid, to show once its draft is gone. @type {Map<string, string>} */
+  approved = new Map();
+  /** The answer being edited, kept across redraws so typing survives the agent's next event. @type {{key: string, node: HTMLElement} | null} */
+  form = null;
+
+  /** The list the page was opened from, which its breadcrumb, Esc and ↑/↓ go back to. @type {"inbox" | "bids"} */
+  from = "inbox";
+
+  /** @param {string} id @param {"inbox" | "bids"} [from] */
+  open(id, from = "inbox") {
+    this.id = id;
+    this.from = from;
+    // Back on the list, the bid last open is the one selected.
+    if (from === "bids") bidsView.selected = id;
+    else inbox.selected = `bid:${id}`;
+    this.last = snapshot ? this.find(snapshot, id) : null;
+    show("bid");
+  }
+
+  /** The bid as a match; one on the board that nothing kept answers has no memories (APP-288). @param {Snapshot} s @param {string} id */
+  find(s, id) {
+    const match = s.bidMatches.find((each) => each.bid.id === id);
+    if (match) return match;
+    const bid = (s.bidBoard ?? []).find((each) => each.id === id);
+    return bid ? Inbox.unmatched(bid) : null;
+  }
+
+  /** The bids the page steps through: the list it came from, in its order. @param {Snapshot} s */
+  ids(s) {
+    return this.from === "bids" ? bidsView.rows(s).map((row) => row.id) : inbox.rows(s).filter((row) => row.kind === "bid").map((row) => row.ref ?? "");
+  }
+
+  /** ↑/↓ to the bid before or after this one. @param {number} by */
+  step(by) {
+    if (!snapshot) return;
+    const ids = this.ids(snapshot);
+    const next = ids[ids.indexOf(this.id) + by];
+    if (next) this.open(next, this.from);
+  }
+
+  /** Not this one: off the Inbox, and the page says so. @param {string} id */
+  async dismiss(id) {
+    this.dismissed.add(id);
+    render();
+    await act(() => window.lore.dismissBid(id));
+  }
+
+  /** @param {string} id */
+  async draft(id) {
+    this.drafting.add(id);
+    render();
+    let failed = "";
+    try {
+      await window.lore.draftBid(id);
+    } catch (error) {
+      failed = reason(error, "Lore couldn't draft the answer. Try again.");
+    }
+    this.drafting.delete(id);
+    await load();
+    if (failed || !candidates.some((candidate) => candidate.bid === id)) tell(failed || "Lore didn't draft an answer. Try again.", true);
+  }
+
+  /** @param {PublicationCandidate} draft @param {string} answer */
+  async approve(draft, answer) {
+    this.approved.set(this.id, answer);
+    await decide(draft, true, { ...draft, content: answer });
+    if (candidates.some((candidate) => candidate.bid === draft.bid)) this.approved.delete(this.id);
+    render();
+  }
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    const match = this.find(s, this.id) ?? (this.last?.bid.id === this.id ? this.last : null);
+    if (!match) return [el("p", "caught-up", "This bid isn't open anymore")];
+    this.last = match;
+    const id = match.bid.id;
+    const draft = candidates.find((candidate) => candidate.bid === id) ?? null;
+    const approved = this.approved.has(id) || s.publications.items.some((item) => item.bid === id && item.state === "approved");
+    const look = { match, drafting: this.drafting.has(id) && !draft, draft, approved, dismissed: this.dismissed.has(id) };
+    const page = new Inbox().bid(look);
+    const main = el("div", "page-col");
+    main.append(el("h2", "ptitle", match.bid.question), el("p", "lede", "A buyer wants a first-hand answer."));
+    const count = match.memories.length;
+    if (count) {
+      main.append(el("h3", "sec", `Lore found ${Inbox.plural(count, "memory", "memories")} that ${count === 1 ? "answers" : "answer"} this`));
+      const rows = el("div", "found");
+      for (const memory of match.memories) {
+        const node = el("button", "irow");
+        node.type = "button";
+        const kept = el("span", "m");
+        kept.append(glyph("lock", "glyph"), "Not sent to buyer");
+        node.append(provenance(s.library.items.find((item) => item.id === memory.id)?.sources).marks, el("span", "say", memory.title), kept);
+        node.addEventListener("click", () => openMemory(memory.id));
+        rows.append(node);
+      }
+      main.append(rows);
+    }
+    main.append(...this.answer(page.state, look));
+    main.append(el("h3", "sec", "Activity"), this.timeline(page.activity));
+    const layout = el("div", "page");
+    layout.append(main, this.properties(match, page));
+    return [layout];
+  }
+
+  /** The answer, as far as it has come. @param {BidState} state @param {BidLook} look */
+  answer(state, { match, draft }) {
+    const id = match.bid.id;
+    const head = el("h3", "sec", "Answer");
+    const from = Inbox.plural(match.memories.length, "memory", "memories");
+    const said = (/** @type {string} */ text) => [head, el("p", "says", text)];
+    if (state === "dismissed") return said("You dismissed this bid. It won't come back.");
+    if (state === "expired") return said(`This bid closed. Nothing was sent.`);
+    if (state === "unmatched") return said("Nothing you've kept answers this yet.");
+    if (state === "approved") {
+      const kept = this.approved.get(id);
+      const note = el("div", "answer-foot");
+      note.append(glyph("check", "glyph g-sold"), el("span", "note", "Your answer is ready. Sending it to the buyer comes next."));
+      return [head, ...(kept ? [el("p", "body", kept)] : []), note];
+    }
+    if (state === "drafting") {
+      const line = el("p", "says");
+      line.append(el("span", "shimmer", `Lore is drafting from ${from}…`));
+      return [head, line];
+    }
+    if (state === "matched") {
+      const foot = el("div", "answer-foot");
+      foot.append(button("Draft the answer", "primary", () => void this.draft(id)), button("Dismiss", "quiet", () => void this.dismiss(id)));
+      return [head, foot];
+    }
+    const current = /** @type {PublicationCandidate} */ (draft);
+    const key = JSON.stringify(current);
+    if (this.form?.key !== key) {
+      const block = el("div", "answer-block");
+      const label = el("h3", "sec");
+      label.append("Answer", el("span", "right", "Drafted by Lore · edit anything"));
+      const text = /** @type {HTMLTextAreaElement} */ (el("textarea", "answer"));
+      text.value = current.content;
+      text.setAttribute("aria-label", "Answer");
+      text.addEventListener("input", () => fit(text));
+      const foot = el("div", "answer-foot");
+      const note = el("span", "note");
+      note.append(glyph("lock", "glyph"), `The buyer gets this answer only. ${match.memories.length === 1 ? "Your memory isn't" : `Your ${from} aren't`} part of it.`);
+      const approve = button(`Approve · ${Inbox.dollars(match.bid.usd)}`, "primary", () => {
+        approve.disabled = true;
+        void this.approve(current, text.value.trim() || current.content);
+      });
+      foot.append(note, button("Dismiss", "quiet", () => void this.dismiss(id)), approve);
+      block.append(label, text, foot);
+      this.form = { key, node: block };
+    }
+    return [this.form.node];
+  }
+
+  /** @param {BidMatch} match @param {ReturnType<InstanceType<typeof Inbox>["bid"]>} page */
+  properties(match, page) {
+    const side = el("div", "page-side");
+    const list = el("dl", "props");
+    /** @param {string} label @param {string | HTMLElement} value */
+    const prop = (label, value) => {
+      const item = el("div", "prop");
+      const dd = el("dd");
+      dd.append(value);
+      item.append(el("dt", "", label), dd);
+      list.append(item);
+    };
+    prop("Status", chip(page.status, BidPage.TINTS[page.state]));
+    prop("Pays", el("b", "", Inbox.dollars(match.bid.usd)));
+    prop("Buyer", "Kept private");
+    const market = Inbox.market(match.bid.market);
+    if (market) prop("Market", market);
+    if (page.state !== "expired" && page.state !== "dismissed") prop("Time left", page.left ?? "—");
+    if (page.state !== "expired" && page.state !== "dismissed" && match.memories.length) {
+      const strength = el("span", "strength");
+      strength.append(signal(match.strength === "strong" ? 3 : 2), match.strength === "strong" ? "Strong" : "Good");
+      prop("Match", strength);
+    }
+    prop("Payment", "Card, straight to you");
+    side.append(list);
+    return side;
+  }
+
+  /** What happened, newest last; an entry's mark, when it has one, stands in for its glyph, and words `before` its
+   * actor read first ("Saved by **Claude**"). An entry dated `on` says that day rather than how long ago.
+   * @param {Array<{actor: string, glyph: string, text: string, before?: string, at?: string, on?: string, live?: boolean, mark?: HTMLElement}>} activity */
+  timeline(activity) {
+    const list = el("div", "timeline");
+    const age = new Inbox();
+    for (const entry of activity) {
+      const node = el("div", "ev");
+      const icon = entry.mark ?? (entry.glyph === "lore" ? mark("glyph lore") : glyph(entry.glyph));
+      const text = el("span", "tx");
+      const said = [entry.before ? `${entry.before} ` : "", ...(entry.actor ? [el("b", "", entry.actor)] : []), entry.text ? `${entry.actor ? " " : ""}${entry.text}` : ""].filter(Boolean);
+      if (entry.live) {
+        const live = el("span", "shimmer");
+        live.append(...said);
+        text.append(live);
+      } else text.append(...said);
+      if (entry.on || entry.at) text.append(el("span", "when", ` · ${entry.on ?? age.age(entry.at)}`));
+      node.append(icon, text);
+      list.append(node);
+    }
+    return list;
+  }
+}
+
+const bidPage = new BidPage();
+
+/** Three bars, `level` of them lit, the way a signal reads. @param {number} level */
+function signal(level) {
+  const node = el("span", "signal");
+  node.setAttribute("aria-hidden", "true");
+  node.innerHTML = `<svg viewBox="0 0 12 12">${[0, 1, 2].map((at) => `<rect x="${1 + at * 4}" y="${8 - at * 3}" width="2" height="${3 + at * 3}" rx="0.5"${at < level ? ' class="on"' : ""}></rect>`).join("")}</svg>`;
+  return node;
+}
+
+/** @param {Snapshot} s */
+function renderBid(s) {
+  return bidPage.parts(s);
 }
 
 /** Today's way into the FAQ for a new owner, until their first memory, their first paid sale, or until they close it. */
@@ -1026,6 +1729,12 @@ class HowItWorks {
     } catch {
       return !paid;
     }
+  }
+
+  close() {
+    try {
+      localStorage.setItem(this.key, "1");
+    } catch {}
   }
 
   line() {
@@ -1074,7 +1783,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -1123,6 +1832,12 @@ class FirstRunChat {
   /** Whether where it stands has been read this sign-in: until then nothing starts it. */
   #known = false;
 
+  /** Where a new owner got to (once each), for the funnel: kept only once the owner was told about usage events.
+   * @param {FirstRunStep} step */
+  passed(step) {
+    void window.lore.usage("firstrun.step", step).catch(() => undefined);
+  }
+
   /** Whether a step begun in `run` still belongs on screen. @param {number} run */
   current(run) {
     return run === this.#run && this.active;
@@ -1162,7 +1877,7 @@ class FirstRunChat {
   }
 
   redraw() {
-    if (this.active && view === "today" && !detailTask) render();
+    if (this.active && view === "inbox" && !detailTask) render();
   }
 
   /** Back after a relaunch, still waiting on the agent picked: its link was shown once, so a new one is a tap away.
@@ -1193,12 +1908,13 @@ class FirstRunChat {
     if (choice === "coding") return this.leave("done", () => void startSetup());
     this.picked = [choice, label];
     this.problem = "";
-    if (snapshot?.node.url) return this.connect();
+    this.passed("agent");
+    if (snapshot?.node.agents) return this.connect();
     this.stage = "store";
-    this.redraw();
+    return this.putOnline();
   }
 
-  /** The store online for the owner's agents, on the owner's tap: the deploy and, if it must, the Cloudflare sign-in. */
+  /** XC-088: a place online for the owner's agents, hosted by Lore in seconds, then on to connecting the one picked. */
   async putOnline() {
     const run = this.#run;
     this.working = true;
@@ -1207,18 +1923,19 @@ class FirstRunChat {
     try {
       await window.lore.storeOnline();
       // Asked of the store itself: a refresh already under way (an app's reading) can leave the window's copy stale.
-      const online = Boolean((await window.lore.snapshot()).node.url);
+      const online = Boolean((await window.lore.snapshot()).node.agents);
       void load();
       // Skipped while it went online: the store stays online, and nothing goes on to connect.
       if (!this.current(run)) return;
       if (!online) throw new Error();
+      this.passed("store");
       this.working = false;
       await this.connect();
     } catch (error) {
       if (!this.current(run)) return;
       this.working = false;
       // Cancelled is the owner's own choice: back to Set it up, with nothing to say.
-      const said = reason(error, "Your store didn't go online. Try again in a minute.");
+      const said = reason(error, "Lore couldn't set up a place for your agents. Try again.");
       this.problem = said === "Cancelled" ? "" : said;
       this.redraw();
     }
@@ -1239,6 +1956,7 @@ class FirstRunChat {
       if (!this.current(run) || ask !== this.#asks) return;
       this.handed = handed;
       this.stage = "connect";
+      this.passed("link");
       void this.keep({ state: "started", source: handed.source });
       this.wait(handed);
       void load();
@@ -1261,6 +1979,7 @@ class FirstRunChat {
   heard(saved) {
     this.saved = saved;
     this.stage = "saved";
+    this.passed("saved");
     void this.keep({ state: "done", source: this.kept?.source });
     void load();
     this.redraw();
@@ -1269,7 +1988,7 @@ class FirstRunChat {
 
   /** The newest of the chat in view. */
   reveal() {
-    if (this.active && view === "today" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
+    if (this.active && view === "inbox" && !detailTask) mainEl.scrollTo({ top: mainEl.scrollHeight, behavior: "smooth" });
   }
 
   /** Its link was lost: a new one, shown here, and the wait goes on with it. */
@@ -1366,6 +2085,7 @@ class FirstRunChat {
     this.walled = walled;
     this.unconnected = !failed.length ? "" : walled ? `macOS hasn't let Lore read ${named(failed.map(short))}. Allow Lore in System Settings, then try again.` : `${named(failed.map(short))} didn't connect. Try again.`;
     if (!failed.length) this.appsDone = true;
+    if (this.connected.length) this.passed("apps");
     this.working = false;
     await load();
   }
@@ -1375,8 +2095,9 @@ class FirstRunChat {
     this.stop();
     this.#run++;
     this.active = false;
+    if (state === "skipped") this.passed("skipped");
     void this.keep({ state, ...(this.kept?.source ? { source: this.kept.source } : {}) });
-    show("today");
+    show("inbox");
     then?.();
   }
 
@@ -1405,7 +2126,7 @@ class FirstRunChat {
       line.append(speaker(true), el("p", "", text));
       chat.append(line);
     };
-    lore("Hi. I'm Lore. I keep what you've learned and help you sell the parts worth paying for.");
+    lore("Hi, I'm Lore. I keep what you teach your AIs here on this Mac, so every one of them can use it.");
     // APP-223: first what's already on this Mac, so something comes in before anything is asked of the owner.
     if (!this.appsDone && !this.found) {
       lore(el("p", "hint", "Looking on this Mac…"));
@@ -1433,17 +2154,13 @@ class FirstRunChat {
       return this.said(chat, lore);
     }
     if (this.stage === "store") {
-      lore(`Want ${who} to save here too? ${who} works online, so it needs a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale.`);
+      lore(`${who} works online, so Lore keeps a private place online for it to save to. What ${who} saves is sealed so only this Mac can read it, and nothing goes on sale. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.`);
       const box = el("div", "card request");
-      const waiting = this.working && signingIn;
-      box.append(el("p", "hint", waiting ? "Finish signing in to Cloudflare in your browser, then come back here." : this.working ? "Setting it up. This takes a few minutes. If your browser opened, sign in to Cloudflare there." : "Takes a few minutes. Your browser opens so you can sign in to Cloudflare, or make a free account."));
+      box.append(el("p", "hint", this.working ? "Setting it up…" : "It takes a few seconds."));
       if (this.problem) box.append(el("p", "problem", this.problem));
-      if (waiting) box.append(signInActions());
-      else {
+      if (!this.working) {
         const actions = el("div", "actions");
-        const go = button(this.working ? "Setting it up…" : "Set it up", "primary", () => void this.putOnline());
-        go.disabled = this.working;
-        actions.append(go);
+        actions.append(button("Try again", "primary", () => void this.putOnline()));
         box.append(actions);
       }
       lore(box);
@@ -1470,7 +2187,11 @@ class FirstRunChat {
       return this.shown(chat);
     }
     if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
-    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
+    if (this.stage !== "saved") {
+      const wait = waitLine(who, true);
+      wait.append(button("Do this later", "secondary", () => this.leave("skipped")));
+      lore(this.connectCard(app, who), wait);
+    }
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
       this.closing(chat, lore, "What it saves");
@@ -1481,16 +2202,17 @@ class FirstRunChat {
   /** The last word, then the next AI or Today: most people talk to more than one, and the next is a tap away, in the
    * same sheet Connectors uses. @param {HTMLElement} chat @param {(said: string | HTMLElement) => void} lore @param {string} what */
   closing(chat, lore, what) {
-    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to Today, which shows the next step when you want to sell some of it.`);
+    lore(`That's it. ${what} stays private on this Mac. Connect another AI you talk to, or go to your Inbox, which shows the next step when you want to sell some of it.`);
     const actions = el("div", "actions first-run-actions");
-    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Today", "primary", () => this.leave("done")));
+    actions.append(button("Connect another AI", "secondary", () => this.leave("done", () => { show("connectors"); new AgentSetup().open(); })), button("Go to Inbox", "primary", () => this.leave("done")));
     chat.append(actions);
   }
 
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
    * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
   said(chat, lore) {
-    const said = notices.filter((item) => item.key);
+    // The note about Lore's own routines waits for the Inbox, so a new owner reads it once, not under every step.
+    const said = notices.filter((item) => item.key && item.key !== "automations");
     if (said.length) {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
@@ -1515,14 +2237,15 @@ class FirstRunChat {
     const list = el("div", "choices first-choices");
     const ordered = [...FIRST_CHOICES].sort(([a], [b]) => Number(this.installed.includes(/** @type {AgentApp} */ (b))) - Number(this.installed.includes(/** @type {AgentApp} */ (a))));
     const only = this.installed.length === 1 ? this.installed[0] : null;
+    // Claude Code's or Codex's memory, once Lore reads it, is not offered again.
+    const reading = (snapshot?.library.sources ?? []).some((source) => source.name in HISTORIES && source.enabled);
     for (const [choice, label] of ordered) {
+      if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
-      const soon = choice === "muse";
-      option.disabled = soon;
       const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
       option.append(icon, el("span", "", label));
-      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      const hint = this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
       if (hint) option.append(el("small", "", hint));
       option.addEventListener("click", () => void this.choose(choice, label));
       list.append(option);
@@ -1535,7 +2258,8 @@ class FirstRunChat {
   connectCard(app, who) {
     const box = el("div", "card first-connect");
     const guide = AGENT_GUIDES[app]?.first;
-    if (this.handed) {
+    if (this.handed && app === "instinct") box.append(...textFirst(this.handed, true));
+    else if (this.handed) {
       if (guide?.brief) box.append(el("p", "first-steps", guide.brief), privateLink(this.handed, guide.message ?? "", "Copy message"));
       else box.append(...(guide ? howTo(this.handed, guide) : [privateLink(this.handed)]));
       box.append(...afterConnect(app, who));
@@ -1548,10 +2272,17 @@ class FirstRunChat {
       foot.append(again);
     }
     if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    else if (this.handed && AGENT_WEB[app]) {
+      const handed = this.handed;
+      // Not on this Mac: its connector settings on the web, with the link already copied to paste there.
+      foot.append(button(`Open ${who}`, "primary", () => void window.lore.copy(handed.connector_url)
+        .then(() => window.open(AGENT_WEB[app]))
+        .catch((error) => tell(reason(error, "Lore couldn't copy your link.")))));
+    }
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once. Connectors makes a new one" : "Private link, shown once. Connectors makes a new one"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -1625,24 +2356,6 @@ function privateMemories(s) {
   return s.library.items.filter((item) => item.status === "private");
 }
 
-/** The publication price as it reads when nobody is editing it. @param {Snapshot} s */
-function priceRow(s) {
-  // Wrapped, not bare: `.prices` is a stretch-aligned column, so a bare button
-  // would spread its hover background across the whole bar.
-  const item = el("div", "price-row");
-  const { publication_usd: piece, answer_usd: answer, answer_enabled: answers, free_copies: copies } = s.pricing;
-  if (typeof piece === "number") {
-    const open = el("button", "price-open");
-    open.type = "button";
-    open.title = "Change what a buyer pays per publication";
-    open.append(`${dollars(piece)} `, el("span", "", ["a piece", copies ? freeCopies(copies) : ""].filter(Boolean).join(" · ")));
-    open.addEventListener("click", openPriceSheet);
-    item.append(open);
-  } else if (s.node.url && s.node.live.state !== "unreachable") item.append(inline("Set a price", openPriceSheet));
-  if (answers && typeof answer === "number") item.append(el("span", "", " · "), `${dollars(answer)} `, el("span", "", "an answer"));
-  return item;
-}
-
 /** A dollar field with its prefix. @param {string} value @returns {[HTMLElement, HTMLInputElement]} */
 function priceField(value) {
   const field = el("div", "price-field");
@@ -1690,13 +2403,23 @@ function openPriceSheet() {
 
 const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
 
+/** What the price sheet's entries come to, or why they are refused: a price above zero, and whole free copies when the
+ * CLI has them. @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies.
+ * @returns {{amount: number, copies: number | null} | {refused: string}} */
+function priceEntry(raw, rawCopies) {
+  const amount = parsePrice(raw);
+  if (amount === null) return { refused: `${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.` };
+  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) return { refused: `${WHOLE_COPIES}.` };
+  return { amount, copies };
+}
+
 /** Save what the price sheet says; a refusal is thrown, so the sheet says it in place. @param {string} raw
  * @param {string} [rawCopies] Absent when the CLI predates free copies. */
 async function savePrice(raw, rawCopies) {
-  const amount = parsePrice(raw);
-  if (amount === null) throw new Error(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`);
-  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
-  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) throw new Error(`${WHOLE_COPIES}.`);
+  const entry = priceEntry(raw, rawCopies);
+  if ("refused" in entry) throw new Error(entry.refused);
+  const { amount, copies } = entry;
   const before = snapshot?.pricing;
   const newCopies = copies !== null && copies !== before?.free_copies;
   pushOffer = false;
@@ -1710,168 +2433,281 @@ async function savePrice(raw, rawCopies) {
   if (newCopies || amount !== before?.publication_usd) void goLive();
 }
 
-/** The store at a glance: whether it's live, its address, what a piece costs, and a pending update. @param {Snapshot} s */
-function storeBar(s) {
-  const live = s.node.live;
-  const selling = forSale(s);
-  const bar = el("div", "card store-bar");
-  const lead = el("div", "lead");
-  lead.append(el("span", `dot ${live.state === "online" && selling ? "ok" : live.state === "unreachable" ? "" : "off"}`));
-  const text = el("div", "t");
-  const state = !s.node.url ? "No store yet" : live.state === "unreachable" ? "Your store isn't responding" : !selling ? "Nothing for sale yet" : live.state === "online" ? (live.network === TEST_NETWORK ? "Live · Test mode" : "Live") : "No store yet";
-  text.append(el("b", "sans", state));
-  if (selling) {
-    text.append(storeAddress(s.node));
-  } else {
-    const open = el("span");
-    open.append(inline("Open your store", () => void startDeploy()), " when you're ready to sell.");
-    text.append(open);
-  }
-  lead.append(text);
-  const prices = el("div", "prices");
-  prices.append(priceRow(s));
-  const stale = stalePrice(s);
-  if (stale !== null && !pushing) {
-    const note = el("div", "stale-price");
-    note.append(el("span", "", `Your store still charges ${price(stale)}.`));
-    prices.append(note);
-  }
-  bar.append(lead, prices);
-  // One Update store at a time: pieces waiting to go on or come off are pushed first; a new price is redeployed after.
-  if (unpushed(s).length) {
-    if (!pushOffer) {
-      const push = button(pushing ? "Updating…" : "Update store", "primary", pushNow);
-      push.disabled = pushing;
-      bar.append(push);
-    }
-  } else if (stale !== null && !pushing) bar.append(button("Update store", "primary", () => void startDeploy(REDEPLOY_PRICE)));
-  else {
-    const newer = newerStore(s);
-    if (newer) {
-      const line = el("div", "newer-store-line");
-      line.append(newer.note, newer.update);
-      prices.append(line);
-    }
-  }
-  return bar;
-}
+/** Inventory's group of taken-down pieces, by a key no topic can take. */
+const DOWN = "\0down";
 
-/** One piece on sale: what it's about, how it's doing, and taking it down. @param {PublicationItem} item */
-function saleItem(item) {
-  const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === item.public_id && sale.network !== "free").length : 0;
-  const seen = views[item.public_id] ?? 0;
-  const detail = [seen ? `${seen} ${seen === 1 ? "view" : "views"}` : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ") || "No views yet";
-  const badge = item.live === false ? chip("Not on your store yet") : el("span");
-  const trailing = el("div", "v");
-  const ask = button("Take down", "quiet", () => {
-    trailing.replaceChildren(
-      el("span", "hint", "No one can buy it after this. Anyone who already did keeps their copy."),
-      button("Keep", "secondary", () => trailing.replaceChildren(badge, ask)),
-      button("Take down", "primary", () => void act(() => window.lore.revoke(item.id), "Taken down. Your store stops selling it as soon as it updates."))
-    );
-    trailing.classList.add("asking");
-  });
-  trailing.append(badge, ask);
-  return row(item.title, detail, trailing);
-}
+/** APP-282: Inventory as one-line rows under flat group headers, with All / Private / Draft / On sale as text tabs
+ * beside the title. Each row: title, its actions on hover, where it came from, its status, its date and its price. */
+class InventoryView {
+  /** The selected row, by key, so a redraw keeps it. */
+  selected = "";
+  /** Groups the owner folded, by name; taken-down pieces start folded. @type {Set<string>} */
+  closed = new Set([DOWN]);
+  /** What each row drawn does, and the memory behind it. @type {Array<{key: string, open?: () => void, tag?: () => void, memory?: number}>} */
+  shown = [];
+  menu = el("div", "menu inv-menu");
 
-/** Inventory: everything Lore keeps, private or on sale, in groups by what it's about. @param {Snapshot} s */
-function renderInventory(s) {
-  const agentApp = (/** @type {string} */ label) => s.library.sources.find((source) => source.connector === "agent" && source.label === label)?.app;
-  const from = inventoryFrom;
-  const kept = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
-  // A piece for sale says nothing of who brought its memories in, so filtering by one shows memories only.
-  const onSale = from ? [] : s.publications.items.filter((item) => item.state === "approved");
-  const down = from ? [] : s.publications.items.filter((item) => item.state === "revoked");
-  unseen.forget();
-  if (shelf === "down" && !down.length) shelf = "all";
-
-  const tabs = el("div", "shelves");
-  tabs.setAttribute("role", "tablist");
-  // Approved pieces wait for the store to open for sale before anyone can buy them (XC-069).
-  const saleLabel = forSale(s) ? "On sale" : "Ready to sell";
-  const waitingNote = forSale(s) ? undefined : el("span", "hint", "Ready to sell once your store opens.");
-  /** @type {[Shelf, string, number][]} */
-  const shelves =[["all", "All", kept.length + onSale.length], ["private", "Private", kept.length], ["sale", saleLabel, onSale.length]];
-  if (down.length) shelves.push(["down", "Taken down", down.length]);
-  for (const [id, label, count] of shelves) {
-    const tab = el("button", "shelf");
-    tab.type = "button";
-    tab.setAttribute("role", "tab");
-    tab.setAttribute("aria-selected", String(shelf === id));
-    tab.append(label, el("span", "shelf-count", String(count)));
-    tab.addEventListener("click", () => { shelf = id; render(); });
-    tabs.append(tab);
+  constructor() {
+    this.menu.popover = "auto";
+    this.menu.setAttribute("role", "menu");
+    this.menu.setAttribute("aria-label", "More");
+    document.body.append(this.menu);
   }
 
-  /** A group named for the agent or app its memories came from is headed by that one's own mark. @type {Map<string, MemorySource>} */
-  const known = new Map();
-  for (const item of kept) {
-    for (const source of item.sources) if ((source.kind === "agent" || source.kind === "app") && source.label === item.project_label) known.set(source.label, source);
+  /** @param {Snapshot} s */
+  model(s) {
+    const from = inventoryFrom;
+    // A piece or a draft says nothing of who brought its memories in, so filtering by one shows memories only.
+    const memories = privateMemories(s).filter((item) => !from || item.sources.some((source) => source.id === from.id));
+    return Inbox.inventory({ memories, pieces: from ? [] : s.publications.items, drafts: from ? [] : candidates, tab: shelf });
   }
-  /** Rows under one heading, each group a card headed by what it's about. @param {Map<string, HTMLElement[]>} groups */
-  const grouped = (groups) => [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, rows]) => {
-    const box = el("div", "card rows inv-group");
-    const head = el("div", "inv-group-head");
-    const app = agentApp(name);
-    const source = known.get(name);
-    const mark = source ? sourceMark(source) : app ? agentMark(app, name) : el("span", "logo initial", (name || "·")[0].toUpperCase());
-    head.append(typeof mark === "string" ? markTile(mark) : mark, el("b", "", name || "Unsorted"), el("span", "shelf-count", String(rows.length)));
-    box.append(head, ...rows);
-    return box;
-  });
-  /** @template T @param {T[]} items @param {(item: T) => string} key @param {(item: T) => HTMLElement} make */
-  const groupBy = (items, key, make) => {
-    /** @type {Map<string, HTMLElement[]>} */
-    const groups = new Map();
-    for (const item of items) groups.set(key(item), [...(groups.get(key(item)) ?? []), make(item)]);
-    return grouped(groups);
-  };
-  const privateGroups = () => groupBy(kept, (item) => item.project_label, (item) => unseen.watch(sourcedRow(item, [when(item.updated_at)], item.verdict?.sell ?? true), item.arrival));
-  const saleGroups = () => groupBy(onSale, (item) => item.topic, saleItem);
-  const downGroups = () => groupBy(down, (item) => item.topic, (item) => row(item.title, item.topic, item.live === true ? chip("Still on your store", "attention") : chip("Taken down")));
-  const stack = (/** @type {HTMLElement[]} */ cards) => {
-    const node = el("div", "inv-stack");
-    node.append(...cards);
-    return node;
-  };
 
-  /** @type {HTMLElement[]} */
-  const parts = [storeBar(s)];
-  if (pushOffer) parts.push(seamCard());
-  if (pushedNote) parts.push(pushReceipt(s));
-  const filters = el("div", "inv-filters");
-  filters.append(tabs);
-  if (from) {
+  /** The text tabs beside the title, and the chip of the one agent or app it's filtered to. @param {Snapshot} s */
+  tabs(s) {
+    const { counts } = this.model(s);
+    /** @type {[Shelf, string][]} */
+    const shelves = [["all", "All"], ["private", "Private"], ["draft", "Draft"], ["sale", forSale(s) ? "On sale" : "Ready to sell"]];
+    const tabs = shelves.map(([id, label]) => {
+      const tab = el("button", "ptab");
+      tab.type = "button";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-selected", String(shelf === id));
+      tab.append(label, el("span", "n", String(counts[id])));
+      tab.addEventListener("click", () => { shelf = id; render(); });
+      return tab;
+    });
+    const from = inventoryFrom;
+    if (!from) return tabs;
     const only = el("span", "chip source-filter", from.label);
     const all = el("button", "dismiss", "×");
     all.type = "button";
     all.setAttribute("aria-label", `Show everything, not only ${from.label}`);
-    all.addEventListener("click", () => {
-      inventoryFrom = null;
-      render();
-    });
+    all.addEventListener("click", () => { inventoryFrom = null; render(); });
     only.append(all);
-    filters.append(only);
+    return [...tabs, only];
   }
-  parts.push(filters);
-  const nothingKept = emptyState("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()));
-  const nothingOnSale = emptyState("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }));
-  if (shelf === "all") {
-    if (!kept.length && !onSale.length) parts.push(nothingKept);
-    if (onSale.length) parts.push(section(saleLabel, stack(saleGroups()), waitingNote));
-    if (kept.length) parts.push(section("Private", stack(privateGroups())));
-  } else if (shelf === "private") {
-    parts.push(kept.length ? stack(privateGroups()) : nothingKept);
-  } else if (shelf === "sale") {
-    if (onSale.length && waitingNote) parts.push(waitingNote);
-    parts.push(onSale.length ? stack(saleGroups()) : nothingOnSale);
-  } else {
-    parts.push(stack(downGroups()));
+
+  /** @param {Snapshot} s */
+  parts(s) {
+    unseen.forget();
+    this.shown = [];
+    const { counts, rows, down } = this.model(s);
+    const list = el("div", "inbox inv");
+    list.setAttribute("role", "list");
+    list.setAttribute("aria-label", "Inventory");
+    list.append(...rows.map((row) => this.row(s, row)));
+    if (!inventoryFrom && (shelf === "all" || shelf === "sale")) {
+      const collections = s.collections?.items ?? [];
+      if (collections.length) list.append(...this.group("\0collections", "Collections", collections.map((item) => this.collectionRow(item))));
+      list.append(...this.salesGroup());
+    }
+    if (down.length) list.append(...this.group(DOWN, "Taken down", down.map((row) => this.row(s, row))));
+    this.shown = this.shown.filter((row) => list.querySelector(`[data-key="${CSS.escape(row.key)}"]`));
+    if (!this.shown.some((row) => row.key === this.selected)) this.selected = this.shown[0]?.key ?? "";
+    for (const node of list.querySelectorAll(".irow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === this.selected);
+    if (list.childElementCount) return [list];
+    if (shelf === "sale") return [this.empty("Nothing on sale yet.", button("See what's private", "quiet", () => { shelf = "private"; render(); }))];
+    if (!counts.all && !inventoryFrom) return [this.empty("Nothing kept yet. Say what you learned, or connect an agent, and Lore will keep it.", button("Add your first memory", "quiet", () => startCapture()))];
+    return [this.empty(shelf === "draft" ? "No drafts to approve." : "Nothing here.")];
   }
-  if (!from && (shelf === "all" || shelf === "sale")) parts.push(collectionsSection(s));
-  if (!from && (shelf === "all" || shelf === "sale")) parts.push(renderSales());
-  return parts;
+
+  /** @param {string} text @param {HTMLElement} [action] */
+  empty(text, action) {
+    const node = el("div", "caught-up empty");
+    node.append(el("span", "", text), ...(action ? [action] : []));
+    return node;
+  }
+
+  /** A flat header row that folds its rows away, then the rows. @param {string} key @param {string} name
+   * @param {HTMLElement[]} rows @param {HTMLElement} [action] @param {string} [meta] */
+  group(key, name, rows, action, meta) {
+    const closed = this.closed.has(key);
+    const head = el("div", "igroup");
+    head.setAttribute("role", "button");
+    head.tabIndex = 0;
+    head.setAttribute("aria-expanded", String(!closed));
+    head.append(glyph("down", "glyph chev"), el("span", "label", name), el("span", "n", String(rows.length)));
+    if (meta) head.append(el("span", "meta", meta));
+    if (action) head.append(action);
+    const fold = () => { if (closed) this.closed.delete(key); else this.closed.add(key); render(); };
+    head.addEventListener("click", (event) => { if (!(event.target instanceof Element && event.target.closest("button"))) fold(); });
+    head.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); fold(); } });
+    return [head, ...(closed ? [] : rows)];
+  }
+
+  /** One line: title, actions on hover, source, status, date, price.
+   * @param {{key: string, title: string, mark?: HTMLElement, status?: [string, string], date?: string, price?: string,
+   *   open?: () => void, tag?: [string, () => void], menu?: Array<[string, string, () => void]>, extra?: HTMLElement, memory?: number}} spec */
+  line({ key, title, mark, status, date = "", price: cost = "", open, tag, menu, extra, memory }) {
+    const node = el("div", `irow invrow${open ? "" : " still"}`);
+    node.setAttribute("role", "listitem");
+    node.dataset.key = key;
+    // A row that opens is reached by Tab on its title, which previews a memory on focus as on hover.
+    const say = open ? el("button", "say", title) : el("span", "say", title);
+    if (say instanceof HTMLButtonElement) {
+      say.type = "button";
+      say.addEventListener("click", () => open?.());
+      say.addEventListener("focus", () => this.select(key));
+    }
+    const acts = el("span", "acts");
+    if (tag) acts.append(this.icon(tag[0], GLYPHS.sell, tag[1]));
+    if (menu?.length) {
+      const more = this.icon("More", `<circle cx="3.5" cy="8" r="1" fill="currentColor"></circle><circle cx="8" cy="8" r="1" fill="currentColor"></circle><circle cx="12.5" cy="8" r="1" fill="currentColor"></circle>`, () => this.open(more, menu));
+      more.setAttribute("aria-haspopup", "menu");
+      acts.append(more);
+    }
+    if (extra) acts.append(extra);
+    const src = el("span", "src");
+    if (mark) src.append(mark);
+    node.append(say, acts, src, el("span", `st ${status?.[1] ?? ""}`.trim(), status?.[0] ?? ""), el("span", "age", date), el("span", "cost", cost));
+    node.addEventListener("click", (event) => { if (!(event.target instanceof Element && event.target.closest("button, a"))) open?.(); });
+    node.addEventListener("mousemove", () => this.select(key));
+    this.shown.push({ key, open, tag: tag?.[1], memory });
+    return node;
+  }
+
+  /** A 16px line icon that does one thing. @param {string} label @param {string} paths @param {() => void} onClick */
+  icon(label, paths, onClick) {
+    const node = el("button", "icon-btn");
+    node.type = "button";
+    node.title = label;
+    node.setAttribute("aria-label", label);
+    node.innerHTML = `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+    node.addEventListener("click", (event) => { event.stopPropagation(); onClick(); });
+    return node;
+  }
+
+  /** The row's … menu, opened under it. @param {HTMLElement} anchor @param {Array<[string, string, () => void]>} items */
+  open(anchor, items) {
+    this.menu.replaceChildren(...items.map(([label, paths, run]) => {
+      const item = el("button", "", label);
+      item.type = "button";
+      item.setAttribute("role", "menuitem");
+      item.insertAdjacentHTML("afterbegin", `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`);
+      item.addEventListener("click", () => { this.menu.hidePopover(); run(); });
+      return item;
+    }));
+    this.menu.showPopover({ source: anchor });
+    /** @type {HTMLElement | null} */ (this.menu.querySelector("button"))?.focus();
+  }
+
+  /** @param {Snapshot} s @param {InventoryRow} row */
+  row(s, row) {
+    const each = dollars(s.pricing.publication_usd ?? 0);
+    const cost = typeof s.pricing.publication_usd === "number" ? each : "";
+    const setPrice = /** @type {[string, () => void]} */ (["Set price", openPriceSheet]);
+    // Its mark names where it came from on hover; nothing on record reads as unknown, not as Lore's.
+    const sources = row.from?.sources ?? [];
+    const mark = sources.length ? markTile(sourceMark(sources[0])) : glyph("help", "routine-mark");
+    mark.title = sources.length ? provenance(sources).line : "Source unknown";
+    if (row.kind === "memory") {
+      const memory = row.item;
+      const sell = memory.verdict?.sell ?? true;
+      const draft = () => void publishMemory(memory);
+      /** @type {Array<[string, string, () => void]>} */
+      const menu = [["Open", GLYPHS.memory, () => void openMemory(memory.id)]];
+      if (sell) menu.push(["Draft for sale", GLYPHS.sell, draft]);
+      const node = this.line({ key: row.key, title: memory.title, mark, date: when(memory.updated_at), memory: memory.id, open: () => void openMemory(memory.id), tag: sell ? ["Draft for sale", draft] : undefined, menu });
+      peekable(/** @type {HTMLElement} */ (node.querySelector(".say")), memory.id);
+      return unseen.watch(node, memory.arrival);
+    }
+    if (row.kind === "draft") {
+      const draft = row.item;
+      const review = () => (draft.bid ? bidPage.open(draft.bid) : show("drafts"));
+      return this.line({ key: row.key, title: draft.title, mark, status: ["Draft", "draft"], date: when(row.from?.updated_at ?? ""), price: cost, open: review, tag: setPrice, menu: [["Review", GLYPHS.draft, review], ["Set price…", GLYPHS.sell, openPriceSheet]] });
+    }
+    const piece = row.item;
+    const date = when(piece.updated_at ?? "");
+    // How it's doing shows beside its actions on hover, in the row, never in a tooltip over the next one.
+    const count = Array.isArray(sales) ? sales.filter((sale) => sale.item_id === piece.public_id && sale.network !== "free").length : 0;
+    const seen = views[piece.public_id] ?? 0;
+    const doing = [seen ? Inbox.plural(seen, "view") : "", count ? `${count} sold` : ""].filter(Boolean).join(" · ");
+    const extra = doing ? el("span", "sub", doing) : undefined;
+    if (piece.state === "revoked") return this.line({ key: row.key, title: piece.title, mark, status: piece.live === true ? ["Coming off", "wait"] : ["Taken down", "down"], date });
+    const page = forSale(s) && piece.live !== false && s.node.url ? `${s.node.url.replace(/\/mcp$/, "")}/p/${piece.public_id}` : "";
+    const visit = page ? () => void window.open(page) : undefined;
+    const selling = forSale(s);
+    const status = /** @type {[string, string]} */ (piece.live === false && selling ? ["Pending", "wait"] : [selling ? "On sale" : "Ready to sell", "sale"]);
+    return this.line({ key: row.key, title: piece.title, mark, status, date, price: cost, open: visit, tag: setPrice, extra, memory: row.from?.id, menu: [...(row.from ? [/** @type {[string, string, () => void]} */ (["Open memory", GLYPHS.memory, () => void openMemory(/** @type {MemoryItem} */ (row.from).id)])] : []), ...(visit ? [/** @type {[string, string, () => void]} */ (["Open on your store", GLYPHS.next, visit])] : []), ["Set price…", GLYPHS.sell, openPriceSheet], ["Take down…", GLYPHS.lock, () => this.takeDown(piece)]] });
+  }
+
+  /** No one can buy it after this; anyone who already did keeps their copy. @param {PublicationItem} piece */
+  takeDown(piece) {
+    const form = new FormSheet("Take down this piece?");
+    form.note(`“${piece.title}”. No one can buy it after this. Anyone who already did keeps their copy.`);
+    form.button("Keep", "secondary", () => form.close());
+    form.open({ primary: "Take down", submit: () => void act(() => window.lore.revoke(piece.id), "Taken down. Your store stops selling it as soon as it updates.") });
+  }
+
+  /** @param {CollectionItem} item */
+  collectionRow(item) {
+    const open = () => showCollection(item.id);
+    return this.line({ key: `collection:${item.id}`, title: item.title, status: item.on_sale ? ["On sale", "sale"] : ["Draft", "draft"], price: item.on_sale ? dollars(item.price_usd) : "", open, menu: [["Open", GLYPHS.collection, open]] });
+  }
+
+  /** What the store sold, newest first, under its tally; a store not opened here, or a ledger that didn't answer, says so in one row. */
+  salesGroup() {
+    if (sales === null) return this.group("\0sales", "Sales", [this.line({ key: "sales:checking", title: "Checking your store…" })]);
+    if (sales instanceof Error) {
+      const retry = sales.message === SALES_ELSEWHERE ? undefined : button("Try again", "quiet", () => void loadSales());
+      return this.group("\0sales", "Sales", [this.line({ key: "sales:problem", title: sales.message, extra: retry })]);
+    }
+    if (!sales.length) return [];
+    return this.group("\0sales", "Sales", sales.map((sale) => this.saleRow(sale)), undefined, `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`);
+  }
+
+  /** One sale: what sold and how it was paid, its receipt on hover, and a refund the owner owes. @param {Sale} sale */
+  saleRow(sale) {
+    const key = `sale:${sale.tx || sale.sold_at}`;
+    if (sale.network === "free") return this.line({ key, title: `${sale.title} · a free copy`, date: when(sale.sold_at), price: "Free" });
+    const byCard = sale.network === "stripe";
+    const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
+    const receipt = outLink("Receipt", href, "receipt");
+    receipt.title = `See this payment on ${where}`;
+    // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
+    const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
+    const owed = sale.refund_owed ? ` · ${byCard ? "taken down before delivery" : "not answered"}${who}` : "";
+    return this.line({ key, title: `${sale.title} · ${byCard ? "by card" : "by an agent"}${owed}`, status: sale.refund_owed ? ["Refund owed", "owed"] : undefined, date: when(sale.sold_at), price: price(sale.price_usd), open: () => void window.open(href), extra: receipt });
+  }
+
+  /** @param {string} key */
+  select(key) {
+    if (this.selected === key) return;
+    this.selected = key;
+    for (const node of content.querySelectorAll(".invrow")) node.classList.toggle("sel", /** @type {HTMLElement} */ (node).dataset.key === key);
+    content.querySelector(".invrow.sel")?.scrollIntoView({ block: "nearest" });
+  }
+
+  /** ↑/↓ or J/K move, Enter opens, P is the row's tag action. @param {KeyboardEvent} event @returns {boolean} */
+  key(event) {
+    const at = this.shown.findIndex((row) => row.key === this.selected);
+    const step = event.key === "ArrowDown" || event.key === "j" ? 1 : event.key === "ArrowUp" || event.key === "k" ? -1 : 0;
+    if (step) {
+      const next = this.shown[Math.min(this.shown.length - 1, Math.max(0, at + step))];
+      if (next) this.select(next.key);
+      return true;
+    }
+    const row = this.shown[at];
+    if (event.key === "Enter" && row?.open) { row.open(); return true; }
+    if (event.key === "p" && row?.tag) { row.tag(); return true; }
+    return false;
+  }
+}
+
+const inventoryView = new InventoryView();
+
+/** The one Update a store can take now: pieces going on or coming off first, then a new price, then a newer store from
+ * Lore. Null when there is none. @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
+function storeUpdate(s) {
+  const waiting = unpushed(s);
+  if (waiting.length && !pushOffer) {
+    const push = button(pushing ? "Updating…" : "Update store", "secondary", pushNow);
+    push.disabled = pushing;
+    return { note: el("span", "newer-store", pendingLabel(waiting)), update: push };
+  }
+  const stale = stalePrice(s);
+  if (stale !== null && !pushing) return { note: el("span", "newer-store", `Your store still charges ${price(stale)}.`), update: button("Update store", "secondary", () => void startDeploy(REDEPLOY_PRICE)) };
+  return newerStore(s);
 }
 
 /** Inventory, showing only what one agent or app brought in, with what the owner hasn't seen marked New.
@@ -1935,10 +2771,11 @@ class Unseen {
     this.#showing.clear();
   }
 
-  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  /** Mark a row New while its memory is, and watch for it on screen. The mark sits beside the title, not inside it, so a
+   * title cut short by its ellipsis never cuts the mark off with it (APP-270). @param {HTMLElement} row @param {number} id */
   watch(row, id) {
     if (!this.fresh(id)) return row;
-    row.querySelector(".t b")?.append(el("span", "new-mark", "New"));
+    row.querySelector(".say")?.after(el("span", "new-mark", "New"));
     if (!this.seen.has(id)) {
       row.dataset.memory = String(id);
       this.#observer.observe(row);
@@ -1968,12 +2805,15 @@ const unseen = new Unseen();
 
 /** @returns {CollectionItem | undefined} */
 function openCollection() {
-  return snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+  const kept = snapshot?.collections?.items.find((item) => item.id === openCollectionId);
+  if (kept || collectionPending === null) return kept;
+  return { id: 0, public_id: "", title: collectionPending, price_usd: 0, on_sale: false, pieces: [], value_usd: 0 };
 }
 
 /** @param {CollectionItem | undefined} item */
 function collectionEyebrow(item) {
   if (!item) return "Collection";
+  if (collectionStep) return "New collection";
   return item.on_sale ? `Collection · On sale at ${price(item.price_usd)}` : "Collection · Not on sale yet";
 }
 
@@ -1983,23 +2823,6 @@ function collectionDetail(item) {
   return item.on_sale ? `${count} · ${price(item.price_usd)} for all of them` : `${count} · not on sale yet`;
 }
 
-/** For Sale's collections, each opening its own view. @param {Snapshot} s */
-function collectionsSection(s) {
-  const items = s.collections?.items ?? [];
-  const make = button("New collection", "quiet", () => void newCollection());
-  if (!items.length) return section("Collections", emptyState("Sell a set of pieces together, at one price.", make));
-  const rows = items.map((item) => {
-    const node = el("button", "row link");
-    node.type = "button";
-    const text = el("div", "t");
-    text.append(el("b", "", item.title), el("span", "", collectionDetail(item)));
-    node.append(text, item.on_sale ? chip("On sale", "ok") : chip("Draft"));
-    node.addEventListener("click", () => showCollection(item.id));
-    return node;
-  });
-  return section("Collections", card(rows), make);
-}
-
 /** @param {number} id */
 function showCollection(id) {
   openCollectionId = id;
@@ -2007,18 +2830,29 @@ function showCollection(id) {
   show("collection");
 }
 
-/** Step one: the collection exists the moment it's asked for. */
-async function newCollection() {
+/** Step one: the collection exists the moment it's asked for; a suggestion names it and ticks its memories.
+ * @param {string} [title] @param {number[]} [picks] */
+function newCollection(title, picks = []) {
   if (collectionBusy) return;
-  /** @type {NewCollection | null} */
-  let made = null;
-  if (await act(async () => { made = await window.lore.newCollection(); })) {
-    if (made) showCollection(/** @type {NewCollection} */ (made).id);
-    queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus());
-  }
+  gistsAsked = false;
+  // A fresh start: nothing ticked, typed or opened for another collection carries into this one.
+  reviewing = null;
+  collectionPicks.clear();
+  collectionDraft = "";
+  pickQuery = "";
+  collectionPasting = false;
+  collectionAdding = false;
+  editingCollectionPrice = false;
+  pickBundle = picks.length ? [...picks] : null;
+  collectionPending = title ?? UNTITLED;
+  showCollection(0);
+  collectionStep = 1;
+  for (const id of picks) collectionPicks.add(id);
+  render();
+  queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".pick-find, .drop-zone textarea"))?.focus());
 }
 
-/** Step two: dropped files or pasted text, each one piece. @param {{items?: Array<{title: string, content: string}>, files?: string[]}} input */
+/** Step two: kept memories, dropped files or pasted text, each one piece. @param {{memories?: number[], items?: Array<{title: string, content: string}>, files?: string[]}} input */
 async function addToCollection(input) {
   const item = openCollection();
   if (!item || collectionBusy) return;
@@ -2027,18 +2861,35 @@ async function addToCollection(input) {
     tell(`${path.split("/").pop()} looks like a credential or hidden file, so Lore won't add it.`, true);
     return false;
   });
-  if (!files.length && !input.items?.length) return;
+  if (!files.length && !input.items?.length && !input.memories?.length) return;
+  // The topic most of the chosen memories share names the collection, unless the owner already did.
+  const topics = (input.memories ?? []).map((id) => snapshot ? privateMemories(snapshot).find((memory) => memory.id === id)?.project_label ?? "" : "").filter(Boolean);
+  const top = topics.sort((a, b) => topics.filter((t) => t === b).length - topics.filter((t) => t === a).length)[0];
   collectionBusy = "adding";
   render();
-  /** @type {{added: Array<{title: string}>} | null} */
-  let result = null;
-  const done = await act(async () => { result = await window.lore.addToCollection(item.id, { items: input.items, files }); });
+  const done = await act(async () => {
+    // A new collection is made here, with its first memories, and taken back if they don't go in.
+    const made = item.id ? null : await window.lore.newCollection(item.title === UNTITLED ? undefined : item.title);
+    if (made) { openCollectionId = made.id; collectionPending = null; }
+    try {
+      await window.lore.addToCollection(made?.id ?? item.id, { memories: input.memories, items: input.items, files });
+    } catch (error) {
+      if (made) { await window.lore.deleteCollection(made.id).catch(() => undefined); openCollectionId = 0; collectionPending = item.title; }
+      throw error;
+    }
+  });
   collectionBusy = "";
-  if (done && result) {
+  // Contents redrawn above Price is the acknowledgement; a notice would follow the owner to other pages.
+  if (done) {
     if (input.items?.length) collectionDraft = "";
-    const added = /** @type {{added: Array<{title: string}>}} */ (result).added.length;
-    const after = openCollection();
-    tell(added === 1 ? "Added 1 piece." : `Added ${added} pieces.`, false, after && !after.on_sale ? { label: "Price it", run: () => { editingCollectionPrice = true; render(); } } : undefined);
+    if (input.memories?.length) { collectionPicks.clear(); pickQuery = ""; pickBundle = null; }
+    if (reviewing) { void dropSuggestion(reviewing); reviewing = null; }
+    collectionAdding = false;
+    collectionPasting = false;
+    if (collectionStep === 1) {
+      collectionSuggestion = item.title !== UNTITLED ? item.title : top ?? (input.items?.[0]?.title ?? "");
+      collectionStep = 2;
+    }
   }
   render();
 }
@@ -2069,6 +2920,7 @@ async function priceCollection(item, amount) {
   collectionBusy = "";
   if (done) {
     editingCollectionPrice = false;
+    collectionStep = 0;
     const live = Boolean(snapshot?.node.url);
     if (amount === 0) tell("Taken off sale. Its pieces are still for sale one by one.");
     else tell(live ? `On sale at ${price(amount)}. Buyers can get all of it in one go.` : `Priced at ${price(amount)}. It goes on sale once your store is open.`, false, live ? undefined : { label: "Open your store", run: () => void startDeploy() });
@@ -2093,9 +2945,10 @@ function collectionPrice(item) {
     return box;
   }
   const form = /** @type {HTMLFormElement} */ (el("form", "price-edit"));
-  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : "");
+  // A real suggested value, not a placeholder, so Put on sale works as shown; it still takes the button to publish.
+  const suggested = item.value_usd > 0 ? String(item.pieces.length > 1 ? Math.max(1, Math.round(item.value_usd * 0.8)) : item.value_usd) : "10";
+  const [field, input] = priceField(item.price_usd > 0 ? String(item.price_usd) : suggested);
   input.setAttribute("aria-label", "Price for the whole collection in US dollars");
-  input.placeholder = item.value_usd > 0 ? String(Math.max(1, Math.round(item.value_usd * 0.8))) : "10";
   const save = el("button", "btn primary sm", busy ? "Saving…" : item.on_sale ? "Update price" : "Put on sale");
   save.type = "submit";
   save.disabled = busy || !item.pieces.length;
@@ -2109,6 +2962,7 @@ function collectionPrice(item) {
   });
   box.append(form);
   const hint = !item.pieces.length ? "Add a piece first, then price it."
+    : item.pieces.length === 1 && item.value_usd > 0 ? `Individual price: ${price(item.value_usd)}.`
     : item.value_usd > 0 ? `Its ${item.pieces.length} ${item.pieces.length === 1 ? "piece costs" : "pieces cost"} ${price(item.value_usd)} one by one. A lower price here gives buyers a reason to take them all.`
     : "Buyers pay this once and get every piece in it.";
   box.append(el("p", "hint", hint));
@@ -2116,10 +2970,203 @@ function collectionPrice(item) {
   return box;
 }
 
+/** Kept memories newest first, under the topic each is about, the topic with the newest first.
+ * @param {MemoryItem[]} items @returns {Map<string, MemoryItem[]>} */
+function byTopic(items) {
+  /** @type {Map<string, MemoryItem[]>} */
+  const topics = new Map();
+  for (const memory of [...items].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at))) topics.set(memory.project_label, [...(topics.get(memory.project_label) ?? []), memory]);
+  return topics;
+}
+
+/** Step two the common way: tick kept memories, a whole topic in one tick, and add them. @param {Snapshot} s */
+function memoryPicker(s) {
+  // Read once a session and redrawn when they land; the search box keeps its words across the redraw.
+  if (!gistsAsked) {
+    gistsAsked = true;
+    void window.lore.gists().then((read) => { gists = read; render(); }, () => { gistsAsked = false; });
+  }
+  const busy = Boolean(collectionBusy);
+  const wrap = el("div", "picker");
+  const find = el("input", "pick-find");
+  find.type = "search";
+  find.placeholder = "Find a memory by what it's about";
+  find.setAttribute("aria-label", "Find a memory to add");
+  const typing = document.activeElement instanceof HTMLElement && document.activeElement.classList.contains("pick-find");
+  // Back on the first step with pieces already in, Continue moves on without adding more.
+  const onward = () => collectionStep === 1 && !collectionPicks.size && Boolean(openCollection()?.pieces.length);
+  const add = button("", "primary", () => {
+    if (onward()) { collectionStep = 2; collectionSuggestion = openCollection()?.title ?? ""; render(); } else void addToCollection({ memories: [...collectionPicks] });
+  });
+  const chosen = el("span", "hint");
+  /** @type {Array<{memory: MemoryItem, tick: HTMLInputElement, line: HTMLElement}>} */
+  const all = [];
+  const count = () => {
+    const n = collectionPicks.size;
+    add.textContent = collectionBusy === "adding" ? "Adding…" : collectionStep === 1 ? "Continue" : n ? `Add ${n} ${n === 1 ? "memory" : "memories"}` : "Add";
+    add.disabled = busy || (!n && !onward());
+    const outside = all.filter((entry) => entry.line.hidden && collectionPicks.has(entry.memory.id)).length;
+    chosen.textContent = !n ? "" : outside ? `${n} selected · ${outside} outside this search` : `${n} selected`;
+  };
+  /** @type {Array<() => void>} */
+  const syncs = [];
+  const kept = privateMemories(s);
+  const groups = [...byTopic(pickBundle ? kept.filter((memory) => pickBundle?.includes(memory.id)) : kept)].map(([topic, memories]) => {
+    const box = el("div", "card rows pick-group");
+    const head = el("label", "pick-head");
+    const every = el("input");
+    every.type = "checkbox";
+    every.setAttribute("aria-label", `Every memory about ${topic || "nothing in particular"}`);
+    head.append(every, el("b", "", topic || "Unsorted"), el("span", "shelf-count", String(memories.length)));
+    /** @type {HTMLElement[]} */
+    const lines = [];
+    const ticks = memories.map((memory) => {
+      const line = el("label", "row pick");
+      lines.push(line);
+      const tick = el("input");
+      tick.type = "checkbox";
+      tick.checked = collectionPicks.has(memory.id);
+      tick.disabled = busy;
+      tick.addEventListener("change", () => { tick.checked ? collectionPicks.add(memory.id) : collectionPicks.delete(memory.id); sync(); count(); });
+      // A title alone rarely says enough to choose by: what it's about, then where it came from and when.
+      const text = el("div", "t");
+      text.append(el("b", "", memory.title));
+      const about = gists?.[memory.id];
+      if (about) text.append(el("span", "pick-gist", about));
+      text.append(el("span", "pick-meta", [provenance(memory.sources).line, when(memory.updated_at)].filter(Boolean).join(" · ")));
+      line.append(tick, text);
+      peekable(text, memory.id);
+      line.dataset.find = `${memory.title} ${about ?? ""} ${topic}`.toLowerCase();
+      box.append(line);
+      all.push({ memory, tick, line });
+      return tick;
+    });
+    // Ticking a topic means what the owner can see of it: a search narrows it.
+    const shown = () => ticks.filter((_, i) => !lines[i].hidden);
+    const sync = () => {
+      const visible = shown();
+      const on = visible.filter((tick) => tick.checked).length;
+      every.checked = visible.length > 0 && on === visible.length;
+      every.indeterminate = on > 0 && on < visible.length;
+    };
+    every.disabled = busy;
+    every.addEventListener("change", () => {
+      memories.forEach((memory, i) => {
+        if (lines[i].hidden) return;
+        ticks[i].checked = every.checked;
+        every.checked ? collectionPicks.add(memory.id) : collectionPicks.delete(memory.id);
+      });
+      sync();
+      count();
+    });
+    syncs.push(sync);
+    sync();
+    box.prepend(head);
+    return box;
+  });
+  const none = el("p", "hint pick-none", "No matching memories.");
+  none.hidden = true;
+  // Filtered in place, so the search box keeps its focus while the owner types.
+  find.addEventListener("input", () => {
+    pickQuery = find.value;
+    const words = find.value.trim().toLowerCase();
+    let any = 0;
+    for (const box of groups) {
+      let found = 0;
+      for (const line of box.querySelectorAll(".pick")) {
+        const hit = !words || /** @type {HTMLElement} */ (line).dataset.find?.includes(words);
+        /** @type {HTMLElement} */ (line).hidden = !hit;
+        if (hit) found++;
+      }
+      box.hidden = !found;
+      any += found;
+    }
+    none.hidden = any > 0;
+    for (const sync of syncs) sync();
+    count();
+  });
+  // A suggestion's few memories show whole; every memory kept scrolls under its search.
+  const list = el("div", pickBundle ? "inv-stack" : "inv-stack pick-list");
+  list.append(...groups, none);
+  const files = pickBundle
+    ? button("Choose from all memories", "quiet", () => { pickBundle = null; render(); })
+    : button("Import text or files", "quiet", () => { collectionPasting = true; render(); queueMicrotask(() => /** @type {HTMLElement | null} */ (document.querySelector(".drop-zone textarea"))?.focus()); });
+  const foot = el("div", "pick-foot");
+  const left = el("div", "pick-left");
+  left.append(chosen, files);
+  foot.append(left, add);
+  count();
+  if (pickBundle) wrap.append(list, foot);
+  else wrap.append(find, list, foot);
+  if (pickQuery) { find.value = pickQuery; find.dispatchEvent(new Event("input")); }
+  if (typing) queueMicrotask(() => find.focus());
+  return wrap;
+}
+
+/** What automations suggest collecting: each a name and what's in it, opened in Lore's own picker.
+ * @param {Snapshot} s */
+function suggestionsCard(s) {
+  const kept = new Map(privateMemories(s).map((memory) => [memory.id, memory.title]));
+  const live = suggestions.map((each) => ({ each, memories: each.memories.filter((id) => kept.has(id)) })).filter(({ memories }) => memories.length);
+  if (!live.length) return null;
+  const rows = live.map(({ each, memories }) => {
+    // Added to only when one collection has that name; with two alike it starts its own, which the owner names.
+    const alike = (s.collections?.items ?? []).filter((item) => item.title.toLowerCase() === each.title.toLowerCase());
+    const into = alike.length === 1 ? alike[0] : undefined;
+    const count = `${memories.length} ${memories.length === 1 ? "memory" : "memories"}`;
+    const detail = `${into ? `Adds ${count} to it` : count} · ${named(memories.map((id) => kept.get(id) ?? ""))}`;
+    const review = () => reviewSuggestion(each, memories, into);
+    const dismiss = el("button", "dismiss", "×");
+    dismiss.type = "button";
+    dismiss.setAttribute("aria-label", `Dismiss ${each.title}`);
+    dismiss.addEventListener("click", () => void dropSuggestion(each));
+    // Shaped as a New memories row: a stack of memories, marked as Inventory is, then its name, what's in it and Review.
+    const head = el("div", "row routine ready-head suggestion");
+    const text = el("div", "t");
+    text.append(el("b", "sans", each.title), el("span", "", detail));
+    const chevron = el("span", "disclose");
+    chevron.innerHTML = DISCLOSE;
+    head.append(markTile(STEP_ICONS.collection), text, inline("Review →", review), chevron, dismiss);
+    head.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element && event.target.closest("button"))) review();
+    });
+    const box = el("div", "ready-group");
+    box.append(head);
+    return box;
+  });
+  const list = el("div", "routines today-cards");
+  list.append(...rows);
+  return section("Suggested collections", list);
+}
+
+/** @param {CollectionSuggestion} each */
+async function dropSuggestion(each) {
+  suggestions = suggestions.filter((other) => other.title.toLowerCase() !== each.title.toLowerCase());
+  render();
+  await window.lore.dropSuggestion(each.title).catch(() => undefined);
+}
+
+/** A suggestion opens the picker with its memories ticked: a new collection's wizard, or more for one already made.
+ * @param {CollectionSuggestion} each @param {number[]} memories @param {CollectionItem | undefined} into */
+function reviewSuggestion(each, memories, into) {
+  if (!into) {
+    newCollection(each.title, memories);
+    reviewing = each;
+    return;
+  }
+  showCollection(into.id);
+  reviewing = each;
+  gistsAsked = false;
+  collectionAdding = true;
+  pickBundle = [...memories];
+  for (const id of memories) collectionPicks.add(id);
+  render();
+}
+
 /** @param {CollectionItem} item @param {{id: number, title: string}} piece */
 function collectionPiece(item, piece) {
   const trailing = el("div", "v");
-  const ask = button("Remove", "quiet", () => {
+  const ask = button("Remove", "quiet neutral", () => {
     trailing.replaceChildren(
       el("span", "hint", "It comes off sale too. Anyone who already bought it keeps their copy."),
       button("Keep", "secondary", () => trailing.replaceChildren(ask)),
@@ -2127,7 +3174,85 @@ function collectionPiece(item, piece) {
     );
   });
   trailing.append(ask);
-  return row(piece.title, "", trailing);
+  const node = el("div", "irow");
+  node.append(el("span", "say", piece.title), trailing);
+  return node;
+}
+
+const UNTITLED = "Untitled collection";
+const WIZARD_STEPS = ["Choose memories", "Name it", "Price it"];
+
+/** Where a new collection is in its three steps: done ones ticked, this one lit. */
+function wizardSteps() {
+  const list = el("ol", "wizard-steps");
+  WIZARD_STEPS.forEach((label, index) => {
+    const at = index + 1;
+    const step = el("li", at < collectionStep ? "done" : at === collectionStep ? "now" : "");
+    if (at === collectionStep) step.setAttribute("aria-current", "step");
+    step.append(el("span", "wizard-n", at < collectionStep ? "✓" : String(at)), el("span", "", label));
+    list.append(step);
+  });
+  return list;
+}
+
+/** A new collection, one step on screen at a time. Cancel on the first step leaves nothing behind.
+ * @param {CollectionItem} item @param {HTMLElement} fill */
+function collectionWizard(item, fill) {
+  const nav = el("div", "wizard-nav");
+  /** @type {HTMLElement} */
+  let body;
+  if (collectionStep === 1) {
+    body = el("div", "wizard-body");
+    const lead = pickBundle ? `Lore picked ${pickBundle.length === 1 ? "this memory" : `these ${pickBundle.length}`}. Untick any that don't belong.` : "Pick the memories to sell together. Ticking a topic picks everything in it.";
+    body.append(el("p", "wizard-lead", lead), fill);
+    // The empty collection is the only trace of starting; Cancel takes it back.
+    const cancel = button("Cancel", "quiet neutral", async () => {
+      collectionStep = 0;
+      // Not made yet, there is nothing to take back.
+      if (!item.id || await act(() => window.lore.deleteCollection(item.id))) { openCollectionId = null; show("inventory"); }
+    });
+    // Beside Continue when the picker shows; under the drop zone otherwise.
+    const pickFoot = fill.querySelector(".pick-foot");
+    if (!item.pieces.length) pickFoot ? pickFoot.lastElementChild?.before(cancel) : nav.append(cancel);
+  } else if (collectionStep === 2) {
+    body = /** @type {HTMLFormElement} */ (el("form", "wizard-body"));
+    const name = el("input", "collection-name");
+    name.value = collectionSuggestion || (item.title === UNTITLED ? "" : item.title);
+    name.placeholder = "What buyers will see it called";
+    name.setAttribute("aria-label", "Collection name");
+    name.maxLength = 80;
+    const next = el("button", "btn primary", collectionBusy === "naming" ? "Saving…" : "Continue");
+    next.type = "submit";
+    body.append(el("p", "wizard-lead", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"} in it. Give it a name buyers will understand.`), name);
+    body.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const value = name.value.trim();
+      if (!value) return void tell("Give it a name first.", true);
+      await renameCollection(item, value);
+      collectionStep = 3;
+      editingCollectionPrice = false;
+      render();
+    });
+    nav.append(button("Back", "quiet neutral", () => { collectionStep = 1; render(); }), next);
+    queueMicrotask(() => { name.focus(); name.select(); });
+  } else {
+    body = el("div", "wizard-body");
+    body.append(el("p", "wizard-lead", "One price for everything in it. You can change it any time."), collectionPrice(item));
+    // Put on sale moves to the footer, where every step goes forward.
+    const priced = /** @type {HTMLFormElement | null} */ (body.querySelector(".price-edit"));
+    const sell = priced?.querySelector("button[type=submit]");
+    if (priced && sell) priced.id = "wizard-price";
+    nav.append(button("Back", "quiet neutral", () => { collectionStep = 2; collectionSuggestion = item.title; render(); }), button("Skip for now", "quiet neutral", () => { collectionStep = 0; render(); }));
+    if (sell) { sell.setAttribute("form", "wizard-price"); sell.classList.remove("sm"); nav.append(sell); }
+  }
+  const panel = el("div", "card pad wizard");
+  panel.append(wizardSteps(), body, nav);
+  // The naming step submits from its own Continue, which sits in the nav row.
+  if (body instanceof HTMLFormElement) {
+    body.id = "wizard-form";
+    nav.querySelector("button[type=submit]")?.setAttribute("form", "wizard-form");
+  }
+  return [panel];
 }
 
 /** A collection in three steps: name it, fill it, price it. @param {Snapshot} s */
@@ -2135,15 +3260,6 @@ function renderCollection(s) {
   const item = openCollection();
   if (!item) return [emptyState("This collection is gone.", button("Back to For Sale", "quiet", () => show("store")))];
   const busy = Boolean(collectionBusy);
-
-  const name = el("input", "collection-name");
-  name.type = "text";
-  name.value = item.title;
-  name.maxLength = 120;
-  name.setAttribute("aria-label", "Collection name");
-  name.disabled = busy;
-  name.addEventListener("keydown", (event) => { if (event.key === "Enter") name.blur(); if (event.key === "Escape") { name.value = item.title; name.blur(); } });
-  name.addEventListener("change", () => void renameCollection(item, name.value));
 
   const zone = el("div", "card drop-zone");
   const lead = el("div", "drop-lead");
@@ -2165,11 +3281,16 @@ function renderCollection(s) {
   pasteRow.append(paste, add);
   zone.append(lead, pasteRow);
 
-  const pieces = item.pieces.length
-    ? card(item.pieces.map((piece) => collectionPiece(item, piece)))
-    : el("div", "card pad empty", "Nothing in it yet. Drop a file or paste some text above.");
+  const memories = privateMemories(s).length;
+  const filled = item.pieces.length > 0;
+  const fill = el("div", "collection-fill");
+  if (memories && !collectionPasting) fill.append(memoryPicker(s));
+  if (collectionPasting || !memories) {
+    fill.append(zone);
+    if (memories) fill.append(button("Choose from your memories instead", "quiet", () => { collectionPasting = false; render(); }));
+  }
 
-  const remove = button("Delete collection", "quiet", () => {
+  const remove = button("Delete collection", "quiet neutral", () => {
     foot.replaceChildren(
       el("span", "hint", "Its pieces stay for sale one by one."),
       button("Keep", "secondary", () => foot.replaceChildren(remove)),
@@ -2178,21 +3299,36 @@ function renderCollection(s) {
   });
   const foot = el("div", "collection-foot");
   foot.append(remove);
+  if (collectionStep) return collectionWizard(item, fill);
 
-  return [
-    section("Name", name),
-    section("Add to it", zone),
-    section("In this collection", pieces, item.pieces.length ? el("span", "hint", `${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`) : undefined),
-    section("Price", collectionPrice(item)),
-    foot
-  ];
-}
-
-function renderSales() {
-  if (sales instanceof Error) return section("Sales", sales.message === SALES_ELSEWHERE ? el("div", "card pad empty", SALES_ELSEWHERE) : emptyState(sales.message, button("Try again", "secondary", () => void loadSales())));
-  if (sales === null) return section("Sales", el("div", "card pad empty", "Checking your store…"));
-  if (!sales.length) return section("Sales", el("div", "card pad empty", "No sales yet. When someone buys a piece, by card or through their agent, it shows here."));
-  return section("Sales", card(sales.map(saleRow)), el("span", "hint", `${tally(sales)} · ${price(total(sales))} · last ${when(sales[0].sold_at)}`));
+  // Empty, it opens on choosing; once filled, what's in it and its price lead, and adding more is one tap away.
+  if (!filled) return [section("Add memories", fill), foot];
+  // APP-282: once set up, a collection is a page like a memory's: its pieces as rows, its price, its properties beside.
+  const more = button(collectionAdding ? "Done adding" : "Add memories", "quiet", () => { collectionAdding = !collectionAdding; collectionPasting = false; pickBundle = null; reviewing = null; if (collectionAdding) gistsAsked = false; render(); });
+  const contents = el("div", "found collection-contents");
+  contents.append(...item.pieces.map((piece) => collectionPiece(item, piece)));
+  const head = el("h3", "sec");
+  const right = el("span", "right");
+  right.append(more);
+  head.append(`${item.pieces.length} ${item.pieces.length === 1 ? "piece" : "pieces"}`, right);
+  const main = el("div", "page-col");
+  main.append(el("h2", "ptitle", item.title), ...(collectionAdding ? [fill] : []), head, contents, el("h3", "sec", "Price"), collectionPrice(item), foot);
+  const side = el("div", "page-side");
+  const list = el("dl", "props");
+  /** @type {[string, string | HTMLElement][]} */
+  const props = [["Status", chip(item.on_sale ? "On sale" : "Draft", item.on_sale ? "live" : "pending")], ["Price", item.on_sale ? dollars(item.price_usd) : "Not set"], ["Pieces", String(item.pieces.length)]];
+  if (item.value_usd) props.push(["Separately", dollars(item.value_usd)]);
+  for (const [label, value] of props) {
+    const entry = el("div", "prop");
+    const dd = el("dd");
+    dd.append(value);
+    entry.append(el("dt", "", label), dd);
+    list.append(entry);
+  }
+  side.append(list);
+  const layout = el("div", "page collection-page");
+  layout.append(main, side);
+  return [layout];
 }
 
 /** @param {Sale[]} rows */
@@ -2203,23 +3339,6 @@ function tally(rows) {
   const free = rows.filter((sale) => sale.network === "free").length;
   const paid = rows.length - free;
   return [`${paid} ${paid === 1 ? "sale" : "sales"}`, free ? `${free} free ${free === 1 ? "copy" : "copies"}` : ""].filter(Boolean).join(" · ");
-}
-
-/** One sale: what sold, when, how it was paid, and where the payment can be seen. @param {Sale} sale */
-function saleRow(sale) {
-  if (sale.network === "free") return row(sale.title, `${when(sale.sold_at)} · a free copy`, cell(el("span", "value", "Free")), false);
-  const byCard = sale.network === "stripe";
-  const trailing = el("div", "v");
-  const [where, href] = byCard ? ["Stripe", `https://dashboard.stripe.com/payments/${sale.tx}`] : ["Basescan", `${explorer(sale.network)}/tx/${sale.tx}`];
-  const receipt = outLink("Receipt", href, "receipt");
-  receipt.title = `See this payment on ${where}`;
-  if (sale.refund_owed) trailing.append(chip("Refund owed", "attention"));
-  trailing.append(el("span", "value", price(sale.price_usd)), receipt);
-  // Paid for and never delivered: Lore can't send money from your wallet or Stripe account, so it says whom to refund.
-  const why = byCard ? "taken down before delivery" : "not answered";
-  const who = sale.payer ? `, refund ${sale.payer.slice(0, 6)}…${sale.payer.slice(-4)}` : "";
-  const owed = sale.refund_owed ? ` · ${why}${who}` : "";
-  return row(sale.title, `${when(sale.sold_at)} · ${byCard ? "by card" : "by an agent"}${owed}`, trailing, false);
 }
 
 const SALES_ELSEWHERE = "Sales show here once your store is open on this Mac.";
@@ -2252,16 +3371,6 @@ function cell(...parts) {
 /** A status pill: one shape for every state a Settings row can be in. @param {string} label @param {"ok" | "wait" | "attention" | ""} [tone] */
 function pill(label, tone = "") {
   return el("span", `status-pill ${tone}`.trim(), label);
-}
-
-/** Settings → How often Lore reads them: the rhythm Lore keeps while it is open. @param {Snapshot} s */
-function scheduleRow(s) {
-  const label = "How often Lore reads them";
-  const schedule = s.setup.schedule;
-  if (!schedule) return row(label, "New memories are written from what your agents learned.", cell(pill("Not set"), button("Start", "secondary", startSetup)), false);
-  if (schedule.paused) return row(label, `${runsWhen(schedule)}, paused.`, cell(pill("Paused"), button("Automations", "secondary", () => show("automations"))), false);
-  const last = schedule.missed ? "Lore was closed at that hour, so it's reading now." : schedule.last_run ? `Last read ${when(schedule.last_run)}.` : "Hasn't run yet.";
-  return row(label, `${runsWhen(schedule)}, while Lore is open. ${last}`, cell(pill("Scheduled", "ok")), false);
 }
 
 /** Card payments, read from Lore and, while an account waits on Stripe, from Stripe. @type {CardStatus | null | Error} */
@@ -2375,7 +3484,7 @@ function priceSetting(s) {
   if (minimum !== null) detail.append(el("span", "row-warn", `Card payments need at least ${price(minimum)} a piece. Buyers can't pay by card until you raise it.`));
   // One editor, on For Sale. Every other surface reads the same numbers and
   // sends the owner there rather than growing a second field.
-  return row("Price", detail, cell(el("span", "value", value), button(set ? "Change" : "Set a price", "quiet", openPriceEditor)), false);
+  return row("Price", detail, cell(el("span", "value", value), button(set ? "Change" : "Set a price", "quiet", openPriceSheet)), false);
 }
 
 /** Settings → Your store → Address: where buyers find the store, whether it answers, and one way to open it. @param {Snapshot} s */
@@ -2387,9 +3496,9 @@ function addressRow(s) {
   detail.append(el("span", "mono", home.replace(/^https?:\/\//, "")));
   const console = workerConsole(s.node.url);
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
-  const newer = newerStore(s);
+  const newer = storeUpdate(s);
   if (newer) detail.append(newer.note);
-  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), outLink("Open ↗", home)), false);
+  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), ...(s.node.selling === false ? [button("Open your store", "secondary", () => void startDeploy())] : []), outLink("Open ↗", home)), false);
 }
 
 /** APP-231: a newer store from Lore, offered quietly where the store shows, never as a step: a short line, and an
@@ -2398,7 +3507,7 @@ function addressRow(s) {
  * @param {Snapshot} s @returns {{note: HTMLElement, update: HTMLElement} | null} */
 function newerStore(s) {
   if (s.node.store !== "outdated" || pushing || underWay("deploy")) return null;
-  return { note: el("span", "newer-store", "A newer store from Lore is ready."), update: button("Update", "quiet", () => void pushNow(true)) };
+  return { note: el("span", "newer-store", "Your store has an update."), update: button("Update", "quiet", () => void pushNow(true)) };
 }
 
 /** Read the listing state once per store address; Settings re-renders when it lands. @param {Snapshot} s */
@@ -2476,8 +3585,8 @@ function many(noun) {
 
 /** A bundled brand mark by asset name, the initial when none loads. @param {string} asset @param {string} name */
 function brand(asset, name) {
-  // Grok Bot's mark is already a whole app tile; framing it in another tile reads as a box in a box.
-  const node = el("img", asset === "grok" ? "logo full" : "logo");
+  // Grok Bot's and Instinct's marks are already whole tiles; framing them in another reads as a box in a box.
+  const node = el("img", asset === "grok" || asset === "instinct" ? "logo full" : "logo");
   node.src = `assets/${asset}.svg`;
   node.alt = "";
   node.addEventListener("error", () => node.replaceWith(el("span", "logo initial", name[0])), { once: true });
@@ -2872,8 +3981,9 @@ function openConnection(app, source) {
   const form = new FormSheet(name, logo(app));
   form.text(source.label === name ? state.line(app, source) : `${source.label} · ${state.line(app, source)}`);
   if (app.kind !== "mcp") form.text(source.locator ?? "", "hint mono");
-  const standing = source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : snapshot?.setup.schedule && !snapshot.setup.schedule.paused ?`Lore looks for new ${many(app.item)} each time your schedule runs.` : `Lore looks for new ${many(app.item)} only when you choose Read again.`;
-  form.text(standing, "hint");
+  const reading = routines.find((routine) => routine.kind === "read");
+  const standing = form.text(source.refresh === false ? `Read once. Change ${unit} to bring in a newer one.` : reading && !reading.paused ? `Lore looks for new ${many(app.item)} ` : `Lore looks for new ${many(app.item)} only when you choose Read again.`, "hint");
+  if (source.refresh !== false && reading && !reading.paused) standing.append(inline(runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every"), () => openRoutine(reading)), ".");
   form.button("Disconnect", "quiet", ask);
   if (app.kind === "mcp") form.button("Sign in again", signedOut ? "secondary" : "quiet", () => openSignIn(app));
   else form.button(`Change ${unit}`, "quiet", () => void openConnect(app, source));
@@ -2905,10 +4015,10 @@ function openConnection(app, source) {
   }
 }
 
-/** Connectors: the owner's own agents, then where memories come from, and how often Lore reads them. First class: the
- * way context gets into Lore, not a preference. @param {Snapshot} s */
+/** Connectors: the owner's own agents, then where memories come from, then what Lore does with them on its own. First
+ * class: the way context gets into Lore, not a preference. @param {Snapshot} s */
 function renderConnectors(s) {
-  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s))), section("", card([scheduleRow(s)]))];
+  return [section("Your agents", agentTiles(s)), section("Your apps", tiles(sourceRows(s)))];
 }
 
 /** Rows as a grid of tiles, each opened by a click anywhere on it. @param {HTMLElement[]} rows */
@@ -2926,11 +4036,12 @@ function tiles(rows) {
   return grid;
 }
 
+/** Where an agent with no app on this Mac adds a connector on the web. @type {Partial<Record<AgentApp, string>>} */
+const AGENT_WEB = { claude: "https://claude.ai/settings/connectors" };
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
-const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["other", "Other"]];
+const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
-const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", other: "agent" };
-const STORE_FIRST = "Your agents work online, so they need a place online to save to. Lore sets one up for you, free on Cloudflare. Only your agents can save to it, and nothing goes on sale until you choose to sell it.";
+const PERSONAL_MARKS = { grok: "grok", muse: "muse", chatgpt: "chatgpt", claude: "claude", instinct: "instinct", other: "agent" };
 /** APP-217: how each agent takes Lore's private link, as its maker documents it (checked Oct 17, 2026). Grok Bot adds
  * a connector it is sent in chat, so it gets a message around the link; `routine` is what each calls a scheduled ask.
  * `again` is the same for a new link, which replaces the Lore connector the agent already has rather than adding one;
@@ -2970,6 +4081,17 @@ const saveAsk = (kind) => `Save what you know about me to Lore: who I am, what I
 const eveningAsk = (kind) => `Set up a ${kind} that saves anything new you learn about me to Lore every evening.`;
 /** While the setup sheet waits on a first save, it asks the store this often, not once a minute. */
 const FIRST_SAVE_EVERY_MS = 10_000;
+/** #597: Instinct is texted, not configured. The owner texts it a setup message holding only the plain address, and
+ * copies the key into the secure form Instinct gives, never into the conversation. Setup asks for one memory the owner
+ * approves; saving from then on is its own ask, offered once a save has come. New, so its note says what to do if
+ * Instinct can't finish. */
+const INSTINCT = {
+  ask: "Help me connect my Lore. Show me one memory you'd save, and ask me before saving anything. My Lore's address: ",
+  first: ["Copy the setup message and text it to Instinct, in the conversation you already have", "When Instinct asks for your Lore key, copy it below into the secure form Instinct gives you. Never text the key", "Instinct shows you one memory it would save. Approve it, and Lore shows here when it arrives"],
+  again: ["Copy the new key below into the secure form Instinct gives you for Lore, in place of the old one. Never text the key", "Lore shows here when Instinct's next save arrives"],
+  ongoing: "From now on, when you learn something about me worth keeping, show it to me and save it to Lore once I say yes.",
+  note: "Connecting Instinct is new. If Instinct can't finish it, "
+};
 
 /** @param {AgentApp | null | undefined} app @param {string} name */
 function agentMark(app, name) {
@@ -3050,7 +4172,10 @@ function agentTiles(s) {
   const connect = () => new AgentSetup().open();
   if (rows.length) {
     const more = row("Connect another agent", "Grok Bot, ChatGPT or Claude", cell(button("Connect", "secondary", connect)), false);
-    more.prepend(agentMark("other", "Agent"));
+    // The agents it can be, not a generic mark: the same stack the first-connect card shows.
+    const stack = el("div", "mark-stack");
+    for (const [app, name] of AGENT_APPS.filter(([id]) => id !== "other" && id !== "muse")) stack.append(agentMark(app, name));
+    more.prepend(stack);
     more.classList.add("tile-add");
     return tiles([...rows, more]);
   }
@@ -3159,20 +4284,7 @@ class AgentSetup {
   }
 
   open() {
-    if (snapshot?.node.url) this.pick();
-    else this.store();
-  }
-
-  /** The store goes online the way it always does, in its own thread; the sheet comes back once it is. */
-  store() {
-    this.form.text(STORE_FIRST);
-    this.form.open({
-      primary: "Put your store online",
-      submit: () => {
-        agentAfterStore = true;
-        void startDeploy(AGENT_STORE_INTENT);
-      }
-    });
+    this.pick();
   }
 
   pick() {
@@ -3195,7 +4307,7 @@ class AgentSetup {
       option.prepend(agentMark(app, label));
       rows.append(option);
     }
-    form.note("What it saves stays private on this Mac.");
+    form.note(snapshot?.node.agents ? "What it saves stays private on this Mac." : "Lore keeps a private place online for it to save to. Your key stays on this Mac, and you can move to your own Cloudflare whenever you like.");
     form.open({
       primary: "Connect",
       working: "Connecting…",
@@ -3204,6 +4316,11 @@ class AgentSetup {
       submit: async () => {
         if (!chosen) return false;
         const [app, name] = chosen;
+        // XC-088: with nowhere online for agents to save yet, Lore hosts one first, in seconds.
+        if (!snapshot?.node.agents) {
+          await window.lore.storeOnline();
+          await load();
+        }
         if (AGENT_GUIDES[app]?.signIn) this.signIn(app, name, (await window.lore.agentAddress()).mcp_url, await this.installed);
         else await this.keyed(app, name);
         return false;
@@ -3310,7 +4427,11 @@ class AgentSetup {
       node.classList.add("copy-row");
       return node;
     };
-    const guide = agentGuide(handed, first);
+    const instead = () => void act(async () => {
+      await window.lore.disconnectAgent(handed.source, false);
+      await this.keyed("other", where);
+    });
+    const guide = app === "instinct" ? textFirst(handed, first, first ? instead : undefined) : agentGuide(handed, first);
     if (guide) form.body.append(...guide);
     else {
       const list = el("ol", "agent-steps");
@@ -3319,14 +4440,14 @@ class AgentSetup {
     }
     const hint = el("span", "form-hint quiet-hint");
     hint.innerHTML = LOCK_ICON;
-    hint.append(el("span", "", first ? "Private link, shown once" : "The old link stopped working"));
+    hint.append(el("span", "", first ? (app === "instinct" ? "Key shown once" : "Private link, shown once") : app === "instinct" ? "The old key stopped working" : "The old link stopped working"));
     form.aside.append(hint);
     if (!guide) {
       form.group("", [copyRow("Address", handed.mcp_url, handed.mcp_url), copyRow("Key", handed.header, handed.header), copyRow("Instructions", "What to save, and when", handed.prompt)]);
       form.body.append(inlineNotice(`This key is shown only once. If it's lost, get a new one from Manage.`));
       form.button("Copy all", "secondary", () => void window.lore.copy(`Address: ${handed.mcp_url}\nKey: ${handed.header}\n\n${handed.prompt}`));
     }
-    if (first) form.body.append(...afterConnect(app, where));
+    if (first && app !== "instinct") form.body.append(...afterConnect(app, where));
     if (app === "grok" && installed.includes(app)) form.button(`Open ${where}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${where}.`))));
     this.wait(handed, who, first);
     form.arm({ primary: "Done" });
@@ -3343,7 +4464,18 @@ class AgentSetup {
     this.form.body.append(line);
     const { dialog } = this.form;
     // Asked only while this sheet is on screen.
+    /** @type {() => void} */
+    let arriving = () => {};
     const stop = firstSave(handed, () => dialog.open, (saved) => {
+      // Instinct (#597): reaching the store is said apart from reaching this Mac.
+      if (handed.agent.app === "instinct") {
+        line.replaceChildren(el("span", "shimmer", `${who}'s save reached your store. Bringing it to this Mac…`));
+        arriving = onThisMac(source, () => dialog.open, (memories) => void loadAgents().then(() => line.replaceChildren(el("span", "dot ok"), el("span", "", `${plural(memories, "memory")} from ${who} on this Mac · `), inline("See it →", () => {
+          closeSheet();
+          seeFrom({ id: source, label: who });
+        }))));
+        return;
+      }
       if (first) {
         line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved ${plural(saved, "memory")} · `), inline("See them →", () => {
           closeSheet();
@@ -3351,7 +4483,10 @@ class AgentSetup {
         }));
       } else line.replaceChildren(el("span", "dot ok"), el("span", "", `${who} saved with the new link`));
     });
-    dialog.addEventListener("close", stop);
+    dialog.addEventListener("close", () => {
+      stop();
+      arriving();
+    });
   }
 }
 
@@ -3378,6 +4513,50 @@ function howTo(handed, how) {
   const byHand = el("details", "agent-by-hand");
   byHand.append(el("summary", "", "Or add it by hand"), list, privateLink(handed));
   return [el("p", "agent-ask", `Copy this message and send it to ${where}. It adds Lore itself.`), privateLink(handed, how.ask, "Copy message"), byHand];
+}
+
+/** Instinct's steps (#597): the setup message to text it, which holds only the plain address, and apart from it the key,
+ * for Instinct's secure form; a new key is only the key. `instead` connects it as Other, where the sheet can.
+ * @param {AgentKey} handed @param {boolean} first @param {() => void} [instead] */
+function textFirst(handed, first, instead) {
+  const list = el("ol", "agent-steps");
+  for (const step of first ? INSTINCT.first : INSTINCT.again) list.append(el("li", "", step));
+  const masked = el("span", "agent-link-url");
+  masked.append(el("span", "agent-link-key", "••••••••••••"));
+  const key = el("div", "agent-secure-key");
+  key.append(el("p", "hint", "Your Lore key, for Instinct's secure form only"), copyLink(masked, handed.key, handed.agent.name, "", "Copy key"));
+  const note = el("p", "hint", INSTINCT.note);
+  if (instead) note.append(inline("connect it as Other instead", instead), ".");
+  else note.append("connect it as Other instead.");
+  return [list, ...(first ? [plainLink(handed.mcp_url, handed.agent.name, INSTINCT.ask, "Copy message")] : []), key, note];
+}
+
+/** Waits, while `active`, until what the agent saved is on this Mac, not only in the store. Returns what stops it.
+ * @param {string} source @param {() => boolean} active @param {(memories: number) => void} arrived */
+function onThisMac(source, active, arrived) {
+  let done = false;
+  const check = async () => {
+    if (done || !active()) return;
+    const entry = (await window.lore.agents().catch(() => [])).find((each) => each.source === source);
+    if (done || !entry || entry.waiting || !entry.memories) return;
+    stop();
+    arrived(entry.memories);
+  };
+  const poll = setInterval(() => {
+    if (active()) void window.lore.checkAgents().finally(check);
+  }, FIRST_SAVE_EVERY_MS);
+  /** @param {SourceRead[]} reads */
+  const landed = (reads) => {
+    if (reads.some((read) => read.name === source)) void check();
+  };
+  const stop = () => {
+    done = true;
+    clearInterval(poll);
+    agentWaiting.delete(landed);
+  };
+  agentWaiting.add(landed);
+  void check();
+  return stop;
 }
 
 /** The live line while Lore waits on an agent's save. @param {string} who @param {boolean} first */
@@ -3436,7 +4615,9 @@ function openAgent(source) {
   const form = new FormSheet(name, agentMark(source.app, name));
   form.text(agentLine(source));
   form.text(`Lore brings in what ${name} saves while Lore is open. It stays private on this Mac.`, "hint");
-  const offer = agents?.find((agent) => agent.source === source.name)?.saved ? eveningOffer(source.app, name) : null;
+  const saved = agents?.find((agent) => agent.source === source.name)?.saved;
+  // Instinct saves from then on only when asked, and asks the owner before each save (#597).
+  const offer = !saved ? null : source.app === "instinct" ? promptOffer(`When you want ${name} to keep saving, text it this. It asks you before each save:`, INSTINCT.ongoing) : eveningOffer(source.app, name);
   if (offer) form.body.append(offer);
   const signedIn = agents?.find((agent) => agent.source === source.name)?.signed_in;
   if (signedIn) {
@@ -3449,7 +4630,7 @@ function openAgent(source) {
   form.open();
   function rekey() {
     const confirm = new FormSheet(`Get a new key for ${name}?`, agentMark(source.app, name));
-    confirm.text(`The key ${name} has now stops working at once. You give it the new one the same way.`);
+    confirm.text(`The key ${name} has now stops working at once. ${source.app === "instinct" ? `You copy the new one into ${name}'s secure form, never into a text.` : "You give it the new one the same way."}`);
     confirm.button("Cancel", "secondary", () => openAgent(source));
     confirm.open({
       primary: "Get a new key",
@@ -3483,10 +4664,14 @@ function openAgent(source) {
   }
 }
 
+/** What the FAQ says a buyer pays, from the price the owner has set, if any. @param {number | null} usd */
+function faqPrice(usd) {
+  return `Your price. ${typeof usd === "number" ? `Yours is ${price(usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens."}`;
+}
+
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
  * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
 function renderFaq(s) {
-  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens.";
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
@@ -3494,13 +4679,13 @@ function renderFaq(s) {
   return [
     section("Getting started", card([
       qa("What is Lore?", "A private place on your Mac for what you've learned from your work. You can sell pieces of it to other people's AI agents, but only the pieces you approve."),
-      qa("How do I start?", "Connect an app you already write in, from Connectors, or tell Lore something you learned on Today. Lore drafts things to sell from it, and you approve the ones you like. Approved drafts go on sale in your store."),
+      qa("How do I start?", "Connect an app you already write in, from Connectors, or tell Lore something you learned with New › Memory. Lore drafts things to sell from it, and you approve the ones you like. Approved drafts go on sale in your store."),
       qa("Why connect my apps?", "So you don't start from a blank page. Lore reads what you've already written and suggests what's worth selling."),
       qa("What sells?", "Something specific that happened to you, with the lesson attached: what you tried, what broke, what you'd do again. Dated, firsthand, and not something an AI could guess.")
     ])),
     section("Getting paid", card([
       qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
-      qa("What does a buyer pay?", `Your price. ${prices}`),
+      qa("What does a buyer pay?", faqPrice(s.pricing.publication_usd)),
       qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
@@ -3540,6 +4725,7 @@ function renderSettings(s) {
       row("Lore's shape", "What it keeps, what it ignores, what it may sell. Set in a short conversation.", cell(pill(s.setup.blueprint_configured ? "Set" : "Not set", s.setup.blueprint_configured ? "ok" : ""), ...(s.setup.blueprint_configured ? [] : [button("Start", "secondary", startSetup)])), false),
       row("Where it lives", `Your memories are kept on this Mac. ${provider()[0]} reads them when it works with you here. Buyers only ever get what you approve for sale.`, cell(path, button("Show in Finder", "quiet", () => void window.lore.revealHome())), false)
     ])),
+    ...(pushedNote ? [pushReceipt(s)] : []),
     section("Your store", card([
       addressRow(s),
       priceSetting(s),
@@ -3553,6 +4739,7 @@ function renderSettings(s) {
         : []),
       ...marketplaceRow(s)
     ])),
+    automationsSection(),
     section("Appearance", card([appearanceRow()])),
     ...(appUpdate ? [section("Updates", card([updateRow(appUpdate)]))] : []),
     ...(runs ? [runs] : [])
@@ -3599,11 +4786,19 @@ function updateRow(u) {
   return row(`Lore ${u.version}`, detail, cell(...trailing), false);
 }
 
+/** The Update button's state for where this copy stands: shown only when there is a newer Lore to move to, saying what
+ * a click does. @param {AppUpdate} next */
+function updateButton(next) {
+  return {
+    hidden: !(next.state === "ready" || (next.state === "outside" && next.newer)),
+    title: next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update"
+  };
+}
+
 /** The button at the top of the window, shown only when there is a newer Lore to move to. @param {AppUpdate} next */
 function showUpdate(next) {
   appUpdate = next;
-  updateBtn.hidden = !(next.state === "ready" || (next.state === "outside" && next.newer));
-  updateBtn.title = next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update";
+  Object.assign(updateBtn, updateButton(next));
   if (view === "settings") render();
 }
 
@@ -3619,12 +4814,9 @@ function runsWhen({ cadence, hour, day }) {
 }
 
 /** Each kind of routine's mark: reading apps, the evening check-in, and the owner's own sentence. */
-const ROUTINE_ICONS = {
-  read: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v11M7.5 9.5L12 14l4.5-4.5"></path><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"></path></svg>`,
-  checkin: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"></path></svg>`,
-  ask: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`
-};
 const CLOCK_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3 2"></path></svg>`;
+/** Today's unfinished tasks keep the mark they had before Automations dropped its own. */
+const UNFINISHED_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9-1.9 5.1-1.9-5.1L5 10.5l5.1-1.9z"></path><path d="M18.5 16.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"></path></svg>`;
 const PLAY_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"></path></svg>`;
 const TRASH_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"></path></svg>`;
 
@@ -3640,27 +4832,59 @@ function routineAct(label, icon, onClick, text) {
   return node;
 }
 
-/** One routine: what it is, when (a chip that changes it), what it last found; Run now, and a switch to pause it. @param {Routine} routine */
+const soon = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+
+/** When a routine next runs, said the way a person would: "in 3 hours", "tomorrow". @param {string} iso */
+function nextRun(iso) {
+  const at = new Date(iso);
+  const minutes = Math.round((at.getTime() - Date.now()) / 60000);
+  if (Number.isNaN(minutes)) return "";
+  if (minutes < 1) return "any moment";
+  if (minutes < 60) return soon.format(minutes, "minute");
+  if (minutes < 18 * 60) return soon.format(Math.round(minutes / 60), "hour");
+  const days = Math.round((new Date(at).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86400000);
+  return days < 7 ? soon.format(days, "day") : `on ${when(iso)}`;
+}
+
+/** One routine: its name, what it's told to do, then when and when next (or that it's paused or running).
+ * The schedule retimes it; Run now and the switch show on hover. @param {Routine} routine */
 function routineRow(routine) {
-  const ran = routine.last_run ? `Last ran ${when(routine.last_run)}${routine.result ? ` · ${routine.result}` : ""}` : "Hasn't run yet";
-  const status = running.has(routine.id) ? "Running now…" : routine.paused ? "Paused" : `Next ${when(routine.next_run)} · ${ran}`;
+  const busy = running.has(routine.id);
   const toggle = el("button", "switch");
   toggle.type = "button";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", String(!routine.paused));
   toggle.setAttribute("aria-label", `${routine.paused ? "Resume" : "Pause"} ${routine.name}`);
   toggle.addEventListener("click", () => void changeRoutine(routine, routine.paused ? "resume" : "pause"));
+  const time = el("button", "when-link", runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 }));
+  time.type = "button";
+  time.title = "Change time";
+  time.setAttribute("aria-label", "Change time");
+  time.addEventListener("click", () => openRoutineTime(routine));
   const detail = el("span", "routine-line");
-  detail.append(routineAct("Change time", CLOCK_ICON, () => openRoutineTime(routine), runsWhen({ cadence: routine.cadence, hour: routine.hour, day: routine.day ?? 0 })), " · ", el("span", running.has(routine.id) ? "running" : "", status));
-  const trailing = cell(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
-  if (!routine.built_in) trailing.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
-  trailing.append(toggle);
+  const next = el("span", busy ? "running" : "", busy ? "Running now" : routine.paused ? "Paused" : `Next run ${nextRun(routine.next_run)}`);
+  // The moment it stands for, so what it says is checked against the clock, not the words.
+  if (!busy && !routine.paused) next.dataset.next = routine.next_run;
+  detail.append(time, " · ", next);
+  const actions = el("div", "routine-actions");
+  actions.append(routineAct("Run now", PLAY_ICON, () => void runRoutineNow(routine)));
+  if (!routine.built_in) actions.append(routineAct("Remove", TRASH_ICON, () => void changeRoutine(routine, "remove")));
+  actions.append(toggle);
+  const trailing = cell(actions);
+  // What today's run brought in, where it can be seen; older finds stay in Inventory.
+  const fresh = !busy && routine.last_run && day(routine.last_run) === "today" && /^[1-9]\d* new/.test(routine.result) ? routine.result.match(/^\d+ new/)?.[0] : "";
+  if (fresh) {
+    const news = el("button", "routine-new", fresh);
+    news.type = "button";
+    news.title = routine.result;
+    news.addEventListener("click", () => show("inventory"));
+    trailing.append(news);
+  }
   const node = row(routine.name, detail, trailing, false);
-  const mark = el("span", `routine-mark ${routine.kind}`);
-  mark.innerHTML = ROUTINE_ICONS[routine.kind] ?? ROUTINE_ICONS.ask;
-  node.prepend(mark);
+  node.prepend(el("span", `state-ring${busy ? " running" : routine.paused ? " off" : " on"}`));
   node.classList.add("routine");
   if (routine.paused) node.classList.add("paused");
+  node.dataset.find = `${routine.name} ${routine.about}`.toLowerCase();
   node.addEventListener("click", (event) => {
     if (!(event.target instanceof Element && event.target.closest("button"))) openRoutine(routine);
   });
@@ -3673,7 +4897,7 @@ function openRoutine(routine) {
   const form = new FormSheet(routine.name);
   const title = own ? form.title("Title (optional)") : null;
   if (title) title.value = routine.name === routine.about ? "" : routine.name;
-  const text = own ? form.prompt("What Lore does", "Describe what Lore should do.") : null;
+  const text = own ? form.prompt("Instructions", "Describe what Lore should do.") : null;
   if (text) {
     text.value = routine.about;
     text.maxLength = 500;
@@ -3754,12 +4978,30 @@ function openRoutineTime(routine) {
 }
 
 /** A plain sentence and a time: Lore runs it on its own agent, under the rules its own reading keeps. */
-function openNewRoutine() {
+/** When a sentence says it should run, read the way a person says it: "every Friday at 8am", "weekday evenings".
+ * Null when it doesn't say, so the owner picks rather than Lore guessing. @param {string} said
+ * @returns {{cadence: Routine["cadence"], hour: number, day: number} | null} */
+function heardSchedule(said) {
+  const text = said.toLowerCase();
+  const named = DAYS.findIndex((name) => new RegExp(`\\b${name.toLowerCase()}s?\\b`).test(text));
+  const cadence = /\bweekdays?\b/.test(text) ? "weekdays" : named >= 0 ? "weekly" : /\b(every|each) (day|morning|evening|night)\b|\bdaily\b|\bnightly\b/.test(text) ? "daily" : null;
+  const at = /\b(\d{1,2})(?::\d{2})?\s*(am|pm)\b/.exec(text);
+  const hour = at ? (Number(at[1]) % 12) + (at[2] === "pm" ? 12 : 0)
+    : /\bnoon\b/.test(text) ? 12 : /\bmornings?\b/.test(text) ? 9 : /\bevenings?\b/.test(text) ? 18 : /\bnights?\b|\bnightly\b/.test(text) ? 21 : null;
+  if (!cadence && hour === null) return null;
+  return { cadence: cadence ?? "daily", hour: hour ?? 9, day: Math.max(named, 0) };
+}
+
+/** @param {string} [said] what the owner already typed into Automations' own box */
+function openNewRoutine(said = "") {
   const form = new FormSheet("New automation");
   const name = form.title("Title (optional)");
-  const text = form.prompt("Describe what Lore should do", "Describe what Lore should do.\nFor example: every Sunday, remember what I read this week.");
+  const text = form.prompt("Instructions", "Describe what Lore should do.\nFor example: every Sunday, gather what I learned this week into a collection.");
   text.maxLength = 500;
-  const chosen = scheduleRows(form, { cadence: "weekly", hour: 18, day: 6 });
+  text.value = said;
+  const heard = heardSchedule(said);
+  const chosen = scheduleRows(form, heard ?? { cadence: "weekly", hour: 18, day: 6 });
+  if (said && !heard) form.note("Your sentence doesn't say when, so choose it here.");
   form.note(ROUTINE_NOTE);
   form.button("Cancel", "secondary", () => form.close());
   form.open({
@@ -3774,49 +5016,72 @@ function openNewRoutine() {
   text.focus();
 }
 
-/** APP-200: everything Lore does on its own, and when: Lore's and the owner's alike, in one list, then what ran lately. @param {Snapshot} s */
-function renderAutomations(s) {
-  const add = row("New automation", "Tell Lore what to do and when, in a sentence.", undefined, false);
-  const plus = el("span", "routine-mark add");
-  plus.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>`;
-  add.prepend(plus);
-  add.classList.add("routine", "add-tile");
-  add.tabIndex = 0;
-  add.setAttribute("role", "button");
-  add.addEventListener("click", openNewRoutine);
-  add.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openNewRoutine(); } });
-  const list = el("div", "routines");
-  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow), add);
-  return [list];
+/** APP-289: everything Lore does on its own, and when, Lore's own first, in Settings. New ones start from
+ * the New menu, as everything else does. */
+function automationsSection() {
+  const list = el("div", "automations");
+  list.append(...[...routines].sort((x, y) => Number(Boolean(y.built_in)) - Number(Boolean(x.built_in))).map(routineRow));
+  const node = section("Automations", list);
+  node.id = "automations";
+  return node;
 }
 
-const renderers = { today: renderToday, inventory: renderInventory, collection: renderCollection, connectors: renderConnectors, automations: renderAutomations, faq: renderFaq, settings: renderSettings };
+const renderers = { inbox: renderInbox, bid: renderBid, memory: (/** @type {Snapshot} */ s) => memoryPage.parts(s), drafts: renderDrafts, inventory: (/** @type {Snapshot} */ s) => inventoryView.parts(s), bids: (/** @type {Snapshot} */ s) => bidsView.parts(s), collection: renderCollection, connectors: renderConnectors, faq: renderFaq, settings: renderSettings };
 
 function render() {
   hidePeek();
   renderNotices();
-  const detail = view === "today" ? detailTask : null;
-  const welcoming = view === "today" && !detail && firstRun.active;
-  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { today: greeting(), inventory: "Inventory", collection: openCollection()?.title ?? "Collection", connectors: "Connectors", automations: "Automations", faq: "FAQ", settings: "Settings" }[view];
+  const detail = view === "inbox" ? detailTask : null;
+  const welcoming = view === "inbox" && !detail && firstRun.active;
+  const heading = detail ? detailRecord?.title ?? TASK_TITLES[detail] : welcoming ? "Welcome to Lore" : { inbox: "Inbox", bid: `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid`, memory: memoryPage.memory?.title ?? "Memory", drafts: "Drafts", inventory: "Inventory", bids: "Bids", collection: collectionStep && openCollection()?.title === UNTITLED ? "New collection" : openCollection()?.title ?? "Collection", connectors: "Connectors", faq: "FAQ", settings: "Settings" }[view];
   const pendingDrafts = detail === "publish" && (candidates.length || extraDrafts.length);
+  // A collection set up and filled is a page; its first steps keep their own layout.
+  const shelved = view === "collection" && !collectionStep && Boolean(openCollection()?.pieces.length);
   eyebrow.textContent = detail
     ? pendingDrafts ? `Needs you · ${draftsPhase()}` : `${TASK_STATES[detailRecord?.state ?? "working"]} · ${detailRecord?.phase ?? "Starting"}`
-    : welcoming ? "" : view === "today" ? longDate.format(new Date()) : view === "collection" ? collectionEyebrow(openCollection()) : "";
+    : welcoming || shelved ? "" : view === "collection" ? collectionEyebrow(openCollection()) : "";
   title.textContent = heading;
-  taskBack.hidden = !detail;
+  // A collection's name is its heading, renamed in place.
+  title.contentEditable = view === "collection" && !detail && !collectionStep ? "plaintext-only" : "false";
+  title.spellcheck = false;
+  // APP-283, APP-282: the Inbox, Bids, Inventory and each object are pages: a header bar with a breadcrumb.
+  const paged = !detail && !welcoming && (view === "inbox" || view === "bids" || view === "bid" || view === "drafts" || view === "inventory" || view === "memory" || shelved);
+  mainEl.classList.toggle("paged", paged);
+  // A bid's breadcrumb is the list it was opened from.
+  const opener = view === "memory" ? memoryPage.from : view;
+  const list = opener === "bid" ? bidPage.from : opener === "drafts" ? "inbox" : opener;
+  const PLACES = { inbox: "Inbox", bids: "Bids", inventory: "Inventory", connectors: "Connectors", settings: "Settings", faq: "FAQ", collection: "Collection" };
+  taskBack.textContent = view === "memory" ? (opener === "bid" ? `${Inbox.dollars(bidPage.last?.bid.usd ?? 0)} bid` : PLACES[/** @type {keyof typeof PLACES} */ (list)] ?? "Inbox") : shelved ? "Inventory" : paged ? (list === "bids" ? "Bids" : "Inbox") : view === "collection" && !detail ? "← Inventory" : "← Inbox";
+  taskBack.hidden = !detail && view !== "collection" && view !== "bid" && view !== "drafts" && view !== "memory";
+  const stepping = view === "bid" || (view === "memory" && memoryPage.ids().length > 0);
+  stepper.hidden = !stepping;
+  if (stepping && snapshot) {
+    /** @type {Array<string | number>} */
+    const ids = view === "bid" ? bidPage.ids(snapshot) : memoryPage.ids();
+    const at = ids.indexOf(view === "bid" ? bidPage.id : memoryPage.memory?.id ?? -1);
+    stepperAt.textContent = at < 0 ? "" : `${at + 1} / ${ids.length}`;
+    stepUp.disabled = at <= 0;
+    stepDown.disabled = at < 0 || at >= ids.length - 1;
+  }
   taskRestart.hidden = !detail || detailRecord?.state !== "stopped";
-  addMemoryBtn.hidden = Boolean(detail) || view !== "inventory";
-  sellWritingBtn.hidden = addMemoryBtn.hidden;
-  captureArea.hidden = view !== "today" || welcoming;
+  // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
+  captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
+  // APP-290: talking to Lore is one click from the two lists where memories show up.
+  talkBtn.hidden = welcoming || Boolean(detail) || (view !== "inbox" && view !== "inventory");
   header.classList.toggle("compact", welcoming || Boolean(detail));
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
   syncComposer();
-  // A collection is something for sale, so For Sale stays lit while one is open.
-  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "store" : view)));
+  // A collection lives in Inventory, so Inventory stays lit while one is open.
+  for (const nav of navButtons) nav.setAttribute("aria-pressed", String(nav.dataset.view === (view === "collection" ? "inventory" : view === "bid" || view === "drafts" || view === "memory" ? list : view)));
   if (!snapshot) return;
-  $("[data-count=inventory]").textContent = String(snapshot.library.counts.private + snapshot.publications.counts.active);
+  $("[data-count=inbox]").textContent = String(inbox.count(snapshot) || "");
+  $("[data-count=inventory]").textContent = String(inventoryView.model(snapshot).counts.all);
+  $("[data-count=bids]").textContent = String(bidsView.rows(snapshot, "matches").length || "");
+  pageTabs.hidden = view !== "bids" && view !== "inventory";
+  pageTabs.setAttribute("aria-label", view === "bids" ? "Which bids" : "Which memories");
+  pageTabs.replaceChildren(...(view === "bids" ? bidsView.tabs(snapshot) : view === "inventory" ? inventoryView.tabs(snapshot) : []));
   $("[data-count=connectors]").textContent = String(snapshot.library.sources.filter((source) => source.enabled).length);
   // Hidden until a build has a feedback relay to send to, so a release
   // never offers a Send it cannot honor. Starts hidden in index.html.
@@ -3828,52 +5093,51 @@ function render() {
   renderAccount();
 }
 
-/** The account row at the foot of the sidebar: who is signed in, and the menu that holds Settings, help and feedback. */
-function renderAccount() {
-  const credential = auth?.credentials[0];
-  const [name, icon] = provider(credential);
-  const avatar = el("span", "avatar");
-  if (icon) avatar.append(Object.assign(el("img"), { src: icon, alt: "" }));
-  const who = el("span", "who");
-  const store = snapshot?.node.url ? ` · ${nodeLabel(snapshot.node)}` : "";
-  who.append(el("b", "", credential ? "Signed in" : "Not signed in"), el("span", "", credential ? `${name}${store}` : ""));
-  account.replaceChildren(avatar, who);
-  account.insertAdjacentHTML("beforeend", CHEVRON);
-  accountLine.textContent = credential ? `Signed in with ${name}` : "Not signed in";
-  signOutBtn.hidden = !credential;
+/** What the workspace menu's first line says, and whether Sign out is offered: who is signed in and how the store stands.
+ * @param {AgentStatus | null} status @param {Snapshot | null} s */
+function accountState(status, s) {
+  const credential = status?.credentials[0] ?? null;
+  const [name] = provider(credential);
+  const store = s?.node.url ? ` · Store ${nodeLabel(s.node).toLowerCase()}` : "";
+  return { line: credential ? `Signed in with ${name}${store}` : "Not signed in", signOut: Boolean(credential) };
 }
 
-/** Memories and For Sale became Inventory's tabs; anything that still asks for them lands there. @param {View | "memories" | "store"} next */
+/** The workspace menu at the top of the sidebar: who is signed in and how the store stands, over Settings, help and sign-out. */
+function renderAccount() {
+  const { line, signOut } = accountState(auth, snapshot);
+  accountLine.textContent = line;
+  signOutBtn.hidden = !signOut;
+}
+
+/** Memories and For Sale became Inventory's tabs, and Automations a section of Settings; anything that still asks for
+ * them lands there. @param {View | "memories" | "store" | "automations"} next */
 function show(next) {
   if (next === "memories" || next === "store") shelf = next === "store" ? "sale" : "private";
-  view = next === "memories" || next === "store" ? "inventory" : next;
+  view = next === "memories" || next === "store" ? "inventory" : next === "automations" ? "settings" : next;
   if (view === "inventory") void loadSales();
-  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; }
-  if (next === "connectors") void loadAgents();
+  if (view !== "collection") { editingCollectionPrice = false; collectionDraft = ""; collectionPicks.clear(); collectionPasting = false; collectionAdding = false; collectionStep = 0; collectionSuggestion = ""; pickQuery = ""; collectionPending = null; pickBundle = null; reviewing = null; }
+  if (view === "connectors") void loadAgents();
   // A store update said once, where it happened; it doesn't follow the owner around.
   pushedNote = false;
   unseen.visit();
   render();
   mainEl.scrollTop = 0;
+  if (next === "automations") $("#automations")?.scrollIntoView();
   mainEl.focus({ preventScroll: true });
 }
 
-/** Every "change the price" affordance lands on For Sale, with the one price sheet open over it. */
-function openPriceEditor() {
-  detailTask = null;
-  detailRecord = null;
-  show("store");
-  openPriceSheet();
-}
-
 async function load() {
-  if (!snapshot) content.replaceChildren(el("p", "hint", "Loading…"));
+  if (!snapshot) content.replaceChildren(el("p", "caught-up empty", "Loading…"));
   // Loads overlap (a "changed" then a "ready" a moment later); one that started earlier but finished later is stale.
   const ticket = ++loads;
   try {
-    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines)]);
+    const loaded = await Promise.all([window.lore.snapshot(), window.lore.candidates().catch(() => []), window.lore.extras().catch(() => []), window.lore.tasks().catch(() => []), apps.length ? apps : window.lore.sourceCatalog().catch(() => []), window.lore.readyRuns().catch(() => readyRuns), window.lore.checkIn().catch(() => null), window.lore.routines().catch(() => routines), window.lore.suggestions().catch(() => suggestions)]);
     if (ticket !== loads) return;
-    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines] = loaded;
+    [snapshot, candidates, extraDrafts, taskItems, apps, readyRuns, checkIn, routines, suggestions] = loaded;
+    for (const [kind, heard] of heardTasks) {
+      if (heard.during < ticket) heardTasks.delete(kind);
+      else taskItems = withTask(taskItems, heard.task);
+    }
     let newest = 0;
     for (const item of snapshot.library.items) newest = Math.max(newest, item.arrival);
     await unseen.load(newest).catch(() => undefined);
@@ -3888,13 +5152,6 @@ async function load() {
     render();
     // Today's earnings need the ledger once; after that a new sale or For Sale reads it again.
     if (!salesAsked && snapshot.node.url) void loadSales();
-    if (agentAfterStore && snapshot.node.url && !taskItems.some((item) => item.kind === "deploy" && item.state === "working")) {
-      agentAfterStore = false;
-      // Back where the owner started, with the sheet at its next step.
-      if (detailTask === "deploy") closeTask();
-      show("connectors");
-      new AgentSetup().open();
-    }
   } catch {
     if (ticket !== loads) return;
     const error = el("section", "card error");
@@ -3916,13 +5173,26 @@ function say(text, owner = false, stopped = false) {
  * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
+/** @typedef {typeof notices[number]} Notice */
+
+/** `items` with one more notice: a success replaces the plain successes before it, and plain notices (those without a
+ * key) stay at most three, the oldest leaving first; a notice told once, with a key, is left alone. @param {Notice[]} items @param {Notice} notice */
+function withNotice(items, notice) {
+  const next = [...(notice.attention ? items : items.filter((item) => item.attention || item.key)), notice];
+  const plain = next.filter((item) => !item.key);
+  if (plain.length > 3) next.splice(next.indexOf(plain[0]), 1);
+  return next;
+}
+
+/** The notices on screen: a plain one wherever the owner is, one told once only while Today is. @param {Notice[]} items @param {boolean} today */
+function shownNotices(items, today) {
+  return items.filter((item) => !item.key || today);
+}
+
 /** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention && !item.key);
-  notices.push({ text, attention, action });
-  const plain = notices.filter((item) => !item.key);
-  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
+  notices.splice(0, notices.length, ...withNotice(notices, { text, attention, action }));
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
 }
@@ -3943,7 +5213,7 @@ function tellOnce(key, text, action, write) {
 
 /** Today is what the owner sees: signed in, on Today, with no thread open over it. */
 function onToday() {
-  return !appShell.hidden && view === "today" && !detailTask && !firstRun.active;
+  return !appShell.hidden && view === "inbox" && !detailTask && !firstRun.active;
 }
 
 /** Remember a seen Today notice as said; a failed write stays to be tried again. A write that comes up after a sign-out,
@@ -3965,7 +5235,7 @@ function drop(which) {
 }
 
 function renderNotices() {
-  const shown = notices.filter((item) => !item.key || onToday());
+  const shown = shownNotices(notices, onToday());
   status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");
@@ -4024,6 +5294,7 @@ function syncComposer() {
   input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
+  talk.listen();
 }
 
 function clearRequest() {
@@ -4654,7 +5925,7 @@ function renderRequest(event) {
   requestSlot.replaceChildren(box);
   agentPanel.hidden = false;
   syncComposer();
-  if (view !== "today") show("today");
+  if (view !== "inbox") show("inbox");
   for (const area of box.querySelectorAll("textarea")) fit(/** @type {HTMLTextAreaElement} */ (area));
   reveal();
   if (!pinned) /** @type {HTMLElement | null} */ (box.querySelector("input[type=text], input[type=password], select"))?.focus({ preventScroll: true });
@@ -4734,8 +6005,8 @@ function nextRung(s) {
       ? storeOpened(s)
       : forAgents
         ? "Nothing is for sale. When you approve something to sell, Lore asks for a price and where payments go."
-        : "This step is done. Try again now, or any time from Today."
-    : "This step is done. What comes next is a separate step — take it now, or any time from Today.";
+        : "This step is done. Try again now, or any time from your Inbox."
+    : "This step is done. What comes next is a separate step — take it now, or any time from your Inbox.";
   box.append(
     el("p", "q", heading),
     el("p", "hint", detail)
@@ -4787,7 +6058,7 @@ async function openTask(kind, record, fallback) {
   lines.splice(0, lines.length, ...(await window.lore.history(kind).catch(() => [])));
   liveText = liveStatus = "";
   resetBlueprintGhost();
-  show("today");
+  show("inbox");
   renderLog();
 }
 
@@ -4800,7 +6071,7 @@ async function startOver(kind) {
   lines.splice(0);
   liveText = liveStatus = "";
   clearRequest();
-  show("today");
+  show("inbox");
   renderLog();
   // Setup and the store are Lore's flows to begin; a capture or publish thread waits for the owner's first word.
   const opening = kind === "setup" ? SETUP_INTENT : kind === "deploy" ? STORE_INTENT : null;
@@ -4849,7 +6120,8 @@ let confirmingExtras = false;
 /** How many pieces Approve all is saving and pushing; zero when it isn't. */
 let approvingExtras = 0;
 
-function approvals() {
+/** @param {PublicationCandidate[]} [listed] */
+function approvals(listed = candidates) {
   const list = el("div", "approvals");
   const shown = new Set();
   /** @param {PublicationCandidate | ExtrasCandidate} draft */
@@ -4860,7 +6132,7 @@ function approvals() {
     approvalForms.set(key, node);
     return node;
   };
-  list.append(...candidates.map(form));
+  list.append(...listed.map(form));
   if (extraDrafts.length) list.append(extrasBatch(extraDrafts, extraDrafts.map(form)));
   for (const key of approvalForms.keys()) if (!shown.has(key)) approvalForms.delete(key);
   return list;
@@ -5243,17 +6515,26 @@ function usageRow(s) {
   );
 }
 
+/** Whether the welcome screen on show has said what usage events are sent. */
+let welcomed = false;
+
 function enter() {
   const signedIn = Boolean(auth?.credentials.length);
   welcome.hidden = signedIn;
   appShell.hidden = !signedIn;
   document.body.dataset.state = signedIn ? "app" : "welcome";
   if (signedIn) {
+    welcomed = false;
     render();
     void firstRun.read().then(load).then(opened);
     return;
   }
   firstRun.reset();
+  // The welcome screen says it (APP-250), so from here on events are kept, starting with this install's first.
+  if (!welcomed && !welcome.classList.contains("provisioning")) {
+    welcomed = true;
+    void noticed().catch(() => undefined);
+  }
   // Signed out: a load still out is stale, and what it would have told waits for the next sign-in.
   loads++;
   told.clear();
@@ -5275,16 +6556,21 @@ function noticeAutomations() {
     reading && `reads your connected apps ${runsWhen({ cadence: reading.cadence, hour: reading.hour, day: reading.day ?? 0 }).replace("Every", "every")}`,
     checkin && `checks in at ${clock(checkin.hour)} when something's worth asking`
   ].filter(Boolean);
-  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Automations.`, { label: "Automations", run: () => show("automations") }, () => window.lore.noticedRoutines());
+  if (parts.length) tellOnce("automations", `Lore ${parts.join(" and ")}. Change this in Settings.`, { label: "Settings", run: () => show("automations") }, () => window.lore.noticedRoutines());
 }
 
 const USAGE_NOTICE = "Lore sends anonymous usage events, like \"store opened\" or \"first piece approved\", never your writing.";
 
-/** Someone who signed in before usage events existed hears about them once, on Today, before any is sent. */
+/** The owner has been told about usage events: remember it, then count the install if this is its first event. */
+function noticed() {
+  return window.lore.usage("noticed").then(() => window.lore.usage("app.installed"));
+}
+
+/** Someone who signed in before the welcome screen said it hears about usage events once, on Today, before any is sent. */
 function noticeUsage() {
   const setup = snapshot?.setup;
   if (!setup || setup.telemetry_enabled === false || setup.telemetry_noticed) return;
-  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => window.lore.usage("noticed").then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
+  tellOnce("usage", USAGE_NOTICE, { label: "Settings", run: () => show("settings") }, () => noticed().then(() => (appShell.hidden ? undefined : window.lore.usage("app.opened"))));
 }
 
 /** @param {AgentEvent} event */
@@ -5316,8 +6602,9 @@ function onEvent(event) {
   else if (event.type === "ready") void load();
   else if (event.type === "show") {
     if (event.source) seeFrom(event.source);
+    else if (event.bid) { if (detailTask) closeTask(); bidPage.open(event.bid); }
     else {
-      if (event.view === "today" && detailTask) closeTask();
+      if (event.view === "inbox" && detailTask) closeTask();
       show(event.view);
     }
   }
@@ -5338,9 +6625,8 @@ function onEvent(event) {
   else if (event.type === "task") {
     if (event.task.kind === "synthesize" && event.task.state !== "working") drop((item) => item.text.endsWith(READING));
     if (detailTask === event.task.kind) detailRecord = event.task;
-    taskItems = event.task.state === "done"
-      ? taskItems.filter((item) => item.kind !== event.task.kind)
-      : [event.task, ...taskItems.filter((item) => item.kind !== event.task.kind)].slice(0, 3);
+    heardTasks.set(event.task.kind, { task: event.task, during: loads });
+    taskItems = withTask(taskItems, event.task);
     render();
   }
   else if (event.type === "progress") {
@@ -5411,7 +6697,11 @@ composer.addEventListener("submit", async (event) => {
   input.style.height = "";
   await send(text || "Please read the attached files.");
 });
-input.addEventListener("input", () => fit(input));
+input.addEventListener("input", () => {
+  fit(input);
+  // Typing takes over from talking.
+  if (talk.kind && !recorder) talk.end();
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
@@ -5430,7 +6720,9 @@ function dictationMode(mode) {
   if (mode) composer.dataset.mode = mode;
   else delete composer.dataset.mode;
   dictationBox.hidden = !mode;
-  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
+  // A new thread says what to talk about; after that Lore's own question does.
+  const opener = talk.kind === "capture" && !lines.length ? "Tell Lore what you figured out. " : "";
+  dictationText.textContent = mode === "listening" ? (talk.kind ? `Listening… ${opener}Enter sends it, Esc stops.` : "Listening…") : mode === "transcribing" ? "Transcribing…" : "";
   dictate.disabled = mode === "transcribing";
   dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
@@ -5472,40 +6764,104 @@ function wav(chunks) {
   for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
   return buffer;
 }
-dictate.addEventListener("click", async () => {
-  if (recorder) {
-    const active = recorder;
-    recorder = null;
-    clearTimeout(dictationLimit);
-    dictationMode("transcribing");
-    let text = "";
-    try {
-      text = await window.lore.transcribe(wav(await active.stop()));
-    } catch (error) {
-      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
-    }
-    dictationMode(null);
-    input.value = spoken + text;
-    fit(input);
-    input.focus({ preventScroll: true });
-    return;
-  }
+/** Starts listening into the composer, after what is already typed. */
+async function startDictation() {
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
+      talk.end();
       tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
-    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
+    dictationLimit = window.setTimeout(() => void finishDictation(), MAX_DICTATION_MS);
   } catch (error) {
+    talk.end();
     tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
-});
+}
+
+/** Stops listening and puts what was said in the composer; talking it through, it goes to Lore at once. */
+async function finishDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  dictationMode("transcribing");
+  let text = "";
+  try {
+    text = (await window.lore.transcribe(wav(await active.stop()))).trim();
+  } catch (error) {
+    talk.end();
+    console.error(error);
+    tell(`Lore couldn't transcribe that. ${DICTATE_HINT}`, true);
+  }
+  dictationMode(null);
+  input.value = spoken + text;
+  fit(input);
+  // Talking it through listens for the first turn only; after that the owner picks the microphone or the keyboard.
+  const send = Boolean(talk.kind && text);
+  talk.end();
+  if (send) composer.requestSubmit();
+  else input.focus({ preventScroll: true });
+}
+
+/** Esc while listening: what was said is dropped, and talking it through ends. */
+async function cancelDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  talk.end();
+  await active.stop();
+  dictationMode(null);
+  input.focus({ preventScroll: true });
+}
+
+dictate.addEventListener("click", () => void (recorder ? finishDictation() : startDictation()));
+talkBtn.addEventListener("click", () => void talk.begin("capture"));
+
+/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening, and
+ * Done or Enter sends what was said. Only the first turn listens on its own; typing, Esc, leaving the thread or saying
+ * nothing ends it sooner. */
+const talk = {
+  /** The thread being talked through. @type {"capture" | "evening" | null} */
+  kind: /** @type {"capture" | "evening" | null} */ (null),
+  opening: false,
+  starting: false,
+  /** @param {"capture" | "evening"} kind */
+  async begin(kind) {
+    this.kind = kind;
+    this.opening = true;
+    try {
+      if (kind === "capture") await startCapture();
+      else await openTask("evening");
+    } finally {
+      this.opening = false;
+    }
+    this.listen();
+  },
+  end() {
+    this.kind = null;
+    dictationMode(recorder ? "listening" : null);
+  },
+  /** Listens when its thread waits on the owner's words: no card to approve, nothing typed, Lore not working. */
+  listen() {
+    if (!this.kind || this.opening || this.starting) return;
+    // Leaving the thread ends it even mid-listen: the recorder is stopped and its audio dropped, not left hot offscreen.
+    if (detailTask !== this.kind || view !== "inbox") return void (recorder ? cancelDictation() : this.end());
+    // A card to approve ends it too: the owner is asked to look, not listened over.
+    if (recorder) return void (shownRequest()?.current && cancelDictation());
+    // The owner speaks first in a new thread; after that, only once Lore has answered.
+    if (lines.at(-1)?.owner || busy || composer.hidden || input.disabled || shownRequest()?.current || input.value.trim()) return;
+    this.starting = true;
+    void startDictation().finally(() => { this.starting = false; });
+  }
+};
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
 function attach(paths) {
@@ -5531,21 +6887,44 @@ document.addEventListener("drop", (event) => {
   // Open on a collection, a drop goes into it, not into a memory.
   if (view === "collection") return void addToCollection({ files: [...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean) });
   attach([...(event.dataTransfer?.files ?? [])].map((file) => window.lore.pathFor(file)).filter(Boolean));
-  if (attachments.length) show("today");
+  if (attachments.length) startCapture();
 });
 
-taskBack.addEventListener("click", closeTask);
+taskBack.addEventListener("click", () => (view === "collection" && !detailTask ? show("inventory") : view === "bid" ? show(bidPage.from) : view === "memory" ? memoryPage.back() : view === "drafts" ? show("inbox") : closeTask()));
+// An answer grows to its text, so a wider or narrower window fits it again.
+addEventListener("resize", () => { for (const area of mainEl.querySelectorAll("textarea.answer")) fit(/** @type {HTMLTextAreaElement} */ (area)); });
+stepUp.addEventListener("click", () => (view === "memory" ? memoryPage.step(-1) : bidPage.step(-1)));
+stepDown.addEventListener("click", () => (view === "memory" ? memoryPage.step(1) : bidPage.step(1)));
+title.addEventListener("keydown", (event) => {
+  if (title.contentEditable !== "plaintext-only") return;
+  if (event.key === "Enter") { event.preventDefault(); title.blur(); }
+  if (event.key === "Escape") { title.textContent = openCollection()?.title ?? ""; title.blur(); }
+});
+title.addEventListener("blur", () => {
+  const item = openCollection();
+  if (item && title.contentEditable === "plaintext-only") void renameCollection(item, title.textContent ?? "");
+});
 taskRestart.addEventListener("click", () => { if (detailTask) void startOver(detailTask); });
-/** Land on Today with the composer ready, carrying anything the owner already typed. @param {string} [text] */
-function startCapture(text = "") {
-  if (detailTask) closeTask();
-  show("today");
+/** A new memory: the capture thread with its composer ready (the one unfinished, if there is), carrying anything the
+ * owner already typed. @param {string} [text] */
+async function startCapture(text = "") {
+  if (detailTask === "capture") {
+    if (view !== "inbox") show("inbox");
+  } else {
+    const unfinished = taskItems.find((item) => item.kind === "capture");
+    if (unfinished) await openTask("capture", unfinished);
+    else {
+      task = detailTask = "capture";
+      detailRecord = null;
+      lines.splice(0);
+      renderLog();
+      show("inbox");
+    }
+  }
   if (text) { input.value = text; fit(input); }
   if (composer.hidden || input.disabled) { if (text) tell("Finish what Lore is asking first. What you typed is waiting in the composer."); return; }
   input.focus();
 }
-addMemoryBtn.addEventListener("click", () => startCapture());
-sellWritingBtn.addEventListener("click", openPasteSheet);
 
 /* New: one place to start anything the owner makes. */
 const newOpen = /** @type {HTMLButtonElement} */ ($("#new-open"));
@@ -5561,13 +6940,24 @@ newOpen.addEventListener("click", (event) => {
   newOpen.setAttribute("aria-expanded", String(opening));
   if (opening) /** @type {HTMLElement | null} */ (newMenu.querySelector("button"))?.focus();
 });
-for (const item of newMenu.querySelectorAll("button")) {
-  item.addEventListener("click", () => {
-    closeNewMenu();
-    if (/** @type {HTMLElement} */ (item).dataset.new === "collection") void newCollection();
-    else startCapture();
-  });
+/** @param {string | undefined} what */
+function startNew(what) {
+  closeNewMenu();
+  if (what === "memory") startCapture();
+  else if (what === "collection") void newCollection();
+  else if (what === "writing") openPasteSheet();
+  else if (what === "automation") { show("automations"); openNewRoutine(); }
 }
+for (const item of newMenu.querySelectorAll("button")) item.addEventListener("click", () => startNew(/** @type {HTMLElement} */ (item).dataset.new));
+newMenu.addEventListener("keydown", (event) => {
+  const lettered = /** @type {HTMLElement | null} */ (newMenu.querySelector(`[aria-keyshortcuts="${event.key.toUpperCase()}"]`));
+  if (lettered && !event.metaKey && !event.ctrlKey) { event.preventDefault(); lettered.click(); return; }
+  if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  event.preventDefault();
+  const items = /** @type {HTMLElement[]} */ ([...newMenu.querySelectorAll("button")]);
+  const at = items.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+  items[(at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length].focus();
+});
 
 /* Find or capture: one gesture for both, so the owner never has to know whether a memory exists before reaching for it. */
 /** @type {Array<{node: HTMLElement, verb: string, run: () => void}>} */
@@ -5756,7 +7146,7 @@ accountMenu.addEventListener("keydown", (event) => {
 });
 for (const nav of navButtons) nav.addEventListener("click", () => {
   const next = /** @type {View} */ (nav.dataset.view);
-  if (next === "today" && detailTask) closeTask();
+  if (next === "inbox" && detailTask) closeTask();
   else show(next);
 });
 welcomeRetry.addEventListener("click", () => {
@@ -5765,11 +7155,42 @@ welcomeRetry.addEventListener("click", () => {
   void window.lore.retrySetup();
 });
 document.addEventListener("keydown", (event) => {
+  // While listening, Enter is done and Esc stops; neither reaches the page beneath.
+  if (recorder && (event.key === "Enter" || event.key === "Escape")) {
+    event.preventDefault();
+    event.stopPropagation();
+    void (event.key === "Enter" ? finishDictation() : cancelDictation());
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
   if (event.key === "Escape" && !newMenu.hidden) { closeNewMenu(); newOpen.focus(); }
   if (event.key === "Escape") hidePeek();
+  pageKey(event);
 });
+
+/** APP-283, APP-288, APP-282: the Inbox, Bids, a bid's page and Inventory by keyboard, unless the owner is typing or something floats over them. @param {KeyboardEvent} event */
+function pageKey(event) {
+  const typing = event.target instanceof HTMLElement && (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
+  if (event.defaultPrevented || typing || event.metaKey || event.ctrlKey || event.altKey || palette.open || document.querySelector("dialog[open], :popover-open") || !newMenu.hidden || document.body.dataset.state !== "app") return;
+  const handled = view === "inbox" && !detailTask && !firstRun.active ? inbox.key(event)
+    : view === "bids" ? bidsView.key(event)
+    : view === "inventory" ? inventoryView.key(event)
+    : view === "bid" ? bidKey(event)
+    : view === "memory" ? memoryPage.key(event)
+    : false;
+  if (handled) event.preventDefault();
+}
+
+/** On a bid: ↑/↓ or K/J to the bid before or after, Esc back to the list it came from. @param {KeyboardEvent} event */
+function bidKey(event) {
+  if (event.key === "ArrowUp" || event.key === "k") bidPage.step(-1);
+  else if (event.key === "ArrowDown" || event.key === "j") bidPage.step(1);
+  else if (event.key === "Escape") show(bidPage.from);
+  else return false;
+  return true;
+}
 document.addEventListener("click", (event) => {
   if (!newMenu.hidden && !newOpen.parentElement?.contains(/** @type {Node} */ (event.target))) closeNewMenu();
 });
@@ -5781,6 +7202,7 @@ for (const node of document.querySelectorAll("[data-login]")) {
   });
 }
 welcomeCancel.addEventListener("click", () => void window.lore.cancelLogin());
+$("#welcome-usage").addEventListener("click", () => void window.lore.usageLog());
 $("#welcome-key").addEventListener("click", () => { keyForm.hidden = false; /** @type {HTMLInputElement} */ ($("#key-secret")).focus(); });
 redirectForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -5802,7 +7224,7 @@ keyForm.addEventListener("submit", (event) => {
   void signIn(provider, "api_key", value);
 });
 
-Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
+Object.assign(window, { __lore: { show, openTask, preview: renderRequest, event: onEvent, load, signIn: () => { previewSignIn = true; auth = { credentials: [{ providerId: "anthropic", type: "oauth" }] }; enter(); } } });
 
 function boot() {
   if (previewSignIn) return;

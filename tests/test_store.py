@@ -10,8 +10,6 @@ import json
 import os
 import sqlite3
 import stat
-import subprocess
-import sys
 import threading
 import time
 import unittest
@@ -34,6 +32,7 @@ from lore.store import (
     Status,
     Store,
     Verdict,
+    gist,
     new_public_id,
     valid_public_id,
 )
@@ -175,34 +174,6 @@ class StoreConcurrencyTest(LoreTestCase):
         self.connect_with(scripted)
         return scripted
 
-    def start_lore_processes(self, count: int) -> list[subprocess.Popen[str]]:
-        """Start `count` real `lore` processes together."""
-        processes = [
-            subprocess.Popen(
-                [sys.executable, "-m", "lore", *self.COMMANDS[i % len(self.COMMANDS)]],
-                cwd=Path(__file__).resolve().parent.parent,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            for i in range(count)
-        ]
-        self.addCleanup(self.reap, processes)
-        return processes
-
-    @staticmethod
-    def reap(processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            process.kill()
-            process.wait()
-            if process.stderr and not process.stderr.closed:
-                process.stderr.close()
-
-    def assert_all_succeed(self, processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            _, stderr = process.communicate(timeout=90)
-            self.assertEqual(process.returncode, 0, stderr)
-
     def test_open_waits_for_another_process_mid_first_migration(self) -> None:
         self.release_after(self.hold_write_lock(), 0.3)
         with Store() as store:
@@ -232,21 +203,6 @@ class StoreConcurrencyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.counts()["private"], 0)
         self.assertEqual(scripted.asked, 1)
-
-    def test_several_lore_processes_on_an_empty_home_all_succeed(self) -> None:
-        self.assert_all_succeed(self.start_lore_processes(4))
-
-    def test_lore_processes_wait_for_a_migration_already_under_way(self) -> None:
-        # The race itself is rare, so hold the lock the winner would hold until
-        # every process has had time to start and meet it on the journal-mode
-        # switch. One that gives up exits while the lock is still held.
-        holder = self.hold_write_lock()
-        processes = self.start_lore_processes(4)
-        ceiling = time.monotonic() + 6
-        while time.monotonic() < ceiling and all(p.poll() is None for p in processes):
-            time.sleep(0.1)
-        holder.execute("COMMIT")
-        self.assert_all_succeed(processes)
 
 
 class ContributorTest(LoreTestCase):
@@ -366,6 +322,35 @@ class VerdictTest(LoreTestCase):
             self.assertEqual(store.verdicts(), {})
 
 
+class GistTest(LoreTestCase):
+    """What a memory is about in a line, so a list can be chosen from by more than its title."""
+
+    def test_the_frontmatter_summary_is_the_gist(self) -> None:
+        content = '---\nname: x\ndescription: "Launch set for Oct 27; maintenance in November"\n---\n# Title\nBody.'
+        self.assertEqual(
+            gist(content), "Launch set for Oct 27; maintenance in November"
+        )
+
+    def test_without_one_the_first_sentence_of_prose_stands_in(self) -> None:
+        self.assertEqual(
+            gist("# Heading\n\nStripe **closed** it. Then reopened."),
+            "Stripe closed it.",
+        )
+
+    def test_a_long_one_ends_on_a_whole_word(self) -> None:
+        said = gist("word " * 100)
+        self.assertLessEqual(len(said), 180)
+        self.assertTrue(said.endswith("word…"))
+
+    def test_kept_memories_have_one_and_discarded_ones_do_not(self) -> None:
+        kept = self.seed_memory("Kept")
+        self.seed_memory("Dropped", status="discarded")
+        with Store() as store:
+            self.assertEqual(list(store.gists()), [kept])
+            rows = store.memory_inventory()
+        self.assertFalse(any("gist" in row for row in rows))
+
+
 class ArrivalTest(LoreTestCase):
     """APP-212: the order memories arrived in, which an id can't be once one is deleted."""
 
@@ -380,6 +365,37 @@ class ArrivalTest(LoreTestCase):
             arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
         self.assertEqual(arrivals["First"], first)
         self.assertGreater(arrivals["Again"], second)
+
+    def test_a_database_from_before_bids_gains_the_column_and_keeps_its_pieces(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Evidence")
+        with Store() as store:
+            store.add_publication(
+                title="Old", content="c", topic="t", teaser="q?", provenance=[memory]
+            )
+            store.db.execute("ALTER TABLE publications DROP COLUMN bid")
+            store.db.commit()
+        with Store() as store:
+            [old] = store.list_publications()
+            self.assertEqual(old.bid, "")
+            store.add_publication(
+                title="New",
+                content="c",
+                topic="t",
+                teaser="q?",
+                provenance=[memory],
+                bid="k3v9q2m7xa",
+            )
+            self.assertEqual(
+                {p.title: p.bid for p in store.list_publications()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+            )
+            self.assertEqual(
+                {p["title"]: p["bid"] for p in store.publication_inventory()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+                "the app reads which bid a piece answers from the inventory (APP-283)",
+            )
 
     def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
         titles = [f"Memory {n}" for n in range(1, 8)]
@@ -481,6 +497,13 @@ class RetentionTest(LoreTestCase):
         with Store() as store:
             with self.assertRaisesRegex(ValueError, "memory not found"):
                 store.set_status(999, "private")
+
+    def test_discarding_or_deleting_a_missing_memory_is_an_error(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+                store.discard(999)
+            with self.assertRaisesRegex(ValueError, "memory not found: 999"):
+                store.delete(999)
 
     def test_set_status_many_changes_a_batch_in_one_statement(self) -> None:
         ids = [self.seed_memory(f"Lesson {n}") for n in range(3)]
@@ -616,6 +639,18 @@ class SearchTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.search('lesson" OR "'), [])
             self.assertEqual(len(store.search('"lesson"')), 1)
+
+    def test_a_loose_search_finds_any_word_by_its_prefix(self) -> None:
+        self.seed_memory("Reward hacking")
+        self.seed_memory("Sourdough")
+        with Store() as store:
+            self.assertEqual(store.search("rewards hack", status="private"), [])
+            found = store.search("reward hack", status="private", loose=True)
+            self.assertEqual([m.title for m in found], ["Reward hacking"])
+            self.assertEqual(
+                store.holding(["deploy", "sourdough", "nothing"]),
+                {"deploy": 2, "sourdough": 1, "nothing": 0},
+            )
 
     def test_search_rejects_a_negative_limit_and_an_unknown_status(self) -> None:
         with Store() as store:
@@ -1217,6 +1252,50 @@ class PublicationTest(LoreTestCase):
             after = json.dumps(store.manifest(), sort_keys=True)
         self.assertEqual(before, after)
 
+    def test_flag_detail_names_only_the_memory_that_changed(self) -> None:
+        # Of three provenance memories, one changed, one is untouched with a
+        # snapshot, and one was deleted out from under the publication. Only
+        # the changed one is the cause; the other two must not be reported.
+        unchanged = self.seed_memory("Deployment lesson")
+        deleted = self.seed_memory("Retired lesson")
+        derived = self.publish(provenance=[self.memory_id, unchanged, deleted])
+        with Store() as store:
+            store.db.execute("DELETE FROM memories WHERE id=?", (deleted,))
+            store.db.commit()
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content="a changed body",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            detail = store.flag_detail(publication)
+        self.assertEqual([entry["title"] for entry in detail], ["Pricing lesson"])
+        self.assertIn("+a changed body", "\n".join(detail[0]["diff"]))
+
+    def test_re_approving_a_publication_with_no_provenance_on_record(self) -> None:
+        # A row from before provenance was required carries the column's
+        # default, '[]'. Re-approving it clears the flag and its old snapshot
+        # rather than failing on an empty list of sources.
+        derived = self.publish()
+        with Store() as store:
+            store.db.execute(
+                "UPDATE publications SET provenance='[]',source_changed_at=? "
+                "WHERE id=?",
+                ("2026-01-01T00:00:00+00:00", derived),
+            )
+            store.db.commit()
+            store.clear_publication_flag(derived)
+            self.assertEqual(store.stale_publications(), [])
+            sources = store.db.execute(
+                "SELECT count(*) FROM publication_sources WHERE publication_id=?",
+                (derived,),
+            ).fetchone()[0]
+        self.assertEqual(sources, 0)
+
 
 class PublicationMigrationTest(LoreTestCase):
     def test_the_topic_and_teaser_columns_are_added_to_databases_created_before_them(
@@ -1279,6 +1358,8 @@ class ModelTest(unittest.TestCase):
         # a silent corruption of both.
         self.assertEqual(f"{Status.PRIVATE}", "private")
         self.assertEqual(f"{PublicationKind.CONTENT}", "content")
+        self.assertEqual(str(JobKind.CAPTURE), "capture")
+        self.assertEqual(str(JobStatus.INCOMPLETE), "incomplete")
 
 
 class OwnerJobTest(LoreTestCase):
@@ -1380,6 +1461,37 @@ class OwnerJobTest(LoreTestCase):
             )
             self.assertEqual(store.reap_jobs(), 0)
             self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+
+    def test_a_process_lore_may_not_signal_still_counts_as_alive(self) -> None:
+        # A pid that exists but belongs to someone else, or that the OS won't
+        # answer for, is not proof the owner died, so the row stays running.
+        for error in (PermissionError(), OSError()):
+            with self.subTest(error=type(error).__name__), Store() as store:
+                store.start_job(
+                    JobKind.CAPTURE.value, owner_pid=self.DEAD_PID, timeout_minutes=720
+                )
+                with mock.patch("lore.store.os.kill", side_effect=error):
+                    self.assertEqual(store.reap_jobs(), 0)
+                    self.assertIs(store.recent_jobs()[0].status, JobStatus.RUNNING)
+                store.db.execute("DELETE FROM owner_jobs")
+                store.db.commit()
+
+    def test_a_job_title_is_capped_at_80_characters_after_trimming(self) -> None:
+        with Store() as store:
+            job_id = store.start_job(JobKind.CAPTURE.value, timeout_minutes=60)
+            with self.assertRaisesRegex(ValueError, "cannot exceed 80 characters"):
+                store.finish_job(job_id, "succeeded", title="x" * 81)
+            self.assertTrue(
+                store.finish_job(job_id, "succeeded", title="  " + "x" * 80 + "  ")
+            )
+            self.assertEqual(store.recent_jobs()[0].title, "x" * 80)
+
+    def test_closing_or_listing_jobs_rejects_a_bad_kind_or_limit(self) -> None:
+        with Store() as store:
+            with self.assertRaisesRegex(ValueError, "invalid job kind: bogus"):
+                store.close_open_job("bogus", "succeeded")
+            with self.assertRaisesRegex(ValueError, "limit cannot be negative"):
+                store.recent_jobs(-1)
 
     def test_a_late_close_repairs_a_row_that_was_conceded_early(self) -> None:
         with Store() as store:

@@ -6,15 +6,21 @@ from __future__ import annotations
 import logging
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TypeVar
+from socketserver import TCPServer
+from typing import TYPE_CHECKING, TypeVar
 from urllib.parse import parse_qs, urlsplit
 
 import anyio.to_thread
 import keyring
 from keyring.errors import PasswordDeleteError
-from mcp.client.auth import AuthorizationCodeResult, OAuthFlowError
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from pydantic import BaseModel
+
+# STO-006: the MCP SDK is imported where a sign-in needs it, not at module level: this module
+# is reached from every `lore` command through lore.inbox, and the SDK is two thirds of the
+# CLI's import time. These names appear in annotations only.
+if TYPE_CHECKING:
+    from mcp.client.auth import AuthorizationCodeResult
+    from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 Saved = TypeVar("Saved", bound=BaseModel)
 
@@ -32,12 +38,16 @@ class Keychain:
         self.server = server
 
     async def get_tokens(self) -> OAuthToken | None:
+        from mcp.shared.auth import OAuthToken
+
         return self._load("tokens", OAuthToken)
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         self._save("tokens", tokens)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
+        from mcp.shared.auth import OAuthClientInformationFull
+
         return self._load("client", OAuthClientInformationFull)
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
@@ -70,11 +80,22 @@ class Loopback(HTTPServer):
         self.timeout = self.wait
         self.answer: dict[str, str] | None = None
 
+    def server_bind(self) -> None:
+        # HTTPServer names itself by looking the bound address up in reverse DNS. A resolver
+        # that answers nothing for 127.0.0.1 (GitHub's macOS 15 runners, XC-111) takes 30 s to
+        # say so, and every sign-in waited behind it. The address is the name.
+        TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
     @property
     def redirect(self) -> str:
         return f"http://127.0.0.1:{self.server_port}/callback"
 
     async def callback(self) -> AuthorizationCodeResult:
+        from mcp.client.auth import AuthorizationCodeResult, OAuthFlowError
+
         await anyio.to_thread.run_sync(self._listen)
         answer = self.answer or {}
         if "code" not in answer:

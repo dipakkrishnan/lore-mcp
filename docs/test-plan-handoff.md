@@ -72,13 +72,14 @@ Test infrastructure that exists today:
 
 | Layer | Where | Notes |
 |---|---|---|
-| Python unit/contract | `tests/` | unittest, runs in CI. Includes `test_ui.py`, `test_mcp_contract.py`, `test_store.py`, `test_deploy.py`, `test_capture.py`, `test_skill_contract.py`, `test_snapshot.py`, `test_automation.py`, `test_blueprint.py`, `test_install.py`, `test_package.py`, `test_paths.py`, `test_sources.py`, `test_cli.py`, `test_pr_templates.py`, plus `tests/node/`, `gate.py`, `helpers.py` |
+| Python unit/contract | `tests/` | unittest, runs in CI under pytest-xdist (`-n auto`, XC-106; add the flag locally too, `tests/gate.py` passes it through). Includes `test_ui.py`, `test_mcp_contract.py`, `test_store.py`, `test_deploy.py`, `test_capture.py`, `test_skill_contract.py`, `test_snapshot.py`, `test_automation.py`, `test_blueprint.py`, `test_package.py`, `test_paths.py`, `test_sources.py`, `test_cli.py`, `test_pr_templates.py`, plus `tests/node/`, `gate.py`, `helpers.py` |
+| Python integration | `tests/integration/` | real-process tests (`test_install.py`, `test_cli_smoke.py`, `test_deploy_npm.py`, `test_desktop_state.py`, `test_store_processes.py`); run as their own CI tier, skipped by `--ignore=tests/integration` |
 | Desktop | `app/desktop/test/app.test.cjs` | `node --test`, **main process only — no renderer coverage** |
 | Desktop support scripts | `app/desktop/support/` | `edge.sh` (seller / provision / store), `dogfood.sh` (`new` \| `current`), `credential-roundtrip.cjs`, `screenshot.cjs`; also `app/desktop/test-capture.sh` |
 | Node/Worker component | `lore/node/test/*.test.ts` | vitest against a mocked facilitator: `paid-path`, `price`, `storefront`, `wallet`, `network`, `answer*`, `mcp-contract`; `vitest.eval.config.ts` for evals |
 | Worker integration | `worker-smoke` CI job | seeds a local D1 `publications` table, runs `npm run dev` + `npm run smoke` |
 | Agent behavior | `evals/` | `run.py`, `buyer.py`, `integration.py`, `task.json`, `buyer_task.json` |
-| CI | `.github/workflows/tests.yml` | jobs: python-lint, python-unit, python-types, bridge-check, desktop-check (macos-14: check, test, package), node-lint, node-compiler, node-component, worker-smoke. Also `deploy-qa.yml`, `pr-title.yml` |
+| CI | `.github/workflows/tests.yml` | jobs: python-lint, python-unit, python-types, bridge-check, desktop-check (macos-15: check, test, package), node-lint, node-compiler, node-component, worker-smoke. Also `deploy-qa.yml`, `pr-title.yml` |
 
 Known coverage gaps mapped to the stories:
 

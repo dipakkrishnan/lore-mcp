@@ -29,6 +29,7 @@ from lore import automation, blueprint, cli, feedback
 from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
+from lore.cloudflare import Account
 from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
 
 
@@ -102,6 +103,7 @@ class MainDispatchTest(LoreTestCase):
             (["capture", "apply", "-"], "capture_apply", ("-",)),
             (["status"], "status", ()),
             (["help"], "manual", ()),
+            (["bids", "match"], "bids_match", ()),
             (["price", "2"], "price", (2.0,)),
             (["price"], "price", (None,)),
             (["answer", "on", "p.txt", "2"], "answer_enable", ("p.txt", 2.0)),
@@ -222,7 +224,7 @@ class MainDispatchTest(LoreTestCase):
         self,
     ) -> None:
         # XC-069: online for the owner's agents; the store.opened event waits
-        # for the deploy that puts something on sale.
+        # for the deploy that puts something on sale, and store.online says so (XC-085).
         with (
             patch("lore.deploy.deploy", return_value=0) as deploy,
             patch("lore.usage.record") as record,
@@ -230,7 +232,35 @@ class MainDispatchTest(LoreTestCase):
             self.assertEqual(cli.main(["node", "deploy", "--inbox-only"]), 0)
         self.assertEqual(deploy.call_args.args, (None, None))
         self.assertEqual(deploy.call_args.kwargs, {"inbox_only": True})
-        record.assert_not_called()
+        record.assert_called_once_with("store.online")
+
+    def test_node_deploy_remembers_the_account_chosen_before_deploying(self) -> None:
+        account = "f" * 32
+        with patch("lore.deploy.deploy", return_value=0):
+            self.assertEqual(
+                cli.main(["node", "deploy", "--inbox-only", "--account", account]), 0
+            )
+        with Store() as store:
+            self.assertEqual(store.setting(deploy_module.ACCOUNT_SETTING), account)
+
+    def test_a_store_failure_is_one_plain_line(self) -> None:
+        failed = deploy_module.StoreFailed(
+            "email_unverified", deploy_module.VERIFY_EMAIL, "all of it\nover lines"
+        )
+        with (
+            patch("lore.deploy.deploy", side_effect=failed),
+            redirect_stderr(StringIO()) as said,
+        ):
+            self.assertEqual(cli.main(["node", "deploy", "--inbox-only"]), 1)
+        self.assertEqual(said.getvalue(), f"lore: {deploy_module.VERIFY_EMAIL}\n")
+
+    def test_node_accounts_lists_them_as_json(self) -> None:
+        found = [Account(id="a" * 32, name="Ada's Account")]
+        with patch("lore.deploy.accounts", return_value=found), captured() as output:
+            self.assertEqual(cli.main(["node", "accounts", "--json"]), 0)
+        self.assertEqual(
+            json.loads(output.getvalue()), [{"id": "a" * 32, "name": "Ada's Account"}]
+        )
 
     def test_status_says_a_store_online_for_agents_sells_nothing(self) -> None:
         with Store() as store:
@@ -1866,7 +1896,9 @@ class PublicationApplyTest(LoreTestCase):
         return self.lore_home / "publish-candidates.json"
 
     def test_drafting_validates_then_stages_for_approval(self) -> None:
-        staged = self.drafted({"title": "First"}, {"title": "Second"})
+        with patch.object(cli.usage, "record") as record:
+            staged = self.drafted({"title": "First"}, {"title": "Second"})
+        record.assert_called_once_with("piece.drafted")
         self.assertEqual([c["title"] for c in staged], ["First", "Second"])
         with captured() as out:
             self.assertEqual(cli.publication_candidates(), 0)
@@ -1922,6 +1954,18 @@ class PublicationApplyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual([p.title for p in store.list_publications()], ["First"])
         self.assertFalse(self.staged_path.exists())
+
+    def test_an_answer_to_a_bid_keeps_the_bid_from_draft_to_piece(self) -> None:
+        (drafted,) = self.drafted({"bid": "k3v9q2m7xa"})
+        self.assertEqual(drafted["bid"], "k3v9q2m7xa")
+        with desktop_stdin(json.dumps({"candidate": drafted, "approve": True})):
+            with captured():
+                self.assertEqual(cli.publication_decide(), 0)
+        with Store() as store:
+            [piece] = store.list_publications()
+        self.assertEqual(piece.bid, "k3v9q2m7xa")
+        with self.assertRaisesRegex(ValueError, "bid"):
+            cli.publication_draft(self.candidates({"bid": "not a bid"}))
 
     def test_the_desktop_app_pushes_each_approved_card_immediately(self) -> None:
         # MON-013, mirroring MON-004's granularity: the desktop app calls
@@ -1982,6 +2026,7 @@ class PublicationApplyTest(LoreTestCase):
             ("topic", "different"),
             ("kind", "content"),
             ("provenance", [self.seed_memory("other evidence")]),
+            ("bid", "k3v9q2m7xa"),
         ):
             with self.subTest(field=field):
                 payload = {

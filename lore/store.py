@@ -128,6 +128,8 @@ class PublicationKind(str, Enum):
 # who the piece is and isn't for.
 SAMPLE_LIMIT = 800
 FIT_LIMIT = 200
+# A bid's id on yourlore.dev (contracts/bids.md), or nothing.
+BID_ID = r"^([a-z0-9]{10})?$"
 # Listed in the manifest only when the owner wrote them, so older readers see
 # the same entry shape as before.
 FREE_EXTRAS = ("sample", "useful_if", "not_useful_if")
@@ -151,6 +153,8 @@ class PublicationInput(BaseModel):
     useful_if: str = Field(default="", max_length=FIT_LIMIT)
     not_useful_if: str = Field(default="", max_length=FIT_LIMIT)
     provenance: list[StrictInt] = Field(min_length=1)
+    # The bid this piece answers (APP-274), or empty for a piece drafted on its own.
+    bid: str = Field(default="", pattern=BID_ID)
 
     @model_validator(mode="after")
     def sample_is_not_the_piece(self) -> "PublicationInput":
@@ -206,6 +210,7 @@ class Publication(BaseModel):
     useful_if: str = ""
     not_useful_if: str = ""
     provenance: list[int]
+    bid: str = ""
     active: int
     created_at: str
     updated_at: str
@@ -396,6 +401,37 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n*", re.S)
+GIST_CHARS = 180
+
+
+def gist(content: str) -> str:
+    """What a memory is about, in a line a list can show beside its title: the summary its
+    frontmatter gives, else its first sentence of prose."""
+    head = FRONTMATTER.match(content)
+    if head:
+        said = re.search(r"^description:\s*(.+)$", head.group(1), re.M)
+        if said:
+            return _clip(said.group(1).strip().strip("\"'"))
+    body = content[head.end() :] if head else content
+    prose = " ".join(
+        line.strip()
+        for line in body.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "---"))
+    )
+    first = re.split(r"(?<=[.!?])\s", prose, maxsplit=1)[0]
+    return _clip(first)
+
+
+def _clip(text: str) -> str:
+    text = re.sub(r"[*_`]+", "", re.sub(r"\s+", " ", text)).strip()
+    return (
+        text
+        if len(text) <= GIST_CHARS
+        else text[: GIST_CHARS - 1].rsplit(" ", 1)[0] + "…"
+    )
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -505,6 +541,7 @@ class Store:
                 useful_if TEXT NOT NULL DEFAULT '',
                 not_useful_if TEXT NOT NULL DEFAULT '',
                 provenance TEXT NOT NULL DEFAULT '[]',
+                bid TEXT NOT NULL DEFAULT '',
                 active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -636,6 +673,7 @@ class Store:
             "sample",
             "useful_if",
             "not_useful_if",
+            "bid",
         ):
             if column not in columns:
                 self.db.execute(
@@ -842,8 +880,13 @@ class Store:
         status: str | None = None,
         limit: int = 20,
         source: str | None = None,
+        loose: bool = False,
     ) -> list[Memory]:
-        """Search memory text, optionally constrained by retention status and source."""
+        """Search memory text, optionally constrained by retention status and source.
+
+        Every term must match, unless `loose`: then any term may, each as a word prefix,
+        so a long question still finds the memories that share some of its words.
+        """
         if limit < 0:
             raise ValueError("limit cannot be negative")
         if status is not None and status not in STATUSES:
@@ -856,7 +899,10 @@ class Store:
             terms = re.findall(r"[\w-]+", query, re.UNICODE)
             if not terms:
                 return []
-            match = " AND ".join(f'"{term.replace(chr(34), "")}"' for term in terms)
+            match = (" OR " if loose else " AND ").join(
+                f'"{term.replace(chr(34), "")}"' + ("*" if loose else "")
+                for term in terms
+            )
             sql = (
                 "SELECT m.* FROM memories_fts f JOIN memories m ON m.id=f.rowid "
                 f"WHERE memories_fts MATCH ?{status_sql} "
@@ -868,6 +914,18 @@ class Store:
         args.extend(value for value in (status, source) if value)
         args.append(limit or -1)
         return [Memory.from_row(row) for row in self.db.execute(sql, args).fetchall()]
+
+    def holding(self, prefixes: list[str], status: str = "private") -> dict[str, int]:
+        """How many memories with `status` hold a word starting with each prefix."""
+        counts = {}
+        for prefix in prefixes:
+            row = self.db.execute(
+                "SELECT count(*) FROM memories_fts f JOIN memories m ON m.id=f.rowid "
+                "WHERE memories_fts MATCH ? AND m.status=?",
+                (f'"{prefix.replace(chr(34), "")}"*', status),
+            ).fetchone()
+            counts[prefix] = row[0]
+        return counts
 
     def get(self, memory_id: int) -> Memory | None:
         """Return one memory by id, or None."""
@@ -1011,6 +1069,14 @@ class Store:
             for row in rows
         ]
 
+    def gists(self) -> dict[int, str]:
+        """Each kept memory's gist by id: asked for apart from the inventory, which carries no
+        memory's words (APP-001), and only where the owner chooses among them."""
+        rows = self.db.execute(
+            "SELECT id,content FROM memories WHERE status='private'"
+        ).fetchall()
+        return {row["id"]: gist(row["content"]) for row in rows}
+
     def judge(self, verdicts: AbcCollection[Verdict]) -> int:
         """Keep what a reading judged of each memory, the latest over any before it.
         Unknown ids are skipped."""
@@ -1108,11 +1174,14 @@ class Store:
         return credited
 
     def publication_inventory(self) -> list[dict[str, object]]:
+        """Each piece's row, with the memories it was drafted from as ids."""
         rows = self.db.execute(
-            "SELECT id,public_id,title,topic,active "
+            "SELECT id,public_id,title,topic,bid,active,provenance,updated_at "
             "FROM publications ORDER BY updated_at DESC,id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {**dict(row), "provenance": json.loads(row["provenance"])} for row in rows
+        ]
 
     def setting(self, key: str, default: object = None) -> object:
         """Read a JSON-backed setting or return its default."""
@@ -1180,6 +1249,7 @@ class Store:
         useful_if: str = "",
         not_useful_if: str = "",
         provenance: list[int] | None = None,
+        bid: str = "",
     ) -> int:
         """Create an active publication and return its id.
 
@@ -1198,6 +1268,7 @@ class Store:
                 "useful_if": useful_if,
                 "not_useful_if": not_useful_if,
                 "provenance": provenance,
+                "bid": bid,
             }
         )
         missing = self.missing_memories(publication.provenance)
@@ -1207,8 +1278,8 @@ class Store:
             )
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
-            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,sample,useful_if,not_useful_if,provenance,active,created_at,updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,1,?,?)""",
+            """INSERT INTO publications(public_id,title,content,kind,topic,teaser,sample,useful_if,not_useful_if,provenance,bid,active,created_at,updated_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,1,?,?)""",
             (
                 new_public_id(),
                 publication.title,
@@ -1220,6 +1291,7 @@ class Store:
                 publication.useful_if,
                 publication.not_useful_if,
                 json.dumps(publication.provenance),
+                publication.bid,
                 now,
                 now,
             ),
@@ -1593,13 +1665,39 @@ class Store:
         memory = self.db.execute(
             "SELECT id FROM memories WHERE source_key=?", (source_key,)
         ).fetchone()
+        return self._piece(collection, title, content, memory["id"])
+
+    def add_memory_to_collection(
+        self, collection_id: int, memory_id: int
+    ) -> CollectionPiece:
+        """Put a kept memory on sale as a piece of the collection, as it reads.
+        Choosing it is the owner's approval."""
+        memory = self.get(memory_id)
+        if memory is None or memory.status != "private":
+            raise ValueError(f"memory {memory_id} isn't one Lore keeps")
+        collection = self.collection(collection_id)
+        # Once per memory: two memories that read alike are still two, each cited as itself.
+        already = self.db.execute(
+            "SELECT p.id FROM collection_pieces c JOIN publications p "
+            "ON p.id=c.publication_id, json_each(p.provenance) j "
+            "WHERE c.collection_id=? AND p.active=1 AND j.value=?",
+            (collection_id, memory.id),
+        ).fetchone()
+        if already:
+            return next(p for p in collection.pieces if p.id == already["id"])
+        return self._piece(collection, memory.title, memory.content, memory.id)
+
+    def _piece(
+        self, collection: Collection, title: str, content: str, memory_id: int
+    ) -> CollectionPiece:
+        collection_id = collection.id
         publication_id = self.add_publication(
             title=title,
             content=content,
             kind=PublicationKind.CONTENT,
             topic=collection.title,
             teaser=title,
-            provenance=[memory["id"]],
+            provenance=[memory_id],
         )
         self.db.execute(
             "INSERT INTO collection_pieces(collection_id,publication_id,position) "
