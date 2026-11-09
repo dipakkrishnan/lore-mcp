@@ -294,7 +294,7 @@ if (scenario === "connectors") {
 
 /** APP-271: where a walk's time goes, said in two TIME lines as it ends (edge.sh prints them): the layout scans, the
  * pictures, the fixed sleeps, and the longest stretches between one check and the next. */
-const spent = { from: Date.now(), slept: 0, scanning: 0, picturing: 0, scans: 0, marks: /** @type {[string, number][]} */ ([]) };
+const spent = { from: Date.now(), slept: 0, scanning: 0, picturing: 0, scans: 0, marks: /** @type {[string, number][]} */ ([]), gaveUp: /** @type {string[]} */ ([]) };
 /** @param {number} ms */
 const pause = (ms) => new Promise((done) => setTimeout(done, ms));
 /** APP-271: a fixed wait, kept only where there is no state to watch, or where the time itself is what a check needs;
@@ -306,14 +306,22 @@ const until = async (test, ms = 10_000, tries = 1) => {
   const end = Date.now() + ms;
   for (let asked = 1; ; asked++) {
     if (await test()) return true;
-    if (asked >= tries && Date.now() >= end) return false;
+    if (asked >= tries && Date.now() >= end) {
+      // Said in the TIME lines: where in this file a wait ran out, which is time a walk spent for nothing.
+      spent.gaveUp.push([...(new Error().stack ?? "").split("\n").slice(2).join("\n").matchAll(/edge\.cjs:(\d+)/g)].slice(0, 3).map((line) => line[1]).join("<") || "?");
+      return false;
+    }
     await pause(50);
   }
 };
 /** APP-271: the app has gone quiet: no call from the page is out, and none started or was answered in the last quarter
  * second (the gap between main saying something changed and the page asking again is a few milliseconds). What a step
  * sets off has then been drawn, so a check that something did not happen can be made. */
-const idle = () => until(() => outstanding === 0 && Date.now() - lastCallAt >= 250, 30_000);
+const idle = async () => {
+  if (await until(() => outstanding === 0 && Date.now() - lastCallAt >= 250, 30_000)) return true;
+  spent.gaveUp.push(`idle with ${calls.flatMap((call, at) => (call.answered ? [] : [ipc[at]])).join(", ")} out`);
+  return false;
+};
 /** APP-271: whether a call on `channel` that started at or after call number `from` has been answered. @param {string} channel @param {number} from */
 const answeredSince = (channel, from) => ipc.slice(from).some((each, at) => each === channel && calls[from + at].answered > 0);
 /** APP-271: waits until a check of Lore's clock or its agents' watch started at or after number `from` has finished.
@@ -476,7 +484,14 @@ const LAYOUT = String.raw`(() => {
   };
   /** A sticky bar is stuck only when it is pinned: its edge sits at its inset from the box it scrolls in (the padding
    * edge or the content edge), and it has left the place it would rest at without sticking. */
+  // APP-271: asked once per bar a scan: each answer moves the bar and lays the page out again, and nothing moves it
+  // between one text node and the next.
+  const stuckBars = new Map();
   const stuck = (bar) => {
+    if (!stuckBars.has(bar)) stuckBars.set(bar, isStuck(bar));
+    return stuckBars.get(bar);
+  };
+  const isStuck = (bar) => {
     let scroller = bar.parentElement;
     while (scroller && !scrolls(css(scroller))) scroller = scroller.parentElement;
     if (!scroller) return false;
@@ -1607,14 +1622,14 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
 
         notes[0].handlers.click();
         check("clicking it lands on what Grok Bot saved, in Inventory", await waitFor(`document.querySelector("#title").textContent === "Inventory" && (${chip}) === "Grok Bot×"`), await js(chip));
-        check("…just the two things it saved, seen already, with nothing of Lore's beside them", await waitFor(`Boolean(${rowOf("How I price sync placements")}) && Boolean(${rowOf("Quote sync fees in the buyer's currency")})`) && (await js(`document.querySelectorAll("#content .invrow").length`)) === 2 && !(await js(`Boolean(document.querySelector("#content .new-mark"))`)), await js(listed));
+        check("…just the two things it saved, seen already, with nothing of Lore's beside them", await waitFor(`Boolean(${rowOf("How I price sync placements")}) && Boolean(${rowOf("Quote sync fees in the buyer's currency")})`) && (await js(`document.querySelectorAll("#content .invrow").length`)) === 2 && !(await js(`Boolean(document.querySelector("#content .new-mark"))`)), `${await js(listed)} ${await js(`JSON.stringify({ since: unseen.since, seen: [...unseen.seen], before: [...unseen.before], arrivals: snapshot.library.items.map((i) => i.arrival), focused: document.hasFocus() })`)}`);
         await shot("agents-see-them-notification");
         await js(`window.__lore.show("inbox")`);
         const card = `[...document.querySelectorAll("#content .irow.memories")].find((r) => r.textContent.includes("from Grok Bot"))`;
         check("the Inbox's row for them is named for Grok, with how many look worth selling", await waitFor(`${card}?.querySelector(".say")?.textContent === "2 new memories from Grok Bot · 1 worth selling"`), await js(`document.querySelector("#content").textContent`));
         // APP-211: with an agent connected, Today now says once what Lore does on its own.
         const told = `[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Settings"))`;
-        check("with Grok connected, Today says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent`));
+        check("with Grok connected, Today says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent + " " + JSON.stringify({ noticed: snapshot.setup.automations_noticed, told: [...told.keys()], notices: notices.map((n) => n.key), routines: routines.map((r) => r.kind + (r.paused ? "-paused" : "")), sources: snapshot.library.sources.filter((s) => s.enabled).length })`));
         check("…and remembers having said it", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`));
         // APP-211: a refresh that still reads "not said" (as one started before the write would) never says it twice.
         execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('automations_noticed', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
@@ -2588,7 +2603,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
     const stretches = spent.marks.map(([name, at], i) => /** @type {[string, number]} */ ([name, at - (i ? spent.marks[i - 1][1] : spent.from)])).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const timing = [
       `TIME ${scenario}: ${seconds(Date.now() - spent.from)} under Electron; ${spent.scans} layout scans took ${seconds(spent.scanning)}, pictures ${seconds(spent.picturing)}, fixed sleeps ${seconds(spent.slept)}; ${ipc.length} calls from the page`,
-      `TIME ${scenario}, longest stretches before: ${stretches.map(([name, ms]) => `${seconds(ms)} ${JSON.stringify(name.slice(0, 70))}`).join("; ")}`
+      `TIME ${scenario}, longest stretches before: ${stretches.map(([name, ms]) => `${seconds(ms)} ${JSON.stringify(name.slice(0, 70))}`).join("; ")}`,
+      `TIME ${scenario}, waits that ran out: ${spent.gaveUp.length ? spent.gaveUp.map((at) => (/^[\d<]+$/.test(at) ? `edge.cjs:${at}` : at)).join("; ") : "none"}`
     ];
     console.log([...results, ...timing].join("\n"));
     app.exit(results.some((line) => !line.startsWith("PASS")) ? 1 : 0);
