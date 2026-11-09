@@ -1111,8 +1111,10 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("publish-from-app");
         // APP-211: that clean-up leaves Today's own notice alone: it waits under the thread and is there once it closes.
         check("the automations notice survives selling, hidden while the thread covers Today", await js(`notices.some((n) => n.key === "automations") && !document.querySelector("#status").textContent.includes("Change this in Settings")`));
+        // APP-271: what the thread set off has landed before it closes.
+        await idle();
         await js(`closeTask(); true`);
-        check("…and shows again, once, when Today is back", await waitFor(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Settings")).length === 1`));
+        check("…and shows again, once, when Today is back", await waitFor(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Settings")).length === 1`), await js(`JSON.stringify({ shown: [...document.querySelectorAll("#status .notice")].map((n) => n.textContent.slice(0, 60)), notices: notices.map((n) => n.key ?? n.text.slice(0, 40)), today: onToday(), view, detailTask })`));
       } else if (scenario === "settings") {
         // Settings → Your store with every row filled, then the batch of free-part updates on Today.
         const text = () => js(`document.querySelector("#content").textContent`);
