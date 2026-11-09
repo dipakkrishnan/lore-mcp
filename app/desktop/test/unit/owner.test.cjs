@@ -66,13 +66,15 @@ test("every card still waiting fails when Lore closes, and an abort afterwards s
 });
 
 test("main.cjs fails waiting cards on quit and on window close, and answers and gates go through owner.cjs", () => {
-  // main.cjs cannot be required outside Electron, so its wiring is read as text (as ipc-contract.test.cjs does).
+  // main.cjs cannot be required outside Electron, so its wiring is read as text (as ipc-contract.test.cjs does); the
+  // handlers and the agent's callbacks are ipc.cjs's (APP-267).
   const main = readFileSync(join(__dirname, "..", "..", "src", "main.cjs"), "utf8");
+  const ipc = readFileSync(join(__dirname, "..", "..", "src", "ipc.cjs"), "utf8");
   assert.match(main, /app\.on\("before-quit", \(\) => \{[^}]*requests\.rejectAll\("Lore closed"\);/);
   assert.match(main, /window\.on\("closed", \(\) => \{[^}]*requests\.rejectAll\("Lore window closed"\);/);
-  assert.match(main, /ipcMain\.handle\("agent:respond", \(_event, response\) => requests\.answer\(response\)\);/);
-  assert.match(main, /\.\.\.ownerGates\(\{/);
-  assert.doesNotMatch(main, /\bpending\.(set|get|delete|clear|values)\(/, "no second list of waiting cards");
+  assert.match(ipc, /ipcMain\.handle\("agent:respond", \(_event, response\) => requests\.answer\(response\)\);/);
+  assert.match(ipc, /\.\.\.ownerGates\(\{/);
+  for (const source of [main, ipc]) assert.doesNotMatch(source, /\bpending\.(set|get|delete|clear|values)\(/, "no second list of waiting cards");
 });
 
 /** Gates over a scripted owner: `answer` is what the card returns. @param {unknown} answer */
