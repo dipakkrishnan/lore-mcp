@@ -1,5 +1,5 @@
 // XC-100: the storefront's route and cookie rules, read straight off a path or a header. The pages they lead to
-// are covered through the Worker by pages.test.ts, card.test.ts and free.test.ts.
+// are covered through the Worker by paid-path.test.ts, card.test.ts and free.test.ts.
 import { describe, expect, it } from "vitest";
 import { freeCookie, freeCookieHeader, pageRoute, postRoute } from "../../src/routes.js";
 
