@@ -15,6 +15,9 @@
 // line is the count to trust (GitHub shows at most ten warnings per step). XC-072 counts a pass on retry as a flake: the
 // number it drives down is that line, not the job's colour.
 // LORE_WALKS_EDGE points at another script in place of edge.sh; test/walks.test.cjs uses it.
+// XC-108: test/unit/walks-budget.test.cjs holds this list to seven walks and 450 seconds unless one note like the next
+// line raises them, naming the item that allows it. APP-270's timings sum to 480; APP-271 brings them down and takes it out.
+// walks-budget: APP-271 allows 7 walks and 480 seconds: APP-270's measured timings, until APP-271 makes the walks cheaper
 const { spawn } = require("node:child_process");
 const { appendFileSync } = require("node:fs");
 const { loadavg } = require("node:os");

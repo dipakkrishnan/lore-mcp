@@ -224,17 +224,22 @@ class Line(unittest.TestCase):
         self.assertEqual(coverage_summary.percent(0, 0), "100.00%")
 
 
+def _run_main(argv: list[str]) -> tuple[int, str, str]:
+    """main()'s exit code, what it appended to the step summary, and what it printed."""
+    with tempfile.TemporaryDirectory() as folder:
+        summary = os.path.join(folder, "summary.md")
+        with (
+            mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}),
+            mock.patch("sys.stdout", new=io.StringIO()) as out,
+        ):
+            code = coverage_summary.main(argv)
+        written = Path(summary).read_text() if os.path.exists(summary) else ""
+        return code, written, out.getvalue()
+
+
 class Main(unittest.TestCase):
     def run_main(self, argv: list[str]) -> tuple[int, str, str]:
-        with tempfile.TemporaryDirectory() as folder:
-            summary = os.path.join(folder, "summary.md")
-            with (
-                mock.patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": summary}),
-                mock.patch("sys.stdout", new=io.StringIO()) as out,
-            ):
-                code = coverage_summary.main(argv)
-            written = Path(summary).read_text() if os.path.exists(summary) else ""
-            return code, written, out.getvalue()
+        return _run_main(argv)
 
     def test_appends_the_line_to_the_step_summary(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
@@ -258,6 +263,117 @@ class Main(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("::warning title=coverage checkout::", printed)
         self.assertIn("**checkout** coverage (report-only): not measured", written)
+
+
+class Floor(unittest.TestCase):
+    """XC-108: `--floor CONFIG` holds the package to its config's coverageFloor block."""
+
+    def run_main(self, argv: list[str]) -> tuple[int, str, str]:
+        return _run_main(argv)
+
+    def write(self, folder: str, floor: object) -> Path:
+        config = Path(folder, "package.json")
+        config.write_text(json.dumps({"name": "x", "coverageFloor": floor}))
+        return config
+
+    def test_meeting_the_floor_exits_zero_and_names_it(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            lcov = Path(folder, "lcov.info")
+            lcov.write_text(LCOV)
+            config = self.write(folder, {"lines": 75, "branches": 50, "about": "x"})
+            code, written, printed = self.run_main(
+                ["--name", "app/desktop", "--lcov", str(lcov), "--floor", str(config)]
+            )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            written,
+            "**app/desktop** coverage (floor lines 75%, branches 50%): lines 75.00% (30/40) · "
+            "branches 50.00% (5/10)\n",
+        )
+        self.assertNotIn("::error", printed)
+
+    def test_under_either_measure_is_an_error_and_exit_one(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            lcov = Path(folder, "lcov.info")
+            lcov.write_text(LCOV)
+            for floor, under in (
+                ({"lines": 75.01, "branches": 50}, "lines 75.00% (30/40)"),
+                ({"lines": 75, "branches": 50.5}, "branches 50.00% (5/10)"),
+            ):
+                config = self.write(folder, floor)
+                code, _, printed = self.run_main(
+                    [
+                        "--name",
+                        "app/desktop",
+                        "--lcov",
+                        str(lcov),
+                        "--floor",
+                        str(config),
+                    ]
+                )
+                self.assertEqual(code, 1)
+                self.assertIn(
+                    "::error title=coverage app/desktop below its floor::", printed
+                )
+                self.assertIn(under, printed)
+
+    def test_a_missing_report_fails_when_there_is_a_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            config = self.write(folder, {"lines": 1, "branches": 1})
+            code, written, printed = self.run_main(
+                [
+                    "--name",
+                    "app/desktop",
+                    "--lcov",
+                    "/nonexistent/unit.lcov",
+                    "--floor",
+                    str(config),
+                ]
+            )
+        self.assertEqual(code, 1)
+        self.assertIn("cannot be checked", printed)
+        self.assertIn("not measured", written)
+
+    def test_a_floor_that_does_not_fit_the_report_fails(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            lcov = Path(folder, "lcov.info")
+            lcov.write_text(LCOV)
+            for floor in (
+                {"branches": 1},
+                {"lines": 1, "statements": 1, "branches": 1},
+                {"lines": "high", "branches": 1},
+            ):
+                config = self.write(folder, floor)
+                code, _, printed = self.run_main(
+                    [
+                        "--name",
+                        "app/desktop",
+                        "--lcov",
+                        str(lcov),
+                        "--floor",
+                        str(config),
+                    ]
+                )
+                self.assertEqual(code, 1, floor)
+                self.assertIn("::error title=coverage floor app/desktop::", printed)
+            config = self.write(folder, {"statements": 1, "branches": 1})
+            code, _, printed = self.run_main(
+                ["--name", "app/desktop", "--lcov", str(lcov), "--floor", str(config)]
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("names no `lines`", printed)
+            code, _, printed = self.run_main(
+                [
+                    "--name",
+                    "app/desktop",
+                    "--lcov",
+                    str(lcov),
+                    "--floor",
+                    str(Path(folder, "none.json")),
+                ]
+            )
+            self.assertEqual(code, 1)
+            self.assertIn("not found", printed)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.1.25",
   "main": "src/main.cjs",
+  "coverageFloor": {
+    "lines": 89.75,
+    "branches": 86.75,
+    "about": "XC-108: CI's desktop job fails below these, read by .github/scripts/coverage_summary.py --floor over the union of the unit and component tiers' lcov. Set 2026-11-09 a little under main's numbers (808a33d8, run 42584807851): lines 90.59% (4543/5015), branches 87.53% (1874/2141). Raise them as coverage rises; never lower them, and never exclude a file to meet them."
+  },
   "scripts": {
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
