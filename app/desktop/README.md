@@ -51,7 +51,8 @@ the test's own process and records every call, so nothing starts (APP-272). The 
 `support/scratch.cjs`, is for `test/component/`'s few round trips, one per surface the app depends on.
 
 Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
-check (the screenshots are written, never compared): once the page settles it
+check (the screenshots are written, never compared, and on CI not written at
+all: `LORE_EDGE_IMAGES=1` keeps them there, `=0` drops them here): once the page settles it
 scans the whole DOM in real Chromium for layout faults — a box wider than its
 room, text or a control cut off or clipped by the box around it, a one-line
 label wrapping, neighbours drawn over each other, text or the focused control
@@ -64,6 +65,13 @@ labels; `test/views.test.cjs` fails when a `shot()` label has no row, a row
 names a label or walk that is gone, or the widths disagree with edge.cjs and
 main.cjs. Only a `shot()` under Electron counts as a layout check: a jsdom or
 `node:vm` assertion never does, because neither lays anything out (APP-266).
+
+A walk waits on the thing it is waiting for: `waitFor` on the page, `until` on what
+the walk itself records (notifications, readings, calls), `idle` for no call from
+the page being out. A fixed `sleep` stays only where nothing can be watched or the
+time is itself the point, and its comment says which (APP-271). Each walk ends
+with two `TIME` lines saying where its time went: the scans, the fixed sleeps, and
+its longest stretches between checks.
 
 To look at a view without clicking through, render it to a PNG:
 

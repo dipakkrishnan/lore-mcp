@@ -166,6 +166,7 @@ def _dump(signum, frame):
 signal.signal(signal.SIGTERM, _dump)
 PY
 export PYTHONPATH="$root/pyhooks${PYTHONPATH:+:$PYTHONPATH}" LORE_CLI_STACK="$root/cli-stack.log"
+# APP-271: on CI every shot() scans and keeps no picture; LORE_EDGE_IMAGES=1 keeps them there too.
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
@@ -192,6 +193,8 @@ fi
 code=0
 wait "$walk" 2>/dev/null || code=$?
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
+# APP-271: where the walk's time went (edge.cjs's TIME lines), said but never judged.
+grep -E "^TIME" "$root/walk.log" || true
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
