@@ -4,7 +4,7 @@ title: Tag every test by level and run the tiers separately
 priority: P1
 effort: M
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-096, XC-099, APP-272, XC-106, XC-107]
 blockers: []
 dependencies: []
@@ -52,7 +52,7 @@ tier's count and duration goes to `$GITHUB_STEP_SUMMARY`.
 - [x] `app/desktop/test/unit/` holds only tests that spawn no process; a
       guard test fails if a unit-folder test requires `support/scratch.cjs`
       or spawns `uv`.
-- [ ] The Python and desktop CI jobs print per-tier test counts and durations
+- [x] The Python and desktop CI jobs print per-tier test counts and durations
       in the step summary.
 - [x] Total test counts are unchanged before and after the move (1,019 Python,
       169 desktop as of main 454fd933, adjusted for whatever lands meanwhile).
@@ -104,3 +104,10 @@ tier's count and duration goes to `$GITHUB_STEP_SUMMARY`.
   does. No open PR does this; XC-107's "each job's step summary has a
   per-tier table" criterion covers the same ground, so it can land there or
   in a small part 3 here, and this item closes once it does.
+- 2026-11-09, closed by XC-107's PR #675. Both Python steps are teed to
+  `pytest.log` and end with a `tier_summary.py` step, so on its run
+  42572078205 the "Python unit tests" summary has `### Test tiers: Python`
+  with Unit 1,136 tests (1,135 passed, 1 skipped) in 36.9 s, and "Python
+  integration tests" has Integration 7 tests in 10.9 s. The desktop job's
+  two lines became one table on the same run: Unit 266 tests 13.7 s,
+  Component 94 tests (1 todo) 76.8 s. Every criterion is now met.
