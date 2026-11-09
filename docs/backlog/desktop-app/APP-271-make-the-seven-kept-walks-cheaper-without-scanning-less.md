@@ -46,12 +46,12 @@ only needs ordering, not duration.
       (139 before, 14 after.)
 - [ ] `agents` finishes in 100 s or less on the macOS runner over three
       consecutive green main runs. (Not verifiable before merge. On PR #683:
-      80 s and 81 s on the last two runs whose first attempt passed, from
-      168 s on main at 808a33d8.)
+      80, 81 and 128 s on its last three runs whose first attempt passed,
+      the 128 s on a runner at load 76, from 168 s on main at 808a33d8.)
 - [ ] The walks step is 150 s or less over three consecutive green main
       runs, with seven walks and no retries counted as passes. (Not met on
-      the PR: 160 s on its last run, 177 s on the one before, from 298 s on
-      main at 808a33d8.)
+      the PR: 177, 160 and 271 s on those runs, from 298 s on main at
+      808a33d8.)
 - [x] Layout scan: every view in APP-266's seven-walk table is scanned at
       least once per walk at 1280 px, and every view in the narrow set once
       at 900 px; Notes list, per walk, which `shot()` calls became
@@ -79,6 +79,7 @@ only needs ordering, not duration.
 | PR #683 at ee4333f3, 42595713224 | 80 s | 177 s (`connectors` passed on retry) | 271 s |
 | PR #683 at fb72ebd6, 42597962144 | 63 s, failed; 124 s on retry | 323 s | 472 s |
 | PR #683 at 6f69c8da, 42599163441 | 81 s | 160 s, 0 retried | 251 s |
+| PR #683 at 11ebe440, 42599899973 (load 14-76) | 128 s | 271 s, 0 retried | 432 s |
 
 The runner's load average swung from 10 to 80 between runs, and the step
 with it (one run of this same code took 191 s, another 337 s before the
@@ -200,6 +201,6 @@ per text node; its answers are the same.
 #### What remains
 
 The two time criteria need three green main runs after merge. On the PR,
-`agents` is at about 80 s; the walks step at 160-177 s on a quiet runner,
-over 150 s, because `agents` still runs alone (XC-084) before the other six,
+`agents` is at about 80 s and the walks step at 160-177 s on a quiet runner,
+and both at 128 and 271 s on a loaded one; over 150 s either way, because `agents` still runs alone (XC-084) before the other six,
 which take about 80 s two at a time. Status stays `in-progress`.
