@@ -113,7 +113,7 @@ Premise drift, checked against main as it stood:
 New tests (all under `app/desktop/test/unit/`, run by `npm run test:unit`, all
 passing): `renderer-step-actions.test.cjs` (10), `renderer-talk.test.cjs` (7),
 `renderer-empty-states.test.cjs` (9), `renderer-vault.test.cjs` (3),
-`renderer-bids-empty.test.cjs` (1). Unit tier 332/332.
+`renderer-bids-empty.test.cjs` (1). Unit tier 332/332 at 76e5bee6; 372/372, component 53 pass and 1 known-gap todo, after merging APP-272 (which moved 40 tests to the unit tier).
 
 #### today → replacing tests
 
