@@ -228,6 +228,24 @@ passing): `renderer-step-actions.test.cjs` (10), `renderer-talk.test.cjs` (7),
 
 No view scanned before this change is unscanned after it.
 
+XC-107's `.github/scripts/views_scanned.py`, run over each run's walk log
+with that commit's views.json, gives the same view count with 17 walks as
+with 22:
+
+- main's 42572100253, 22 walks: "25 of 25 views in views.json scanned this
+  run (153 shots, 92 again at 900 px); 5 more listed with no walk that scans
+  them".
+- PR #678's 42575320820, 17 walks: "25 of 25 views in views.json scanned this
+  run (133 shots, 83 again at 900 px); 5 more listed with no walk that scans
+  them".
+
+The 20 fewer shots: the retired walks took 23 (today 9, fresh 7, obsidian
+4, faq 2, quiet 1), and kept walks now take three of those labels (`jobs`'
+account-menu and faq, `inventory`'s talk-listening). The five
+unscanned views are the same five as before (first-run, source-disconnect,
+change-time-sheet, feedback-sheet, preview-window). The step summary on the
+PR's next run, with XC-107's job, carries the same line.
+
 - today: Today-view shots (the stages, talk-inventory) → `today` view still
   scanned by connectors (today-bring-in with How it works, today-publish, at
   1040 and 900), settings, agents, reading, schedule, automations, checkin,
