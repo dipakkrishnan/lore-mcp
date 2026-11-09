@@ -39,17 +39,36 @@ jobs:
       # half runs here. The per-file table lands in the step summary.
       # XC-097: the tests that start real processes live in tests/integration
       # and run in python-integration, so this tier is the in-process one.
-      - run: uv run python tests/gate.py --python-only --ignore=tests/integration
+      # XC-106: -n auto spreads it over pytest-xdist workers, one per core;
+      # every test owns a temp LORE_HOME and binds port 0, so nothing is
+      # shared. gate.py measures the workers through pytest-cov and still
+      # prints the one per-file table.
+      # XC-107: teed to a log so tier_summary.py can put the tier's size and
+      # time in the step summary, beside gate.py's coverage table.
+      - name: Python unit tests
+        run: set -o pipefail; uv run python tests/gate.py --python-only --ignore=tests/integration -n auto 2>&1 | tee pytest.log
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 .github/scripts/tier_summary.py --title Python --tier Unit pytest.log
 
   python-integration:
     name: Python integration tests
     runs-on: ubuntu-latest
+    # XC-107: the unit tier first. A broken pure function is read off the unit
+    # job's log, and the integration tier (real processes) does not start on a
+    # commit whose unit tier already failed. It waits about a minute and a half
+    # for that, well inside the desktop job's ten.
+    needs: python-unit
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
       # test_real_uv_install reaches PyPI, so a PR never depends on it; it runs
       # weekly from python-floor.yml.
-      - run: uv run --extra dev python -m pytest tests/integration -k "not real_uv_install" -q
+      - name: Python integration tests
+        run: set -o pipefail; uv run --extra dev python -m pytest tests/integration -k "not real_uv_install" -q 2>&1 | tee pytest.log
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 .github/scripts/tier_summary.py --title Python --tier Integration pytest.log
 
   python-types:
     name: Python type checks
@@ -134,21 +153,38 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
-      # The unit tests spawn `uv run lore`, so the project's environment is
-      # built here, once, and not inside whichever test happens to run first
-      # (XC-111: on a fresh interpreter that build ran a test past its 120 s
-      # limit). The walks below reuse it.
+      # XC-097: the desktop suite runs as two tiers, unit first (test/unit
+      # starts no process, tiers.test.cjs holds that) then component (the tests
+      # that spawn `uv run lore`). Each runs under node's own coverage
+      # (XC-098: --experimental-test-coverage, Node 20+; the Node 24 pinned
+      # above has it), teed to a log so tier_summary.py can put its size and
+      # time in the step summary. Report-only: the summary steps never fail on
+      # a number. node:test counts lines, not statements, and knows only the
+      # files the tests loaded.
+      # XC-107: the order is unit, component, the walks, then `npm run
+      # package`, cheapest first, and a failed step skips every step after it.
+      - name: Desktop unit tests
+        run: set -o pipefail; npm run test:unit:coverage 2>&1 | tee unit.log
+      # The component tests spawn `uv run lore`, so the project's environment
+      # is built here, once, and not inside whichever test happens to run
+      # first (XC-111: on a fresh interpreter that build ran a test past its
+      # 120 s limit). The walks below reuse it. The unit tier needs none of it,
+      # so it runs, and can fail, before this.
       - run: uv sync --locked
         working-directory: .
-      # XC-098: `npm test` under node's own coverage (--experimental-test-coverage,
-      # Node 20+; the Node 24 pinned above has it). Report-only: the next step
-      # turns coverage/lcov.info into one line of the step summary and never
-      # fails on a number. node:test counts lines, not statements, and knows
-      # only the files the tests loaded.
-      - run: npm run test:coverage
-      - name: Coverage line in the step summary (report-only)
+      - name: Desktop component tests
+        run: set -o pipefail; npm run test:component:coverage 2>&1 | tee component.log
+      # A tier whose log is missing did not run (the unit tier failed first)
+      # and is a `not run` row.
+      - name: Tier table in the step summary (report-only)
         if: always()
-        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/lcov.info
+        run: python3 ../../.github/scripts/tier_summary.py --title app/desktop --tier Unit unit.log --tier Component component.log
+      # The two tiers cover the same sources, so their lcov files are unioned
+      # per line and branch, not summed. XC-108: and held to package.json's
+      # coverageFloor; below it this step fails.
+      - name: Coverage line and floor in the step summary
+        if: always()
+        run: python3 ../../.github/scripts/coverage_summary.py --name app/desktop --lcov coverage/unit.lcov coverage/component.lcov --floor package.json
       # renderer.js has no unit coverage — it is only reachable through real
       # Electron (support/edge.cjs). XC-077: support/walks.cjs holds the one
       # list of walks that `npm run test:edge` and CI both run, two at a time
@@ -165,8 +201,15 @@ jobs:
       # XC-084: twenty minutes, not fifteen: a slow runner plus a retried
       # `agents` ran past 15 once, and a step that times out prints no summary
       # and saves no cache. Still inside the 19-minute job XC-077 replaced.
-      - run: node support/walks.cjs --jobs 2
+      # XC-107: teed to a log, from which the next step counts the views the
+      # walks' layout scan reached this run (support/views.json maps each
+      # shot to its view), so a drop in scan coverage shows on the run itself.
+      - name: Desktop walks
+        run: set -o pipefail; node support/walks.cjs --jobs 2 2>&1 | tee walks.log
         timeout-minutes: 20
+      - name: Layout scan in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/views_scanned.py --log walks.log --views support/views.json
       # XC-082: whisper.sh clones and builds whisper.cpp at a pinned tag (about a
       # minute) and node.sh downloads a pinned npm, the same bytes every run.
       # Both scripts already skip their work when their outputs are in place,
@@ -243,17 +286,23 @@ jobs:
       # XC-099: the pure modules' tests first, in plain node (under a second), so a
       # failure there is read before the Workers pool spends its minute booting.
       - name: Unit tests in plain node (XC-099)
-        run: npm run test:unit
+        run: set -o pipefail; npm run test:unit 2>&1 | tee unit.log
       # XC-098: the same two vitest runs with istanbul instrumentation (the only
       # provider the Workers pool supports). Report-only: the next step sums the
       # two Workers' coverage-summary.json files into one lore/node line of the
       # step summary and never fails on a number. The first run covers both the
       # node and the workerd project, so the unit tests run again here, instrumented.
+      # XC-108: each run fails below the floor in its vitest config's coverage.thresholds.
       - name: Run the mocked-facilitator test suite (MON-010)
-        run: npm run test:coverage
+        run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
         if: always()
         run: python3 ../../.github/scripts/coverage_summary.py --name lore/node --istanbul coverage/coverage-summary.json coverage/hosted/coverage-summary.json
+      # XC-107: the instrumented run holds the unit project again, so the
+      # Component row is its count less the Unit row's.
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 ../../.github/scripts/tier_summary.py --title lore/node --tier Unit unit.log --tier Component component.log --also-runs Component Unit
 
   feedback-relay-lint:
     name: Feedback relay lint
@@ -302,13 +351,18 @@ jobs:
       - run: printf 'LORE_FEEDBACK_GITHUB_TOKEN=not-a-real-token\nPOSTHOG_KEY=not-a-real-key\n' > .dev.vars
       # XC-099: unit tests first, in plain node; see node-component.
       - name: Unit tests in plain node (XC-099)
-        run: npm run test:unit
-      # XC-098: with istanbul instrumentation; report-only, see node-component.
+        run: set -o pipefail; npm run test:unit 2>&1 | tee unit.log
+      # XC-098: with istanbul instrumentation; see node-component. XC-108: fails
+      # below the floor in vitest.config.ts's coverage.thresholds.
       - name: Run the stubbed-GitHub test suite (XC-028)
-        run: npm run test:coverage
+        run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
         if: always()
         run: python3 ../.github/scripts/coverage_summary.py --name feedback-relay --istanbul coverage/coverage-summary.json
+      # XC-107: per-tier counts and seconds; see node-component.
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 ../.github/scripts/tier_summary.py --title feedback-relay --tier Unit unit.log --tier Component component.log --also-runs Component Unit
 
   site-component:
     name: Site component tests
@@ -322,8 +376,13 @@ jobs:
         with:
           node-version: lts/*
       - run: npm ci
+      # XC-107: one tier (the site has no unit/component split yet), still
+      # counted and timed in the step summary like every other test job.
       - name: Run the marketplace and bid book suite (MON-051)
-        run: npm test
+        run: set -o pipefail; npm test 2>&1 | tee component.log
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 ../.github/scripts/tier_summary.py --title site --tier Component component.log
 
   checkout-lint:
     name: Card checkout lint
@@ -372,13 +431,18 @@ jobs:
       - run: printf "STRIPE_SECRET_KEY=sk_test_not_a_real_key\nSTRIPE_WEBHOOK_SECRET=whsec_not_a_real_secret\nSTRIPE_PLATFORM_WEBHOOK_SECRET=whsec_not_a_real_secret\nACCOUNT_TOKEN_SECRET=not_a_real_token_secret\n" > .dev.vars
       # XC-099: unit tests first, in plain node; see node-component.
       - name: Unit tests in plain node (XC-099)
-        run: npm run test:unit
-      # XC-098: with istanbul instrumentation; report-only, see node-component.
+        run: set -o pipefail; npm run test:unit 2>&1 | tee unit.log
+      # XC-098: with istanbul instrumentation; see node-component. XC-108: fails
+      # below the floor in vitest.config.ts's coverage.thresholds.
       - name: Run the stubbed-Stripe test suite (XC-039)
-        run: npm run test:coverage
+        run: set -o pipefail; npm run test:coverage 2>&1 | tee component.log
       - name: Coverage line in the step summary (report-only)
         if: always()
         run: python3 ../.github/scripts/coverage_summary.py --name checkout --istanbul coverage/coverage-summary.json
+      # XC-107: per-tier counts and seconds; see node-component.
+      - name: Tier table in the step summary (report-only)
+        if: always()
+        run: python3 ../.github/scripts/tier_summary.py --title checkout --tier Unit unit.log --tier Component component.log --also-runs Component Unit
 
   worker-smoke:
     name: Worker smoke test

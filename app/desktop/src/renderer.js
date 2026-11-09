@@ -16,6 +16,7 @@ const account = $("#account");
 const taskBack = /** @type {HTMLButtonElement} */ ($("#task-back"));
 const taskRestart = /** @type {HTMLButtonElement} */ ($("#task-restart"));
 const skipBtn = /** @type {HTMLButtonElement} */ ($("#first-run-skip"));
+const talkBtn = /** @type {HTMLButtonElement} */ ($("#talk"));
 const feedbackBtn = /** @type {HTMLButtonElement} */ ($("#feedback-open"));
 const accountMenu = $("#account-menu");
 const darkMode = $("#dark-mode");
@@ -726,8 +727,8 @@ function runState(text, tone = "off") {
   return node;
 }
 
-/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso */
-const recent = (iso) => Date.now() - new Date(iso).getTime() < 86_400_000;
+/** Under a day old: anything unfinished from before that is history, not something to act on. @param {string} iso @param {number} [now] */
+const recent = (iso, now = Date.now()) => now - new Date(iso).getTime() < 86_400_000;
 
 /** A date with no time of day is that calendar day here, not midnight in London. @param {string} iso */
 function when(iso) {
@@ -741,11 +742,9 @@ const RUN_STATES = { running: "Running", succeeded: "Done", failed: "Failed", in
 /** Job kinds with an agent thread behind them, keyed to the task that thread belongs to. Synthesis and push are plain CLI runs with no owner-facing conversation, so a Recent-runs row for either stays non-interactive. @type {Partial<Record<JobItem["kind"], AgentTask>>} */
 const JOB_TASK = { capture: "capture", deploy: "deploy" };
 
-/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
- * @param {Snapshot} s */
-function recentRuns(s) {
-  if (!s.jobs) return null;
-  const all = s.jobs.items;
+/** Activity's runs from the job log, newest first: the same run again and again (same kind, state, title and summary,
+ * one after another) as one entry with a count. @param {JobItem[]} all */
+function activityRuns(all) {
   /** @type {Array<{item: JobItem, summary: string, times: number}>} */
   const runs = [];
   all.forEach((item, index) => {
@@ -754,27 +753,46 @@ function recentRuns(s) {
     if (last && last.item.kind === item.kind && last.item.status === item.status && last.item.title === item.title && last.summary === summary) last.times++;
     else runs.push({ item, summary, times: 1 });
   });
+  return runs;
+}
+
+/** What one Activity row says: its label, its detail line, its state as a word and a tone, and the thread it opens, if
+ * any. A plain success has nothing more to show than the row already does; a run still going, or one that went wrong
+ * today, opens its thread when there is one. Older than that, it is history.
+ * @param {{item: JobItem, summary: string, times: number}} run @param {number} [now] */
+function activityRow({ item, summary, times }, now = Date.now()) {
+  const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean).join(" · ");
+  const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
+  const state = RUN_STATES[item.status] ?? item.status;
+  /** @type {"ok" | "attention" | "off"} */
+  const tone = item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off";
+  const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at, now)) ? JOB_TASK[item.kind] : undefined;
+  return { label, detail, state, tone, task };
+}
+
+/** Recent owner runs, newest first, the same run again and again as one row. Absent when the installed CLI predates them.
+ * @param {Snapshot} s */
+function recentRuns(s) {
+  if (!s.jobs) return null;
+  const runs = activityRuns(s.jobs.items);
   if (!runs.length) return null;
-  return section("Activity", card(runs.slice(0, 6).map(({ item, summary, times }) => {
-    const detail = [summary, when(item.started_at), times > 1 ? `${times} times` : ""].filter(Boolean);
-    const label = item.title?.trim() || RUN_LABELS[item.kind] || item.kind;
-    const status = runState(RUN_STATES[item.status] ?? item.status, item.status === "running" ? "ok" : item.status === "failed" ? "attention" : "off");
-    // A plain success has nothing more to show than this row already does; a run still going, or one that went wrong
-    // today, opens its thread when there is one. Older than that, it is history.
-    const task = item.status === "running" || (item.status !== "succeeded" && recent(item.finished_at ?? item.started_at)) ? JOB_TASK[item.kind] : undefined;
-    if (!task) return row(label, detail.join(" · "), status, false);
+  return section("Activity", card(runs.slice(0, 6).map((run) => {
+    const { item } = run;
+    const { label, detail, state, tone, task } = activityRow(run);
+    const status = runState(state, tone);
+    if (!task) return row(label, detail, status, false);
     const node = el("div", "row");
     const open = el("button", "task-link");
     open.type = "button";
     const text = el("div", "t");
-    text.append(el("b", "sans", label), el("span", "", detail.join(" · ")));
+    text.append(el("b", "sans", label), el("span", "", detail));
     open.append(text, status);
     // A job whose owning session never reached a terminal state (e.g. it was
     // conceded by reap_jobs, or the app restarted) has no entry in taskItems.
     // Without this, openTask falls back to null and the header fabricates
     // "Working · Starting" for a row the owner just saw chipped Failed/Unfinished.
     /** @type {TaskRecord} */
-    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: RUN_STATES[item.status] ?? item.status, updatedAt: item.finished_at ?? item.started_at };
+    const fallback = { version: 1, kind: task, title: label, state: item.status === "running" ? "working" : "stopped", phase: state, updatedAt: item.finished_at ?? item.started_at };
     open.addEventListener("click", () => void openTask(task, undefined, fallback));
     node.append(open);
     return node;
@@ -855,9 +873,10 @@ function markTile(mark) {
   return node;
 }
 
-/** "A", "A and B", or "A, B and 2 more". @param {string[]} names */
+/** "A", "A and B", "A, B and C", or "A, B and 2 more". @param {string[]} names */
 function named(names) {
-  return names.length < 3 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  if (names.length < 3) return names.join(" and ");
+  return names.length === 3 ? `${names[0]}, ${names[1]} and ${names[2]}` : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
 }
 
 /** The picture one contributor shows with: an agent's or app's own mark, a clock for a routine, a pen for the owner,
@@ -901,12 +920,19 @@ function provenanceLine(memory) {
   return node;
 }
 
+/** What Today's next step turns on besides the snapshot: the renderer's own state, gathered so the rule can be run on
+ * any (APP-268). */
+function stepState() {
+  return { pushOffer, pushing, busy, candidates, extraDrafts, taskItems };
+}
+/** @typedef {ReturnType<typeof stepState>} StepState */
+
 /** The one thing to do next, by the first stage that applies: a store in trouble, changes not live yet, drafts to
  * approve (the drafts themselves are the step), memories with nothing to sell, then no agent or app at all. None while
  * the store is being opened, repaired or updated.
- * @param {Snapshot} s @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
-function nextStep(s) {
-  if (pushOffer || pushing || underWay("deploy")) return null;
+ * @param {Snapshot} s @param {StepState} [state] @returns {{ mark: keyof typeof STEP_ICONS, label: string, detail: string, action: string, run: () => void } | "drafts" | null} */
+function nextStep(s, state = stepState()) {
+  if (state.pushOffer || state.pushing || underWay("deploy", state)) return null;
   if (s.node.url && s.node.live.state === "unreachable") return { mark: "store", label: "Your store isn't responding", detail: "Buyers and your agents can't reach it right now. Lore can find out why and bring it back.", action: "Fix it", run: resume("deploy", () => startDeploy(STORE_FIX)) };
   const waiting = unpushed(s);
   const stale = stalePrice(s);
@@ -917,17 +943,17 @@ function nextStep(s) {
   }
   const approved = s.publications.counts.active;
   if (approved && !forSale(s)) return { mark: "store", label: `${plural(approved, "approved piece")} ${approved === 1 ? "isn't" : "aren't"} on sale yet`, detail: "Open your store to sell it. Pick a price and where payments go.", action: "Open your store", run: resume("deploy", () => startDeploy()) };
-  if (candidates.length || extraDrafts.length) return "drafts";
-  const drafting = taskItems.some((item) => item.kind === "publish" && item.state !== "done");
+  if (state.candidates.length || state.extraDrafts.length) return "drafts";
+  const drafting = state.taskItems.some((item) => item.kind === "publish" && item.state !== "done");
   // An open publish thread is the step itself, under Unfinished.
   if (s.library.counts.private && !approved) return drafting ? null : { mark: "sell", label: "Turn what you know into something to sell", detail: "Lore drafts up to three pieces from your memories. You approve each one.", action: "Start", run: resume("publish", () => startPublish()) };
   if (!s.library.sources.some((source) => source.connector || source.enabled)) return { mark: "connect", label: "Connect the AI you talk to most", detail: "Grok Bot, ChatGPT or Claude saves what it learns about you. It stays private until you approve a piece.", action: "Connect", run: () => { show("connectors"); new AgentSetup().open(); } };
   return null;
 }
 
-/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind */
-function underWay(kind) {
-  return busy === kind || taskItems.some((item) => item.kind === kind && item.state === "working");
+/** Whether the agent is at work on a thread of this kind. @param {AgentTask} kind @param {Pick<StepState, "busy" | "taskItems">} [state] */
+function underWay(kind, state = { busy, taskItems }) {
+  return state.busy === kind || state.taskItems.some((item) => item.kind === kind && item.state === "working");
 }
 
 /** A step's action: back into its thread while that thread is at work, so a second click never sends a second prompt.
@@ -1267,7 +1293,7 @@ class InboxView {
         const app = apps.find((each) => each.id === source?.connector);
         return { open: () => { if (app && source) openConnection(app, source); else show("connectors"); } };
       }
-      case "checkin": return { open: () => void openTask("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
+      case "checkin": return { open: () => void talk.begin("evening"), done: () => { loads++; checkIn = null; render(); void window.lore.dismissCheckIn(); } };
       case "task": return { open: () => void openTask(/** @type {AgentTask} */ (ref), taskItems.find((item) => item.kind === ref)) };
       case "reading": return { open: () => void openTask("synthesize") };
       case "memories": {
@@ -1757,7 +1783,7 @@ const FIRST_RUN_READ_MS = 5000;
 
 /** What a new owner can answer to "Which AI do you talk to most?": their personal agents, then the coding agents Lore
  * already knows how to read, then none. @type {Array<[AgentApp | "coding" | "none", string]>} */
-const FIRST_CHOICES = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
+const FIRST_CHOICES = [["grok", "Grok Bot"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["coding", "Claude Code or Codex"], ["none", "None of these"]];
 
 /** APP-215: the first-run chat. Lore starts it itself right after a new owner signs in, speaks first, and asks one
  * thing at a time. First the apps it found on this Mac, one tap to connect them all, so something comes in before
@@ -2161,7 +2187,11 @@ class FirstRunChat {
       return this.shown(chat);
     }
     if (this.stage !== "saved") lore(this.handed ? `Here's how to connect ${who}. Lore shows it here when ${who} saves something.` : `${who}'s link was shown once. Get a new one here if you need it.`);
-    if (this.stage !== "saved") lore(this.connectCard(app, who), waitLine(who, true));
+    if (this.stage !== "saved") {
+      const wait = waitLine(who, true);
+      wait.append(button("Do this later", "secondary", () => this.leave("skipped")));
+      lore(this.connectCard(app, who), wait);
+    }
     if (this.stage === "saved") {
       lore(this.savedCard(s, who));
       this.closing(chat, lore, "What it saves");
@@ -2181,7 +2211,8 @@ class FirstRunChat {
   /** The notices a new owner would otherwise get on Today, as one quiet line at the foot of the chat (APP-215).
    * @param {HTMLElement} chat @param {(...said: Array<string | HTMLElement>) => void} lore */
   said(chat, lore) {
-    const said = notices.filter((item) => item.key);
+    // The note about Lore's own routines waits for the Inbox, so a new owner reads it once, not under every step.
+    const said = notices.filter((item) => item.key && item.key !== "automations");
     if (said.length) {
       lore(el("p", "hint", said.map((item) => item.text).join(" ")));
       for (const item of said) if (item.key) remember(item.key);
@@ -2212,11 +2243,9 @@ class FirstRunChat {
       if (choice === "coding" && reading) continue;
       const option = el("button", choice === only ? "choice picked" : "choice");
       option.type = "button";
-      const soon = choice === "muse";
-      option.disabled = soon;
       const icon = choice === "coding" ? markTile(STEP_ICONS.memory) : choice === "none" ? markTile(EDIT_ICON) : agentMark(choice, label);
       option.append(icon, el("span", "", label));
-      const hint = soon ? "Coming soon" : this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
+      const hint = this.installed.includes(/** @type {AgentApp} */ (choice)) ? "On this Mac" : "";
       if (hint) option.append(el("small", "", hint));
       option.addEventListener("click", () => void this.choose(choice, label));
       list.append(option);
@@ -2243,10 +2272,17 @@ class FirstRunChat {
       foot.append(again);
     }
     if (this.installed.includes(app)) foot.append(button(`Open ${who}`, "secondary", () => void window.lore.openAgentApp(app).catch((error) => tell(reason(error, `Lore couldn't open ${who}.`)))));
+    else if (this.handed && AGENT_WEB[app]) {
+      const handed = this.handed;
+      // Not on this Mac: its connector settings on the web, with the link already copied to paste there.
+      foot.append(button(`Open ${who}`, "primary", () => void window.lore.copy(handed.connector_url)
+        .then(() => window.open(AGENT_WEB[app]))
+        .catch((error) => tell(reason(error, "Lore couldn't copy your link.")))));
+    }
     if (this.handed) {
       const hint = el("span", "quiet-hint");
       hint.innerHTML = LOCK_ICON;
-      hint.append(el("span", "", app === "instinct" ? "Key shown once" : "Private link, shown once"));
+      hint.append(el("span", "", app === "instinct" ? "Key shown once. Connectors makes a new one" : "Private link, shown once. Connectors makes a new one"));
       foot.append(hint);
     }
     if (foot.childElementCount) box.append(foot);
@@ -2367,13 +2403,23 @@ function openPriceSheet() {
 
 const WHOLE_COPIES = "Free copies has to be a whole number, zero or more";
 
+/** What the price sheet's entries come to, or why they are refused: a price above zero, and whole free copies when the
+ * CLI has them. @param {string} raw @param {string} [rawCopies] Absent when the CLI predates free copies.
+ * @returns {{amount: number, copies: number | null} | {refused: string}} */
+function priceEntry(raw, rawCopies) {
+  const amount = parsePrice(raw);
+  if (amount === null) return { refused: `${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.` };
+  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
+  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) return { refused: `${WHOLE_COPIES}.` };
+  return { amount, copies };
+}
+
 /** Save what the price sheet says; a refusal is thrown, so the sheet says it in place. @param {string} raw
  * @param {string} [rawCopies] Absent when the CLI predates free copies. */
 async function savePrice(raw, rawCopies) {
-  const amount = parsePrice(raw);
-  if (amount === null) throw new Error(`${ABOVE_ZERO}. Free is a real choice, but you make it when you open your store.`);
-  const copies = rawCopies === undefined ? null : Number(rawCopies.trim());
-  if (copies !== null && (!rawCopies?.trim() || !Number.isInteger(copies) || copies < 0)) throw new Error(`${WHOLE_COPIES}.`);
+  const entry = priceEntry(raw, rawCopies);
+  if ("refused" in entry) throw new Error(entry.refused);
+  const { amount, copies } = entry;
   const before = snapshot?.pricing;
   const newCopies = copies !== null && copies !== before?.free_copies;
   pushOffer = false;
@@ -2725,10 +2771,11 @@ class Unseen {
     this.#showing.clear();
   }
 
-  /** Mark a row New while its memory is, and watch for it on screen. @param {HTMLElement} row @param {number} id */
+  /** Mark a row New while its memory is, and watch for it on screen. The mark sits beside the title, not inside it, so a
+   * title cut short by its ellipsis never cuts the mark off with it (APP-270). @param {HTMLElement} row @param {number} id */
   watch(row, id) {
     if (!this.fresh(id)) return row;
-    row.querySelector(".say")?.append(el("span", "new-mark", "New"));
+    row.querySelector(".say")?.after(el("span", "new-mark", "New"));
     if (!this.seen.has(id)) {
       row.dataset.memory = String(id);
       this.#observer.observe(row);
@@ -3989,6 +4036,8 @@ function tiles(rows) {
   return grid;
 }
 
+/** Where an agent with no app on this Mac adds a connector on the web. @type {Partial<Record<AgentApp, string>>} */
+const AGENT_WEB = { claude: "https://claude.ai/settings/connectors" };
 /** The apps a personal agent can be, by what the owner calls them, each with its mark. @type {Array<[AgentApp, string]>} */
 const AGENT_APPS = [["grok", "Grok Bot"], ["muse", "Muse"], ["chatgpt", "ChatGPT"], ["claude", "Claude"], ["instinct", "Instinct"], ["other", "Other"]];
 /** @type {Record<AgentApp, string>} */
@@ -4615,10 +4664,14 @@ function openAgent(source) {
   }
 }
 
+/** What the FAQ says a buyer pays, from the price the owner has set, if any. @param {number | null} usd */
+function faqPrice(usd) {
+  return `Your price. ${typeof usd === "number" ? `Yours is ${price(usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens."}`;
+}
+
 /** FAQ: what Lore does, then how the money works, in the order a first-time owner asks. Every
  * answer states the mechanism as it is; no earnings figure the ledger cannot show. @param {Snapshot} s */
 function renderFaq(s) {
-  const prices = typeof s.pricing.publication_usd === "number" ? `Yours is ${price(s.pricing.publication_usd)} a publication, set on For Sale.` : "You set what a publication costs on For Sale, before your store opens.";
   /** @param {string} question @param {string | HTMLElement} answer */
   const qa = (question, answer) => row(question, answer, undefined, true);
   const buyerGuide = el("span");
@@ -4632,7 +4685,7 @@ function renderFaq(s) {
     ])),
     section("Getting paid", card([
       qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
-      qa("What does a buyer pay?", `Your price. ${prices}`),
+      qa("What does a buyer pay?", faqPrice(s.pricing.publication_usd)),
       qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
@@ -4733,11 +4786,19 @@ function updateRow(u) {
   return row(`Lore ${u.version}`, detail, cell(...trailing), false);
 }
 
+/** The Update button's state for where this copy stands: shown only when there is a newer Lore to move to, saying what
+ * a click does. @param {AppUpdate} next */
+function updateButton(next) {
+  return {
+    hidden: !(next.state === "ready" || (next.state === "outside" && next.newer)),
+    title: next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update"
+  };
+}
+
 /** The button at the top of the window, shown only when there is a newer Lore to move to. @param {AppUpdate} next */
 function showUpdate(next) {
   appUpdate = next;
-  updateBtn.hidden = !(next.state === "ready" || (next.state === "outside" && next.newer));
-  updateBtn.title = next.state === "ready" ? "Lore restarts with the new version" : "Move Lore to Applications to update";
+  Object.assign(updateBtn, updateButton(next));
   if (view === "settings") render();
 }
 
@@ -5006,6 +5067,8 @@ function render() {
   // Capture is a command (New, ⌘K); the composer belongs to a thread, or to a card Lore put up outside one.
   captureArea.hidden = view !== "inbox" || welcoming || (!detail && !shownRequest());
   skipBtn.hidden = !welcoming;
+  // APP-290: talking to Lore is one click from the two lists where memories show up.
+  talkBtn.hidden = welcoming || Boolean(detail) || (view !== "inbox" && view !== "inventory");
   header.classList.toggle("compact", welcoming || Boolean(detail));
   mainEl.classList.toggle("thread", Boolean(detail));
   log.hidden = !detail;
@@ -5030,13 +5093,20 @@ function render() {
   renderAccount();
 }
 
+/** What the workspace menu's first line says, and whether Sign out is offered: who is signed in and how the store stands.
+ * @param {AgentStatus | null} status @param {Snapshot | null} s */
+function accountState(status, s) {
+  const credential = status?.credentials[0] ?? null;
+  const [name] = provider(credential);
+  const store = s?.node.url ? ` · Store ${nodeLabel(s.node).toLowerCase()}` : "";
+  return { line: credential ? `Signed in with ${name}${store}` : "Not signed in", signOut: Boolean(credential) };
+}
+
 /** The workspace menu at the top of the sidebar: who is signed in and how the store stands, over Settings, help and sign-out. */
 function renderAccount() {
-  const credential = auth?.credentials[0];
-  const [name] = provider(credential);
-  const store = snapshot?.node.url ? ` · Store ${nodeLabel(snapshot.node).toLowerCase()}` : "";
-  accountLine.textContent = credential ? `Signed in with ${name}${store}` : "Not signed in";
-  signOutBtn.hidden = !credential;
+  const { line, signOut } = accountState(auth, snapshot);
+  accountLine.textContent = line;
+  signOutBtn.hidden = !signOut;
 }
 
 /** Memories and For Sale became Inventory's tabs, and Automations a section of Settings; anything that still asks for
@@ -5103,13 +5173,26 @@ function say(text, owner = false, stopped = false) {
  * @type {Array<{text: string, attention: boolean, action?: NoticeAction, key?: string}>} */
 const notices = [];
 
+/** @typedef {typeof notices[number]} Notice */
+
+/** `items` with one more notice: a success replaces the plain successes before it, and plain notices (those without a
+ * key) stay at most three, the oldest leaving first; a notice told once, with a key, is left alone. @param {Notice[]} items @param {Notice} notice */
+function withNotice(items, notice) {
+  const next = [...(notice.attention ? items : items.filter((item) => item.attention || item.key)), notice];
+  const plain = next.filter((item) => !item.key);
+  if (plain.length > 3) next.splice(next.indexOf(plain[0]), 1);
+  return next;
+}
+
+/** The notices on screen: a plain one wherever the owner is, one told once only while Today is. @param {Notice[]} items @param {boolean} today */
+function shownNotices(items, today) {
+  return items.filter((item) => !item.key || today);
+}
+
 /** Something Lore did or could not do, said where the owner is: in the open thread, or as a notice above the page when the log is hidden, scrolled into view. A newer success replaces an older one; one told once stays until dismissed. @param {string} text @param {boolean} [attention] @param {NoticeAction} [action] The one next step, on the notice. */
 function tell(text, attention = false, action) {
   if (!log.hidden) { say(text, false, attention); return; }
-  if (!attention) drop((item) => !item.attention && !item.key);
-  notices.push({ text, attention, action });
-  const plain = notices.filter((item) => !item.key);
-  if (plain.length > 3) notices.splice(notices.indexOf(plain[0]), 1);
+  notices.splice(0, notices.length, ...withNotice(notices, { text, attention, action }));
   renderNotices();
   status.scrollIntoView({ block: "nearest" });
 }
@@ -5152,7 +5235,7 @@ function drop(which) {
 }
 
 function renderNotices() {
-  const shown = notices.filter((item) => !item.key || onToday());
+  const shown = shownNotices(notices, onToday());
   status.replaceChildren(...shown.map((item) => {
     const box = el("div", item.attention ? "notice attention" : "notice info");
     box.setAttribute("role", item.attention ? "alert" : "status");
@@ -5211,6 +5294,7 @@ function syncComposer() {
   input.placeholder = locked ? (request?.current ? "Lore is waiting on your capture…" : "Lore is working…") : card ? "Or say what to change…" : detailTask ? "Reply to Lore…" : "What did you learn today?";
   inputLabel.textContent = card ? "Say what to change" : detailTask ? "Reply to Lore" : "What did you learn today?";
   submit.textContent = detailTask ? "Send" : "Capture";
+  talk.listen();
 }
 
 function clearRequest() {
@@ -6613,7 +6697,11 @@ composer.addEventListener("submit", async (event) => {
   input.style.height = "";
   await send(text || "Please read the attached files.");
 });
-input.addEventListener("input", () => fit(input));
+input.addEventListener("input", () => {
+  fit(input);
+  // Typing takes over from talking.
+  if (talk.kind && !recorder) talk.end();
+});
 input.addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); composer.requestSubmit(); }
 });
@@ -6632,7 +6720,9 @@ function dictationMode(mode) {
   if (mode) composer.dataset.mode = mode;
   else delete composer.dataset.mode;
   dictationBox.hidden = !mode;
-  dictationText.textContent = mode === "listening" ? "Listening…" : mode === "transcribing" ? "Transcribing…" : "";
+  // A new thread says what to talk about; after that Lore's own question does.
+  const opener = talk.kind === "capture" && !lines.length ? "Tell Lore what you figured out. " : "";
+  dictationText.textContent = mode === "listening" ? (talk.kind ? `Listening… ${opener}Enter sends it, Esc stops.` : "Listening…") : mode === "transcribing" ? "Transcribing…" : "";
   dictate.disabled = mode === "transcribing";
   dictate.title = mode === "listening" ? "Stop dictating" : "Dictate";
   dictate.setAttribute("aria-label", dictate.title);
@@ -6674,40 +6764,104 @@ function wav(chunks) {
   for (const chunk of chunks) for (const sample of chunk) { view.setInt16(offset, Math.max(-1, Math.min(1, sample)) * 0x7fff, true); offset += 2; }
   return buffer;
 }
-dictate.addEventListener("click", async () => {
-  if (recorder) {
-    const active = recorder;
-    recorder = null;
-    clearTimeout(dictationLimit);
-    dictationMode("transcribing");
-    let text = "";
-    try {
-      text = await window.lore.transcribe(wav(await active.stop()));
-    } catch (error) {
-      tell(`Lore couldn't transcribe that: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
-    }
-    dictationMode(null);
-    input.value = spoken + text;
-    fit(input);
-    input.focus({ preventScroll: true });
-    return;
-  }
+/** Starts listening into the composer, after what is already typed. */
+async function startDictation() {
   spoken = input.value.trim() ? `${input.value.trimEnd()} ` : "";
   dictate.disabled = true;
   try {
     if (!(await window.lore.microphone())) {
+      talk.end();
       tell(`Lore needs the microphone: System Settings → Privacy & Security → Microphone. ${DICTATE_HINT}`, true);
       return;
     }
     recorder = await record();
     dictationMode("listening");
-    dictationLimit = window.setTimeout(() => dictate.click(), MAX_DICTATION_MS);
+    dictationLimit = window.setTimeout(() => void finishDictation(), MAX_DICTATION_MS);
   } catch (error) {
+    talk.end();
     tell(`Lore couldn't start the microphone: ${/** @type {Error} */ (error).message}. ${DICTATE_HINT}`, true);
   } finally {
     if (!recorder) dictate.disabled = false;
   }
-});
+}
+
+/** Stops listening and puts what was said in the composer; talking it through, it goes to Lore at once. */
+async function finishDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  dictationMode("transcribing");
+  let text = "";
+  try {
+    text = (await window.lore.transcribe(wav(await active.stop()))).trim();
+  } catch (error) {
+    talk.end();
+    console.error(error);
+    tell(`Lore couldn't transcribe that. ${DICTATE_HINT}`, true);
+  }
+  dictationMode(null);
+  input.value = spoken + text;
+  fit(input);
+  // Talking it through listens for the first turn only; after that the owner picks the microphone or the keyboard.
+  const send = Boolean(talk.kind && text);
+  talk.end();
+  if (send) composer.requestSubmit();
+  else input.focus({ preventScroll: true });
+}
+
+/** Esc while listening: what was said is dropped, and talking it through ends. */
+async function cancelDictation() {
+  const active = recorder;
+  if (!active) return;
+  recorder = null;
+  clearTimeout(dictationLimit);
+  talk.end();
+  await active.stop();
+  dictationMode(null);
+  input.focus({ preventScroll: true });
+}
+
+dictate.addEventListener("click", () => void (recorder ? finishDictation() : startDictation()));
+talkBtn.addEventListener("click", () => void talk.begin("capture"));
+
+/** APP-290: talking it through. From Inventory, the Inbox or the check-in, a thread opens already listening, and
+ * Done or Enter sends what was said. Only the first turn listens on its own; typing, Esc, leaving the thread or saying
+ * nothing ends it sooner. */
+const talk = {
+  /** The thread being talked through. @type {"capture" | "evening" | null} */
+  kind: /** @type {"capture" | "evening" | null} */ (null),
+  opening: false,
+  starting: false,
+  /** @param {"capture" | "evening"} kind */
+  async begin(kind) {
+    this.kind = kind;
+    this.opening = true;
+    try {
+      if (kind === "capture") await startCapture();
+      else await openTask("evening");
+    } finally {
+      this.opening = false;
+    }
+    this.listen();
+  },
+  end() {
+    this.kind = null;
+    dictationMode(recorder ? "listening" : null);
+  },
+  /** Listens when its thread waits on the owner's words: no card to approve, nothing typed, Lore not working. */
+  listen() {
+    if (!this.kind || this.opening || this.starting) return;
+    // Leaving the thread ends it even mid-listen: the recorder is stopped and its audio dropped, not left hot offscreen.
+    if (detailTask !== this.kind || view !== "inbox") return void (recorder ? cancelDictation() : this.end());
+    // A card to approve ends it too: the owner is asked to look, not listened over.
+    if (recorder) return void (shownRequest()?.current && cancelDictation());
+    // The owner speaks first in a new thread; after that, only once Lore has answered.
+    if (lines.at(-1)?.owner || busy || composer.hidden || input.disabled || shownRequest()?.current || input.value.trim()) return;
+    this.starting = true;
+    void startDictation().finally(() => { this.starting = false; });
+  }
+};
 const GUARDED = /(^|\/)\.[^/]*$|\/\.(ssh|aws|gnupg)\/|\.(pem|key|p12|pfx|keychain(-db)?)$|id_(rsa|ed25519|ecdsa)/;
 /** @param {string[]} paths */
 function attach(paths) {
@@ -7001,6 +7155,13 @@ welcomeRetry.addEventListener("click", () => {
   void window.lore.retrySetup();
 });
 document.addEventListener("keydown", (event) => {
+  // While listening, Enter is done and Esc stops; neither reaches the page beneath.
+  if (recorder && (event.key === "Enter" || event.key === "Escape")) {
+    event.preventDefault();
+    event.stopPropagation();
+    void (event.key === "Enter" ? finishDictation() : cancelDictation());
+    return;
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); openPalette(); }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n" && document.body.dataset.state === "app") { event.preventDefault(); palette.close(); closeSheet(); newOpen.click(); }
   if ((event.metaKey || event.ctrlKey) && event.key === ",") { event.preventDefault(); palette.close(); closeSheet(); show("settings"); }
