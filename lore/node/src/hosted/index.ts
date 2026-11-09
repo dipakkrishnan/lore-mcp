@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { agentRoute } from "../agent.js";
 import { SqlKv } from "./kv.js";
 import { Owner, type Refusal } from "./owner.js";
+import { otherOf, storeOf } from "./routes.js";
 import { SqlDatabase } from "./sql.js";
 
 /**
@@ -20,11 +21,6 @@ export type HostedEnv = {
   SITE: Fetcher;
 };
 
-/** The zone's other Workers, which this route sits in front of, by the name before the domain. */
-const OTHERS = { relay: "RELAY", checkout: "CHECKOUT", www: "SITE" } as const;
-
-/** A store's address is random, so agents' links never change when the owner later picks a name. */
-export const STORE = /^[a-z2-7]{12}$/;
 const BODY_BYTES = 1_048_576;
 
 const refuse = ({ status, error }: Refusal) => Response.json({ error }, { status });
@@ -71,21 +67,13 @@ export class HostedStore extends DurableObject<HostedEnv> {
   }
 }
 
-/** The store a request's host names, if it is one. */
-function storeOf(host: string, domain: string): string | null {
-  const suffix = `.${domain}`;
-  if (!host.endsWith(suffix)) return null;
-  const store = host.slice(0, -suffix.length);
-  return STORE.test(store) ? store : null;
-}
-
 export default {
   async fetch(request: Request, env: HostedEnv): Promise<Response> {
     const url = new URL(request.url);
     const store = storeOf(url.hostname, env.STORE_DOMAIN);
     if (!store) {
-      const other = url.hostname.endsWith(`.${env.STORE_DOMAIN}`) ? url.hostname.slice(0, -env.STORE_DOMAIN.length - 1) : "";
-      return Object.hasOwn(OTHERS, other) ? env[OTHERS[other as keyof typeof OTHERS]].fetch(request) : refuse({ status: 404, error: "no store here" });
+      const other = otherOf(url.hostname, env.STORE_DOMAIN);
+      return other ? env[other].fetch(request) : refuse({ status: 404, error: "no store here" });
     }
     // Signed requests and agents' sign-ins name the store by its https address.
     if (url.protocol !== "https:") {

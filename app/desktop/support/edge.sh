@@ -1,10 +1,19 @@
 #!/bin/bash
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
-# Scenarios: seller | provision | store | update | jobs | fresh | feedback | listing | obsidian | connectors | reading | schedule | checkin | quiet | automations | faq | sell | inventory | cards | sales | extras | settings | agents | today | firstrun
+# Scenarios: seller | store | connectors | checkin | routines | settings | agents | firstrun
 set -euo pipefail
+# APP-271: when seeding ended and when Electron did, for the TIME line at the end.
+began=$SECONDS
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$desktop_dir/../.." && pwd)"
+# APP-271: once uv has built the project's environment (CI's `uv sync --locked` does), it goes first on PATH, as
+# `uv run` would put it, and each `uv run X` below is X straight: `uv run` looks at the lock again every time.
+uv_run=(uv run)
+if [[ -x "$repo_root/.venv/bin/python" ]]; then
+  export PATH="$repo_root/.venv/bin:$PATH" VIRTUAL_ENV="$repo_root/.venv"
+  uv_run=(env)
+fi
 root="$(mktemp -d "${TMPDIR:-/tmp}/lore-edge.XXXXXX")"
 mkdir -p "$root/home" "$root/user-data"
 export LORE_HOME="$root/home" LORE_STORE="$root/store" LORE_DESKTOP_USER_DATA="$root/user-data" LORE_SKIP_SCHEDULE=1 LORE_EDGE_OUT="$root"
@@ -16,95 +25,16 @@ export LORE_BIDS_URL="http://127.0.0.1:9/bids.json"
 [[ "$scenario" == "firstrun" ]] || echo '{"state":"skipped"}' > "$root/user-data/first-run.json"
 # APP-225: a walk is drawn light, never as the Mac running it is set; LORE_EDGE_APPEARANCE=dark walks it dark.
 echo "{\"appearance\":\"${LORE_EDGE_APPEARANCE:-light}\"}" > "$root/user-data/appearance.json"
-# A fresh home stays empty: that persona checks what an owner sees before anything is kept. So
-# does the connectors one: a seller with no agents, whose first memories come from their apps. And the agents one: an
-# owner whose first memories are what their personal agent saves. And the today one, which seeds each stage itself.
-[[ "$scenario" == "fresh" || "$scenario" == "connectors" || "$scenario" == "reading" || "$scenario" == "agents" || "$scenario" == "today" || "$scenario" == "firstrun" ]] || (
+# The connectors persona's home stays empty: a seller with no agents, whose first memories come from their apps. So
+# does the agents one: an owner whose first memories are what their personal agent saves. (An empty Lore's own views
+# are test/unit/renderer-empty-states.test.cjs since APP-269 retired the fresh walk.)
+[[ "$scenario" == "connectors" || "$scenario" == "agents" || "$scenario" == "firstrun" ]] || (
   cd "$repo_root"
-  echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | uv run lore capture apply - >/dev/null
-  echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | uv run lore publication draft - >/dev/null
+  echo '[{"title":"Hire management before rapid growth","content":"Add the management layer before the next ten engineers join, not after.","project":"team scaling"},{"title":"Price the first tier low","content":"A low first price gets the first ten buyers; raise it once there are receipts.","project":"pricing"}]' | "${uv_run[@]}" lore capture apply - >/dev/null
+  echo '[{"title":"Hire management before rapid growth","teaser":"When to add managers in a fast-growing team.","content":"Add the management layer before the next ten engineers join, not after.","kind":"claim","topic":"team scaling","provenance":[1]},{"title":"Price the first tier low","teaser":"How to set a first price.","content":"A low first price gets the first ten buyers; raise it once there are receipts.","kind":"claim","topic":"pricing","provenance":[2]}]' | "${uv_run[@]}" lore publication draft - >/dev/null
 )
-if [[ "$scenario" == "jobs" ]]; then
-  # One run of every shape Today has to render, including one still going and
-  # one that started and never reported finishing.
-  (cd "$repo_root" && uv run python -c "
-from lore.store import Store
-with Store() as store:
- first = store.start_job('push', timeout_minutes=60)
- store.finish_job(first, 'succeeded', summary='pushed', count=17)
- grown = store.start_job('push', timeout_minutes=60)
- store.finish_job(grown, 'succeeded', summary='pushed', count=19)
- done = store.start_job('capture', timeout_minutes=720)
- store.finish_job(done, 'succeeded', summary='captured', cost_usd=0.42)
- bad = store.start_job('push', timeout_minutes=60)
- store.finish_job(bad, 'failed', summary='edge_write_failed')
- gone = store.start_job('synthesis', timeout_minutes=60)
- store.finish_job(gone, 'incomplete', summary='not_reported')
- # No pid: this seeding process is about to exit, and a row it owned would be
- # conceded on the very next read. The long deadline keeps it Running.
- store.start_job('deploy', timeout_minutes=720)
-from lore import automation
-automation.save_profile({'executor': 'codex', 'cadence': 'weekly', 'hour': 21})")
-  # AUT-010: the owner moved their Codex task to Sundays in Codex itself.
-  mkdir -p "$root/codex/automations/lore-memory-synthesis"
-  echo 'rrule = "FREQ=WEEKLY;BYDAY=SU;BYHOUR=21;BYMINUTE=0"' > "$root/codex/automations/lore-memory-synthesis/automation.toml"
-fi
-if [[ "$scenario" == "sales" ]]; then
-  # MON-037: a store with one piece for sale and one card sale already in its ledger. The node's
-  # wrangler is a stand-in that answers from files the scenario rewrites as new sales arrive.
-  (cd "$repo_root" && uv run python -c "
-import json, os
-from lore.store import Store
-out = os.environ['LORE_EDGE_OUT']
-with Store() as store:
- store.set_setting('node_url', 'https://edge-store.invalid/mcp')
- store.set_setting('node_selling', True)
- store.add_publication(title='Live demos beat cold decks', content='paid text', topic='launches', teaser='What beat a cold deck', provenance=[1])
- piece = store.list_publications()[0].public_id
- # APP-219: an owner with history: a run that stopped days ago at an agent's cost, and the same store update again and again.
- stale = store.start_job('capture', timeout_minutes=60)
- store.finish_job(stale, 'incomplete', title='What to Sell Today', summary='stopped', cost_usd=0.016121)
- store.db.execute('UPDATE owner_jobs SET started_at=?, finished_at=? WHERE id=?', ('2026-10-15T09:00:00+00:00', '2026-10-15T09:20:00+00:00', stale))
- store.db.commit()
- for _ in range(4):
-  store.finish_job(store.start_job('push', timeout_minutes=60), 'succeeded', summary='pushed', count=13)
-json.dump([{'kind': 'publication', 'item_id': piece, 'title': 'Live demos beat cold decks', 'price_usd': 3.0, 'network': 'stripe', 'payer': '', 'tx': 'pi_old', 'sold_at': '2026-10-01T12:00:00Z'}], open(f'{out}/sales.json', 'w'))
-json.dump([{'item_id': piece, 'views': 42}], open(f'{out}/views.json', 'w'))
-open(f'{out}/piece', 'w').write(piece)")
-  # A thread that stopped days ago is history, not something to finish today.
-  (cd "$desktop_dir" && node --input-type=module -e "import { readdirSync, readFileSync, writeFileSync } from 'node:fs'; import { resolve } from 'node:path'; import { SessionManager } from '@earendil-works/pi-coding-agent';
-const dir = resolve(process.env.LORE_HOME, '.pi/sessions/capture');
-const session = SessionManager.create(process.env.LORE_HOME, dir);
-session.appendMessage({ role: 'user', content: 'OLD STOPPED CAPTURE', timestamp: 1 });
-const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
-session.appendMessage({ role: 'assistant', content: [{ type: 'text', text: 'What did you learn?' }], api: 'anthropic-messages', provider: 'anthropic', model: 'edge', usage, stopReason: 'stop', timestamp: 2 });
-session.appendCustomEntry('lore.task', { version: 1, kind: 'capture', title: 'Capture a memory', state: 'stopped', phase: 'Review the capture' });
-const old = (line) => line && JSON.stringify({ ...JSON.parse(line), timestamp: '2026-10-15T09:00:00.000Z' });
-for (const name of readdirSync(dir)) writeFileSync(resolve(dir, name), readFileSync(resolve(dir, name), 'utf8').split('\n').map(old).join('\n'));")
-  mkdir -p "$LORE_STORE/node_modules/.bin"
-  printf '#!/bin/sh\ncase "$*" in *page_views*) printf "[{\\"results\\": []}, {\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/views.json")";; *) printf "[{\\"results\\": %%s}]" "$(cat "$LORE_EDGE_OUT/sales.json")";; esac\n' > "$LORE_STORE/node_modules/.bin/wrangler"
-  chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
-  : > "$LORE_STORE/.installed"
-fi
-if [[ "$scenario" == "listing" ]]; then
-  # XC-036: a live store, a setup name, a push that always succeeds, and an empty public list.
-  mkdir -p "$LORE_STORE" "$root/bin"
-  echo '{}' > "$LORE_STORE/wrangler.jsonc"
-  printf '#!/bin/sh\nexit 0\n' > "$root/bin/npx" && chmod +x "$root/bin/npx"
-  echo '{"sellers":[]}' > "$root/marketplace.json"
-  export PATH="$root/bin:$PATH" LORE_MARKETPLACE_URL="file://$root/marketplace.json"
-  (cd "$repo_root" && uv run python -c "import json, time
-from lore import blueprint
-from lore.store import Store
-with Store() as store:
- store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_selling', True)
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:8453', 'price_usd': 0.01, 'payout': '0x' + 'a' * 40}, 'ids': []})
-blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)
-blueprint.blueprint_path().write_text(json.dumps({'name': 'Edge Seller'}))")
-fi
 if [[ "$scenario" == "store" ]]; then
-  (cd "$repo_root" && uv run python -c "import time
+  (cd "$repo_root" && "${uv_run[@]}" python -c "import time
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://store.example/mcp')
@@ -114,54 +44,6 @@ with Store() as store:
 const session = SessionManager.create(process.env.LORE_HOME, resolve(process.env.LORE_HOME, '.pi/sessions/deploy'));
 session.appendMessage({ role: 'user', content: 'OLD COMPLETED DEPLOY', timestamp: 1 });
 session.appendCustomEntry('lore.task', { version: 1, kind: 'deploy', title: 'Open your store', state: 'done', phase: 'Finished' });")
-fi
-if [[ "$scenario" == "update" ]]; then
-  # APP-231: a store this Mac put online for sale before Lore kept which store it was: only its payout record says so.
-  (cd "$repo_root" && uv run python -c "import time
-from lore.store import Store
-with Store() as store:
- store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_selling', True)
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': None, 'payout': '0x' + 'a' * 40}, 'ids': []})")
-  mkdir -p "$LORE_STORE"
-  echo "{\"address\": \"0x$(printf 'a%.0s' {1..40})\", \"network\": \"test\"}" > "$LORE_STORE/payout.json"
-fi
-if [[ "$scenario" == "inventory" ]]; then
-  # APP-282: a library shaped like a real one. Memories kept from three places, pieces drafted one memory at a time (so
-  # each piece's topic is that memory's whole sentence of a title), and a piece taken down beside a live copy of itself.
-  # The store is a stand-in: its live state is cached and its ledger is empty, so nothing reaches Cloudflare.
-  echo '[{"title":"Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip","content":"Book the boat dives early.","project":"personal"},{"title":"Travel: window seat on United or American; beach trips chosen for diving and poke","content":"Window seat, always.","project":"personal"},{"title":"Packing a dive kit for carry-on only","content":"Mask and computer in the carry-on.","project":"personal"},{"title":"Notarizing an Electron app without stapling surprises","content":"Staple after notarizing.","project":"lore-mcp"},{"title":"Code signing fails silently on .bin symlinks","content":"Dereference the symlinks first.","project":"lore-mcp"},{"title":"Auto-update from GitHub releases: three gotchas","content":"Publish the yml with the zip.","project":"lore-mcp"},{"title":"What the first three trial users got stuck on","content":"Cold start, the wallet gate, the explainer.","project":"lore-mcp"}]' | (cd "$repo_root" && uv run lore capture apply - >/dev/null)
-  (cd "$repo_root" && uv run python -c "import time
-from datetime import datetime, timedelta, timezone
-from lore.store import Store
-with Store() as store:
- ids = {row['title']: row['id'] for row in store.db.execute('SELECT id,title FROM memories')}
- for at, memory in enumerate(ids.values()):
-  store.db.execute('UPDATE memories SET updated_at=? WHERE id=?', ((datetime.now(timezone.utc) - timedelta(days=3 * at)).isoformat(), memory))
- store.db.commit()
- def piece(title):
-  return store.add_publication(title=title, content='paid text', topic=title, teaser=title, provenance=[ids[title]])
- piece('Bonaire Open Water diving roll-up: lessons for a future Raja Ampat trip')
- store.revoke_publication(piece('Travel: window seat on United or American; beach trips chosen for diving and poke'))
- piece('Travel: window seat on United or American; beach trips chosen for diving and poke')
- piece('Notarizing an Electron app without stapling surprises')
- store.set_setting('price_usd', 1.0)
- store.set_setting('node_url', 'https://store.example/mcp')
- store.set_setting('node_selling', True)
- live = [p.public_id for p in store.list_publications() if p.active]
- store.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 1.0, 'payout': '0x' + 'a' * 40}, 'ids': live})")
-  mkdir -p "$LORE_STORE/node_modules/.bin"
-  printf '#!/bin/sh\nprintf "[{\\"results\\": []}, {\\"results\\": []}]"\n' > "$LORE_STORE/node_modules/.bin/wrangler"
-  chmod +x "$LORE_STORE/node_modules/.bin/wrangler"
-  : > "$LORE_STORE/.installed"
-fi
-if [[ "$scenario" == "extras" ]]; then
-  # A piece already for sale from before samples existed, and new free parts an agent drafted for it.
-  (cd "$repo_root" && uv run python -c "
-from lore.store import Store
-with Store() as store:
- store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])"
-  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool"}]' | uv run lore publication extras draft - >/dev/null)
 fi
 if [[ "$scenario" == "settings" ]]; then
   # A store on real money with every Settings row filled: cards on, paid answers, listed, and two
@@ -173,7 +55,7 @@ if [[ "$scenario" == "settings" ]]; then
   export PATH="$root/bin:$PATH"
   echo '{"sellers":[{"node":"https://lore-edge.example.workers.dev/mcp"}]}' > "$root/marketplace.json"
   export LORE_MARKETPLACE_URL="file://$root/marketplace.json"
-  (cd "$repo_root" && uv run python -c "import time
+  (cd "$repo_root" && "${uv_run[@]}" python -c "import time
 from lore.store import Store
 with Store() as store:
  store.set_setting('node_url', 'https://lore-edge.example.workers.dev/mcp')
@@ -185,61 +67,57 @@ with Store() as store:
  store.set_setting('stripe_account', 'acct_1EdgeSeller')
  store.set_setting('listed_name', 'Edge Seller')
  store.add_publication(title='Live demos beat cold decks', content='Three demos, seven trials; the deck got nothing.', topic='launches', teaser='What beat a cold deck', provenance=[1])
- store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])"
-  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | uv run lore publication extras draft - >/dev/null)
+ store.add_publication(title='Raise prices after the tenth buyer', content='We doubled at ten buyers and lost none.', topic='pricing', teaser='When to raise a first price', provenance=[2])
+ # APP-270: one finished run, so Settings ends on its Activity section, scanned here since the jobs and sales walks went.
+ store.finish_job(store.start_job('capture', timeout_minutes=60), 'succeeded', summary='captured')"
+  echo '[{"publication_id":1,"sample":"We had two weeks and a deck we were proud of.","useful_if":"you are launching a developer tool","not_useful_if":"you sell through a sales team"},{"publication_id":2,"sample":"","useful_if":"you have your first paying customers","not_useful_if":""}]' | "${uv_run[@]}" lore publication extras draft - >/dev/null)
 fi
-if [[ "$scenario" == "obsidian" ]]; then
-  # APP-124: a vault Obsidian knows about, so Connect has something to offer without a path.
-  mkdir -p "$root/obsidian" "$root/Edge Vault"
-  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
-  printf '# Two\n\nA second lesson long enough to be worth keeping.\n' > "$root/Edge Vault/two.md"
-  printf '{"vaults":{"e1":{"path":"%s","ts":1,"open":true}}}' "$root/Edge Vault" > "$root/obsidian/obsidian.json"
-  export OBSIDIAN_HOME="$root/obsidian"
-fi
-if [[ "$scenario" == "schedule" ]]; then
+if [[ "$scenario" == "routines" ]]; then
+  # APP-270: Lore's own rhythm in one walk, which was three (schedule, reading, automations).
   # AUT-006: a seller with no Claude Code or Codex, whose rhythm Lore keeps. A vault connected two days
   # ago has a note written since, and Lore was closed at its reading hour each day in between. That hour is twelve
   # hours from now, so the walk never runs across it.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
-  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
   printf '# Two\n\nA second lesson, written after the vault was connected.\n' > "$root/Edge Vault/two.md"
-  (cd "$repo_root" && uv run python -c "
+  (cd "$repo_root" && "${uv_run[@]}" python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
 automation.save_profile({'executor': 'lore', 'cadence': 'daily', 'hour': (datetime.now().hour + 12) % 24})
 # Only the reading is owed: it is two days old, and Lore's other routines are paused, so neither a weekly one's
 # Sunday nor any hour the walk starts just short of is owed too (XC-123; tests/test_automation.py pins the clock).
+# The walk turns them back on once the reading it owed has landed.
 routines = automation.Routines()
 for routine in routines.list():
     if routine['id'] != 'synthesis':
         routines.change(routine['id'], paused=True)
 automation.Routines(clock=lambda: datetime.now(timezone.utc) - timedelta(days=2)).adopt()")
+  # APP-200: the owner has one routine of their own, added now, so nothing of theirs is owed at launch.
+  (cd "$repo_root" && "${uv_run[@]}" lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
+  # APP-213: one memory Lore wrote before it kept who each came from.
+  mkdir -p "$LORE_HOME/memories"
+  printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
+  (cd "$repo_root" && "${uv_run[@]}" lore sync --source automation >/dev/null)
 fi
-if [[ "$scenario" == "automations" ]]; then
-  # APP-200: Lore keeps the reading rhythm, and the owner has one routine of their own.
-  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
-  (cd "$repo_root" && echo '{"executor": "lore", "cadence": "daily", "hour": 9}' | uv run lore profile - >/dev/null)
-  (cd "$repo_root" && uv run lore automation add --cadence weekly --hour 18 --day 6 -- "Every Sunday, remember what I read this week" >/dev/null)
-fi
-if [[ "$scenario" == "checkin" || "$scenario" == "quiet" ]]; then
+if [[ "$scenario" == "checkin" ]]; then
   # AUT-008: a connected vault, and an evening check-in turned on two days ago whose hour passed an hour ago, while
-  # Lore was closed. The note read in since is its one new item; the stand-in model either finds it worth asking
-  # about (checkin) or not (quiet). The check-in itself reads nothing.
+  # Lore was closed. The note read in since is its one new item, and the stand-in model finds it worth asking about.
+  # The check-in itself reads nothing.
   mkdir -p "$root/Edge Vault"
   printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
   export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
-  (cd "$repo_root" && uv run lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
-  (cd "$repo_root" && uv run python -c "
+  (cd "$repo_root" && "${uv_run[@]}" lore sources connect obsidian --json -- "$root/Edge Vault" >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" python -c "
 from datetime import datetime, timedelta, timezone
 from lore import automation
 now = datetime.now(timezone.utc)
 automation.Routines(clock=lambda: now - timedelta(days=2)).change('checkin', paused=False, cadence='daily', hour=(now - timedelta(hours=1)).astimezone().hour)")
   printf '# Pushed back on the Acme pricing call\n\nHeld the price; no reason written down.\n' > "$root/Edge Vault/two.md"
-  (cd "$repo_root" && uv run lore sources read >/dev/null)
+  (cd "$repo_root" && "${uv_run[@]}" lore sources read >/dev/null)
 fi
-if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
+if [[ "$scenario" == "connectors" ]]; then
   # One app of each shape the catalog knows: a vault to choose (and a stale one to fail on), a
   # newsletter to address, an export to import.
   mkdir -p "$root/obsidian" "$root/Edge Vault"
@@ -252,25 +130,15 @@ if [[ "$scenario" == "connectors" || "$scenario" == "reading" ]]; then
   cp "$repo_root/tests/fixtures/feeds/rss.xml" "$root/blog.xml"
   # No Claude Code or Codex on this Mac, whatever the machine running the walk has.
   export OBSIDIAN_HOME="$root/obsidian" CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex"
+fi
+if [[ "$scenario" == "connectors" || "$scenario" == "routines" ]]; then
   # CAP-009: Granola's server stood in for by a local one that asks no sign-in, and a keyring that
-  # keeps nothing, so the owner's Keychain is never touched. The walk stops it to see the app fail.
+  # keeps nothing, so the owner's Keychain is never touched. The connectors walk stops it to see the app fail.
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  (cd "$repo_root" && exec uv run python tests/fixtures/granola.py "$port" >"$root/granola.log" 2>&1) &
+  (cd "$repo_root" && exec "${uv_run[@]}" python tests/fixtures/granola.py "$port" >"$root/granola.log" 2>&1) &
   export LORE_EDGE_GRANOLA_PID=$! LORE_GRANOLA_SERVER="http://127.0.0.1:$port/mcp" PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
   trap 'kill "$LORE_EDGE_GRANOLA_PID" 2>/dev/null || true' EXIT
   for _ in $(seq 1 60); do curl -s -o /dev/null "http://127.0.0.1:$port/mcp" && break; sleep 0.5; done
-fi
-if [[ "$scenario" == "today" ]]; then
-  # APP-214: an empty home, no Claude Code or Codex, and a vault to connect at the last stage.
-  mkdir -p "$root/Edge Vault"
-  printf '# One\n\nA first lesson long enough to be worth keeping.\n' > "$root/Edge Vault/one.md"
-  export CLAUDE_HOME="$root/claude" CODEX_HOME="$root/codex" OBSIDIAN_HOME="$root/obsidian"
-fi
-if [[ "$scenario" == "reading" ]]; then
-  # APP-213: one memory Lore wrote before it kept who each came from.
-  mkdir -p "$LORE_HOME/memories"
-  printf '# An older lesson Lore wrote\n\nWritten before Lore kept who each memory came from, long enough to keep.\n' > "$LORE_HOME/memories/older-lesson.md"
-  (cd "$repo_root" && uv run lore sync --source automation >/dev/null)
 fi
 if [[ "$scenario" == "firstrun" ]]; then
   # APP-215: a new owner with one Obsidian vault on this Mac; the rest is the agents walk's stand-in node and Claude Code.
@@ -289,10 +157,16 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   export LORE_EDGE_D1="$root/d1.sqlite" LORE_EDGE_KEYRING="$root/keyring.json" LORE_EDGE_REPO="$repo_root"
   export PYTHONPATH="$repo_root" PYTHON_KEYRING_BACKEND=tests.fixtures.inbox.Keyring
   port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')"
-  (cd "$repo_root" && exec uv run python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
+  (cd "$repo_root" && exec "${uv_run[@]}" python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
   export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
+  node_from=$SECONDS
+  # APP-271: the node says it is listening once its socket is bound (inbox.py prints the line after it binds), checked
+  # every tenth of a second; then the same request as before, once. Said with the TIME lines at the end.
+  for _ in $(seq 1 300); do grep -q "Lore agent endpoint at" "$root/agent.log" 2>/dev/null && break; sleep 0.1; done
+  listening=$((SECONDS - node_from))
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
+  node_took="; the stand-in node listened after ${listening}s and answered after $((SECONDS - node_from))s"
 fi
 # A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
 # never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
@@ -307,6 +181,7 @@ def _dump(signum, frame):
 signal.signal(signal.SIGTERM, _dump)
 PY
 export PYTHONPATH="$root/pyhooks${PYTHONPATH:+:$PYTHONPATH}" LORE_CLI_STACK="$root/cli-stack.log"
+# APP-271: on CI every shot() scans and keeps no picture; LORE_EDGE_IMAGES=1 keeps them there too.
 echo "Screenshots land in $root"
 # A walk that outlives its limit fails loudly, with a sample of Electron's main process, instead of hanging the run.
 limit="${LORE_EDGE_LIMIT:-180}"
@@ -314,8 +189,11 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "firstrun" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # The agents walk connects four agents, answers two sign-ins (XC-068) and waits out each save's reading (APP-233).
 [[ "$scenario" == "agents" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=360
+# The routines walk waits out three of the stand-in model's readings, each six seconds or more (APP-270: three walks in one).
+[[ "$scenario" == "routines" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
 # beside the walk log and printed when the walk fails (XC-111).
+seeded=$SECONDS
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
@@ -330,7 +208,11 @@ fi
 # Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
 code=0
 wait "$walk" 2>/dev/null || code=$?
+ran=$SECONDS
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
+# APP-271: where the walk's time went (edge.cjs's TIME lines), said but never judged.
+grep -E "^TIME" "$root/walk.log" || true
+echo "TIME $scenario, edge.sh: seeding $((seeded - began))s${node_took:-}, Electron $((ran - seeded))s"
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main
