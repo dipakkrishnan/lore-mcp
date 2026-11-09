@@ -2,6 +2,8 @@
 # Seed a scratch Lore home with two memories and two drafts, then drive the renderer as one persona.
 # Scenarios: seller | store | connectors | checkin | routines | settings | agents | firstrun
 set -euo pipefail
+# APP-271: when seeding ended and when Electron did, for the TIME line at the end.
+began=$SECONDS
 scenario="${1:-seller}"
 desktop_dir="$(cd "$(dirname "$0")/.." && pwd)"
 repo_root="$(cd "$desktop_dir/../.." && pwd)"
@@ -178,6 +180,7 @@ limit="${LORE_EDGE_LIMIT:-180}"
 [[ "$scenario" == "routines" && -z "${LORE_EDGE_LIMIT:-}" ]] && limit=300
 # Electron's stderr is where the app says why a CLI call failed (state.cjs's `lore ... failed:` lines); it is kept
 # beside the walk log and printed when the walk fails (XC-111).
+seeded=$SECONDS
 "$desktop_dir/node_modules/.bin/electron" "$desktop_dir/support/edge.cjs" "$scenario" >"$root/walk.log" 2>"$root/app.log" &
 walk=$!
 for _ in $(seq 1 "$limit"); do kill -0 "$walk" 2>/dev/null || break; sleep 1; done
@@ -192,9 +195,11 @@ fi
 # Fails on a walk that exits non-zero, says FAIL or ERROR, says nothing at all, or runs out of time.
 code=0
 wait "$walk" 2>/dev/null || code=$?
+ran=$SECONDS
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
 # APP-271: where the walk's time went (edge.cjs's TIME lines), said but never judged.
 grep -E "^TIME" "$root/walk.log" || true
+echo "TIME $scenario, edge.sh: seeding $((seeded - began))s, Electron $((ran - seeded))s"
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main

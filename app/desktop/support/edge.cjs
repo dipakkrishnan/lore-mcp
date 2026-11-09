@@ -25,6 +25,14 @@ writeFileSync(join(S, "cli", "attended_cli.py"), `import sys\nfrom pathlib impor
 // APP-271: the project's own environment straight, once uv has built it (CI's `uv sync --locked` does), as `uv run`
 // would put it first on PATH: the app makes hundreds of these calls a walk, and each `uv run` looks at the lock again.
 writeFileSync(cli.bin, `#!/bin/sh\ncd ${JSON.stringify(repo)} || exit 1\nif [ -x .venv/bin/python ]; then PATH="$PWD/.venv/bin:$PATH" VIRTUAL_ENV="$PWD/.venv" exec .venv/bin/python ${JSON.stringify(join(S, "cli", "attended_cli.py"))} "$@"; fi\nexec uv run python ${JSON.stringify(join(S, "cli", "attended_cli.py"))} "$@"\n`, { mode: 0o755 });
+/** APP-271: `uv run <args>` for the walk's own CLI calls, through the same environment straight when uv has built it.
+ * @param {string[]} args @param {import("node:child_process").ExecFileSyncOptions} options */
+const uvRun = (args, options) => {
+  const venv = join(repo, ".venv", "bin");
+  if (!existsSync(join(venv, "python"))) return execFileSync("uv", ["run", ...args], options);
+  const env = options.env ?? process.env;
+  return execFileSync(join(venv, args[0]), args.slice(1), { ...options, env: { ...env, PATH: `${venv}:${env.PATH}`, VIRTUAL_ENV: dirname(venv) } });
+};
 // APP-270: the seller walk launches into a setup that fails, as the retired provision walk did, then recovers from it.
 let failSetup = scenario === "seller";
 // main.cjs binds provision at require time, so the stub itself must flip.
@@ -230,7 +238,7 @@ if (scenario === "connectors") {
     const url = `${process.env.LORE_EDGE_AGENT_URL}/mcp`;
     // XC-069: what `lore node deploy --inbox-only` leaves: an address, nothing for sale, no price and no payout. The
     // stand-in node answers only /agent, so its probe is kept for the whole walk instead of expiring a minute in.
-    execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
+    uvRun(["python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', '${url}')\n s.set_setting('node_selling', False)\n s.set_setting('node_live', {'url': '${url}', 'checked_at': time.time() + 3600, 'live': {'state': 'online', 'network': None, 'price_usd': None, 'payout': None}, 'ids': []})`], { cwd: repo, env: process.env });
   };
   // XC-088: the place online for the owner's agents, which Lore hosts, stood in for by the stand-in node, so nothing
   // reaches yourlore.dev. It fails, in the CLI's own words, while the walk says it can't be reached.
@@ -680,7 +688,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       if (scenario === "store") {
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
         await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content").textContent.includes("Approve what to sell")`);
+        // APP-271: the Inbox is drawn. This waited ten seconds every run for "Approve what to sell", which the Inbox no
+        // longer says (APP-283 lists each draft as a row), and went on when the wait ran out.
+        await waitFor(`${todayShown} && Boolean(document.querySelector("#content .irow.draft"))`);
         // Fix 4: with a store open, Settings offers a way back into the deploy conversation.
         await js(`window.__lore.show("settings")`);
         await waitFor(`document.querySelector("#content").textContent.includes("Switch to real payments") && [...document.querySelectorAll("#content button")].some((b) => /^(Set a price|Change)$/.test(b.textContent))`);
@@ -801,11 +811,13 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The update that takes it down also carries the new price, so the owner confirms that first.
         check("a take-down that also puts out a new price asks about the price", await waitFor(`${changes}?.textContent.includes("$0.02 a piece → $0.75 a piece")`), await js(`${changes}?.textContent ?? ""`));
         await answerChanges("Confirm");
-        await waitFor(`document.querySelector("#content").textContent.includes("Taken down")`);
+        // APP-271: the take-down is said, which is what the check below reads. This waited ten seconds every run for
+        // "Taken down" in the list, which shows only once the folded group is opened below, and went on when it ran out.
+        await waitFor(`document.querySelector("#status").textContent.includes("Your store stops selling it as soon as it updates.")`);
         // This scratch home has no node source, so the revoke's push fails: the owner hears that plainly, not as a command.
         const revokeNotice = await js(`document.querySelector("#status").textContent`);
         check("a take-down whose push failed reads plainly", revokeNotice.includes("Your store stops selling it as soon as it updates.") && !/wrangler|--worker-dir|\/Users\/|\/var\//.test(revokeNotice), revokeNotice);
-        execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
+        uvRun(["python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         await js(`[...document.querySelectorAll(".ptab")].find((t) => t.textContent.startsWith("Private")).click()`);
         // APP-282: taken-down pieces sit folded at the foot, apart from the live ones; one still on the store says Coming off.
@@ -819,7 +831,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("inbox")`);
         check("Today's next step names the pending removal", await waitFor(`${nextStep}.includes("1 taken down, still on your store")`), await js(nextStep));
         // APP-211: the last piece taken down, its removal not on the store yet, and a new price: Update store pushes the removal first.
-        const pendingRemoval = () => execFileSync("uv", ["run", "python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
+        const pendingRemoval = () => uvRun(["python", "-c", `import time\nfrom lore.store import Store\nwith Store() as s:\n s.set_setting('node_live', {'url': 'https://store.example/mcp', 'checked_at': time.time(), 'live': {'state': 'online', 'network': 'eip155:84532', 'price_usd': 0.02, 'payout': '0x' + 'a' * 40}, 'ids': ['${publicId}']})`], { cwd: join(__dirname, "../../.."), env: process.env });
         pendingRemoval();
         await js(`window.__lore.event({ type: "changed" })`);
         check("Today's next step counts both changes: the removal still pending and the new price", await waitFor(`snapshot.node.live.price_usd === 0.02 && ${nextStep}.includes("2 changes aren't live yet") && ${nextStep}.includes("1 taken down, still on your store")`), await js(nextStep));
@@ -1004,17 +1016,18 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelectorAll("#status .dismiss").forEach((b) => b.click())`);
         await js(fillIn(`${process.env.LORE_EDGE_NEWSLETTER}slow`));
         const connectFrom = ipc.length;
+        const primaryState = await js(`JSON.stringify({ disabled: ${primary}?.disabled, text: ${primary}?.textContent, value: document.querySelector("dialog.sheet[open] input[type=url]")?.value })`);
         await js(`${primary}.click()`);
         // APP-271: closed once the connect is out (the blog behind it takes four seconds to answer), then the connect
         // has come back, stopped, and the app has gone quiet: the moment it could close the sheet opened after it.
-        await until(() => ipc.slice(connectFrom).includes("sources:connect"));
+        const connecting = await until(() => ipc.slice(connectFrom).includes("sources:connect"), 2000);
         await key("keyDown", "Escape");
         await waitFor(noSheet);
         await js(offerOf("Medium"));
         await waitFor(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Medium"`);
-        await until(() => answeredSince("sources:connect", connectFrom), 15_000);
+        if (connecting) await until(() => answeredSince("sources:connect", connectFrom), 15_000);
         await idle();
-        check("a connect closed mid-read never closes the sheet opened after it", await js(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Medium"`));
+        check("a connect closed mid-read never closes the sheet opened after it", await js(`document.querySelector("dialog.sheet[open]")?.getAttribute("aria-label") === "Medium"`), `${connecting ? "connect went out" : "no connect went out"}; asked ${JSON.stringify(ipc.slice(connectFrom))}; primary was ${primaryState}`);
         check("…and connects nothing", await js(`${sourceRows}.filter((r) => r.querySelector("b").textContent === "Blog or newsletter").length`) === 2 && await js(`!document.querySelector("#status").textContent.includes("is connected")`), await js(`document.querySelector("#status").textContent`));
         await js(`document.querySelector("dialog.sheet[open] .icon-btn").click()`);
         await waitFor(noSheet);
@@ -1230,7 +1243,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const changes = `document.querySelector("dialog.changes-sheet[open]")`;
         check("…and the store update names both pieces before it goes out", await waitFor(`${changes}?.textContent.includes("Live demos beat cold decks") && ${changes}.textContent.includes("Raise prices after the tenth buyer")`), await js(`${changes}?.textContent ?? ""`));
         await js(`[...${changes}.querySelectorAll("button")].find((b) => b.textContent === "Confirm").click()`);
-        check("…carrying the edit made on the card", /Not useful if: you have no buyers yet|not useful if: you have no buyers yet/i.test(execFileSync("uv", ["run", "lore", "publication", "list"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" })));
+        check("…carrying the edit made on the card", /Not useful if: you have no buyers yet|not useful if: you have no buyers yet/i.test(uvRun(["lore", "publication", "list"], { cwd: join(__dirname, "../../.."), env: process.env, encoding: "utf8" })));
         check("…and says how the store update went, once it has", await waitFor(`/have their new pages|go live with your next store update/.test(document.body.textContent) && !document.body.textContent.includes("updating your store. It takes")`), await js(`document.querySelector("#status").textContent`));
         check("…and leaves the new drafts alone", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
         await shot("today-extras-approved");
@@ -1459,7 +1472,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("…Try again asks once, its error gone while it does, and nothing else can be chosen meanwhile", connects() === askedBefore + 1 && !offered.includes("Choose another") && !offered.includes("Try again") && (await js(chat)).includes("Getting ChatGPT's link…"), `${connects() - askedBefore} asks; ${JSON.stringify(offered)}`);
         letRetry();
         check("…and the link it asked for is the one shown", await waitFor(`document.querySelector("#content .first-run .agent-link")`, 80));
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', None)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        uvRun(["python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('node_url', None)"], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.lore.setFirstRun({ state: "started" })`);
         await relaunch();
         await picker();
@@ -1632,7 +1645,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("with Grok connected, Today says once that Lore reads and checks in on its own", await waitFor(`${told}.length === 1`) && (await js(`${told}[0].textContent`)).startsWith("Lore reads your connected apps every day at 9 AM and checks in at 6 PM when something's worth asking."), await js(`document.querySelector("#status").textContent + " " + JSON.stringify({ noticed: snapshot.setup.automations_noticed, told: [...told.keys()], notices: notices.map((n) => n.key), routines: routines.map((r) => r.kind + (r.paused ? "-paused" : "")), sources: snapshot.library.sources.filter((s) => s.enabled).length })`));
         check("…and remembers having said it", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === true)`));
         // APP-211: a refresh that still reads "not said" (as one started before the write would) never says it twice.
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('automations_noticed', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
+        uvRun(["python", "-c", "from lore.store import Store\nwith Store() as s:\n s.set_setting('automations_noticed', False)"], { cwd: join(__dirname, "../../.."), env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         check("a refresh then reads it as unsaid, in the store and in the window", await waitFor(`window.lore.snapshot().then((s) => s.setup.automations_noticed === false)`) && await waitFor(`snapshot.setup.automations_noticed === false`));
         // APP-271: that refresh, and whatever it said, are done, in place of a second; then again after the two views.
@@ -1718,6 +1731,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Grok saves again what it already saved, word for word: nothing changes in Lore, and it still shows the link works.
         const resaved = await (await call(fresh, "tools/call", { name: "store", arguments: { items: [{ title: "How I price sync placements", content: "I charge by the audience the placement reaches, not by the hours it took.", key: "sync-pricing", kind: "preference" }] } })).json();
         check("an unchanged save with the new link reaches the store", resaved.result?.isError === false, JSON.stringify(resaved));
+        // APP-271: the owner comes back to Lore from Grok Bot, which looks now, as it does on any return.
+        app.emit("browser-window-focus");
         check("…and the sheet shows the new link works", await waitFor(`${sheet}.includes("Grok Bot saved with the new link")`, 80) && !(await js(`Boolean(document.querySelector("dialog.sheet[open] .agent-next"))`)), await js(sheet));
         await press("Done");
         await waitFor(`!document.querySelector("dialog.sheet[open]")`);
@@ -1847,8 +1862,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("agents-claude-new-key");
         await press("Done");
         // XC-068: ChatGPT signs in. The store's sign-in page asks; Lore shows the Allow card with the page's code.
-        const askSignIn = (/** @type {string} */ client) => JSON.parse(execFileSync("uv", ["run", "python", "-m", "tests.fixtures.inbox", "ask", "--client", client], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
-        const signInRow = (/** @type {string} */ id) => JSON.parse(execFileSync("uv", ["run", "python", "-c", `import json, sqlite3, os\nrow = sqlite3.connect(os.environ["LORE_EDGE_D1"]).execute("SELECT state, agent FROM sign_ins WHERE id = ?", (${JSON.stringify(id)},)).fetchone()\nprint(json.dumps(row))`], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
+        const askSignIn = (/** @type {string} */ client) => JSON.parse(uvRun(["python", "-m", "tests.fixtures.inbox", "ask", "--client", client], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
+        const signInRow = (/** @type {string} */ id) => JSON.parse(uvRun(["python", "-c", `import json, sqlite3, os\nrow = sqlite3.connect(os.environ["LORE_EDGE_D1"]).execute("SELECT state, agent FROM sign_ins WHERE id = ?", (${JSON.stringify(id)},)).fetchone()\nprint(json.dumps(row))`], { cwd: process.env.LORE_EDGE_REPO, env: process.env }).toString());
         await js(`${agentRow("Connect another agent")}.querySelector("button").click()`);
         await waitFor(`${sheet}.includes("Which agent should save to Lore?")`);
         await js(`[...document.querySelectorAll("dialog.sheet[open] .form-option")].find((o) => o.textContent === "ChatGPT").querySelector("input").click()`);
@@ -1913,6 +1928,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // The owner approves one memory in Instinct, and Instinct saves it with the key from the secure form.
         const one = await (await call(instinctKey, "tools/call", { name: "store", arguments: { items: [{ title: "I take calls before noon", content: "I keep afternoons for deep work, so I book calls before noon.", key: "calls-before-noon", kind: "preference" }] } })).json();
         check("Instinct's one approved save reaches the store", one.result?.isError === false, JSON.stringify(one));
+        // APP-271: the owner comes back to Lore from Instinct, which looks now, as it does on any return, rather than
+        // on the sheet's next ten-second look.
+        app.emit("browser-window-focus");
         check("…and the sheet says it's on this Mac, one click from it", await waitFor(`${sheet}.includes("1 memory from Instinct on this Mac · See it →")`, 120), await js(sheet));
         await shot("agents-instinct-saved");
         await press("Done");
@@ -1960,7 +1978,7 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("inbox")`);
         check("…and Today offers no store update", await waitFor(todayShown) && !(await js(`/Update store|live yet/.test(document.querySelector("#content").textContent)`)), await js(`document.querySelector("#content").textContent`));
         // The first approved piece: opening the store for sale asks for a price and where payments go, as always.
-        execFileSync("uv", ["run", "python", "-c", "from lore.store import Store\nwith Store() as s:\n judged = s.db.execute(\"SELECT id FROM memories WHERE title = 'How I price sync placements'\").fetchone()[0]\n s.add_publication(title='How I price sync placements', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[judged])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
+        uvRun(["python", "-c", "from lore.store import Store\nwith Store() as s:\n judged = s.db.execute(\"SELECT id FROM memories WHERE title = 'How I price sync placements'\").fetchone()[0]\n s.add_publication(title='How I price sync placements', content='Charge by the audience.', topic='licensing', teaser='How to price a sync placement', provenance=[judged])"], { cwd: process.env.LORE_EDGE_REPO, env: process.env });
         await js(`window.__lore.event({ type: "changed" })`);
         const rung = `document.querySelector("#content .irow.step")`;
         check("the first approved piece offers to open the store", await waitFor(`/isn't on sale yet/.test(${rung}?.textContent ?? "") && ${rung}.querySelector(".verb").textContent === "Open your store"`, 80), await js(`document.querySelector("#content").textContent`));
@@ -1968,7 +1986,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         const shelves = await js(`[...document.querySelectorAll(".ptab")].map((s) => s.textContent).join("|")`);
         check("…and Inventory calls it ready to sell, not on sale", /Ready to sell1/.test(shelves) && !/On sale/.test(shelves), shelves);
         await js(`window.__lore.show("inbox")`);
-        await waitFor(`/Pick a price and where payments go/.test(${rung}?.textContent ?? "")`);
+        // APP-271: its Open your store is drawn. This waited ten seconds every run for "Pick a price and where payments
+        // go", which the row no longer says, and went on when the wait ran out.
+        await waitFor(`${rung}?.querySelector(".verb")?.textContent === "Open your store"`);
         const before = prompts.length;
         await js(`${rung}.querySelector("button").click()`);
         await until(() => prompts.length > before, 4000);
@@ -1984,8 +2004,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // schedule walk's), an app connected and read through (the reading walk's), then every automation in one list
         // (the automations walk's). One stand-in model reads all three; each count below is taken from where it stood.
         const repo = join(__dirname, "../../..");
-        const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
-        const listed = () => JSON.parse(execFileSync("uv", ["run", "lore", "automation", "list", "--json"], { cwd: repo, env: process.env, encoding: "utf8" }));
+        const python = (/** @type {string} */ code) => uvRun(["python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
+        const listed = () => JSON.parse(uvRun(["lore", "automation", "list", "--json"], { cwd: repo, env: process.env, encoding: "utf8" }));
         const clock = (/** @type {number} */ hour) => `${hour % 12 || 12} ${hour < 12 ? "AM" : "PM"}`;
         // AUT-006: Lore was closed at its reading hour, so opening it reads once, unasked, and says so as a connect does.
         await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
@@ -2140,7 +2160,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`${rowOf("Evening check-in")}.querySelector(".switch").click()`);
         await waitFor(`${rowOf("Evening check-in")}?.querySelector(".switch").getAttribute("aria-checked") === "true"`);
         await lookedSince("schedule", resumedFrom);
-        check("resuming a check-in paused for days never runs it at once", !checkInOf().due && !checkInOf().paused && Date.parse(checkInOf().next_run) > Date.now() && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
+        // APP-271: the CLI asked once for the check, not once per term.
+        const resumed = checkInOf();
+        check("resuming a check-in paused for days never runs it at once", !resumed.due && !resumed.paused && Date.parse(resumed.next_run) > Date.now() && resumed.last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(resumed));
         // Moved to an hour that already passed today: it waits for tomorrow's.
         const earlier = (new Date().getHours() + 23) % 24;
         await js(`${rowOf("Evening check-in")}.querySelector("[aria-label='Change time']").click()`);
@@ -2150,7 +2172,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("dialog.sheet[open] .btn.primary").click()`);
         await waitFor(`${rowOf("Evening check-in")}?.textContent.includes("Every day at")`);
         await lookedSince("schedule", movedFrom);
-        check("…and moving it to an hour already past waits for tomorrow", checkInOf().hour === earlier && !checkInOf().due && Date.parse(checkInOf().next_run) - Date.now() > 20 * 60 * 60_000 && checkInOf().last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(checkInOf()));
+        const moved = checkInOf();
+        check("…and moving it to an hour already past waits for tomorrow", moved.hour === earlier && !moved.due && Date.parse(moved.next_run) - Date.now() > 20 * 60 * 60_000 && moved.last_run.startsWith(new Date(Date.now() - 4 * 86400_000).toISOString().slice(0, 10)), JSON.stringify(moved));
         await js(`document.querySelector("#new-open").click(); document.querySelector("#new-menu [data-new=automation]").click()`);
         await waitFor(`document.querySelector("dialog.sheet[open] textarea")`);
         const sheetRows = `[...document.querySelectorAll("dialog.form-sheet[open] .form-row:not([hidden])")].map((r) => r.querySelector(".form-label").textContent + "=" + r.querySelector(".form-value").textContent).join("|")`;
@@ -2214,8 +2237,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
       } else if (scenario === "checkin") {
         // AUT-008: the check-in whose hour passed an hour ago runs at launch, on what was read in since it last judged.
         const repo = join(__dirname, "../../..");
-        const loreCli = (/** @type {string[]} */ args) => execFileSync("uv", ["run", "lore", ...args], { cwd: repo, env: process.env, encoding: "utf8" });
-        const python = (/** @type {string} */ code) => execFileSync("uv", ["run", "python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
+        const loreCli = (/** @type {string[]} */ args) => uvRun(["lore", ...args], { cwd: repo, env: process.env, encoding: "utf8" });
+        const python = (/** @type {string} */ code) => uvRun(["python", "-c", `from datetime import datetime, timedelta, timezone\nfrom lore import automation\nnow = datetime.now(timezone.utc)\n${code}`], { cwd: repo, env: process.env, encoding: "utf8" });
         const checkin = () => JSON.parse(loreCli(["automation", "list", "--json"])).find((/** @type {Routine} */ routine) => routine.id === "checkin");
         /** The next day, an hour after the check-in's hour: yesterday's run and anything it posted are a day old. */
         const nextDay = () => {
@@ -2240,7 +2263,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("a day worth asking about is one notification naming the thing", notes.filter(asking).length === 1 && note?.words.body === "You held the price on the Acme call. What made you hold firm?", JSON.stringify(notes.map((n) => n.words)));
         check("…an Inbox row says so, with one verb", await waitFor(`${card}?.querySelector(".say")?.textContent === "Check-in: 1 question about today" && ${card}.querySelector(".verb").textContent === "Answer"`), await js(`document.querySelector("#content").textContent`));
         check("…and the dock keeps a red 1 for it", badges.at(-1) === 1, JSON.stringify(badges));
-        check("…recorded as the routine's last result", checkin().result === "Asked about 1 thing", checkin().result);
+        const recorded = checkin().result;
+        check("…recorded as the routine's last result", recorded === "Asked about 1 thing", recorded);
         check("…and the thread is not listed twice", !(await js(`Boolean(document.querySelector("#content .irow.task"))`)));
         await shot("checkin-today");
         note?.handlers.click();
@@ -2261,7 +2285,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await until(() => answeredSince("routines:run", ranFrom), 20_000);
         await idle();
         await js(`window.__lore.show("inbox")`);
-        check("Run now on the same day keeps today's card, its questions and the dock's 1", await waitFor(card) && badges.at(-1) === 1 && (await js(`window.lore.checkIn()`))?.questions[0].question === "You held the price on the Acme call. What made you hold firm?" && checkin().result === "Asked about 1 thing" && checkIns.length === 1 && checkin().last_run !== before, `${JSON.stringify(badges)} · ${checkin().result} · ${checkIns.length} looks`);
+        const ran = checkin();
+        check("Run now on the same day keeps today's card, its questions and the dock's 1", await waitFor(card) && badges.at(-1) === 1 && (await js(`window.lore.checkIn()`))?.questions[0].question === "You held the price on the Acme call. What made you hold firm?" && ran.result === "Asked about 1 thing" && checkIns.length === 1 && ran.last_run !== before, `${JSON.stringify(badges)} · ${ran.result} · ${checkIns.length} looks`);
         // The next evening brings in something new; yesterday's unanswered questions give way to today's.
         nextDay();
         writeFileSync(join(S, "Edge Vault", "three.md"), "# Dropped the Globex renewal\n\nWalked away from the renewal; no reason written down.\n");
