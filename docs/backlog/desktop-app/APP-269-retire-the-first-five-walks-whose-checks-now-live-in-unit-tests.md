@@ -4,7 +4,7 @@ title: Retire the first five walks whose checks now live in unit tests
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: in-progress
 related: [APP-266, APP-267, APP-268, APP-270, XC-083]
 blockers: [APP-266, APP-267, APP-268]
 dependencies: []
@@ -50,8 +50,10 @@ appearance. Update `walks.test.cjs`'s fixtures and the README's walk count.
 - [x] The item's Notes list, per retired walk, every assertion it made and
       the unit test or kept-walk line that makes it now; all of those tests
       exist and pass before the walk is removed.
-- [ ] The walks step on the PR's macOS run is under 300 s. (Not met; see
-      Notes: `agents` alone, run solo since XC-084, takes about 190 s of it.)
+- [ ] The walks step on the PR's macOS run is under 300 s. (Not met: 443 s
+      on PR #678's run, from 497 s on main; `agents` alone, run solo since
+      XC-084, is 195 s of it. The rest of the cut carries to APP-270 and
+      APP-271; see Notes.)
 - [x] Layout scan: per retired walk, the views it scanned (from APP-266's
       table) and the kept walk that scans them now are named in Notes:
       today's Today-card stages in `store` and `connectors`, fresh's empty
@@ -70,9 +72,15 @@ appearance. Update `walks.test.cjs`'s fixtures and the README's walk count.
 
 ### What was done (2026-11-09)
 
-Walk count: 22 before (main at cb336dc9), 17 after. Walks step time: main's
-last green run, 42572100253 (dc7cb795), 497 s (22/22 walks, 2 at a time;
-`agents` alone 189 s). This PR's run: WALKS_PR_PENDING.
+Walk count: 22 before (main at cb336dc9), 17 after.
+
+| Run | Walks | Walks step | Desktop macOS checks job |
+|---|---|---|---|
+| main's last green, 42572100253 (dc7cb795) | 22/22, `agents` alone 189 s | 497 s | 662 s |
+| PR #678, 42575320820 (76e5bee6) | 17/17, `agents` alone 195 s, 0 retried | 443 s | 598 s |
+
+The walks step fell 54 s (497 to 443 s) and the job 64 s (662 to 598 s). The
+new unit tests add about 2 s to the unit step (15 to 17 s).
 
 Premise drift, checked against main as it stood:
 
@@ -95,7 +103,12 @@ Premise drift, checked against main as it stood:
   `agents` runs alone first (189 s on main's last green run), then the rest
   two at a time. The five retired walks took 144 s of serial walk time on
   that run (today 47, fresh 57, quiet 23, obsidian 11, faq 6), about 72 s of
-  wall time at two at a time. APP-270's folds are what can reach the target.
+  wall time at two at a time. Measured: 54 s off the step. The rest of the
+  cut to under 300 s (at least 143 s more from 443 s, with `agents` alone at
+  195 s, so the 16 shared walks must finish in under about 105 s of wall
+  time, against 248 s now) carries to APP-270 (folding the remaining walks
+  to seven) and APP-271 (making the kept walks cheaper). Status stays
+  `in-progress` until that criterion is met there or re-scoped.
 
 New tests (all under `app/desktop/test/unit/`, run by `npm run test:unit`, all
 passing): `renderer-step-actions.test.cjs` (10), `renderer-talk.test.cjs` (7),
