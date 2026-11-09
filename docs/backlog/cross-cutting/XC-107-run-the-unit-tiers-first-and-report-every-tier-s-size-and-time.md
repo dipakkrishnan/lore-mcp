@@ -4,13 +4,13 @@ title: Run the unit tiers first and report every tier's size and time
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: in-progress
 related: [XC-097, XC-083, XC-108]
 blockers: [XC-097]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-30
+updated: 2026-11-09
 ---
 
 ## Problem
