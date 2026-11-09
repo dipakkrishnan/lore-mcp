@@ -1,32 +1,17 @@
 // APP-060: what the app sends the CLI for a search, and what it accepts back from the sales ledger and the drafts.
-// A shell stub stands in for the CLI: it records its argv and prints a fixture, so nothing here needs uv or a store.
+// APP-272: a stand-in CLI in this process records its argv and prints a fixture, so nothing here starts a process.
 const assert = require("node:assert/strict");
-const { existsSync, mkdtempSync, rmSync } = require("node:fs");
-const { mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
-const { tmpdir } = require("node:os");
-const { join } = require("node:path");
 const { test } = require("node:test");
-// The module reads its store folder once, on require: point it at scratch, never the owner's Application Support.
-process.env.LORE_STORE = mkdtempSync(join(tmpdir(), "lore-store-"));
-process.once("exit", () => rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
-const { searchMemories, readSales, candidates, readGists, useRuntime } = require("../../src/state.cjs");
+// Required before anything loads ../../src/state.cjs: scratch store and launch keys, and a CLI that is a function.
+const { fakeCli } = require("../../support/fake-cli.cjs");
+const { searchMemories, readSales, candidates, readGists } = require("../../src/state.cjs");
 
-/** Run `body` against a fresh stub CLI that prints `output`; hands back the argv it ran with, or null if it never ran.
+/** Run `body` against a stand-in CLI that prints `output`; hands back the argv of its last call, or null if it never ran.
  * @param {string} output @param {(home: string) => Promise<void>} body */
 async function withCli(output, body) {
-  const home = await mkdtemp(join(tmpdir(), "lore-cli-"));
-  const ran = join(home, "argv");
-  const fake = join(home, "lore");
-  await writeFile(join(home, "out.json"), output);
-  await writeFile(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > ${JSON.stringify(ran)}\ncat ${JSON.stringify(join(home, "out.json"))}\n`, { mode: 0o755 });
-  try {
-    useRuntime(fake);
-    await body(home);
-    return existsSync(ran) ? (await readFile(ran, "utf8")).trimEnd().split("\n") : null;
-  } finally {
-    useRuntime();
-    await rm(home, { recursive: true });
-  }
+  const calls = fakeCli(() => ({ stdout: output }));
+  await body("/lore-home");
+  return calls.at(-1)?.args ?? null;
 }
 
 const HIT = { id: 3, title: "Price the first tier low", content: "A low first price gets the first ten buyers." };

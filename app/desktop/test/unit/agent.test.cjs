@@ -1,15 +1,16 @@
 // The agent in process: sessions and task records, sign-in, how readings, check-ins and routines are worded and kept,
-// the schedule, and the owner's agents' watch. XC-097: the whole turns of the scripted agent are in
-// test/component/agent.test.cjs; nothing here starts a process (test/unit/tiers.test.cjs holds that line).
+// the schedule, the owner's agents' watch, and what the memory card and routines send the CLI (APP-272, against a
+// stand-in in this process). XC-097: the whole turns of the scripted agent are in test/component/agent.test.cjs;
+// nothing here starts a process (test/unit/tiers.test.cjs holds that line).
 // APP-248: split from app.test.cjs so node --test runs the desktop unit tests in parallel, one process per file.
 const assert = require("node:assert/strict");
 const { access, mkdir, mkdtemp, readFile, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { test } = require("node:test");
-// state.cjs reads its store folder once, on require: point it at scratch, never the owner's Application Support.
-process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
-process.once("exit", () => require("node:fs").rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
+// Required before anything loads ../../src/state.cjs: scratch store and launch keys, and a CLI that is a function in
+// this process (APP-272), so the memory card and routines are checked against what the app sends `lore`.
+const { fakeCli, json, refused } = require("../../support/fake-cli.cjs");
 const { until } = require("../../support/scripted.cjs");
 
 test("a reply reads the same from Anthropic and OpenAI: paragraphs, and OpenAI's preview dropped once its final answer lands", async () => {
@@ -768,4 +769,66 @@ test("an agent's saves are on Today as they come in, and what reading them write
   } finally {
     await rm(directory, { recursive: true });
   }
+});
+
+test("a memory card saves exactly what the owner kept, through the CLI's private capture boundary", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const { captureMemories } = require("../../src/state.cjs");
+  const { validSaved, validEntries } = await import("../../src/agent.mjs");
+  // The CLI's own ceiling, read from its source, so the card and the CLI cannot drift apart without this failing.
+  const ceiling = Number((await readFile(join(__dirname, "../../../../lore/capture.py"), "utf8")).match(/^MAX_TITLE = (\d+)$/m)?.[1]);
+  assert.ok(ceiling > 0, "lore/capture.py names MAX_TITLE");
+  assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
+  assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
+  for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(ceiling + 1), content: "c" }], [{ title: "t", content: "c", project: 3 }], [{ title: "t", content: "c", project: "p".repeat(201) }], "nope"]) {
+    assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
+  }
+  // The card's ceiling is the CLI's ceiling: what validEntries lets through, the CLI saves.
+  assert.equal(validEntries([{ title: "t".repeat(ceiling), content: "c" }]), true);
+  const calls = fakeCli((_args, { input }) => {
+    const entries = JSON.parse(/** @type {string} */ (input));
+    if (entries.some((/** @type {{title: string}} */ entry) => !entry.title)) return { stderr: "lore: 1 validation error for list[CaptureEntry]\n0.title\n  String should have at least 1 character [type=string_too_short]\n", code: 1 };
+    return json(entries.map((/** @type {{title: string}} */ entry, /** @type {number} */ at) => ({ id: at + 1, status: "added", title: entry.title })));
+  });
+  assert.deepEqual(await captureMemories("/lore-home", []), []);
+  assert.equal(calls.length, 0, "nothing kept, nothing asked");
+  const kept = [{ title: "Hire management before rapid growth", content: "Add the management layer before the next ten engineers.", project: "team scaling" }];
+  const saved = await captureMemories("/lore-home", kept);
+  assert.equal(validSaved(saved), true);
+  assert.deepEqual(saved.map(({ status, title }) => ({ status, title })), [{ status: "added", title: "Hire management before rapid growth" }]);
+  assert.deepEqual(calls.map((call) => [call.args, JSON.parse(/** @type {string} */ (call.input))]), [[["capture", "apply", "-"], kept]], "exactly what the owner kept, over stdin");
+  assert.match(String(calls[0].env.LORE_ATTENDED_KEY), /^[0-9a-f]{64}$/, "the owner's yes, so it carries this launch's key");
+  await assert.rejects(captureMemories("/lore-home", [{ title: "", content: "x" }]));
+});
+
+test("routines are added, paused, retimed and removed through the CLI, and refused before it when malformed", async (t) => {
+  t.mock.method(console, "error", () => {});
+  const { listRoutines, changeRoutine, addRoutine } = require("../../src/state.cjs");
+  const calls = fakeCli((args) => {
+    if (args[1] === "add") return json({ id: "r-38ebd705", name: args.at(-1), built_in: false, paused: false, cadence: args[3], hour: Number(args[5]) });
+    if (args[1] === "remove" && args[2] === "checkin") return refused("Lore's own routines can be paused, not removed");
+    if (args[1] === "list") return json([{ id: "synthesis", built_in: true }, { id: "checkin", built_in: true }, { id: "collect", built_in: true }]);
+    return json({ id: args[2] });
+  });
+  for (const [text, when] of [["", { cadence: "daily", hour: 9, day: 0 }], ["x".repeat(501), { cadence: "daily", hour: 9, day: 0 }], ["Fine", { cadence: "hourly", hour: 9, day: 0 }], ["Fine", { cadence: "daily", hour: 9.5, day: 0 }]]) {
+    await assert.rejects(addRoutine("/nonexistent", text, when), /in a sentence|when it runs/);
+  }
+  await assert.rejects(changeRoutine("/nonexistent", "../x", "pause"), /Unknown routine/);
+  await assert.rejects(changeRoutine("/nonexistent", "checkin", "delete"), /Unknown change/);
+  assert.equal(calls.length, 0, "nothing malformed reaches the CLI");
+  const added = await addRoutine("/lore-home", "-Every Sunday, remember what I read this week", { cadence: "weekly", hour: 18, day: 6 });
+  assert.equal(added.name, "-Every Sunday, remember what I read this week", "a sentence that starts with a dash stays words");
+  await changeRoutine("/lore-home", "checkin", "pause");
+  await changeRoutine("/lore-home", added.id, "time", { cadence: "daily", hour: 7, day: 0 });
+  await assert.rejects(changeRoutine("/lore-home", "checkin", "remove"), /paused, not removed/);
+  await changeRoutine("/lore-home", added.id, "remove");
+  assert.deepEqual((await listRoutines("/lore-home")).map((routine) => routine.id), ["synthesis", "checkin", "collect"]);
+  assert.deepEqual(calls.map((call) => call.args), [
+    ["automation", "add", "--cadence", "weekly", "--hour", "18", "--day", "6", "--json", "--", "-Every Sunday, remember what I read this week"],
+    ["automation", "pause", "checkin", "--json"],
+    ["automation", "time", "r-38ebd705", "--cadence", "daily", "--hour", "7", "--day", "0", "--json"],
+    ["automation", "remove", "checkin", "--json"],
+    ["automation", "remove", "r-38ebd705", "--json"],
+    ["automation", "list", "--json"]
+  ]);
 });
