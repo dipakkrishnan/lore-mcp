@@ -24,11 +24,15 @@ export default defineConfig({
     testTimeout: 15_000,
     // XC-098: this Worker's half of lore/node's coverage (see vitest.config.ts); its own
     // directory so the main run's coverage-summary.json survives.
+    // XC-108: its own floor, as in vitest.config.ts. Set 2026-11-09 a little under main's numbers
+    // (808a33d8, run 42584807851): statements 94.41% (186/197), branches 86.27% (132/153). Never
+    // lower it, and never exclude a file to meet it.
     coverage: {
       provider: "istanbul",
       reporter: ["text-summary", "json-summary"],
       reportsDirectory: "coverage/hosted",
       include: ["src/hosted/**"],
+      thresholds: { statements: 93.5, branches: 85.5 },
     },
   },
 });
