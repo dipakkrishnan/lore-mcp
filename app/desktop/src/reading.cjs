@@ -203,10 +203,10 @@ class Suggestions {
     return this.#change((kept) => [suggestion, ...kept.filter((each) => !same(each))].slice(0, KEPT));
   }
 
-  /** @param {unknown} at */
-  async drop(at) {
-    if (typeof at !== "string") throw new Error("Invalid suggestion");
-    await this.#change((kept) => kept.filter((each) => each.at !== at));
+  /** By name, which is unique here; one run can suggest several in the same millisecond. @param {unknown} title */
+  async drop(title) {
+    if (typeof title !== "string") throw new Error("Invalid suggestion");
+    await this.#change((kept) => kept.filter((each) => each.title.toLowerCase() !== title.toLowerCase()));
   }
 
   /** @param {(kept: CollectionSuggestion[]) => CollectionSuggestion[]} change */

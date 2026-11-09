@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 660 400">
+  <rect width="660" height="400" fill="#fbfbfa"/>
+  <g font-family="'New York', 'Iowan Old Style', Georgia, serif" font-size="30" fill="#1a1c1a" text-anchor="middle">
+    <text x="330" y="78">To install, <tspan font-style="italic">drag</tspan> Lore</text>
+    <text x="330" y="114">to Applications</text>
+  </g>
+  <g fill="none" stroke="#2b6a4d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M264 236C293 255 367 255 396 236"/>
+    <path d="M385 235.6L396 236l-4.2 10.2"/>
+  </g>
+</svg>

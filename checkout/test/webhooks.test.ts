@@ -1,9 +1,10 @@
+// What the Worker does with a Stripe delivery. The signature check itself, `signed`, is pure and
+// tested in test/unit/signed.test.ts (XC-099); here only its two refusals that reach the handler.
 import { exports } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { signed } from "../src/webhooks";
 import { ACCOUNT, PIECE, STORE, stub } from "./stubs";
 
-/** Must match the `STRIPE_WEBHOOK_SECRET` override in vitest.config.ts. */
+/** Must match the `STRIPE_WEBHOOK_SECRET` override in vitest.workerd.config.ts. */
 const SECRET = "whsec_test_not_a_real_secret";
 
 afterEach(() => {
@@ -36,16 +37,6 @@ const deliver = async (body: string, header?: string) =>
 const notices = (calls: { url: string; body: string }[]) => calls.filter((call) => call.url.endsWith("/paid"));
 
 describe("Stripe's signature", () => {
-  it("accepts Stripe's own signing and refuses a wrong secret, a stale timestamp, or a tampered body", async () => {
-    const body = event();
-    expect(await signed(body, await signature(body), SECRET)).toBe(true);
-    expect(await signed(body, await signature(body, "whsec_someone_else"), SECRET)).toBe(false);
-    expect(await signed(body, await signature(body, SECRET, Math.floor(Date.now() / 1000) - 600), SECRET)).toBe(false);
-    expect(await signed(`${body} `, await signature(body), SECRET)).toBe(false);
-    expect(await signed(body, "", SECRET)).toBe(false);
-    expect(await signed(body, await signature(body), "")).toBe(false);
-  });
-
   it("drops an unsigned delivery before telling any store", async () => {
     const calls = stub();
     const response = await deliver(event(), "t=1,v1=00");
@@ -90,42 +81,6 @@ describe("a paid checkout", () => {
 });
 
 describe("Stripe's signature, at its edges", () => {
-  it("accepts a signature exactly at the five-minute tolerance and refuses one a second past it either way", async () => {
-    const body = event();
-    const t = 1_800_000_000;
-    const header = await signature(body, SECRET, t);
-    expect(await signed(body, header, SECRET, t + 300)).toBe(true);
-    expect(await signed(body, header, SECRET, t - 300)).toBe(true);
-    expect(await signed(body, header, SECRET, t + 301)).toBe(false);
-    expect(await signed(body, header, SECRET, t - 301)).toBe(false);
-  });
-
-  it("accepts any one valid v1 among several, as Stripe sends while a secret is rolled", async () => {
-    const body = event();
-    const t = Math.floor(Date.now() / 1000);
-    const good = (await signature(body, SECRET, t)).split(",")[1];
-    const other = (await signature(body, "whsec_old_secret", t)).split(",")[1];
-    expect(await signed(body, `t=${t},${other},${good}`, SECRET)).toBe(true);
-    expect(await signed(body, `t=${t},${other}`, SECRET)).toBe(false);
-  });
-
-  it("refuses a header with no timestamp, a v1 with no value, or a v1 that isn't 64 hex characters", async () => {
-    const body = event();
-    const t = Math.floor(Date.now() / 1000);
-    const good = (await signature(body, SECRET, t)).split(",")[1];
-    expect(await signed(body, good, SECRET)).toBe(false);
-    expect(await signed(body, `t=${t},v1`, SECRET)).toBe(false);
-    expect(await signed(body, `t=${t},${good.toUpperCase().replace("V1", "v1")}`, SECRET)).toBe(false);
-    expect(await signed(body, `t=${t},${good.slice(0, -2)}`, SECRET)).toBe(false);
-  });
-
-  it("refuses a timestamp that isn't a number, even signed over what the verifier would then compute", async () => {
-    const body = event();
-    const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-    const overNaN = hex(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`NaN.${body}`)));
-    expect(await signed(body, `t=soon,v1=${overNaN}`, SECRET)).toBe(false);
-  });
-
   it("drops a delivery with no Stripe-Signature header at all", async () => {
     const calls = stub();
     const response = await exports.default.fetch("https://checkout.test/webhooks", { method: "POST", body: event() });
