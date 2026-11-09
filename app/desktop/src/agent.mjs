@@ -20,7 +20,7 @@ import {
   SessionManager,
   SettingsManager
 } from "@earendil-works/pi-coding-agent";
-import { Type } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { SandboxManager } from "@anthropic-ai/sandbox-runtime";
 import { plural } from "./reading.cjs";
 import { ATTACHMENTS } from "./attachments.cjs";
