@@ -1,8 +1,19 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { forward, parseBatch, siteBatch } from "./events.js";
+import { forward, siteBatch } from "./events.js";
 import { createIssue } from "./issue.js";
 import { allow } from "./limit.js";
-import { LIMITS, ReportError, parseReport } from "./report.js";
+import { ReportError, parseReport } from "./report.js";
+import {
+  RATE_LIMITED,
+  type Refusal,
+  failure,
+  parseJson,
+  readEvents,
+  refuseBody,
+  refuseContentType,
+  refuseDeclaredLength,
+  refuseMethod
+} from "./report-rules.js";
 
 // Re-exported from the entry module because that is where the runtime looks
 // for a Durable Object class named in wrangler.jsonc.
@@ -20,38 +31,30 @@ export class SiteEvents extends WorkerEntrypoint<Env> {
   }
 }
 
-function json(body: unknown, status = 200, headers: HeadersInit = {}): Response {
+function json(body: unknown, status: number, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
     headers: { "Content-Type": "application/json", ...headers }
   });
 }
 
-function errorResponse(status: number, message: string, headers: HeadersInit = {}): Response {
-  return json({ error: message }, status, headers);
+// The rules each refusal comes from are in report-rules.ts (XC-102), tested there in plain node.
+function refuse({ status, error, headers }: Refusal): Response {
+  return json({ error }, status, headers);
 }
-
-const EVENTS_BODY_BYTES = 8_192;
 
 /** Usage events: checked against the list here, passed on after the response, never blocking the sender. */
 async function events(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  if (request.method !== "POST") return errorResponse(405, "method not allowed", { Allow: "POST" });
+  const wrongMethod = refuseMethod(request.method);
+  if (wrongMethod) return refuse(wrongMethod);
   if (env.EVENTS_RATE_LIMIT) {
     const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-    if (!(await env.EVENTS_RATE_LIMIT.limit({ key: ip })).success) return errorResponse(429, "too many requests", { "Retry-After": "60" });
+    if (!(await env.EVENTS_RATE_LIMIT.limit({ key: ip })).success) return refuse(RATE_LIMITED);
   }
-  const raw = await request.text();
-  if (new TextEncoder().encode(raw).length > EVENTS_BODY_BYTES) return errorResponse(413, "request body too large");
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return errorResponse(400, "the request body is not valid JSON");
-  }
-  const batch = parseBatch(parsed);
-  if (!batch) return errorResponse(400, "not a usage batch");
-  ctx.waitUntil(forward(env, batch).catch(() => undefined));
-  return json({ accepted: batch.events.length }, 202);
+  const read = readEvents(await request.text());
+  if ("status" in read) return refuse(read);
+  ctx.waitUntil(forward(env, read.batch).catch(() => undefined));
+  return json({ accepted: read.batch.events.length }, 202);
 }
 
 export default {
@@ -69,60 +72,45 @@ export default {
     }
 
     if (url.pathname !== "/report") {
-      return errorResponse(404, "not found");
+      return refuse({ status: 404, error: "not found" });
     }
 
-    if (request.method !== "POST") {
-      return errorResponse(405, "method not allowed", { Allow: "POST" });
-    }
+    const wrongMethod = refuseMethod(request.method);
+    if (wrongMethod) return refuse(wrongMethod);
 
     // No CORS headers, deliberately: both callers (lore/feedback.py, over
     // urllib) POST from a Python process, never a browser, so omitting
     // Access-Control-Allow-Origin means no web page can drive this endpoint
     // from a visitor's browser. Do not "fix" this by adding one.
 
-    const contentType = request.headers.get("content-type") ?? "";
-    if (!contentType.toLowerCase().includes("application/json")) {
-      return errorResponse(415, "Content-Type must be application/json");
-    }
+    const notJson = refuseContentType(request.headers.get("content-type"));
+    if (notJson) return refuse(notJson);
 
     // Checked twice: Content-Length can be absent (chunked) or lie, so the
     // header is only the cheap early rejection — the real cap is enforced
     // again below against the bytes actually read.
-    const declaredLength = Number(request.headers.get("content-length") ?? "0");
-    if (declaredLength > LIMITS.bodyBytes) {
-      return errorResponse(413, "request body too large");
-    }
+    const declaredTooLarge = refuseDeclaredLength(request.headers.get("content-length"));
+    if (declaredTooLarge) return refuse(declaredTooLarge);
 
-    if (!(await allow(env, request))) {
-      return errorResponse(429, "too many requests", { "Retry-After": "60" });
-    }
+    if (!(await allow(env, request))) return refuse(RATE_LIMITED);
 
     const raw = await request.text();
-    if (new TextEncoder().encode(raw).length > LIMITS.bodyBytes) {
-      return errorResponse(413, "request body too large");
-    }
+    const tooLarge = refuseBody(raw);
+    if (tooLarge) return refuse(tooLarge);
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return errorResponse(400, "the request body is not valid JSON");
-    }
+    const parsed = parseJson(raw);
+    if ("status" in parsed) return refuse(parsed);
 
     try {
-      const report = parseReport(parsed);
+      const report = parseReport(parsed.value);
       const issue = await createIssue(env, report);
       return json(
         { ok: true, issue_url: issue.html_url, issue_number: issue.number },
         201
       );
     } catch (error) {
-      if (error instanceof ReportError) {
-        return errorResponse(error.status, error.message);
-      }
-      console.error("unexpected error filing feedback", error);
-      return errorResponse(502, "could not file the issue");
+      if (!(error instanceof ReportError)) console.error("unexpected error filing feedback", error);
+      return refuse(failure(error));
     }
   }
 };
