@@ -41,6 +41,11 @@ async function call<T = Session>(env: Env, account: string | null, path: string,
 }
 
 export function createSession(env: Env, sale: Sale): Promise<Session> {
+  return call(env, sale.account, "/v1/checkout/sessions", new URLSearchParams(sessionFields(sale)));
+}
+
+/** A sale's Checkout Session form: one line item at the store's price, named after the piece, back to its page. */
+export function sessionFields(sale: Omit<Sale, "account">, fee = APPLICATION_FEE_CENTS): Record<string, string> {
   const page = `${sale.origin}/p/${sale.piece}`;
   const fields: Record<string, string> = {
     mode: "payment",
@@ -55,10 +60,10 @@ export function createSession(env: Env, sale: Sale): Promise<Session> {
     success_url: `${page}?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: page
   };
-  if (APPLICATION_FEE_CENTS > 0) {
-    fields["payment_intent_data[application_fee_amount]"] = String(APPLICATION_FEE_CENTS);
+  if (fee > 0) {
+    fields["payment_intent_data[application_fee_amount]"] = String(fee);
   }
-  return call(env, sale.account, "/v1/checkout/sessions", new URLSearchParams(fields));
+  return fields;
 }
 
 export function retrieveSession(env: Env, account: string, id: string): Promise<Session> {
