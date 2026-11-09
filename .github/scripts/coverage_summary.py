@@ -16,7 +16,11 @@ job's colour still means "the tests passed" and nothing else.
 
 `lore/node` passes two istanbul summaries: its two Workers (vitest.config.ts
 and vitest.hosted.config.ts) partition src/ between them, so summing the two
-`total` blocks is the package's number with no file counted twice.
+`total` blocks is the package's number with no file counted twice. The desktop
+passes two lcov files (XC-097: its unit and component tiers run as separate
+steps) that cover the same sources, so those are unioned per line and branch
+from their `DA:`/`BRDA:` records, never summed: a line both tiers hit is one
+covered line.
 
 node:test counts lines, not statements, so the desktop line says `lines`.
 It also knows only the files the tests loaded: a module nothing requires
@@ -28,7 +32,7 @@ Usage:
     python3 .github/scripts/coverage_summary.py --name lore/node \\
         --istanbul coverage/coverage-summary.json coverage/hosted/coverage-summary.json
     python3 .github/scripts/coverage_summary.py --name app/desktop \\
-        --lcov coverage/lcov.info
+        --lcov coverage/unit.lcov coverage/component.lcov
 """
 
 from __future__ import annotations
@@ -122,6 +126,62 @@ def read_lcov(path: Path) -> Totals:
     return Totals("lines", counts["LH"], counts["LF"], counts["BRH"], counts["BRF"])
 
 
+def read_lcov_records(
+    path: Path,
+) -> tuple[dict[tuple[str, int], bool], dict[tuple[str, int, str, str], bool]]:
+    """Every `DA:` line and `BRDA:` branch of an lcov file, keyed by source file, with whether it was hit.
+
+    `DA:<line>,<count>` and `BRDA:<line>,<block>,<branch>,<taken>` (`-` when the
+    branch's line never ran); node's lcov reporter writes both for every record.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        raise ReportError(f"{path}: not found") from error
+    except OSError as error:
+        raise ReportError(f"{path}: unreadable ({error})") from error
+    lines: dict[tuple[str, int], bool] = {}
+    branches: dict[tuple[str, int, str, str], bool] = {}
+    source = ""
+    try:
+        for line in text.splitlines():
+            key, _, value = line.partition(":")
+            if key == "SF":
+                source = value
+            elif key == "DA":
+                number, count = value.split(",")[:2]
+                where = (source, int(number))
+                lines[where] = lines.get(where, False) or int(count) > 0
+            elif key == "BRDA":
+                number, block, branch, taken = value.split(",")[:4]
+                at = (source, int(number), block, branch)
+                branches[at] = branches.get(at, False) or (
+                    taken != "-" and int(taken) > 0
+                )
+    except ValueError as error:
+        raise ReportError(f"{path}: bad record {line!r}") from error
+    if not lines:
+        raise ReportError(
+            f"{path}: no DA records; not an lcov file or nothing was covered"
+        )
+    return lines, branches
+
+
+def union_lcov(paths: Iterable[Path]) -> Totals:
+    """Several lcov files over the same sources as one: a line or branch any of them hit is covered once."""
+    lines: dict[tuple[str, int], bool] = {}
+    branches: dict[tuple[str, int, str, str], bool] = {}
+    for path in paths:
+        found_lines, found_branches = read_lcov_records(path)
+        for where, hit in found_lines.items():
+            lines[where] = lines.get(where, False) or hit
+        for at, taken in found_branches.items():
+            branches[at] = branches.get(at, False) or taken
+    return Totals(
+        "lines", sum(lines.values()), len(lines), sum(branches.values()), len(branches)
+    )
+
+
 def summarise(name: str, totals: Totals) -> str:
     """The one Markdown line for the step summary."""
     return (
@@ -134,8 +194,17 @@ def summarise(name: str, totals: Totals) -> str:
 
 
 def collect(istanbul: Iterable[Path], lcov: Iterable[Path]) -> Totals:
-    """Every report summed into one `Totals`; raises ReportError on any bad file."""
-    parts = [read_istanbul(p) for p in istanbul] + [read_lcov(p) for p in lcov]
+    """Every report as one `Totals`; raises ReportError on any bad file.
+
+    Istanbul reports are summed (they partition the sources); two or more lcov
+    files are unioned (they cover the same sources from different test tiers).
+    """
+    lcov_paths = list(lcov)
+    parts = [read_istanbul(p) for p in istanbul]
+    if len(lcov_paths) == 1:
+        parts.append(read_lcov(lcov_paths[0]))
+    elif lcov_paths:
+        parts.append(union_lcov(lcov_paths))
     if not parts:
         raise ReportError("no report given")
     total = parts[0]
@@ -161,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         type=Path,
         metavar="LCOV",
-        help="lcov files, summed",
+        help="lcov files; two or more are unioned per line and branch",
     )
     args = parser.parse_args(argv)
     try:

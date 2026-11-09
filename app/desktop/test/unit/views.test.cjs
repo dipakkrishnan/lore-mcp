@@ -9,7 +9,7 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 
-const desktop = join(__dirname, "..");
+const desktop = join(__dirname, "..", "..");
 const edge = readFileSync(join(desktop, "support", "edge.cjs"), "utf8");
 const walksSource = readFileSync(join(desktop, "support", "walks.cjs"), "utf8");
 const mainSource = readFileSync(join(desktop, "src", "main.cjs"), "utf8");

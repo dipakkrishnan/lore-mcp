@@ -7,7 +7,7 @@ const { mkdtempSync, writeFileSync, chmodSync, readdirSync, readFileSync, rmSync
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 
-const WALKS = join(__dirname, "..", "support", "walks.cjs");
+const WALKS = join(__dirname, "..", "..", "support", "walks.cjs");
 // Counts attempts per walk and appearance with mkdir, which is atomic, so two walks side by side never share a count.
 // Each attempt's directory also records when it started and ended (ms), so a test can see what ran beside what.
 const FAKE = `#!/bin/bash

@@ -2,7 +2,7 @@
 // all, and every other memory exactly as it was.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { MemoryText } = require("../src/memorytext.js");
+const { MemoryText } = require("../../src/memorytext.js");
 
 /** The shape Codex writes to ~/.codex/memories/MEMORY.md, which Lore imports as one memory titled by its first heading. */
 const CODEX = `# Task Group: Lore MCP test maintenance and desktop CI optimization
