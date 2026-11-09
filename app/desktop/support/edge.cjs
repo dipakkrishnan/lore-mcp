@@ -1000,6 +1000,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`closeTask(); true`);
         check("…and shows again, once, when Today is back", await waitFor(`[...document.querySelectorAll("#status .notice")].filter((n) => n.textContent.includes("Change this in Settings")).length === 1`));
       } else if (scenario === "settings") {
+        // XC-108 proof, never merged: the FAQ's shot moved out of checkin, the walk views.json names for it.
+        await shot("faq");
         // Settings → Your store with every row filled, then the batch of free-part updates on Today.
         const text = () => js(`document.querySelector("#content").textContent`);
         const rowOf = (label) => `[...document.querySelectorAll("#content .row")].find((r) => r.querySelector(".t b")?.textContent === ${JSON.stringify(label)})`;
@@ -2170,7 +2172,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`document.querySelector("#account").click(); document.querySelector("#account-menu [data-view=faq]").click()`);
         check("Help & FAQ lands on the FAQ, and the menu closes", await waitFor(`document.querySelector("#title").textContent === "FAQ"`) && await js(`!document.querySelector("#account-menu").matches(":popover-open")`));
         await sleep(200);
-        await shot("faq");
       } else {
         // APP-270, from the retired provision walk. Fix 4: setup failed. Every button must answer, the banner must say
         // so, and Try again must recover. The banner's words and Try again's call are test/unit/renderer-provision.test.cjs.
