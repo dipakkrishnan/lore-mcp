@@ -23,8 +23,11 @@ npm --prefix app/desktop run test:edge      # every renderer walk, driven under 
 `test:edge` runs `support/walks.cjs`, which holds the one list of walks (each with
 its measured time) and runs them two at a time, longest first;
 `node app/desktop/support/walks.cjs faq store` runs just those. CI (`desktop-check`
-in `.github/workflows/tests.yml`, macOS) runs `check`, `test`, the same list with
-`node support/walks.cjs --jobs 2`, and `package` (XC-077). A new walk is one line
+in `.github/workflows/tests.yml`, macOS) runs `check`, the unit tier, the component
+tier, the same list with `node support/walks.cjs --jobs 2`, and `package`, in that
+order, each step only if the one before it passed (XC-077, XC-107). Its step summary
+has a table of each tier's tests and seconds and a line saying how many of the views
+in `support/views.json` the walks' layout scan reached that run. A new walk is one line
 in `support/walks.cjs`; CI picks it up from there. Keep walks two at a time: on a
 three-core CI runner a third slows every walk and fails some. A walk needs no
 provider or Cloudflare credential. `test:capture` is the one suite CI does not
