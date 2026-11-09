@@ -235,7 +235,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-187](./desktop-app/APP-187-count-only-live-pieces-in-for-sale.md) | Count only live pieces in the For Sale tab | P2 | XS | desktop-app | ready | APP-093, APP-091 | — | — | — |
 | [APP-188](./desktop-app/APP-188-order-settings-by-what-a-seller-changes-most.md) | Order Settings by what a seller changes most | P2 | S | desktop-app | ready | APP-136, APP-119, APP-184 | — | — | — |
 | [APP-189](./desktop-app/APP-189-show-the-price-on-approval-cards-and-preview-without-edit.md) | Show the price on approval cards and Preview without Edit | P2 | XS | desktop-app | ready | APP-136, APP-134, MON-041 | — | — | — |
-| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | ready | APP-005 | — | — | — |
 | [APP-224](./desktop-app/APP-224-reconnect-an-existing-store.md) | Reconnect a store this Mac didn't set up | P2 | M | desktop-app | ready | APP-223, XC-069, APP-215 | — | — | — |
 | [XC-083](./cross-cutting/XC-083-measure-the-ci-changes-over-the-50-runs-after-each-lands.md) | Measure the CI changes over the 50 runs after each lands | P2 | XS | cross-cutting | ready | XC-077, XC-078, XC-080, XC-081, XC-072, APP-247, XC-084 | XC-077 | — | — |
 | [XC-126](./cross-cutting/XC-126-keep-the-desktop-job-off-github-release-downloads.md) | Keep the desktop job off GitHub release downloads | P2 | S | cross-cutting | ready | XC-082, XC-109, XC-121 | — | — | — |
@@ -488,6 +487,7 @@ obsolete), then `priority` (P0 → P3).
 | [APP-129](./desktop-app/APP-129-default-the-desktop-agent-to-opus-5-5.md) | Default the desktop agent to Opus 5.5 | P2 | XS | desktop-app | completed | APP-045 | — | — | — |
 | [APP-190](./desktop-app/APP-190-do-not-rebuild-lore-under-a-running-copy.md) | Refuse to rebuild Lore.app while a copy is running, and say to relaunch if it happens | P2 | S | desktop-app | completed | APP-181, APP-005 | — | — | — |
 | [APP-205](./desktop-app/APP-205-no-hover-text-on-the-sidebar-and-no-skip-link.md) | No hover text on the sidebar, and no skip link | P2 | XS | desktop-app | completed | APP-201 | — | — | — |
+| [APP-196](./desktop-app/APP-196-narrow-what-the-store-agent-can-read-and-reach.md) | Stop giving every agent task read access to the other agents' history | P2 | S | desktop-app | completed | APP-005 | — | — | — |
 | [XC-109](./cross-cutting/XC-109-decide-whether-the-desktop-job-becomes-a-required-check.md) | Decide whether the desktop job becomes a required check | P3 | XS | cross-cutting | completed | XC-083, XC-080, XC-084, APP-270, APP-271, XC-124, XC-126 | APP-270, XC-083 | — | — |
 | [XC-106](./cross-cutting/XC-106-try-pytest-xdist-on-the-python-component-tier.md) | Try pytest-xdist on the Python component tier | P3 | XS | cross-cutting | completed | XC-097, XC-104 | XC-097 | — | — |
 | [XC-022](./cross-cutting/XC-022-let-a-buyer-reach-a-seller-they-were-never-introduced-to.md) | Let a buyer reach a seller they were never introduced to | P3 | L | cross-cutting | completed | MCP-001, MON-007, XC-006, XC-033, XC-034, APP-119 | — | — | — |
