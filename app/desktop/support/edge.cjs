@@ -143,10 +143,7 @@ const hold = (channel) => {
     return listener(event, ...args);
   });
 }
-if (scenario === "listing") {
-  require("electron").shell.openExternal = async (url) => { opened.push(url); };
-  require(join(src, "main.cjs"));
-} else if (scenario === "update") {
+if (scenario === "update") {
   // APP-231: the walk's own CLI for everything but putting the store online, which records what it was asked and keeps
   // the store this Lore ships on record, as a deploy that went out does. Nothing reaches a real account.
   const bin = join(S, "update-bin");
@@ -1368,31 +1365,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.__lore.show("faq")`);
         await sleep(200);
         await shot("faq");
-      } else if (scenario === "listing") {
-        // XC-036: one click switches the store on and opens the prefilled request; nothing is sent from here.
-        await waitFor(`document.body.dataset.state === "welcome" && !document.querySelector("#welcome").classList.contains("provisioning")`);
-        await js(`window.__lore.signIn()`);
-        await waitFor(`document.querySelector("#content").textContent.length > 0`);
-        await js(`window.__lore.show("settings")`);
-        const offered = await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`);
-        check("Settings offers to list the store", offered);
-        const before = await js(`document.querySelector("#content").textContent`);
-        check("the row says what is shared before anything is sent", before.includes("only what your store already shows"));
-        check("no PR, GitHub, or merge before the owner asks", !/\bPR\b|GitHub|merge/.test(before));
-        await js(`document.querySelector("#main").scrollTop = 1e6`);
-        await sleep(200);
-        await shot("settings-list-offer");
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "List on the marketplace").click()`);
-        const form = "https://github.com/dipakkrishnan/lore-marketplace/issues/new?template=listing.yml&node=https%3A%2F%2Fstore.example%2Fmcp";
-        check("the row flips to Pending", await waitFor(`document.querySelector("#content").textContent.includes("Send the request")`));
-        check("…and the prefilled request opened in the browser", opened.length === 1 && opened[0] === form, opened.join());
-        check("…and stays one link away", await js(`[...document.querySelectorAll("#content a.link-btn")].some((a) => a.href === ${JSON.stringify(form)})`));
-        check("…and says a GitHub account is needed", await js(`document.querySelector("#content").textContent.includes("free GitHub account")`));
-        await js(`document.querySelector("#main").scrollTop = 1e6`);
-        await sleep(200);
-        await shot("settings-list-pending");
-        await js(`[...document.querySelectorAll("#content button")].find((b) => b.textContent === "Cancel").click()`);
-        check("Cancel switches the store back off", await waitFor(`[...document.querySelectorAll("#content button")].some((b) => b.textContent === "List on the marketplace")`));
       } else if (scenario === "feedback") {
         // APP-105: one Send is one public GitHub issue, and a report still in
         // flight never closes a sheet the owner opened after it.
@@ -1509,28 +1481,6 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("switched to dark, Inventory turns at once", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
         await js(`document.querySelector("#main").scrollTop = 0`);
         await shot("inventory-rows-dark");
-      } else if (scenario === "extras") {
-        // New free parts for a piece already on sale wait beside new drafts, preview as its page, and approve in place.
-        await js(`window.__lore.signIn()`);
-        check("the update waits with the drafts", await waitFor(`document.querySelector("#content").textContent.includes("already for sale")`));
-        const card = `document.querySelector("#content .extras-batch .memory")`;
-        check("…showing only the free parts", await js(`${card}.querySelectorAll("textarea, input").length === 3`));
-        await js(`${card}.scrollIntoView({ block: "center" })`);
-        await shot("extras-card");
-        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Preview page").click()`);
-        let preview;
-        for (let i = 0; i < 40 && !preview; i++) { preview = window.getChildWindows()[0]; if (!preview) await sleep(250); }
-        await sleep(800);
-        const page = decodeURIComponent(preview?.webContents.getURL() ?? "");
-        check("Preview shows the new sample on the piece's page", page.includes("We had two weeks and a deck we were proud of."));
-        check("the preview carries no paid text", !page.includes("Three demos, seven trials"));
-        preview?.close();
-        await js(`{ const t = ${card}.querySelectorAll("textarea")[1]; t.value = "you sell to developers"; t.dispatchEvent(new Event("input")); }`);
-        await js(`[...${card}.querySelectorAll("button")].find((b) => b.textContent === "Approve").click()`);
-        check("approving consumes the card", await waitFor(`window.lore.extras().then((left) => !left.length)`));
-        check("the new drafts are untouched", await js(`window.lore.candidates().then((left) => left.length)`) === 2);
-        check("the same piece stays on sale", await js(`window.lore.snapshot().then((s) => s.publications.counts.active)`) === 1);
-        await shot("extras-approved");
       } else if (scenario === "settings") {
         // Settings → Your store with every row filled, then the batch of free-part updates on Today.
         const text = () => js(`document.querySelector("#content").textContent`);
@@ -1751,8 +1701,8 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await shot("firstrun-apps-connected");
 
         const picks = await js(`[...document.querySelectorAll("#content .first-choices .choice")].map((c) => c.textContent)`);
-        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "MuseComing soon", "ChatGPT", "Claude", "Instinct", "None of these"]), JSON.stringify(picks));
-        check("…the only one found already picked, Muse not pickable", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && [...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Muse")).disabled`));
+        check("…offering the AI the owner talks to, the one on this Mac first, and not Codex again once it's read", JSON.stringify(picks) === JSON.stringify(["Grok BotOn this Mac", "ChatGPT", "Claude", "Instinct", "None of these"]), JSON.stringify(picks));
+        check("…the only one found already picked, Muse isn't offered", await js(`document.querySelector("#content .first-choices .choice.picked")?.textContent === "Grok BotOn this Mac" && ![...document.querySelectorAll("#content .first-choices .choice")].some((c) => c.textContent.startsWith("Muse"))`));
         await shot("firstrun-pick");
         storeUnreachable = true;
         await js(`[...document.querySelectorAll("#content .first-choices .choice")].find((c) => c.textContent.startsWith("Grok Bot")).click()`);

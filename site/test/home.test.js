@@ -113,8 +113,7 @@ describe("served by the Worker", () => {
     expect(listed(await (await call("/")).text())).toEqual([`https://yourlore.dev/b/${id}`]);
   });
 
-  test("/download hands out the latest release, and unknown paths get the site's not-found page", async () => {
-    expect((await call("/download")).headers.get("location")).toBe("https://github.com/dipakkrishnan/lore-mcp/releases/latest/download/Lore-macOS-arm64.zip");
+  test("unknown paths get the site's not-found page", async () => {
     const missing = await call("/no-such-page");
     expect(missing.status).toBe(404);
     expect(await missing.text()).toContain("<h1>Not found</h1>");

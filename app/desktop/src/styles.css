@@ -487,6 +487,7 @@ textarea.form-prompt::placeholder { color: var(--text-3); }
 .copy-row .btn { flex-shrink: 0; }
 .inline-notice { padding-right: var(--s-3); }
 .agent-wait { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-13); color: var(--text-2); }
+.agent-wait > button { margin-left: auto; }
 .sign-in-code { align-self: flex-start; margin: 0; padding: var(--s-3) var(--s-5); border-radius: var(--r-12); background: var(--bg); font: 600 var(--fs-20)/1 var(--font); letter-spacing: 0.2em; color: var(--text-1); }
 .agent-instead { margin: 0; }
 .agent-link { display: flex; align-items: center; gap: var(--s-2); width: 100%; padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4); border: 1px solid transparent; border-radius: var(--r-12); background: var(--bg); font: inherit; color: var(--text-1); cursor: pointer; text-align: left; transition: border-color var(--dur), background var(--dur); }

@@ -1,15 +1,15 @@
 // APP-266: support/views.json says which walks' shot() calls run the layout scan on which view, at which widths. This
 // keeps that table and the code it describes in step: every shot(label) in support/edge.cjs has a row, every label in
 // the table is still in edge.cjs, every walk a row names is one support/walks.cjs runs, every dead scenario is one
-// walks.cjs does not run (and still exists in edge.cjs, so APP-265 empties the list as it deletes them), and the widths
-// agree with edge.cjs's NARROW set and src/main.cjs's window. Nothing here lays anything out: the scan itself needs
+// walks.cjs does not run and edge.cjs still has (APP-265 deleted listing and extras; firstrun stays under dead because
+// it is run by hand, never by CI), and the widths agree with edge.cjs's NARROW set and src/main.cjs's window. Nothing here lays anything out: the scan itself needs
 // Electron, and only a shot() under edge.sh counts as a layout check.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const { join } = require("node:path");
 
-const desktop = join(__dirname, "..");
+const desktop = join(__dirname, "..", "..");
 const edge = readFileSync(join(desktop, "support", "edge.cjs"), "utf8");
 const walksSource = readFileSync(join(desktop, "support", "walks.cjs"), "utf8");
 const mainSource = readFileSync(join(desktop, "src", "main.cjs"), "utf8");

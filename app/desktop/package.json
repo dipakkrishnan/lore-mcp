@@ -1,12 +1,16 @@
 {
   "name": "lore-desktop",
   "private": true,
-  "version": "0.1.24",
+  "version": "0.1.25",
   "main": "src/main.cjs",
   "scripts": {
     "start": "uv tool install --force --reinstall ../.. && packaging/whisper.sh && electron .",
     "check": "tsc --noEmit",
     "test": "node --test",
+    "test:unit": "node --test 'test/unit/**/*.cjs'",
+    "test:component": "node --test 'test/component/**/*.cjs'",
+    "test:unit:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/unit.lcov 'test/unit/**/*.cjs'",
+    "test:component:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/component.lcov 'test/component/**/*.cjs'",
     "test:coverage": "mkdir -p coverage && node --test --experimental-test-coverage --test-coverage-include='src/**' --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info",
     "test:capture": "./test-capture.sh",
     "test:edge": "node support/walks.cjs",
@@ -28,6 +32,7 @@
     "@electron-forge/maker-zip": "7.11.2",
     "@types/node": "26.6.5",
     "electron": "44.9.0",
+    "jsdom": "30.1.3",
     "typescript": "7.0.2"
   }
 }
