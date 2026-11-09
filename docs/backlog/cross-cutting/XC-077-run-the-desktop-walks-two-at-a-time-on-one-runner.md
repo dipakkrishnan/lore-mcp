@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-27
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -124,3 +124,4 @@ depends on CPU contention could get worse, which is why the 50-run check is a
 criterion rather than an assumption. XC-072's work on condition waits is the fix
 for that class, and APP-066 first noted that the personas might prove "too slow or
 flaky" to gate every PR.
+- XC-083's reading (2026-11-09): the desktop job failed on 58 of 307 runs (18.9%) from 2026-10-27 to 2026-11-09, inside the 21.1% baseline.
