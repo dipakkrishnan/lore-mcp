@@ -50,7 +50,11 @@ sandbox tests as component tests, darwin-gated as today.
       logging the scratch shim: 125 shim spawns in `agent`, `app`, `bids` and
       `store` before, 33 after, all inside those six.)
 - [ ] `npm test` in `app/desktop` is under 30 s on the macOS runner (today
-      42 s) with the same assertion count.
+      42 s) with the same assertion count. (Not met. Same count, 360 tests;
+      on the runner, PR #676's two tier steps, coverage-instrumented as CI
+      runs them, took 7.5 s + 35.4 s = 42.9 s, against 14.4 s + 54.9 s =
+      69.3 s on main's last green run. What is left is `sandbox.test.cjs`,
+      which this item leaves alone; see Notes.)
 - [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it. (No change to
       `support/walks.cjs`, `edge.cjs`, `views.json`, `renderer.js` or
@@ -98,3 +102,13 @@ sandbox tests as component tests, darwin-gated as today.
   9.3 -> 6.8 s, `app` 11.9 -> 5.7 s, `bids` 4.4 s and `state-cli` 4.5 s to
   nothing. Unioned desktop coverage stays where it was (lines 93.58%,
   branches 87.57% locally).
+- On the macOS runner (PR #676, run 42572877557, job 129015750943): unit
+  306 tests in 7.5 s, component 54 tests in 35.4 s (main 1098ae0d: 54.9 s
+  for 94). The component tier's wall is now `sandbox.test.cjs`'s: its
+  read-through-the-sandbox test alone takes 10.6 s there, write/edit 8.3 s,
+  the shell limit 3.1 s, and node --test runs one file's tests in order.
+  What remains for the 30 s criterion is outside this item's approach,
+  which keeps the sandbox tests as they are: splitting `sandbox.test.cjs`
+  into files node --test can run side by side, or setting the budget for
+  the tiers separately (XC-107). Status stays in-progress until one of
+  those is decided.
