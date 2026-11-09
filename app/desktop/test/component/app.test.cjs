@@ -1,6 +1,7 @@
 // The desktop app's round-trips that need a real `lore` or a stub binary: the packaged runtime, dictation through a stub
-// whisper, the blueprint boundary, connecting an app, listing the store, collections, an agent with no store, and the
-// packaging guard. XC-097: split from test/unit/app.test.cjs; each of these starts a process, so they are component tests.
+// whisper, connecting an app, listing the store, an agent with no store, and the packaging guard. XC-097: split from
+// test/unit/app.test.cjs; each of these starts a process, so they are component tests. APP-272: the blueprint and
+// collection tests, which check only what the app sends `lore`, run against a stand-in in test/unit/app.test.cjs.
 const assert = require("node:assert/strict");
 const { mkdir, mkdtemp, readFile, realpath, rm, writeFile } = require("node:fs/promises");
 const { tmpdir } = require("node:os");
@@ -49,36 +50,7 @@ test("dictation transcribes through the bundled whisper and leaves no audio behi
   }
 });
 
-test("the blueprint proposal boundary accepts only the CLI's bounded shape", async () => {
-  const { validBlueprint } = await import("../../src/agent.mjs");
-  const { lore } = require("../../src/state.cjs");
-  const valid = {
-    version: 1,
-    name: "Ada",
-    persona: "professor",
-    organizing_axis: "knowledge",
-    topic_outline: ["distributed systems"],
-    focus_topics: ["consensus"],
-    general_areas: [],
-    storytelling: "Concise lectures"
-  };
-  assert.equal(validBlueprint(valid), true);
-  for (const invalid of [
-    { ...valid, version: 2 },
-    { ...valid, persona: "wizard" },
-    { ...valid, topic_outline: [] },
-    { ...valid, source_path: "/etc/passwd" },
-    { ...valid, storytelling: "x".repeat(1001) }
-  ]) assert.equal(validBlueprint(invalid), false);
-  const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
-  try {
-    await lore(home, ["blueprint", "apply", "-"], JSON.stringify(valid));
-    assert.equal(JSON.parse(await readFile(join(home, "blueprint", "blueprint.json"), "utf8")).name, "Ada");
-  } finally {
-    await rm(home, { recursive: true });
-  }
-});
-
+// APP-272: the one real round trip for `lore sources`: connect, read, replace and remove through the real parser.
 test("connecting an app validates before any CLI call, then round-trips through the CLI with the app kept on its row", async () => {
   const { sourceCatalog, sourceChoices, connectSource, readSource, removeSource, readState } = require("../../src/state.cjs");
   await assert.rejects(sourceChoices("/nonexistent", "../etc"), { message: /Unknown app/ });
@@ -123,6 +95,7 @@ test("connecting an app validates before any CLI call, then round-trips through 
   }
 });
 
+// APP-272: the one real round trip for `lore marketplace` and the push it makes, against a stub wrangler.
 test("listing switches the store on through the CLI and hands back the request form", async () => {
   const { listStore, listingStatus } = require("../../src/state.cjs");
   await assert.rejects(listStore("/nonexistent", "publish"), { message: /Invalid listing action/ });
@@ -187,35 +160,7 @@ test("packaging refuses while a copy runs from the output bundle", async () => {
   }
 });
 
-test("a collection is made, filled, renamed, priced and deleted through the CLI, and reads back in the snapshot", async () => {
-  const { newCollection, addToCollection, renameCollection, priceCollection, removeFromCollection, deleteCollection } = require("../../src/state.cjs");
-  const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
-  try {
-    const made = await newCollection(directory);
-    assert.equal(made.title, "Untitled collection");
-    const note = join(directory, "pricing-notes.md");
-    await writeFile(note, "# Pricing notes\n\nCharge for the outcome, not the hours.\n");
-    const { added } = await addToCollection(directory, made.id, { items: [{ title: "-starts with a dash", content: "Demos beat decks." }], files: [note] });
-    assert.equal(added.length, 2);
-    await renameCollection(directory, made.id, "-Sales playbook");
-    await priceCollection(directory, made.id, 12);
-    let [item] = (await readState(directory)).collections.items;
-    assert.equal(item.title, "-Sales playbook");
-    assert.equal(item.pieces.length, 2);
-    assert.equal(item.price_usd, 12);
-    assert.equal(item.on_sale, true);
-    await removeFromCollection(directory, made.id, item.pieces[0].id);
-    await priceCollection(directory, made.id, 0);
-    [item] = (await readState(directory)).collections.items;
-    assert.equal(item.pieces.length, 1);
-    assert.equal(item.on_sale, false);
-    await deleteCollection(directory, made.id);
-    assert.deepEqual((await readState(directory)).collections.items, []);
-  } finally {
-    await rm(directory, { recursive: true });
-  }
-});
-
+// APP-272: the one real round trip for `lore agents`.
 test("with no store online, connecting an agent says so and mints nothing", async () => {
   const { connectAgent, listAgents, agentsWaiting } = require("../../src/state.cjs");
   const loreHome = await mkdtemp(join(tmpdir(), "lore-agents-"));

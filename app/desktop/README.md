@@ -42,6 +42,11 @@ test calls a top-level function with a snapshot and asserts the result. They che
 layout: jsdom has no layout engine, so every box is 0×0 and nothing overlaps or clips. What a view looks like is
 still the walks' LAYOUT scan below, and `support/views.json` (APP-266) records which walk scans which view.
 
+A unit test that checks what the app sends `lore` (argv, stdin, the launch key) or what it makes of the answer
+requires `support/fake-cli.cjs` before anything loads `src/state.cjs`: `fakeCli(answer)` makes the CLI a function in
+the test's own process and records every call, so nothing starts (APP-272). The real CLI, through
+`support/scratch.cjs`, is for `test/component/`'s few round trips, one per surface the app depends on.
+
 Each `shot(label)` in `support/edge.cjs` is the walks' one visual regression
 check (the screenshots are written, never compared): once the page settles it
 scans the whole DOM in real Chromium for layout faults — a box wider than its
