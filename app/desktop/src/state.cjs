@@ -125,26 +125,51 @@ function forgetKey() {
   launchKey.remove();
 }
 
-/** @param {string} [file] */
+/**
+ * APP-272: the CLI as a function in the test's own process, for unit tests of what the app sends `lore` and what it
+ * makes of the answer; nothing starts. It gets the argv after `lore`, the environment and stdin a real run would, and
+ * answers as the CLI would. The app never uses one.
+ * @typedef {{stdout?: string, stderr?: string, code?: number}} CliAnswer
+ * @typedef {(args: string[], call: {env: NodeJS.ProcessEnv, input: string | undefined}) => CliAnswer | Promise<CliAnswer>} FakeCli
+ */
+/** @type {FakeCli | null} */
+let fake = null;
+
+/** The packaged binary, a test's stand-in function (APP-272), or nothing for `uv run lore` from the checkout. @param {string | FakeCli} [file] */
 function useRuntime(file) {
-  runtime = file ? { file, args: [] } : { file: "uv", args: ["run", "lore"], cwd: root };
+  fake = typeof file === "function" ? file : null;
+  runtime = typeof file === "string" && file ? { file, args: [] } : { file: "uv", args: ["run", "lore"], cwd: root };
+}
+
+/** A stand-in's answer, settled as execFile settles: its stdout, or a failure carrying its stderr. @param {CliAnswer} answer */
+function settled({ stdout = "", stderr = "", code = 0 }) {
+  if (code !== 0) throw Object.assign(new Error(`Command failed with exit code ${code}`), { stderr });
+  return stdout;
 }
 
 /** @param {string} loreHome @param {string[]} args @param {string} [decision] @param {AbortSignal} [signal] */
 async function lore(loreHome, args, decision, signal) {
   // What a decision would put on the store waits for the owner's yes to it (APP-226); the app pushes after.
   const env = { ...process.env, LORE_HOME: loreHome, NO_COLOR: "1", LORE_HOLD_PUSH: "1", ...(decision === undefined ? {} : launchKey.env()) };
-  const pending = run(runtime.file, [...runtime.args, ...args], {
-    cwd: runtime.cwd ?? loreHome,
-    env,
-    maxBuffer: 8 * 1024 * 1024,
-    timeout: 120_000,
-    windowsHide: true,
-    signal
-  });
-  pending.child.stdin?.end(decision);
+  /** @type {Promise<string>} */
+  let pending;
+  if (fake) {
+    const answer = fake;
+    pending = Promise.resolve().then(() => answer(args, { env, input: decision })).then(settled);
+  } else {
+    const child = run(runtime.file, [...runtime.args, ...args], {
+      cwd: runtime.cwd ?? loreHome,
+      env,
+      maxBuffer: 8 * 1024 * 1024,
+      timeout: 120_000,
+      windowsHide: true,
+      signal
+    });
+    child.child.stdin?.end(decision);
+    pending = child.then((done) => done.stdout);
+  }
   try {
-    return (await pending).stdout;
+    return await pending;
   } catch (error) {
     if (signal?.aborted) throw new Error("Cancelled");
     const stderr = String(/** @type {{stderr?: string}} */ (error).stderr ?? "").trim();
@@ -171,7 +196,16 @@ function stream(file, args, env, onLine, cwd, signal) {
 
 /** Run the CLI and hand back each output line as it arrives, for commands that wait on the owner. @param {string} loreHome @param {string[]} args @param {(line: string) => void} onLine @param {AbortSignal} [signal] */
 function loreStream(loreHome, args, onLine, signal) {
-  return stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, runtime.cwd ?? loreHome, signal);
+  return streamLore(loreHome, args, { LORE_HOME: loreHome, NO_COLOR: "1" }, onLine, signal);
+}
+
+/** The CLI's lines as they arrive; a stand-in's (APP-272) all at once, its output before its errors.
+ * @param {string} loreHome @param {string[]} args @param {Record<string, string>} env @param {(line: string) => void} onLine @param {AbortSignal} [signal] */
+async function streamLore(loreHome, args, env, onLine, signal) {
+  if (!fake) return stream(runtime.file, [...runtime.args, ...args], env, onLine, runtime.cwd ?? loreHome, signal);
+  const { stdout = "", stderr = "", code = 0 } = await fake(args, { env: { ...process.env, ...env }, input: undefined });
+  for (const line of `${stdout}\n${stderr}`.split("\n")) if (line.trim()) onLine(line.trim());
+  if (code !== 0) throw new Error(`lore exited with ${code}`);
 }
 
 /** @typedef {(questions: OwnerQuestion[]) => Promise<Record<string, string>>} Ask One owner card; resolves to the answer for each question. */
@@ -429,7 +463,7 @@ const STORE_LOG = "Everything Cloudflare said is in ";
 async function deployStore(loreHome, args) {
   const lines = /** @type {string[]} */ ([]);
   try {
-    await stream(runtime.file, [...runtime.args, ...args], { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line), runtime.cwd ?? loreHome);
+    await streamLore(loreHome, args, { LORE_HOME: loreHome, NO_COLOR: "1", LORE_UNATTENDED: "1" }, (line) => lines.push(line));
     // The deploy's own settings lines are plumbing, never what the owner set: leave them out of what the agent reads.
     return `The store is deployed.\n${lines.filter((line) => !/^env\./.test(line.trim())).slice(-8).join("\n")}`;
   } catch {

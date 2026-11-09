@@ -22,6 +22,6 @@ if [ ! -x "$OUT/whisper-cli" ] || [ "$(cat "$OUT/version" 2>/dev/null)" != "$WHI
   rm -rf "$SRC"
 fi
 if [ ! -f "$OUT/$MODEL" ]; then
-  curl -fsSL "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL" -o "$OUT/$MODEL.part"
+  curl -fsSL --retry 4 --retry-all-errors "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$MODEL" -o "$OUT/$MODEL.part"
   mv "$OUT/$MODEL.part" "$OUT/$MODEL"
 fi

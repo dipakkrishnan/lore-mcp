@@ -1174,11 +1174,14 @@ class Store:
         return credited
 
     def publication_inventory(self) -> list[dict[str, object]]:
+        """Each piece's row, with the memories it was drafted from as ids."""
         rows = self.db.execute(
-            "SELECT id,public_id,title,topic,active "
+            "SELECT id,public_id,title,topic,bid,active,provenance,updated_at "
             "FROM publications ORDER BY updated_at DESC,id"
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {**dict(row), "provenance": json.loads(row["provenance"])} for row in rows
+        ]
 
     def setting(self, key: str, default: object = None) -> object:
         """Read a JSON-backed setting or return its default."""

@@ -79,6 +79,41 @@ class ParseWalksLog(unittest.TestCase):
             measure.parse_walks_log("nothing here\n"), {"retried_walks": []}
         )
 
+    def test_reads_the_views_the_layout_scan_reached(self) -> None:
+        facts = measure.parse_walks_log(
+            "2026-11-09T06:00:18.1Z **Layout scan**: 25 of 25 views in views.json scanned this run (153 shots)\n"
+        )
+        self.assertEqual((facts["views_scanned"], facts["views_expected"]), (25, 25))
+
+    def test_reads_every_tier_table_a_job_log_printed(self) -> None:
+        log = """2026-11-09T05:24:20.1Z | `lore/cli.py` | 95.1% | 91.0% | ok |
+2026-11-09T05:24:20.2Z ##[group]Run python3 ../../.github/scripts/tier_summary.py --title app/desktop --tier Unit unit.log
+2026-11-09T05:24:20.3Z ### Test tiers: app/desktop
+2026-11-09T05:24:20.3Z
+2026-11-09T05:24:20.3Z | Tier | Tests | Passed | Failed | Skipped | Other | Seconds |
+2026-11-09T05:24:20.3Z |---|---:|---:|---:|---:|---|---:|
+2026-11-09T05:24:20.3Z | Unit | 118 | 118 | 0 | 0 |  | 14.4 |
+2026-11-09T05:24:20.3Z | Component | 94 | 93 | 0 | 0 | 1 todo | 54.9 |
+2026-11-09T05:24:20.3Z | Walks | — | — | — | — | not run | — |
+"""
+        self.assertEqual(
+            measure.parse_tiers(log),
+            [
+                {
+                    "package": "app/desktop",
+                    "tier": "Unit",
+                    "tests": 118,
+                    "seconds": 14.4,
+                },
+                {
+                    "package": "app/desktop",
+                    "tier": "Component",
+                    "tests": 94,
+                    "seconds": 54.9,
+                },
+            ],
+        )
+
     def test_an_agents_pass_without_the_alone_mark_still_counts(self) -> None:
         facts = measure.parse_walks_log("##[group]PASS agents (229s, load 69.7)\n")
         self.assertEqual(facts["agents_first_attempt"], "PASS")
@@ -162,6 +197,129 @@ class Figures(unittest.TestCase):
         self.assertIn("| XC-077 |", text)
         self.assertIn("| XC-084 |", text)
         self.assertIn("XC-082 cache: 1 hits, 0 misses", text)
+
+    def test_the_report_carries_the_tiers_and_the_views_scanned(self) -> None:
+        older = run(
+            id=1,
+            tiers=[
+                {"package": "Python", "tier": "Unit", "tests": 1100, "seconds": 60.0},
+                {
+                    "package": "app/desktop",
+                    "tier": "Unit",
+                    "tests": 110,
+                    "seconds": 14.0,
+                },
+            ],
+            views_scanned=24,
+            views_expected=25,
+        )
+        newer = run(
+            id=2,
+            tiers=[
+                {"package": "Python", "tier": "Unit", "tests": 1119, "seconds": 50.0},
+                {
+                    "package": "Python",
+                    "tier": "Integration",
+                    "tests": 7,
+                    "seconds": 10.7,
+                },
+                {
+                    "package": "app/desktop",
+                    "tier": "Unit",
+                    "tests": 118,
+                    "seconds": 16.0,
+                },
+                {
+                    "package": "app/desktop",
+                    "tier": "Component",
+                    "tests": 94,
+                    "seconds": 55.0,
+                },
+            ],
+            views_scanned=25,
+            views_expected=25,
+        )
+        text = measure.report(
+            [measure.Run(**older), measure.Run(**newer)], "2026-11-09T00:00:00Z"
+        )
+        self.assertIn("### Test tiers (XC-107)", text)
+        self.assertIn("| Python | Unit | 1119 | 55.0 | 2 |", text)
+        self.assertIn("| app/desktop | Component | 94 | 55.0 | 1 |", text)
+        self.assertIn(
+            "Unit tiers hold 1237 of 1338 (92.5%) of the tests counted.", text
+        )
+        self.assertIn(
+            "Layout scan: the latest run scanned 25 of 25 views; the fewest in the window was 24 (run 1).",
+            text,
+        )
+
+    def test_a_window_with_no_tier_tables_says_so(self) -> None:
+        text = measure.report([measure.Run(**run())], "2026-11-09T00:00:00Z")
+        self.assertIn("No run in the window printed a tier table.", text)
+        self.assertNotIn("Layout scan:", text)
+
+    def test_fetch_reads_tier_logs_for_the_latest_runs_only(self) -> None:
+        def job(id: int, name: str, conclusion: str = "success") -> dict[str, object]:
+            return {
+                "id": id,
+                "name": name,
+                "conclusion": conclusion,
+                "started_at": "2026-11-09T05:00:00Z",
+                "completed_at": "2026-11-09T05:10:00Z",
+            }
+
+        table = "### Test tiers: Python\n| Unit | 5 | 5 | 0 | 0 |  | 1.0 |\n"
+        listing = {
+            "workflow_runs": [
+                {
+                    "id": n,
+                    "event": "push",
+                    "head_branch": "main",
+                    "created_at": f"2026-11-09T0{n}:00:00Z",
+                    "conclusion": "success",
+                }
+                for n in (1, 2)
+            ]
+        }
+        fetched: list[str] = []
+
+        def gh(path: str) -> str:
+            fetched.append(path)
+            if "/workflows/" in path:
+                return json.dumps(
+                    listing if "&page=1&" in path else {"workflow_runs": []}
+                )
+            if path.endswith("/jobs?per_page=100"):
+                n = int(path.split("/runs/")[1].split("/")[0])
+                return json.dumps(
+                    {
+                        "jobs": [
+                            job(n * 10, "Python lint"),
+                            job(n * 10 + 1, "Python unit tests"),
+                            job(n * 10 + 2, "Desktop macOS checks"),
+                            job(n * 10 + 3, "Site component tests", "skipped"),
+                        ]
+                    }
+                )
+            if path.endswith("/21/logs"):
+                return table
+            if path.endswith("/22/logs") or path.endswith("/12/logs"):
+                return "**Layout scan**: 25 of 25 views\n"
+            raise AssertionError(f"unexpected fetch {path}")
+
+        with mock.patch.object(measure, "gh", side_effect=gh):
+            runs = measure.fetch_runs("2026-11-09T00:00:00Z", 250, tier_runs=1)
+        self.assertEqual([r.tiers for r in runs][0], [])
+        self.assertEqual(
+            runs[1].tiers,
+            [{"package": "Python", "tier": "Unit", "tests": 5, "seconds": 1.0}],
+        )
+        self.assertEqual([r.views_scanned for r in runs], [25, 25])
+        self.assertEqual(runs[1].desktop_conclusion, "success")
+        self.assertFalse(any(p.endswith("/11/logs") for p in fetched), fetched)
+        self.assertFalse(
+            any(p.endswith("/10/logs") or p.endswith("/23/logs") for p in fetched)
+        )
 
     def test_main_reads_facts_from_json_without_calling_gh(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

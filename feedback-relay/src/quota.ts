@@ -18,14 +18,12 @@
  * and is the token's quota to burn.
  */
 import { DurableObject } from "cloudflare:workers";
+import { claim } from "./quota-window.js";
+
+export { WINDOWS } from "./quota-window.js";
 
 /** The one instance every request goes through. */
 export const QUOTA_NAME = "global";
-
-export const WINDOWS = [
-  { span: "minute", size: 60_000, limit: 60 },
-  { span: "hour", size: 3_600_000, limit: 300 }
-] as const;
 
 interface WindowRow {
   [column: string]: SqlStorageValue;
@@ -44,30 +42,19 @@ export class FeedbackQuota extends DurableObject<Env> {
     );
   }
 
-  /** Claim one issue against every window, or refuse and claim nothing. */
+  /** Claim one issue against every window, or refuse and claim nothing (the maths is `claim`). */
   take(): boolean {
-    const now = Date.now();
-    const state = WINDOWS.map((window) => {
-      const row = this.ctx.storage.sql
-        .exec<WindowRow>("SELECT started, used FROM windows WHERE span = ?", window.span)
-        .toArray()[0];
-      const expired = row === undefined || now - row.started >= window.size;
-      return {
-        window,
-        started: expired ? now : row.started,
-        used: expired ? 0 : row.used
-      };
-    });
-    // Check every window before touching any of them, so a refused request
-    // does not deepen the hole it was refused for.
-    if (state.some(({ window, used }) => used >= window.limit)) return false;
-    for (const { window, started, used } of state) {
+    const next = claim(Date.now(), (span) =>
+      this.ctx.storage.sql.exec<WindowRow>("SELECT started, used FROM windows WHERE span = ?", span).toArray()[0]
+    );
+    if (!next) return false;
+    for (const { span, started, used } of next) {
       this.ctx.storage.sql.exec(
         "INSERT INTO windows (span, started, used) VALUES (?, ?, ?) " +
           "ON CONFLICT(span) DO UPDATE SET started = excluded.started, used = excluded.used",
-        window.span,
+        span,
         started,
-        used + 1
+        used
       );
     }
     return true;

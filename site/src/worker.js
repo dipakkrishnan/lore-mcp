@@ -2,11 +2,12 @@
 // listed in it, drawn as plain pages people and browsing agents can read without a script.
 // The registry stays in the lore-marketplace repo and each piece's words come from its
 // own store; this only draws them. /bids and /b/:id are the bid book (src/bid-routes.js).
-// / is the home page, drawn around the live bids (src/home.js); /download hands out the app.
+// / is the home page, drawn around the live bids (src/home.js); /download starts the app's download and says how to open it (src/download.js).
 import { frontDoor } from "./agents.js";
 import { BidDesk, isBidPath } from "./bid-routes.js";
 import { countDemand } from "./demand.js";
-import { clip, date, DOWNLOAD, escape, money, page, plural } from "./layout.js";
+import { downloadPage } from "./download.js";
+import { clip, date, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
 
 export { BidRail } from "./bid-rail.js";
@@ -171,7 +172,10 @@ const worker = {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === "/") return new BidDesk(request, env, ctx, registry).home();
-    if (url.pathname === "/download") return Response.redirect(DOWNLOAD, 302);
+    if (url.pathname === "/download") {
+      const body = downloadPage({ ua: request.headers.get("user-agent") ?? "", bid: url.searchParams.get("bid"), touch: url.searchParams.has("touch") });
+      return new Response(body, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "private, no-store", vary: "user-agent" } });
+    }
     if (isBidPath(url.pathname)) return new BidDesk(request, env, ctx, registry).respond();
     const json = url.pathname === "/marketplace.json";
     const stats = url.pathname === "/marketplace/stats.json";
