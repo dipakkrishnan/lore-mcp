@@ -153,7 +153,10 @@ if [[ "$scenario" == "agents" || "$scenario" == "firstrun" ]]; then
   (cd "$repo_root" && exec uv run python -m tests.fixtures.inbox serve --port "$port" >"$root/agent.log" 2>&1) &
   export LORE_EDGE_AGENT_PID=$! LORE_EDGE_AGENT_URL="http://127.0.0.1:$port"
   trap 'kill "$LORE_EDGE_AGENT_PID" 2>/dev/null || true' EXIT
+  node_from=$SECONDS
   for _ in $(seq 1 60); do curl -s -o /dev/null "$LORE_EDGE_AGENT_URL/agent" && break; sleep 0.5; done
+  # APP-271: said with the TIME lines at the end.
+  node_took="; the stand-in node answered after $((SECONDS - node_from))s"
 fi
 # A CLI the app cancels mid-way (SIGTERM) writes its Python stack to cli-stack.log before it goes, so a connect that
 # never finished says where it was (XC-111). The hook rides on PYTHONPATH, after any the scenario set.
@@ -199,7 +202,7 @@ ran=$SECONDS
 grep -E "^(PASS|FAIL|ERROR)" "$root/walk.log" || { echo "FAIL $scenario said nothing"; code=1; }
 # APP-271: where the walk's time went (edge.cjs's TIME lines), said but never judged.
 grep -E "^TIME" "$root/walk.log" || true
-echo "TIME $scenario, edge.sh: seeding $((seeded - began))s, Electron $((ran - seeded))s"
+echo "TIME $scenario, edge.sh: seeding $((seeded - began))s${node_took:-}, Electron $((ran - seeded))s"
 if grep -qE "^(FAIL|ERROR)" "$root/walk.log"; then code=1; fi
 if [[ -n "$timed_out" ]]; then echo "$timed_out"; code=1; fi
 # A failed walk prints everything Electron said, and the head of the hang sample if it ran out of time (the main

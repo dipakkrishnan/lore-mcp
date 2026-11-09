@@ -1015,6 +1015,9 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         // Closing the sheet while a connect is still reading stops it, and it closes nothing else.
         await js(`document.querySelectorAll("#status .dismiss").forEach((b) => b.click())`);
         await js(fillIn(`${process.env.LORE_EDGE_NEWSLETTER}slow`));
+        // APP-271: the sheet takes a new address only once the refused connect has finished with it (connectIn's last
+        // load); a Connect pressed before then did nothing, and this part closed a sheet with no connect out at all.
+        await waitFor(`${primary} && !${primary}.disabled`);
         const connectFrom = ipc.length;
         const primaryState = await js(`JSON.stringify({ disabled: ${primary}?.disabled, text: ${primary}?.textContent, value: document.querySelector("dialog.sheet[open] input[type=url]")?.value })`);
         await js(`${primary}.click()`);
