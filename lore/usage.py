@@ -30,6 +30,8 @@ NOTICED_SETTING = "telemetry_noticed"
 SENT_SETTING = "usage_sent"
 LOG_KEEP = 500
 TIMEOUT_SECONDS = 2.0
+# The name of the thread that posts events, so a test can wait for it alone.
+SENDER_THREAD = "lore-usage-send"
 
 CONNECTORS = (
     "obsidian",
@@ -236,5 +238,6 @@ def _send(event: dict[str, object]) -> None:
             pass
 
     # Not a daemon: the command finishes its own work first, then waits at
-    # most TIMEOUT_SECONDS for this before the process exits.
-    threading.Thread(target=post).start()
+    # most TIMEOUT_SECONDS for this before the process exits. Named so a test
+    # can wait for this thread alone (XC-128).
+    threading.Thread(target=post, name=SENDER_THREAD).start()

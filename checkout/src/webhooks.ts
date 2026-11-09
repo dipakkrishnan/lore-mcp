@@ -3,34 +3,13 @@
  * buyer never comes back to the page. The store checks the session with this
  * Worker's /verify before writing anything; the notice only names it.
  * Bids (MON-054): the platform's saved card opens a bid, and a bid's settled
- * direct charge fills it, both told to the bid book over the BidRail binding. */
+ * direct charge fills it, both told to the bid book over the BidRail binding.
+ * Which events are acted on, and what each names, is events.ts (XC-102). */
+import { type Event, bidCharge, failureMessage, route } from "./events.js";
 import { boundStore, retrieveSetup } from "./stripe.js";
 
 /** How old a signed event may be; Stripe's own libraries default to five minutes. */
 const TOLERANCE_SECONDS = 300;
-const PAID_EVENTS = new Set(["checkout.session.completed", "checkout.session.async_payment_succeeded"]);
-const ACCOUNT = /^acct_[A-Za-z0-9]+$/;
-const SESSION = /^cs_[A-Za-z0-9_]+$/;
-const PIECE = /^[0-9a-f]{24}$/;
-const BID = /^[a-z0-9]{10}$/;
-
-type Event = {
-  type: string;
-  account?: string;
-  data: {
-    object: {
-      id?: string;
-      mode?: string;
-      payment_status?: string;
-      setup_intent?: string;
-      amount_received?: number;
-      latest_charge?: string;
-      currency?: string;
-      last_payment_error?: { code?: string };
-      metadata?: Record<string, string>;
-    };
-  };
-};
 
 /** yourlore.dev's bid book, as its BidRail entrypoint offers it. */
 type Rail = {
@@ -71,19 +50,6 @@ async function cardSaved(env: Env, bid: string, setupIntent: string): Promise<Re
   }
 }
 
-/**
- * The bid charge an event names. Whether it is that bid's charge is the bid book's call, against the
- * PaymentIntent and account it recorded when the charge was made; the account's current store
- * binding is checked when charging, never here, since a seller may rebind before Stripe reports.
- */
-function bidCharge(event: Event) {
-  const intent = event.data.object;
-  const account = event.account ?? "";
-  const { lore_bid: bid = "", origin = "", piece = "" } = intent.metadata ?? {};
-  if (!ACCOUNT.test(account) || !BID.test(bid) || !PIECE.test(piece) || !intent.id?.startsWith("pi_")) return null;
-  return { intent, account, bid, origin, piece, id: intent.id };
-}
-
 /** A bid's direct charge settled: the bid book fills it if it is that bid's charge, and only then is the seller's store told. */
 async function bidPaid(env: Env, event: Event): Promise<Response> {
   try {
@@ -114,9 +80,7 @@ async function bidFailed(env: Env, event: Event): Promise<Response> {
   try {
     const found = bidCharge(event);
     if (!found) return reply(200, "not a Lore bid charge");
-    const bank = found.intent.last_payment_error?.code === "authentication_required";
-    const message = event.type === "payment_intent.canceled" ? "Your card couldn't be charged." : bank ? "Your bank wants to confirm this payment." : "Your card was declined.";
-    const verdict = await rail(env).failed(found.bid, { payment_intent: found.id, account: found.account, message });
+    const verdict = await rail(env).failed(found.bid, { payment_intent: found.id, account: found.account, message: failureMessage(event) });
     if (verdict === "pending") return reply(503, "bid book not ready");
     return reply(200, verdict === "declined" ? "bid declined" : "not this bid's charge");
   } catch {
@@ -124,17 +88,19 @@ async function bidFailed(env: Env, event: Event): Promise<Response> {
   }
 }
 
-const BID_FAILED = new Set(["payment_intent.payment_failed", "payment_intent.canceled"]);
-
-/**
- * The platform endpoint's secret signs only a bid buyer's saved card, an event on Lore's own
- * account; the Connect endpoint's secret signs only what happens on sellers' accounts.
- */
-async function platformEvent(env: Env, event: Event): Promise<Response> {
-  const session = event.data.object;
-  const bid = session.metadata?.lore_bid ?? "";
-  const setup = event.type === "checkout.session.completed" && session.mode === "setup" && !event.account;
-  return setup && BID.test(bid) && session.setup_intent ? cardSaved(env, bid, session.setup_intent) : reply(200, "ignored");
+/** A seller's card sale was paid: only the store the seller tied this account to hears about it. */
+async function sale(env: Env, { account, origin, piece, session }: { account: string; origin: string; piece: string; session: string }): Promise<Response> {
+  try {
+    if ((await boundStore(env, account)) !== origin) return reply(200, "not this account's store");
+    const notice = await fetch(`${origin}/p/${piece}/paid`, {
+      method: "POST",
+      body: new URLSearchParams({ session_id: session })
+    });
+    // A store that can't take it now gets it again: Stripe retries a failed delivery for days.
+    return notice.ok ? reply(200, "recorded") : reply(502, "store refused");
+  } catch {
+    return reply(502, "store unreachable");
+  }
 }
 
 export async function webhook(request: Request, env: Env): Promise<Response> {
@@ -143,26 +109,17 @@ export async function webhook(request: Request, env: Env): Promise<Response> {
   const [connect, platform] = await Promise.all([signed(body, header, env.STRIPE_WEBHOOK_SECRET), signed(body, header, env.STRIPE_PLATFORM_WEBHOOK_SECRET)]);
   if (!connect && !platform) return reply(400, "unsigned");
   const event = JSON.parse(body) as Event;
-  if (platform) return platformEvent(env, event);
-  const session = event.data.object;
-  if (event.type === "payment_intent.succeeded") return session.metadata?.lore_bid ? bidPaid(env, event) : reply(200, "ignored");
-  if (BID_FAILED.has(event.type)) return session.metadata?.lore_bid ? bidFailed(env, event) : reply(200, "ignored");
-  // Anything else Stripe sends is acknowledged and dropped; a 2xx stops it retrying.
-  if (!PAID_EVENTS.has(event.type) || session.payment_status !== "paid") return reply(200, "ignored");
-  const account = event.account ?? "";
-  const origin = session.metadata?.origin ?? "";
-  const piece = session.metadata?.piece ?? "";
-  if (!ACCOUNT.test(account) || !SESSION.test(session.id ?? "") || !PIECE.test(piece)) return reply(200, "not a Lore sale");
-  try {
-    // Only the store the seller tied this account to hears about its sales.
-    if ((await boundStore(env, account)) !== origin) return reply(200, "not this account's store");
-    const notice = await fetch(`${origin}/p/${piece}/paid`, {
-      method: "POST",
-      body: new URLSearchParams({ session_id: session.id ?? "" })
-    });
-    // A store that can't take it now gets it again: Stripe retries a failed delivery for days.
-    return notice.ok ? reply(200, "recorded") : reply(502, "store refused");
-  } catch {
-    return reply(502, "store unreachable");
+  const where = route(event, platform);
+  switch (where.to) {
+    case "card saved":
+      return cardSaved(env, where.bid, where.setupIntent);
+    case "bid paid":
+      return bidPaid(env, event);
+    case "bid failed":
+      return bidFailed(env, event);
+    case "sale":
+      return sale(env, where);
+    case "drop":
+      return reply(200, where.outcome);
   }
 }
