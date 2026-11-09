@@ -323,10 +323,16 @@ class SendTest(LoreTestCase):
         usage.notice_shown()
 
     def record(self, name: str, value: str = "") -> bool:
-        """Record one event and wait for its sender thread to finish."""
+        """Record one event and wait for its sender thread to finish.
+
+        Only the sender is joined. A local relay's request thread can be listed
+        before it has started, and joining it then raises (XC-128).
+        """
         before = set(threading.enumerate())
         sent = usage.record(name, value)
         for thread in set(threading.enumerate()) - before:
+            if thread.name != usage.SENDER_THREAD:
+                continue
             thread.join(timeout=5)
             self.assertFalse(thread.is_alive(), "the sender never finished")
         return sent
