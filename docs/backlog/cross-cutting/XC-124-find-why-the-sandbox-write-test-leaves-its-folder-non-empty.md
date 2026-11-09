@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -46,3 +46,12 @@ what is left in `lore/` when `rm` fails. Then fix the actual cause. Don't add `m
 
 - [ ] The entry left behind, and what writes it, is named.
 - [ ] The test's cleanup cannot race it, and 200 runs of the test under load pass.
+
+## Notes
+
+- A second occurrence, on 2026-11-09, on #663's Dependabot run
+  (42589332181, after the XC-097 tier split). This time it was the read
+  test, `test/component/sandbox.test.cjs:262` ("read goes through the
+  sandbox…"), and the folder left non-empty was `…/lore-sandbox-wi1oNd/lore/dir`.
+  So the read test races too, not only the write test. This flake is one of
+  the two reasons XC-109 kept the desktop job optional.
