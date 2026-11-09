@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-27
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -107,3 +107,4 @@ XC-077 (walks two at a time) cuts the minutes a superseded run can hold; XC-078
 (skip the desktop job on PRs the walks cannot see) cuts the number of runs that
 start a macOS job at all. This item is independent of both and lands in minutes;
 it is listed on the same branch as XC-077's runner because #560 bundled them.
+- XC-083's reading (2026-11-09): none of 414 PR runs between 2026-10-27 and 2026-11-09 had a macOS job finish after a newer run on the same PR started.
