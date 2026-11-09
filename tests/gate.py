@@ -80,16 +80,24 @@ def _summarise(markdown: str) -> None:
 
 
 def run_python_suite(pytest_args: list[str], *, quiet: bool) -> int:
-    """Run the Python suite under coverage; the exit code is pytest's."""
+    """Run the Python suite under coverage; the exit code is pytest's.
+
+    Coverage is pytest-cov's, not `coverage run -m pytest` (XC-106): with
+    `-n auto` the tests run in pytest-xdist worker processes, which `coverage
+    run` around the controller never sees. pytest-cov measures each worker and
+    combines their data into the one `.coverage` file `per_file_coverage` reads,
+    so the per-file table is the same whether the suite ran serially or not.
+    `--cov` with no path takes `source` from pyproject.toml; the empty
+    `--cov-report=` leaves the reporting to this gate.
+    """
     quietly = ["-q"] if quiet else []
     result = subprocess.run(
         [
             sys.executable,
             "-m",
-            "coverage",
-            "run",
-            "-m",
             "pytest",
+            "--cov",
+            "--cov-report=",
             *quietly,
             *pytest_args,
         ],

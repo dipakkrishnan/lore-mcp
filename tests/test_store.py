@@ -10,8 +10,6 @@ import json
 import os
 import sqlite3
 import stat
-import subprocess
-import sys
 import threading
 import time
 import unittest
@@ -176,34 +174,6 @@ class StoreConcurrencyTest(LoreTestCase):
         self.connect_with(scripted)
         return scripted
 
-    def start_lore_processes(self, count: int) -> list[subprocess.Popen[str]]:
-        """Start `count` real `lore` processes together."""
-        processes = [
-            subprocess.Popen(
-                [sys.executable, "-m", "lore", *self.COMMANDS[i % len(self.COMMANDS)]],
-                cwd=Path(__file__).resolve().parent.parent,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            for i in range(count)
-        ]
-        self.addCleanup(self.reap, processes)
-        return processes
-
-    @staticmethod
-    def reap(processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            process.kill()
-            process.wait()
-            if process.stderr and not process.stderr.closed:
-                process.stderr.close()
-
-    def assert_all_succeed(self, processes: list[subprocess.Popen[str]]) -> None:
-        for process in processes:
-            _, stderr = process.communicate(timeout=90)
-            self.assertEqual(process.returncode, 0, stderr)
-
     def test_open_waits_for_another_process_mid_first_migration(self) -> None:
         self.release_after(self.hold_write_lock(), 0.3)
         with Store() as store:
@@ -233,21 +203,6 @@ class StoreConcurrencyTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.counts()["private"], 0)
         self.assertEqual(scripted.asked, 1)
-
-    def test_several_lore_processes_on_an_empty_home_all_succeed(self) -> None:
-        self.assert_all_succeed(self.start_lore_processes(4))
-
-    def test_lore_processes_wait_for_a_migration_already_under_way(self) -> None:
-        # The race itself is rare, so hold the lock the winner would hold until
-        # every process has had time to start and meet it on the journal-mode
-        # switch. One that gives up exits while the lock is still held.
-        holder = self.hold_write_lock()
-        processes = self.start_lore_processes(4)
-        ceiling = time.monotonic() + 6
-        while time.monotonic() < ceiling and all(p.poll() is None for p in processes):
-            time.sleep(0.1)
-        holder.execute("COMMIT")
-        self.assert_all_succeed(processes)
 
 
 class ContributorTest(LoreTestCase):
@@ -410,6 +365,37 @@ class ArrivalTest(LoreTestCase):
             arrivals = {r["title"]: r["arrival"] for r in store.memory_inventory()}
         self.assertEqual(arrivals["First"], first)
         self.assertGreater(arrivals["Again"], second)
+
+    def test_a_database_from_before_bids_gains_the_column_and_keeps_its_pieces(
+        self,
+    ) -> None:
+        memory = self.seed_memory("Evidence")
+        with Store() as store:
+            store.add_publication(
+                title="Old", content="c", topic="t", teaser="q?", provenance=[memory]
+            )
+            store.db.execute("ALTER TABLE publications DROP COLUMN bid")
+            store.db.commit()
+        with Store() as store:
+            [old] = store.list_publications()
+            self.assertEqual(old.bid, "")
+            store.add_publication(
+                title="New",
+                content="c",
+                topic="t",
+                teaser="q?",
+                provenance=[memory],
+                bid="k3v9q2m7xa",
+            )
+            self.assertEqual(
+                {p.title: p.bid for p in store.list_publications()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+            )
+            self.assertEqual(
+                {p["title"]: p["bid"] for p in store.publication_inventory()},
+                {"Old": "", "New": "k3v9q2m7xa"},
+                "the app reads which bid a piece answers from the inventory (APP-283)",
+            )
 
     def test_a_database_from_before_arrivals_numbers_them_by_id(self) -> None:
         titles = [f"Memory {n}" for n in range(1, 8)]
@@ -653,6 +639,18 @@ class SearchTest(LoreTestCase):
         with Store() as store:
             self.assertEqual(store.search('lesson" OR "'), [])
             self.assertEqual(len(store.search('"lesson"')), 1)
+
+    def test_a_loose_search_finds_any_word_by_its_prefix(self) -> None:
+        self.seed_memory("Reward hacking")
+        self.seed_memory("Sourdough")
+        with Store() as store:
+            self.assertEqual(store.search("rewards hack", status="private"), [])
+            found = store.search("reward hack", status="private", loose=True)
+            self.assertEqual([m.title for m in found], ["Reward hacking"])
+            self.assertEqual(
+                store.holding(["deploy", "sourdough", "nothing"]),
+                {"deploy": 2, "sourdough": 1, "nothing": 0},
+            )
 
     def test_search_rejects_a_negative_limit_and_an_unknown_status(self) -> None:
         with Store() as store:

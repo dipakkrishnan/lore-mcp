@@ -4,13 +4,13 @@ title: Stop background store polls from flooding cli.failed
 priority: P1
 effort: XS
 component: cli-ux
-status: ideation
+status: in-review
 related: [XC-090, APP-058]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-10-28
+updated: 2026-11-01
 ---
 
 ## Problem

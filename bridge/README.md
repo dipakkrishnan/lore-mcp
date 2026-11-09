@@ -24,6 +24,9 @@ codex mcp add lore-buyer -- npm --prefix /path/to/bridge run start -- --node htt
 - On a 402 challenge, `withX402Client` (Cloudflare Agents SDK) signs a USDC
   transfer authorization and retries. The settlement receipt is appended to
   the tool result, so it lands in the buyer's conversation.
+- Two local tools, `bid` and `check_bid`, place and read bids on Lore
+  (`contracts/bids.md`) for when nothing fits. A bid moves no money and never
+  touches `--max-usd`; the cap applies when an answer's piece is bought.
 - Every step is logged to stderr as JSON lines (`startup`, `call`,
   `challenge`, `settled`) — tail it for a live payment feed.
 
@@ -44,9 +47,11 @@ spend through the bridge. Never give the bridge a key that holds real savings.
 | `--node <url>` | required | Remote MCP endpoint to front |
 | `--network` | `eip155:84532` (Base Sepolia) | CAIP-2 network; `eip155:8453` for Base mainnet |
 | `--max-usd` | `1` | Per-call and process-lifetime authorization cap |
+| `--bids` | `https://yourlore.dev` | Site the `bid` and `check_bid` tools post to and read from |
 
 ## Checks
 
-`npm run check` type-checks. `npm run smoke -- <url>` spawns the bridge
+`npm run check` type-checks. `npm test` runs the payment-policy unit tests in
+`test/policy.test.ts`, then one end-to-end run over stdio. `npm run smoke -- <url>` spawns the bridge
 against a live node and drives the free path through it (tools proxied, price
 annotation present, `discover` returns a catalog); it never spends.
