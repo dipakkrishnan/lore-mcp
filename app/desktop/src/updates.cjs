@@ -19,6 +19,8 @@ class Updates {
     this.shell = shell;
     this.emit = emit;
     this.get = get;
+    /** The window the move prompt attaches to, once it's open. @type {import("electron").BrowserWindow | undefined} */
+    this.window = undefined;
     /** @type {AppUpdate} */
     this.update = { version: app.getVersion(), state: "current" };
     autoUpdater.on("checking-for-update", () => this.set({ state: "checking" }));
@@ -29,8 +31,11 @@ class Updates {
     autoUpdater.on("error", () => this.update.state !== "ready" && this.set({ state: "offline" }));
   }
 
-  /** On launch. A copy outside Applications (often run straight from Downloads, where macOS keeps it read-only) can't replace itself, so it asks to move first. */
-  start() {
+  /** On launch. A copy outside Applications (opened from the installer, or a download macOS keeps read-only) can't replace
+   * itself, so it asks to move first, on Lore's own window: a box with no window would hold the whole app until answered.
+   * @param {import("electron").BrowserWindow} [window] */
+  start(window) {
+    this.window = window;
     if (!this.app.isPackaged) return;
     if (this.app.isInApplicationsFolder()) return void updateElectronApp({ repo: REPO, updateInterval: "4 hours", notifyUser: false });
     this.set({ state: "outside" });
@@ -52,14 +57,18 @@ class Updates {
 
   /** @param {string} other the second button's words @returns {Promise<boolean>} whether Lore moved (it relaunches from Applications) */
   async move(other) {
-    const { response } = await this.dialog.showMessageBox({
-      type: "question",
-      message: "Move Lore to Applications so it can update itself",
-      detail: "Your memories and sign-in stay just as they are.",
+    const installer = this.app.getAppPath().startsWith("/Volumes/");
+    const box = {
+      type: /** @type {const} */ ("question"),
+      message: installer ? "Lore is running from its installer" : "Move Lore to Applications so it can update itself",
+      detail: installer
+        ? "Move it to Applications so it opens from there and updates itself. Your memories and sign-in stay as they are."
+        : "Your memories and sign-in stay just as they are.",
       buttons: ["Move to Applications", other],
       defaultId: 0,
       cancelId: 1
-    });
+    };
+    const { response } = await (this.window && !this.window.isDestroyed() ? this.dialog.showMessageBox(this.window, box) : this.dialog.showMessageBox(box));
     try {
       return response === 0 && this.app.moveToApplicationsFolder();
     } catch {

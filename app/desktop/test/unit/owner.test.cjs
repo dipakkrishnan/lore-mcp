@@ -1,15 +1,16 @@
 // APP-062: the owner-gate callbacks main.cjs hands the agent — the cards it waits on, what each answer tells the agent,
-// the Cloudflare sign-in's wording, and that a task never stays at needs_you once the owner's step is over.
+// the Cloudflare sign-in's wording. XC-097: that a task never stays at needs_you once the owner's step is over is a whole
+// turn of the scripted agent, in test/component/owner.test.cjs; nothing here starts a process.
 const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
-const { rm } = require("node:fs/promises");
 const { join } = require("node:path");
+const { tmpdir } = require("node:os");
 const { test } = require("node:test");
-// Each test process gets its own scratch store, keys and CLI runtime; required before anything loads ../src/state.cjs.
-require("../support/scratch.cjs");
-const { scriptedAgent } = require("../support/scripted.cjs");
-const { OwnerRequests, ownerGates } = require("../src/owner.cjs");
-const { cloudflareSignIn, openable } = require("../src/state.cjs");
+// state.cjs reads its store folder once, on require: point it at scratch, never the owner's Application Support.
+process.env.LORE_STORE = require("node:fs").mkdtempSync(join(tmpdir(), "lore-store-"));
+process.once("exit", () => require("node:fs").rmSync(/** @type {string} */ (process.env.LORE_STORE), { recursive: true, force: true }));
+const { OwnerRequests, ownerGates } = require("../../src/owner.cjs");
+const { cloudflareSignIn, openable } = require("../../src/state.cjs");
 
 /** Requests over a window that is open unless told otherwise, with every event it sent. */
 function requests(open = () => true) {
@@ -67,8 +68,8 @@ test("every card still waiting fails when Lore closes, and an abort afterwards s
 test("main.cjs fails waiting cards on quit and on window close, and answers and gates go through owner.cjs", () => {
   // main.cjs cannot be required outside Electron, so its wiring is read as text (as ipc-contract.test.cjs does); the
   // handlers and the agent's callbacks are ipc.cjs's (APP-267).
-  const main = readFileSync(join(__dirname, "..", "src", "main.cjs"), "utf8");
-  const ipc = readFileSync(join(__dirname, "..", "src", "ipc.cjs"), "utf8");
+  const main = readFileSync(join(__dirname, "..", "..", "src", "main.cjs"), "utf8");
+  const ipc = readFileSync(join(__dirname, "..", "..", "src", "ipc.cjs"), "utf8");
   assert.match(main, /app\.on\("before-quit", \(\) => \{[^}]*requests\.rejectAll\("Lore closed"\);/);
   assert.match(main, /window\.on\("closed", \(\) => \{[^}]*requests\.rejectAll\("Lore window closed"\);/);
   assert.match(ipc, /ipcMain\.handle\("agent:respond", \(_event, response\) => requests\.answer\(response\)\);/);
@@ -165,31 +166,3 @@ test("a Cloudflare sign-in the owner cancels, or one left waiting too long, stop
     clearTimeout(alive);
   }
 });
-
-/** The states a turn's task went through, from the records the agent emitted. @param {AgentEvent[]} events */
-const states = (events) => events.flatMap((event) => (event.type === "task" ? [[event.task.state, event.task.phase ?? null]] : []));
-
-for (const [name, openUrl] of /** @type {Array<[string, LoreAgentOptions["openUrl"]]>} */ ([
-  ["throws", async () => { throw new Error("the window went away"); }],
-  ["is declined", async () => "The owner chose not to open it right now."]
-])) {
-  test(`a task waiting on the owner goes back to working when the step ${name}`, async () => {
-    const { fauxAssistantMessage, fauxToolCall } = await import("@earendil-works/pi-ai");
-    const { agent, faux, events, loreHome } = await scriptedAgent({ openUrl });
-    faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("open_url", PAGE), { stopReason: "toolUse" }),
-      fauxAssistantMessage("Done.")
-    ]);
-    try {
-      await agent.prompt("Help me fund my wallet", "publish");
-      const seen = states(events);
-      const waiting = seen.findIndex(([state, phase]) => state === "needs_you" && phase === PAGE.title);
-      assert.ok(waiting > 0, `needs_you while the owner acts: ${JSON.stringify(seen)}`);
-      assert.equal(seen[waiting + 1]?.[0], "working", `working again once the step is over: ${JSON.stringify(seen)}`);
-      assert.notEqual(seen.at(-1)?.[0], "needs_you");
-    } finally {
-      agent.dispose();
-      await rm(loreHome, { recursive: true, force: true });
-    }
-  });
-}

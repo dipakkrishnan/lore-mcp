@@ -10,7 +10,7 @@ const { pathToFileURL } = require("node:url");
 const { spawn, spawnSync } = require("node:child_process");
 const { test } = require("node:test");
 // Each test process gets its own scratch store, keys and CLI runtime; required before anything loads ../src/state.cjs.
-const { CLI, readState } = require("../support/scratch.cjs");
+const { CLI, readState } = require("../../support/scratch.cjs");
 
 test("reads only the fixed APP-001 snapshot", async () => {
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -25,7 +25,7 @@ test("reads only the fixed APP-001 snapshot", async () => {
 });
 
 test("crediting a big reading goes to the CLI in batches it takes", async () => {
-  const { creditMemories } = require("../src/state.cjs");
+  const { creditMemories } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     const ids = Array.from({ length: 1001 }, (_, i) => i + 1);
@@ -37,7 +37,7 @@ test("crediting a big reading goes to the CLI in batches it takes", async () => 
 });
 
 test("what a reading judged of a memory reaches its sheet and Inventory, so Draft for sale shows only where it makes sense", async () => {
-  const { judgeMemories, captureMemories, readMemory } = require("../src/state.cjs");
+  const { judgeMemories, captureMemories, readMemory } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     const [saved] = await captureMemories(directory, [{ title: "Travel preferences", content: "Window seat, United or American, diving and poke." }]);
@@ -53,7 +53,7 @@ test("what a reading judged of a memory reaches its sheet and Inventory, so Draf
 });
 
 test("free copies save through the CLI, refused before it unless a whole number, and read back in the snapshot", async () => {
-  const { setFreeCopies } = require("../src/state.cjs");
+  const { setFreeCopies } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     assert.equal((await readState(directory)).pricing.free_copies, 3);
@@ -89,12 +89,12 @@ async function recordPayout(payout) {
 
 /** APP-226: the owner's card for a store update, answered `yes`, recording what it listed. @param {string} directory @param {boolean} yes @param {Array<{heading: string, changes: StoreChange[]}>} seen */
 function confirming(directory, yes, seen) {
-  const { Outgoing } = require("../src/state.cjs");
+  const { Outgoing } = require("../../src/state.cjs");
   return new Outgoing(directory, async (heading, changes) => { seen.push({ heading, changes }); return yes; });
 }
 
 test("the store opens only after the owner confirms each change: the pieces, the price and free copies, the network and the whole address", async () => {
-  const { openStore, useRuntime, dollars } = require("../src/state.cjs");
+  const { openStore, useRuntime, dollars } = require("../../src/state.cjs");
   assert.equal(dollars.format(0.000001), "$0.000001", "a price below a cent reads as itself on the card the owner confirms");
   assert.equal(dollars.format(1.5), "$1.50");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
@@ -130,7 +130,7 @@ test("the store opens only after the owner confirms each change: the pieces, the
 });
 
 test("putting the store online for the owner's agents asks one yes, and never a network, payout or price", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null);
   /** @type {OwnerQuestion[][]} */
@@ -155,7 +155,7 @@ test("putting the store online for the owner's agents asks one yes, and never a 
 });
 
 test("with no store of their own, the owner's agents get one Lore hosts, on one yes and in seconds (XC-088)", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null, { url: null });
   /** @type {OwnerQuestion[][]} */
@@ -199,7 +199,7 @@ exit 1
 }
 
 test("a store that didn't go online says why, in the CLI's words, and where the rest is (XC-085)", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const yes = async (/** @type {OwnerQuestion[]} */ questions) => ({ [questions[0].question]: "Put it online" });
   for (const [failing, why] of [
     ["lore: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again.", "The deploy did not finish: Cloudflare needs you to verify your email first. Check your inbox for their email, click the link, then tap Set it up again."],
@@ -220,7 +220,7 @@ test("a store that didn't go online says why, in the CLI's words, and where the 
 });
 
 test("a Cloudflare sign-in with two accounts asks which one, then puts the store there (XC-087)", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await failingCli(directory, "lore: Your Cloudflare sign-in has more than one account. Choose the one your store goes on (`lore node accounts`), then set it up again.");
   /** @type {OwnerQuestion[][]} */
@@ -244,7 +244,7 @@ test("a Cloudflare sign-in with two accounts asks which one, then puts the store
 });
 
 test("Update store puts out the newer store Lore ships, on its card, as the store was last opened; a decision's push never does (APP-231)", async () => {
-  const { useRuntime } = require("../src/state.cjs");
+  const { useRuntime } = require("../../src/state.cjs");
   const wallet = `0x${"ab12".repeat(9)}c0de`;
   const latest = { group: "", label: "Store", to: "The latest from Lore" };
   /** @param {Parameters<typeof recordingCli>[2]} store @param {{address: string | null, network: string} | null} payout */
@@ -300,7 +300,7 @@ test("Update store puts out the newer store Lore ships, on its card, as the stor
 });
 
 test("a store that sells puts a waiting piece out only once the owner confirms it, even going online for its agents", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null, { selling: true, items: [{ id: 2, title: "Hire management first", state: "approved", live: false }] });
   /** @type {Array<{heading: string, changes: StoreChange[]}>} */
@@ -324,7 +324,7 @@ test("a store that sells puts a waiting piece out only once the owner confirms i
 });
 
 test("a store update lists each piece and term it changes, and only taking pieces down goes out unasked", () => {
-  const { storeChanges } = require("../src/state.cjs");
+  const { storeChanges } = require("../../src/state.cjs");
   /** @param {Partial<Snapshot["node"]>} node @param {PublicationItem[]} items @returns {Snapshot} */
   const state = (node, items) => /** @type {Snapshot} */ (/** @type {unknown} */ ({
     publications: { counts: { active: 0, revoked: 0 }, items },
@@ -351,7 +351,7 @@ test("a store update lists each piece and term it changes, and only taking piece
 });
 
 test("a redeploy pays where the store's own record says, whatever Lore's database claims, and deploys exactly that", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   // The snapshot (from lore.db, which the agent can write) names a different address.
   const forged = `0x${"bad0".repeat(10)}`;
@@ -374,7 +374,7 @@ test("a redeploy pays where the store's own record says, whatever Lore's databas
 });
 
 test("a new address where the store already pays somewhere is shown as a change, naming both", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null, { selling: true });
   const recorded = `0x${"5e11".repeat(9)}f00d`;
@@ -400,7 +400,7 @@ test("a new address where the store already pays somewhere is shown as a change,
 });
 
 test("a store left half-changed is said plainly in the desktop result, with no setting names", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const fake = join(directory, "lore");
   const state = JSON.stringify({ version: 1, publications: { counts: { active: 0, revoked: 0 }, items: [] }, pricing: { publication_usd: 1.5, answer_usd: null, answer_enabled: false, free_copies: 0 }, node: { url: "https://lore.example.workers.dev/mcp", selling: true, live: { state: "online", network: null, price_usd: 1.5, payout: null } } });
@@ -422,7 +422,7 @@ test("a store left half-changed is said plainly in the desktop result, with no s
 });
 
 test("a redeploy with no payout on record asks the owner on the app's own card, never guesses", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, `0x${"bad0".repeat(10)}`);
   const typed = `0x${"7777".repeat(10)}`;
@@ -453,7 +453,7 @@ test("a redeploy with no payout on record asks the owner on the app's own card, 
 });
 
 test("with card payments on, a store opens selling by card alone: no address asked, none deployed", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null, { cards: "acct_1Seller", items: [{ id: 1, title: "Price the first tier low", state: "approved", live: false }] });
   /** @type {OwnerQuestion[][]} */
@@ -480,7 +480,7 @@ test("with card payments on, a store opens selling by card alone: no address ask
 });
 
 test("on the payout card, By card opens the store only once card payments are really on", async () => {
-  const { openStore, useRuntime } = require("../src/state.cjs");
+  const { openStore, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   /** @type {Array<{heading: string, changes: StoreChange[]}>} */
   const seen = [];
@@ -499,7 +499,7 @@ test("on the payout card, By card opens the store only once card payments are re
 });
 
 test("the profile saves only after the owner sees every part of it in full", async () => {
-  const { saveProfile, useRuntime } = require("../src/state.cjs");
+  const { saveProfile, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const { fake, ran } = await recordingCli(directory, null);
   const long = "Keep out ".repeat(60).trim();
@@ -522,7 +522,7 @@ test("the profile saves only after the owner sees every part of it in full", asy
 });
 
 test("a streamed CLI command hands back each line and fails on a non-zero exit", async () => {
-  const { loreStream, useRuntime } = require("../src/state.cjs");
+  const { loreStream, useRuntime } = require("../../src/state.cjs");
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const fake = join(directory, "lore");
   await writeFile(fake, '#!/bin/sh\necho "Visit this link to authenticate: https://dash.cloudflare.com/oauth2/auth?x=1"\ntest "$2" = login && exit 0\necho "lore: Cloudflare sign-in did not complete" >&2\nexit 1\n', { mode: 0o755 });
@@ -540,7 +540,7 @@ test("a streamed CLI command hands back each line and fails on a non-zero exit",
 });
 
 test("memory reads validate the id before any CLI call, and say when it is unknown", async () => {
-  const { readMemory } = require("../src/state.cjs");
+  const { readMemory } = require("../../src/state.cjs");
   for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(readMemory("/nonexistent", bad), { message: /Invalid memory/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -551,7 +551,7 @@ test("memory reads validate the id before any CLI call, and say when it is unkno
 });
 
 test("memory rename validates the id and title before any CLI call, and round-trips through the CLI", async () => {
-  const { renameMemory } = require("../src/state.cjs");
+  const { renameMemory } = require("../../src/state.cjs");
   for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(renameMemory("/nonexistent", bad, "New title"), { message: /Invalid memory/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -563,13 +563,13 @@ test("memory rename validates the id and title before any CLI call, and round-tr
 });
 
 test("memory edit validates the id and content before any CLI call, and round-trips through the CLI", async () => {
-  const { editMemory } = require("../src/state.cjs");
+  const { editMemory } = require("../../src/state.cjs");
   for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(editMemory("/nonexistent", bad, "New content"), { message: /Invalid memory/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
     await assert.rejects(editMemory(directory, 1, "   "), { message: /Content cannot be empty/ });
     await assert.rejects(editMemory(directory, 999, "New content"), { message: /memory not found: 999/ });
-    const { lore } = require("../src/state.cjs");
+    const { lore } = require("../../src/state.cjs");
     const [{ id }] = JSON.parse(await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Bullets", content: "First draft." }])));
     for (const content of ["-solo", "--json", "---\n- one\n- two"]) {
       assert.equal((await editMemory(directory, id, content)).content, content, "content that looks like an option must still be content");
@@ -580,7 +580,7 @@ test("memory edit validates the id and content before any CLI call, and round-tr
 });
 
 test("memory delete validates the id before any CLI call, and removes the memory through the CLI", async () => {
-  const { deleteMemory, readMemory, lore } = require("../src/state.cjs");
+  const { deleteMemory, readMemory, lore } = require("../../src/state.cjs");
   for (const bad of [0, -1, 1.5, "1", null]) await assert.rejects(deleteMemory("/nonexistent", bad), { message: /Invalid memory/ });
   const directory = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   try {
@@ -594,7 +594,7 @@ test("memory delete validates the id before any CLI call, and removes the memory
 });
 
 test("report feedback validates before any CLI call, and round-trips adversarial content through the CLI to a stubbed relay, labeled desktop", async () => {
-  const { reportFeedback } = require("../src/state.cjs");
+  const { reportFeedback } = require("../../src/state.cjs");
   await assert.rejects(reportFeedback("/nonexistent", { title: "", email: "", description: "d" }), {
     message: /Title cannot be empty/
   });
@@ -648,7 +648,7 @@ test("report feedback validates before any CLI call, and round-trips adversarial
 });
 
 test("report feedback omits --email entirely when none is given", async () => {
-  const { reportFeedback } = require("../src/state.cjs");
+  const { reportFeedback } = require("../../src/state.cjs");
   const received = [];
   const server = createServer((request, response) => {
     let body = "";
@@ -680,7 +680,7 @@ test("report feedback omits --email entirely when none is given", async () => {
 });
 
 test("a CLI refusal explained over several lines reaches the owner as its Reason line", async () => {
-  const { lore } = require("../src/state.cjs");
+  const { lore } = require("../../src/state.cjs");
   const home = await mkdtemp(join(tmpdir(), "lore-desktop-"));
   const schedule = () => lore(home, ["profile", join(home, "automation", "profile.json")]);
   try {
@@ -699,7 +699,7 @@ test("a CLI refusal explained over several lines reaches the owner as its Reason
 });
 
 test("the price action refuses anything but a positive number, and round-trips through the CLI", async () => {
-  const { setPrice, readState } = require("../src/state.cjs");
+  const { setPrice, readState } = require("../../src/state.cjs");
   // Rejected before any CLI call: "/nonexistent" would fail loudly otherwise.
   for (const bad of [0, -1, NaN, Infinity, "0.01", null, undefined]) {
     await assert.rejects(setPrice("/nonexistent", bad), { message: /A price has to be a number above zero/ }, String(bad));
