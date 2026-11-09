@@ -22,7 +22,7 @@ npm --prefix app/desktop run test:edge      # every renderer walk, driven under 
 
 `test:edge` runs `support/walks.cjs`, which holds the one list of walks (each with
 its measured time) and runs them two at a time, longest first;
-`node app/desktop/support/walks.cjs faq store` runs just those. CI (`desktop-check`
+`node app/desktop/support/walks.cjs jobs store` runs just those. CI (`desktop-check`
 in `.github/workflows/tests.yml`, macOS) runs `check`, `test`, the same list with
 `node support/walks.cjs --jobs 2`, and `package` (XC-077). A new walk is one line
 in `support/walks.cjs`; CI picks it up from there. Keep walks two at a time: on a

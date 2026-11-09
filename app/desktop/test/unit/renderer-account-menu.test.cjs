@@ -1,4 +1,4 @@
-// APP-268: the workspace (account) menu's rules (APP-201) as the `faq` walk asserts them: what its first line says for
+// APP-268: the workspace (account) menu's rules (APP-201) as the `faq` walk asserted them until APP-269 retired it: what its first line says for
 // who is signed in and how the store stands, which items show, and how the keyboard moves through it. accountState()
 // is tabled; the rest is driven through the loaded renderer. Whether the popover is drawn open is Chromium's, not
 // jsdom's: here the harness marks it with data-popover-open and fires the toggle event the renderer listens for.

@@ -1,5 +1,5 @@
-// APP-268: the Inbox's one next step (Today's, until APP-283) as a table over the stages the `today` walk seeds (a to f), run on nextStep(s, state)
-// straight from the loaded renderer. The walk drives these through a live Electron window and a real CLI; here each
+// APP-268: the Inbox's one next step (Today's, until APP-283) as a table over the stages the `today` walk seeded (a to f) until APP-269 retired it, run on nextStep(s, state)
+// straight from the loaded renderer. The walk drove these through a live Electron window and a real CLI; here each
 // stage is a snapshot and the renderer's own state, and the rule is asserted as a function of them.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
@@ -19,7 +19,7 @@ const obsidian = { name: "obsidian", label: "Obsidian", enabled: true, imported:
 const working = (kind) => ({ version: 1, kind, title: kind, state: "working", phase: "Working", updatedAt: new Date().toISOString() });
 const done = (kind) => ({ ...working(kind), state: "done", phase: "Finished" });
 
-/** Stage by stage, what the today walk reaches: [name, snapshot, state, expected label (or "drafts" or null), action]. */
+/** Stage by stage, what the today walk reached: [name, snapshot, state, expected label (or "drafts" or null), action]. */
 const STAGES = [
   ["e: nothing connected and nothing kept", emptySnapshot(), {}, "Connect the AI you talk to most", "Connect"],
   ["e: an app that is off still counts as nothing connected", emptySnapshot({ library: { counts: { private: 0 }, sources: [{ ...obsidian, enabled: false, connector: null }], items: [] } }), {}, "Connect the AI you talk to most", "Connect"],
