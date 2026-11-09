@@ -77,7 +77,7 @@
       "name": "Inventory, All and On sale (pieces, Sales, Ready to sell), with taken-down pieces in their own folded group",
       "about": "show(\"store\") and show(\"inventory\"): one-line rows grouped by source, pieces on sale and not yet pushed, the Sales ledger, a pending removal, a piece under Ready to sell, a row's take-down confirm, and the folded Taken down group.",
       "scans": [
-        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "inventory-rows-dark", "store-unpushed", "store-take-down", "store-removal-pending", "store-push-first"] },
+        { "walk": "store", "widths": [1040, 900], "shots": ["store-stale-price", "store-sales", "inventory-rows-dark", "store-take-down", "store-removal-pending", "store-push-first"] },
         { "walk": "settings", "widths": [1040, 900], "shots": ["store-card", "store-price-editor-saved"] },
         { "walk": "agents", "widths": [1040, 900], "shots": ["agents-nothing-for-sale", "agents-ready-to-sell"] },
         { "walk": "seller", "widths": [1040], "shots": ["store"] }
@@ -163,7 +163,7 @@
       "name": "Agent setup and new-link sheets",
       "about": "Modal. Waiting for an agent to ask to sign in; Connect <agent> with its steps, message or link, routine message and the shimmering wait; the first save counted with See them; A new link for <agent>; ChatGPT connected after Allow; Other with address, key and instructions; Instinct's text-first sheet and its one save.",
       "scans": [
-        { "walk": "agents", "widths": [1040, 900], "shots": ["agents-grok-sign-in", "agents-setup", "agents-grok-setup", "agents-first-save", "agents-new-key", "agents-grok-new-key", "agents-claude-setup", "agents-claude-new-key", "agents-chatgpt-setup", "agents-allowed", "agents-other-setup", "agents-instinct-setup", "agents-instinct-saved"] }
+        { "walk": "agents", "widths": [1040, 900], "shots": ["agents-grok-sign-in", "agents-setup", "agents-first-save", "agents-new-key", "agents-claude-setup", "agents-claude-new-key", "agents-chatgpt-setup", "agents-allowed", "agents-other-setup", "agents-instinct-setup", "agents-instinct-saved"] }
       ]
     },
     {
