@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-27
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -131,3 +131,4 @@ log" cannot be checked in the implementing PR; it moved to XC-083.
 - The screenshots are the only output of a walk that is not a `check`;
   CI never uploads them (no `upload-artifact` in `tests.yml`), so the 26
   dark PNGs removed here were never looked at.
+- XC-083's reading (2026-11-09): the median of the last 8 green desktop jobs was 6.4 min, under the 697 s figure by well over 40 s.
