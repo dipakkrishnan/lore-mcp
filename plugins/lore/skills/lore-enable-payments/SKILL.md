@@ -346,8 +346,14 @@ Real money is a separate, deliberate step. Never initiate it; the owner asks.
 When they do, verify the gates **from state** before driving anything:
 
 1. At least one active publication pushed to the node (a real buyer must
-   never pay real USDC against an empty catalog) — `lore publication list`
-   and the node's own `discover` manifest.
+   never pay real USDC against an empty catalog). Read it from the node's own
+   `discover` manifest: run `lore desktop-state` and look at
+   `publications.items[].live`. `true` on at least one approved publication
+   holds the gate. `false` means approved here but not on the node; `null`
+   means the node could not be reached, so nothing is confirmed. Either fails
+   the gate. `lore publication list` and `lore status` count approval on this
+   Mac only and never prove a publication is live, so do not use them for this
+   gate.
 2. A full test-network payment settled end to end — `lore node sales --json`
    lists every settled sale with its network and payer, so one row on
    `eip155:84532` proves the rail. Whether any came from a wallet that is not
@@ -375,8 +381,11 @@ never in conversation); half a pair refuses to start.
 
 > **Lore desktop:** a store opened from the app is already on real money. The
 > switch exists only for a store opened earlier on the test network: read gate
-> 1 from `lore publication list`, quietly, say where it stands in one
-> sentence, and take the owner's explicit yes as gate 3; a settled test sale
+> 1 from `lore desktop-state` (`publications.items[].live`, not `lore
+> publication list`), quietly, say where it stands in one sentence, and if no
+> approved publication is live (`false`, or `null` when the node could not be
+> reached) say which and stop, pointing the owner to the app's **Push**
+> button. Take the owner's explicit yes as gate 3; a settled test sale
 > is not required in the app. Never run `npm run pay`, query the chain, or
 > call an explorer from the app: its sandbox cannot bind sockets or reach
 > them. Then call `open_store` with network `real` and no address; the app
