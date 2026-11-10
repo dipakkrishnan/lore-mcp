@@ -487,6 +487,7 @@ textarea.form-prompt::placeholder { color: var(--text-3); }
 .copy-row .btn { flex-shrink: 0; }
 .inline-notice { padding-right: var(--s-3); }
 .agent-wait { display: flex; align-items: center; gap: var(--s-2); font-size: var(--fs-13); color: var(--text-2); }
+.agent-wait > button { margin-left: auto; }
 .sign-in-code { align-self: flex-start; margin: 0; padding: var(--s-3) var(--s-5); border-radius: var(--r-12); background: var(--bg); font: 600 var(--fs-20)/1 var(--font); letter-spacing: 0.2em; color: var(--text-1); }
 .agent-instead { margin: 0; }
 .agent-link { display: flex; align-items: center; gap: var(--s-2); width: 100%; padding: var(--s-3) var(--s-3) var(--s-3) var(--s-4); border: 1px solid transparent; border-radius: var(--r-12); background: var(--bg); font: inherit; color: var(--text-1); cursor: pointer; text-align: left; transition: border-color var(--dur), background var(--dur); }
@@ -975,7 +976,10 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .invrow .st.draft, .invrow .st.wait { color: var(--amber); }
 .invrow .st.owed { color: var(--red); }
 .invrow .cost { width: var(--s-10); text-align: right; flex-shrink: 0; font-size: var(--fs-12); color: var(--text-2); font-variant-numeric: tabular-nums; }
-.invrow .new-mark { vertical-align: 1px; }
+/* A New row's title takes only the room it needs, so the mark sits right after it; a long title is cut short before the
+   mark, which keeps its own width (APP-270). */
+.invrow .say:has(+ .new-mark) { flex: 0 1 auto; }
+.invrow .new-mark { flex-shrink: 0; margin-left: 0; margin-right: auto; }
 .invrow button.say { text-align: left; }
 .invrow button.say:focus-visible { outline: none; }
 .invrow:has(.say:focus-visible) { background: var(--bg-active); }

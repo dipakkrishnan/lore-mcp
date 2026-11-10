@@ -1,11 +1,11 @@
 // What a Lore node shows an agent before any payment, stated once for the two
 // checks that hold a node to it: scripts/smoke.ts against a running or
-// deployed node, and test/request-path.test.ts in workerd on every CI run.
+// deployed node, and test/paid-path.test.ts ("before anyone pays") in workerd on every CI run.
 //
 // The canonical tool contract is contracts/mcp_tools.json. smoke.ts cannot
 // read it — it also runs from the copy `lore node deploy` materializes, which
 // has no contracts/ directory — so the names are repeated here on purpose and
-// test/request-path.test.ts fails when they drift from that file.
+// test/paid-path.test.ts ("before anyone pays") fails when they drift from that file.
 //
 // Keep this free of imports: it is bundled into the workerd test run.
 

@@ -7,17 +7,17 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "check": "tsc --noEmit",
-    "test": "tsx scripts/test.ts",
+    "test": "node --import tsx test/policy.test.ts && tsx scripts/test.ts",
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@x402/evm": "2.28.0",
-    "agents": "0.29.0",
-    "viem": "2.57.8"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@x402/evm": "2.29.0",
+    "agents": "0.32.0",
+    "viem": "2.57.14"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   }

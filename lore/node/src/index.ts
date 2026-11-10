@@ -18,11 +18,12 @@ import {
 import { type Collection, collectionCopy, collections, listing, members, toolName } from "./collections.js";
 import { answerReadiness, runAnswer } from "./answer.js";
 import { FREE_LINK, freeFirst, freeLeft, giveCopy } from "./free.js";
-import { TESTNET, facilitator, network, networkLabel } from "./network.js";
-import { PRICE_USD } from "./price.js";
+import { facilitator, network, networkLabel } from "./network.js";
+import { type Paid, type Receipt, SESSION, findItem, paidBy, priceOf, storeFor, takesCards, verifiable } from "./pricing.js";
 import { type Copy, ensureReceiptSchema, keepCopy, keptCopy } from "./receipts.js";
+import { freeCookie, freeCookieHeader, pageRoute, postRoute } from "./routes.js";
 import { cardSale, ensureRefundColumn, ensureRefundTracking, ensureSalesSchema, recorded } from "./sales.js";
-import { type Piece, type Store, collectionPage, notFound, pieces, publicationPage, storefront, unlockedPage } from "./storefront.js";
+import { type Piece, type Store, collectionPage, notFound, publicationPage, storefront, unlockedPage } from "./storefront.js";
 import { toolSpanAttributes } from "./telemetry.js";
 import { withSpan } from "./tracing.js";
 import { countView } from "./views.js";
@@ -319,18 +320,10 @@ export class LorePaidMCP extends McpAgent<Env> {
 
 const mcp = LorePaidMCP.serve("/mcp", { binding: "LorePaidMCP" });
 
-/** Cards can't charge less, so a store priced below this offers no card checkout. */
-const CARD_MINIMUM_USD = 0.5;
-const STRIPE_ACCOUNT = /^acct_[A-Za-z0-9]+$/;
-/** A Checkout Session, or a bid's direct charge (MON-054); checkout verifies either. */
-const SESSION = /^(cs|pi)_[A-Za-z0-9_]+$/;
 const PUBLIC = { "cache-control": "public, max-age=60" };
 const PRIVATE = { "cache-control": "private, no-store", "referrer-policy": "no-referrer" };
 const html = (body: string | null, status: number, cache: Record<string, string>) =>
   new Response(body, { status, headers: { "content-type": "text/html; charset=utf-8", ...cache } });
-
-type Receipt = { paid: boolean; piece?: string; origin?: string; payment_intent?: string; amount_usd?: number };
-type Paid = { tx: string; priceUsd: number };
 
 /** Ask Lore's checkout whether this receipt paid for this piece in this store; anything else, including an outage, is no. */
 async function paidFor(env: Env, account: string, session: string, piece: { id: string }, origin: string): Promise<Paid | null> {
@@ -339,9 +332,7 @@ async function paidFor(env: Env, account: string, session: string, piece: { id: 
     const response = await fetch(`${env.CHECKOUT_URL}/verify?${query}`);
     if (!response.ok) return null;
     const receipt: Receipt = await response.json();
-    const tx = receipt.payment_intent ?? "";
-    const matches = receipt.paid && receipt.piece === piece.id && receipt.origin === origin && tx;
-    return matches ? { tx, priceUsd: receipt.amount_usd ?? 0 } : null;
+    return paidBy(receipt, piece.id, origin);
   } catch {
     return null;
   }
@@ -371,9 +362,10 @@ async function pieceCopy(db: D1Database, found: Piece): Promise<Copy | null> {
 }
 
 function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: AnswerSettings, id: string): Sellable | undefined {
-  const all = pieces(catalog);
-  const found = all.find((piece) => piece.id === id);
-  if (found) {
+  const item = findItem(catalog, sets, id);
+  if (!item) return undefined;
+  if ("piece" in item) {
+    const found = item.piece;
     return {
       id,
       teaser: found.teaser,
@@ -384,8 +376,7 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
       page: (store, problem, left = 0) => publicationPage(found, store, problem, left)
     };
   }
-  const set = sets.find((candidate) => candidate.id === id);
-  if (!set) return undefined;
+  const { set } = item;
   return {
     id,
     teaser: set.title,
@@ -399,7 +390,7 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
 /** A payment checkout confirms into this store's account, for this item in this store, and what it
  * bought: the item as it stands, or nothing if it has since been taken down. */
 async function settled(env: Env, account: string, session: string, id: string, origin: string, item?: Sellable): Promise<Settled | null> {
-  const paid = SESSION.test(session) && STRIPE_ACCOUNT.test(account) ? await paidFor(env, account, session, { id }, origin) : null;
+  const paid = verifiable(session, account) ? await paidFor(env, account, session, { id }, origin) : null;
   if (!paid) return null;
   const copy = item ? await item.copy() : null;
   return { ...paid, id, title: copy && item ? item.sold(copy) : (item?.teaser ?? "A piece since taken down"), copy };
@@ -434,42 +425,22 @@ async function receiptPage(env: Env, store: Store, account: string, session: str
   return html(item.page(store, problem), 200, PRIVATE);
 }
 
-const FREE_COOKIE = /(?:^|;\s*)lore_free=(free_[0-9a-f]{32})/;
-
 /** A reader taking a free copy, kept under a link of its own like a card receipt. A browser that
  * already took one is sent back to it instead of spending another. */
 async function readFree(request: Request, env: Env, store: Store, id: string, found: Piece | undefined): Promise<Response> {
   const db = env.LORE_DB;
   await Promise.all([ensureReceiptSchema(db), ensureRefundColumn(db)]);
-  const cookie = request.headers.get("cookie")?.match(FREE_COOKIE)?.[1];
+  const cookie = freeCookie(request.headers.get("cookie"));
   const mine = cookie && (await keptCopy(db, cookie, id)) ? cookie : null;
   const copy = mine || !found ? null : await pieceCopy(db, found);
   const link = mine ?? (copy ? await giveCopy(db, copy, store.freeCopies ?? 0) : null);
   if (link) {
-    const cookie = `lore_free=${link}; Path=/p/${id}; Max-Age=31536000; Secure; HttpOnly; SameSite=Lax`;
-    return new Response(null, { status: 303, headers: { location: `/p/${id}?session_id=${link}`, "set-cookie": cookie, ...PRIVATE } });
+    const headers = { location: `/p/${id}?session_id=${link}`, "set-cookie": freeCookieHeader(link, id), ...PRIVATE };
+    return new Response(null, { status: 303, headers });
   }
   if (!found) return html(notFound(store), 404, PRIVATE);
   return html(publicationPage(found, store, "There are no free copies of this piece left."), 200, PRIVATE);
 }
-
-function storeFor(env: Env, url: URL, settings: AnswerSettings, priceUsd = priceOf(settings)): Store {
-  return {
-    name: settings.listedName,
-    priceUsd,
-    origin: url.origin,
-    test: network(env) === TESTNET,
-    freeCopies: settings.freeCopies,
-    support: settings.supportEmail,
-    selling: settings.selling,
-    agentsPay: takesAgentPayments(env),
-    ...(settings.selling && takesCards(settings, priceUsd) ? { checkout: env.CHECKOUT_URL } : {})
-  };
-}
-
-const takesCards = (settings: AnswerSettings, priceUsd: number) => STRIPE_ACCOUNT.test(settings.stripeAccount) && priceUsd >= CARD_MINIMUM_USD;
-/** What a piece costs: the owner's pushed price, so a new price needs no redeploy; the deployed one until a push carries it. */
-const priceOf = (settings: AnswerSettings) => settings.publicationPriceUsd || PRICE_USD;
 
 /** Lore's checkout saying a card payment finished, so the sale counts even if the buyer never returns. The
  * notice only names a session: it is checked with checkout before anything is written. */
@@ -495,13 +466,13 @@ function agentOrBuyer(request: Request, env: Env, ctx: ExecutionContext): Promis
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const page = url.pathname === "/" || /^\/p(\/|$)/.test(url.pathname);
+    const page = pageRoute(url.pathname);
     if (page && (request.method === "GET" || request.method === "HEAD")) {
       const settings = await readAnswerSettings(env.LORE_DB);
       const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
-      const [, id, format] = url.pathname.match(/^\/p\/([0-9a-f]{24})(\.json|\/)?$/) ?? [];
+      const { id, format } = page;
       const item = id ? sellable(env, catalog, sets, settings, id) : undefined;
-      const store = storeFor(env, url, settings, item?.priceUsd);
+      const store = storeFor(env, url.origin, settings, item?.priceUsd);
       if (format === ".json") {
         // What Lore's checkout reads before charging: only what the page already shows, plus the payee.
         const forSale = item && {
@@ -524,13 +495,13 @@ export default {
       const body = url.pathname === "/" ? storefront(catalog, store, sets) : item ? item.page(store, "", left) : notFound(store);
       return html(request.method === "HEAD" ? null : body, url.pathname === "/" || item ? 200 : 404, PUBLIC);
     }
-    const [, posted, action] = url.pathname.match(/^\/p\/([0-9a-f]{24})\/(paid|free)$/) ?? [];
+    const { id: posted, action } = postRoute(url.pathname) ?? {};
     if (posted && request.method === "POST") {
       const settings = await readAnswerSettings(env.LORE_DB);
       const [catalog, sets] = await Promise.all([catalogOf(env, settings), settings.selling ? collections(env.LORE_DB) : []]);
       const item = sellable(env, catalog, sets, settings, posted);
       return action === "free"
-        ? readFree(request, env, storeFor(env, url, settings), posted, item?.piece)
+        ? readFree(request, env, storeFor(env, url.origin, settings), posted, item?.piece)
         : paidNotice(request, env, settings.stripeAccount, url.origin, posted, item);
     }
     const response = await agentOrBuyer(request, env, ctx);
