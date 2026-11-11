@@ -1,4 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
+import { STYLE } from "../src/layout.js";
 import { Exchange, Store } from "../src/markets.js";
 import worker, { marketPage, marketplacePage } from "../src/worker.js";
 
@@ -26,8 +27,7 @@ test("fills a market with the pieces listed in it, in the store's own words and 
   expect(html).toMatch(/Learning to scuba dive/);
   expect(html).toMatch(/When should a new diver skip a dive\?/);
   expect(html).toMatch(/href="https:\/\/lore\.example\.workers\.dev\/p\/aaaaaaaaaaaaaaaaaaaaaaaa"/);
-  expect(html).toMatch(/<span class="pill">\$1<\/span>/);
-  expect(html).toMatch(/2 pieces · 1 seller/);
+  expect(html).toMatch(/<a class="line" href="https:\/\/lore\.example\.workers\.dev\/p\/aaaaaaaaaaaaaaaaaaaaaaaa"><span class="amt">\$1<\/span><span class="q">When should a new diver skip a dive\?<\/span><span class="side"><span class="mk">Learning to scuba dive<\/span><span>Dipak<\/span><span>Updated Oct 22<\/span><\/span><\/a>/);
   expect(html).toMatch(/<b data-stat="markets" aria-label="1">1<\/b>market<\/li><li><b data-stat="pieces" aria-label="2">2<\/b>pieces/);
   expect(html).not.toMatch(/class="lede"/);
 });
@@ -65,39 +65,65 @@ test("drops sellers and markets that aren't well formed", async () => {
   expect(exchange.markets.map((m) => m.id)).toEqual(["learning-to-dive"]);
 });
 
-test("a tab, a search and a seller each narrow the markets, and work without a script", async () => {
+const two = async () => {
   const markets = [
     { id: "learning-to-dive", name: "Learning to scuba dive", tab: "Travel" },
     { id: "soccer-tactics", name: "Soccer tactics", tab: "Sports" }
   ];
-  const shane = { ...seller, name: "Shane", node: "https://shane.example.workers.dev/mcp", store: "https://shane.example.workers.dev/", listings: [{ market: "soccer-tactics", piece: C }] };
-  const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }, shane], markets), async (s) =>
-    s.name === "Shane" ? { topics: { soccer: [{ id: C, teaser: "How should wingers play?", updated_at: "2026-08-10" }] } } : catalog
+  const shane = { ...seller, name: "Shane", node: "https://shane.example.workers.dev/mcp", store: "https://shane.example.workers.dev/", network: "eip155:84532", listings: [{ market: "soccer-tactics", piece: C }] };
+  return load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }, { market: "learning-to-dive", piece: B }] }, shane], markets), async (s) =>
+    s.name === "Shane" ? { topics: { soccer: [{ id: C, teaser: "How should wingers play?", updated_at: "2026-11-01" }] } } : catalog
   );
-  const cards = (html) => (html.match(/<li class="card"/g) ?? []).length;
-  expect(cards(marketplacePage(exchange))).toBe(2);
-  expect(cards(marketplacePage(exchange, { tab: "sports" }))).toBe(1);
-  expect(cards(marketplacePage(exchange, { q: "wingers" }))).toBe(1);
-  expect(cards(marketplacePage(exchange, { seller: "shane" }))).toBe(1);
-  expect(marketplacePage(exchange, { q: "nothing like this" })).toMatch(/<p class="empty none">Nothing here matches/);
-  expect(marketplacePage(exchange, { tab: "sports" })).toMatch(/href="\/marketplace\?tab=sports" class="on"/);
+};
+const rows = (html) => [...html.matchAll(/<a class="line" href="[^"]*\/p\/([a-z])/g)].map(([, piece]) => piece);
+
+test("the markets are one list of rows, newest first, with each market as a text tab", async () => {
+  const html = marketplacePage(await two());
+  expect(rows(html)).toEqual(["c", "a", "b"]);
+  expect(html).toMatch(/<span class="mk">Soccer tactics<\/span><span>Shane · test store<\/span>/);
+  expect(html).toMatch(/<nav class="tabs" aria-label="Markets"><ul><li><a href="\/marketplace" class="on" aria-current="page">All<small>3<\/small><\/a><\/li><li><a href="\/marketplace\/learning-to-dive">Learning to scuba dive<small>2<\/small><\/a><\/li><li><a href="\/marketplace\/soccer-tactics">Soccer tactics<small>1<\/small><\/a><\/li><\/ul><\/nav>/);
+  expect(html).not.toMatch(/class="(card|grid|rows|row|pill|tape|offer)"|<select|section class="tab"|data-live="latest"/);
 });
 
-test("a market's page shows each piece's free sample and a way to buy it", async () => {
-  const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }]));
+test("a search and a seller each narrow the rows, and work without a script", async () => {
+  const exchange = await two();
+  expect(rows(marketplacePage(exchange, { q: "wingers" }))).toEqual(["c"]);
+  expect(rows(marketplacePage(exchange, { q: "bonaire" }))).toEqual(["a"]);
+  expect(rows(marketplacePage(exchange, { seller: "shane" }))).toEqual(["c"]);
+  expect(marketplacePage(exchange, { seller: "shane" })).toMatch(/<input type="hidden" name="seller" value="shane">/);
+  expect(marketplacePage(exchange, { q: "nothing like this" })).toMatch(/<p class="empty none">Nothing here matches/);
+  expect(marketplacePage(exchange)).toMatch(/<p class="empty none" hidden>/);
+  expect(marketplacePage(exchange)).toMatch(/data-search="learning to scuba dive travel when should a new diver skip a dive\? bonaire gave me a foundation\. you&#39;re planning a first trip\. dipak"/);
+});
+
+test("a market's page is the same list, narrowed to it, with its tab lit and its own fixed counts", async () => {
+  const exchange = await two();
   const html = marketPage(exchange, "learning-to-dive");
-  expect(html).toMatch(/<blockquote>Bonaire gave me a foundation\.<\/blockquote>/);
-  expect(html).toMatch(/Useful if you&#39;re planning a first trip\./);
-  expect(html).toMatch(/>View &amp; buy · \$1 →</);
+  expect(rows(html)).toEqual(["a", "b"]);
+  expect(html).toMatch(/<li><a href="\/marketplace\/learning-to-dive" class="on" aria-current="page">Learning to scuba dive<small>2<\/small>/);
+  expect(html).toMatch(/<li><a href="\/marketplace">All<small>3<\/small>/);
+  expect(html).toMatch(/<li><b>2<\/b>pieces<\/li><li><b>1<\/b>seller<\/li><li><b>\$1<\/b>lowest price<\/li>/);
+  expect(html).not.toMatch(/data-stat=/);
+  expect(html).toMatch(/<form class="search" method="get" action="\/marketplace\/learning-to-dive"/);
+  expect(html).not.toMatch(/class="(card|grid|offers|offer|related)"|<blockquote>|View &amp; buy/);
+  expect(rows(marketPage(exchange, "learning-to-dive", { q: "drills" }))).toEqual(["b"]);
   expect(marketPage(exchange, "nowhere")).toMatch(/No market by that name has a listing/);
 });
 
-test("the latest strip carries only real dates, labelled for what they are", async () => {
-  const exchange = await load(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }] }]));
-  const html = marketplacePage(exchange);
-  expect(html).toMatch(/<time>Oct 22<\/time>Updated in Learning to scuba dive/);
-  expect(html).toMatch(/<time>Sep 15<\/time>Dipak opened a store/);
-  expect(html).toMatch(/<ul data-live="latest" data-key="2026-10-22:aaaaaaaaaaaaaaaaaaaaaaaa\|2026-09-15:Dipak">/);
+test("searches inside a market on the server at /marketplace/:id?q=", async () => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify(list([{ ...seller, listings: [{ market: "learning-to-dive", piece: A }, { market: "learning-to-dive", piece: B }] }]))));
+  vi.spyOn(Store.prototype, "catalog").mockResolvedValue(catalog);
+  const response = await worker.fetch(new Request("https://yourlore.dev/marketplace/learning-to-dive?q=drills"), {});
+  expect(response.status).toBe(200);
+  const html = await response.text();
+  expect(rows(html)).toEqual(["b"]);
+  expect(html).toMatch(/name="q" value="drills"/);
+});
+
+test("the site's style no longer carries the card grid", () => {
+  expect(STYLE).not.toMatch(/\.(card|grid|rows|pill|glyph|tape|who|foot-row|related)\b/);
+  expect(STYLE).not.toMatch(/\.tabs (form|select|button)/);
+  expect(STYLE).toMatch(/\.line\{/);
 });
 
 test("survives a registry that can't be loaded or isn't shaped like one", async () => {
@@ -131,9 +157,5 @@ test("serves the registry itself at /marketplace.json", async () => {
 test("serves the live counts the page follows at /marketplace/stats.json", async () => {
   vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response(JSON.stringify({ ...list([{ ...seller, listings: [] }]) })));
   const response = await worker.fetch(new Request("https://yourlore.dev/marketplace/stats.json"), {});
-  const { latest, latest_key, ...counts } = await response.json();
-  expect(counts).toEqual({ markets: 0, pieces: 0, sellers: 1 });
-  // The strip follows the same reply, redrawn only when its key moves.
-  expect(latest_key).toBe("2026-09-15:Dipak");
-  expect(latest).toMatch(/<time>Sep 15<\/time>Dipak opened a store/);
+  expect(await response.json()).toEqual({ markets: 0, pieces: 0, sellers: 1 });
 });

@@ -501,6 +501,53 @@ class LoginTest(LoreTestCase):
         ):
             deploy_module.login()
 
+    def test_signing_in_without_node_says_to_install_it(self) -> None:
+        with (
+            patch("lore.deploy.shutil.which", return_value=None),
+            self.assertRaisesRegex(OSError, "install it from nodejs.org"),
+        ):
+            deploy_module.login()
+        self.assertFalse(self.store.exists(), "nothing was staged without Node")
+
+    def test_an_install_that_left_no_wrangler_is_not_marked_done(self) -> None:
+        target = deploy_module.materialize(0.1)
+        (target / deploy_module.INSTALLED).write_text("an older install")
+        with (
+            patch(
+                "lore.deploy.subprocess.run",
+                side_effect=lambda args, **_: subprocess.CompletedProcess(
+                    args, 0, "", ""
+                ),
+            ),
+            self.assertRaisesRegex(OSError, "without wrangler"),
+        ):
+            deploy_module.install(target)
+        self.assertFalse((target / deploy_module.INSTALLED).exists())
+        self.assertFalse(deploy_module.installed(target))
+
+
+class AccountsTest(LoreTestCase):
+    """The accounts the owner can put the store on, through wrangler's own sign-in."""
+
+    def _accounts(self, wrangler: _Wrangler) -> list[str]:
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.cloudflare.request.urlopen", FakeCloudflare([ADA, LAB])),
+            captured(),
+        ):
+            return [account.id for account in deploy_module.accounts()]
+
+    def test_a_signed_in_owner_sees_every_account(self) -> None:
+        self.assertEqual(self._accounts(_Wrangler(token="t0k")), [ADA["id"], LAB["id"]])
+
+    def test_no_sign_in_is_not_signed_in(self) -> None:
+        with self.assertRaises(deploy_module.StoreFailed) as failed:
+            self._accounts(_Wrangler())
+        self.assertEqual(
+            (failed.exception.reason, str(failed.exception)),
+            ("not_signed_in", deploy_module.NOT_SIGNED_IN),
+        )
+
 
 class MaterializeTest(LoreTestCase):
     def test_an_installed_cli_refuses_to_ignore_checkout_edits(self) -> None:
@@ -519,6 +566,71 @@ class MaterializeTest(LoreTestCase):
 
         self.assertIn("uv tool install --force --reinstall .", str(raised.exception))
         self.assertIn("rerun `lore node deploy`", str(raised.exception))
+
+    def _trees(self, project: str = "lore-mcp") -> tuple[Path, Path]:
+        """A checkout's `lore/node` and an installed copy, each one file, alike."""
+        root = self.lore_home.parent / "checkout"
+        checkout = root / "lore/node/src"
+        installed = self.lore_home.parent / "installed/node/src"
+        for folder in (checkout, installed):
+            folder.mkdir(parents=True)
+            (folder / "network.ts").write_text("same guard")
+        (root / "pyproject.toml").write_text(f'[project]\nname = "{project}"\n')
+        return checkout, installed.parent
+
+    def test_outside_any_checkout_the_installed_source_is_trusted(self) -> None:
+        elsewhere = self.lore_home.parent / "elsewhere"
+        elsewhere.mkdir()
+        _, installed = self._trees()
+        (installed / "src/network.ts").write_text("anything at all")
+        with patch("lore.deploy.Path.cwd", return_value=elsewhere):
+            deploy_module._refuse_dev_source_drift(installed)
+
+    def test_another_projects_node_folder_is_not_a_lore_checkout(self) -> None:
+        checkout, installed = self._trees(project="someone-else")
+        (checkout / "network.ts").write_text("their own code")
+        with patch("lore.deploy.Path.cwd", return_value=checkout):
+            deploy_module._refuse_dev_source_drift(installed)
+
+    def test_a_checkout_matching_the_install_goes_ahead(self) -> None:
+        checkout, installed = self._trees()
+        with patch("lore.deploy.Path.cwd", return_value=checkout):
+            deploy_module._refuse_dev_source_drift(installed)
+
+    def test_a_checkout_missing_a_shipped_file_is_drift(self) -> None:
+        checkout, installed = self._trees()
+        (installed / "src/price.ts").write_text("a file the checkout dropped")
+        with (
+            patch("lore.deploy.Path.cwd", return_value=checkout),
+            self.assertRaisesRegex(OSError, "deploy stopped"),
+        ):
+            deploy_module._refuse_dev_source_drift(installed)
+
+    def test_a_price_file_without_its_declaration_stops_the_build(self) -> None:
+        with (
+            patch.object(deploy_module, "PRICE_DECLARATION", "export const NOPE = 1;"),
+            self.assertRaisesRegex(OSError, "could not configure the node price"),
+        ):
+            deploy_module.materialize(0.37)
+        # The half-built folder is taken back down, not left beside the store.
+        leftovers = list(self.store.parent.glob(f".{self.store.name}-*"))
+        self.assertEqual(leftovers, [])
+        self.assertFalse(self.store.exists())
+
+    def test_logs_and_secrets_beside_the_source_do_not_change_the_digest(self) -> None:
+        package = self.lore_home.parent / "package/lore"
+        source = package / "node/src"
+        source.mkdir(parents=True)
+        (source / "index.ts").write_text("export default {};")
+        # Replaces importlib.resources.files process-wide, only inside this block;
+        # as_file hands a plain path back unchanged.
+        with patch("lore.deploy.resources.files", return_value=package):
+            clean = deploy_module.shipped_store()
+            for stray in (".dev.vars", ".buyer.env", "wrangler-1.log"):
+                (package / "node" / stray).write_text("SECRET=1")
+            self.assertEqual(deploy_module.shipped_store(), clean)
+            (source / "index.ts").write_text("export default { changed: true };")
+            self.assertNotEqual(deploy_module.shipped_store(), clean)
 
     def test_the_packaged_source_lands_without_dev_artifacts(self) -> None:
         target = deploy_module.materialize(0.37)
@@ -1686,6 +1798,14 @@ class WhyTheStoreFailedTest(_NodeCase):
             str(failed),
         )
 
+    def test_wranglers_not_logged_in_words_are_not_signed_in(self) -> None:
+        failed = deploy_module.StoreFailed.of(
+            OSError("d1 create failed:\nNot logged in. Run `wrangler login`.")
+        )
+        self.assertEqual(
+            (failed.reason, str(failed)), ("not_signed_in", deploy_module.NOT_SIGNED_IN)
+        )
+
     def test_a_timeout_and_an_unknown_cause_are_said_plainly(self) -> None:
         timed = deploy_module.StoreFailed.of(
             OSError("deploy timed out after 300s:\n...")
@@ -1884,6 +2004,17 @@ class ReadyTheAccountTest(_NodeCase):
         self.assertEqual(code, 0)
         self.assertTrue(wrangler.named("deploy"))
         self.assertIn("network is unreachable", deploy_module.store_log().read_text())
+
+    def test_a_refusal_that_is_not_about_email_leaves_the_deploy_to_wrangler(
+        self,
+    ) -> None:
+        self._api(FakeCloudflare(refused=(10000, "Authentication error")))
+        code, wrangler = self._deploy(
+            None, price_usd=None, inbox_only=True, token="t0k"
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(wrangler.named("deploy"))
+        self.assertIn("Authentication error", deploy_module.store_log().read_text())
 
     def test_an_account_id_must_look_like_one(self) -> None:
         with self.assertRaisesRegex(ValueError, "32 lowercase hex"):
