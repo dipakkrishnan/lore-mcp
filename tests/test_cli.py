@@ -1125,7 +1125,12 @@ class StatusTest(LoreTestCase):
         with captured() as output:
             cli.status()
         text = output.getvalue()
-        self.assertIn("1 active publication (externally usable)", text)
+        self.assertIn(
+            "1 active publication (approved on this Mac; "
+            "`lore desktop-state` shows what is live)",
+            text,
+        )
+        self.assertNotIn("externally usable", text)
         self.assertIn("Publication price: $1.00", text)
         self.assertIn("Node (last deploy): https://lore.example.workers.dev/mcp", text)
         self.assertNotIn("nothing is for sale", text)

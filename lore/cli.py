@@ -1678,8 +1678,14 @@ def status() -> int:
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
         f"{published} active publication{'' if published == 1 else 's'}"
-        # Approved is not usable outside this Mac until the store sells (XC-069).
-        + ("" if node_url and not node_selling else " (externally usable)")
+        # Approved is not usable outside this Mac until the store sells (XC-069),
+        # and a local count never says what the node holds (MON-022): only
+        # `desktop-state` asks the node, so this label must not claim liveness.
+        + (
+            ""
+            if node_url and not node_selling
+            else " (approved on this Mac; `lore desktop-state` shows what is live)"
+        )
     )
     if stale:
         muted(

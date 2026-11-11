@@ -340,7 +340,8 @@ class OwnerLifecycleTest(unittest.TestCase):
 
         status = self.lore("status")
         self.assertIn(
-            "3 private · 1 discarded · 1 active publication (externally usable)",
+            "3 private · 1 discarded · 1 active publication "
+            "(approved on this Mac; `lore desktop-state` shows what is live)",
             status,
         )
         self.assertIn(f"Database: {self.lore_home / 'lore.db'}", status)

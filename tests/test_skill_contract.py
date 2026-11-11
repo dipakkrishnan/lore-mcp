@@ -353,6 +353,20 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("no coinbase developer keys in the app", skill)
         self.assertIn("a payout address is optional", skill)
 
+    def test_the_real_money_gate_reads_liveness_from_the_node(self) -> None:
+        """MON-022: approval on this Mac is not a live catalog, so gate 1 names the
+        one command that asks the node and the one that cannot."""
+        skill = " ".join(
+            (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text().lower().split()
+        )
+        gate = skill[skill.index("7. mainnet") :]
+        self.assertIn("`lore desktop-state`", gate)
+        self.assertIn("`publications.items[].live`", gate)
+        self.assertIn("`null` means the node could not be reached", gate)
+        self.assertIn("count approval on this mac only", gate)
+        # The desktop switch reads the same field, never the local list.
+        self.assertIn("read gate > 1 from `lore desktop-state`", gate)
+
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
         skill = (
