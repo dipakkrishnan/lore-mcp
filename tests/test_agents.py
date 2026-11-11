@@ -4,9 +4,11 @@ owner's Keychain."""
 
 from __future__ import annotations
 
+import io
 import json
 import sqlite3
 import subprocess
+from contextlib import redirect_stderr
 from datetime import datetime
 from unittest.mock import patch
 
@@ -14,7 +16,7 @@ import httpx2
 from helpers import NodeCase, captured
 
 from lore import automation, cli
-from lore.agents import Agents
+from lore.agents import EXPIRED, Agents
 from lore.inbox import Inbox, InboxError
 from lore.snapshot import build
 from lore.sources import Connector, Registry
@@ -720,6 +722,24 @@ class SignInTest(AgentCase):
         db = sqlite3.connect(self.d1.path)
         self.assertEqual(db.execute("SELECT count(*) FROM agents").fetchone()[0], 0)
         self.assertEqual(self.json("agents", "list"), {"agents": []})
+
+    def test_allowing_a_sign_in_no_longer_waiting_says_it_expired(self) -> None:
+        # With no name or app given, Lore names the agent from the sign-in itself;
+        # one that expired, or was never asked, leaves nothing to name it from.
+        self.address()
+        expired, _ = self.d1.ask("Claude", minutes=-1)
+        for sign_in in (expired, "never-asked"):
+            with self.subTest(sign_in=sign_in), redirect_stderr(io.StringIO()) as err:
+                code, out = self.lore("agents", "allow", sign_in, "--json")
+                self.assertEqual((code, out), (2, ""))
+                self.assertEqual(err.getvalue(), f"lore: {EXPIRED}\n")
+        self.assertEqual(self.d1.sign_in(expired)["state"], "pending")
+        self.assertEqual(self.keyring.saved, {})
+        with Store() as store:
+            self.assertIsNone(store.setting("signed_in_agents", None))
+        db = sqlite3.connect(self.d1.path)
+        self.addCleanup(db.close)
+        self.assertEqual(db.execute("SELECT count(*) FROM agents").fetchone()[0], 0)
 
     def test_only_the_owner_allows_or_refuses_a_sign_in(self) -> None:
         self.address()
