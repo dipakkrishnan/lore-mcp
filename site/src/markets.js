@@ -100,7 +100,7 @@ const market = (entry) => (SLUG.test(entry?.id) && text(entry.name) && text(entr
 /** Every well-formed market the registry names, listed or not: a bid can ask for what nobody sells yet. */
 export const registryMarkets = (list) => (Array.isArray(list?.markets) ? list.markets : []).map(market).filter(Boolean);
 
-/** The whole exchange: markets with their rows, the sellers behind them, and what changed lately. */
+/** The whole exchange: markets with their rows, and the sellers behind them. */
 export class Exchange {
   constructor(markets, sellers) {
     this.markets = markets;
@@ -136,23 +136,12 @@ export class Exchange {
     }
   }
 
-  get tabs() {
-    return [...new Set(this.markets.map((m) => m.tab))];
-  }
-
   get pieces() {
     return this.markets.reduce((n, m) => n + m.rows.length, 0);
   }
 
   market(id) {
     return this.markets.find((m) => m.id === id);
-  }
-
-  /** Real events only: pieces by the day their store last changed them, and stores by the day they were listed. */
-  recent(limit = 8) {
-    const updated = this.markets.flatMap((m) => m.rows.filter((r) => r.updated).map((r) => ({ day: r.updated, row: r, market: m })));
-    const opened = this.sellers.filter((s) => s.listed).map((s) => ({ day: s.listed, seller: s }));
-    return [...updated, ...opened].sort((a, b) => b.day.localeCompare(a.day)).slice(0, limit);
   }
 }
 

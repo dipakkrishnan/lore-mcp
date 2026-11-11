@@ -7,7 +7,7 @@ import { frontDoor } from "./agents.js";
 import { BidDesk, isBidPath } from "./bid-routes.js";
 import { countDemand } from "./demand.js";
 import { downloadPage } from "./download.js";
-import { clip, date, escape, money, page, plural } from "./layout.js";
+import { date, escape, money, page, plural } from "./layout.js";
 import { Exchange, sellersOf } from "./markets.js";
 
 export { BidRail } from "./bid-rail.js";
@@ -15,10 +15,8 @@ export { BidBook } from "./bids.js";
 
 const LIST = "https://raw.githubusercontent.com/dipakkrishnan/lore-marketplace/main/marketplace.json";
 const HOME = "https://yourlore.dev/marketplace";
-const ROWS_SHOWN = 3;
 const slug = (text) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const sentence = (text) => (/^[A-Z][a-z]/.test(text) ? text[0].toLowerCase() + text.slice(1) : text);
-const searchable = (m) => [m.name, m.tab, ...m.rows.flatMap((r) => [r.question, r.sample, r.usefulIf, r.seller.name])].join(" ").toLowerCase();
+const searchable = (m, r) => [m.name, m.tab, r.question, r.sample, r.usefulIf, r.seller.name].join(" ").toLowerCase();
 
 const SEARCH_ICON = `<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
@@ -30,30 +28,32 @@ const offer = (row) => ({
   offers: { "@type": "Offer", price: row.price, priceCurrency: "USD", url: row.url, seller: { "@type": "Person", name: row.seller.name, url: row.seller.store } }
 });
 
-const row = (r) =>
-  `<li class="row"><a href="${escape(r.url)}"><span><span class="q">${escape(r.question)}</span><span class="who">${escape(r.seller.name)}${r.seller.test ? " · test store" : ""}</span></span><span class="pill">${money(r.price)}</span></a></li>`;
+/** Every piece in these markets, one row per market it's listed in, the most recently updated first. */
+const entries = (markets) =>
+  markets.flatMap((m) => m.rows.map((r) => ({ m, r }))).sort((a, b) => b.r.updated.localeCompare(a.r.updated) || a.r.question.localeCompare(b.r.question));
 
-function card(m) {
-  const people = sellersOf(m);
-  return `<li class="card" data-search="${escape(searchable(m))}"><h3><span class="glyph" aria-hidden="true">${escape(m.name[0])}</span><a href="/marketplace/${m.id}">${escape(m.name)}</a></h3>
-<ul class="rows">${m.rows.slice(0, ROWS_SHOWN).map(row).join("")}</ul>
-<div class="foot-row"><span>${plural(m.rows.length, "piece")} · ${plural(people.length, "seller")}</span><a href="/marketplace/${m.id}">Open market →</a></div></li>`;
+/** One piece as a row, drawn like a bid on /bids: price · question · market, seller, updated. The row opens the piece on its store. */
+const line = ({ m, r }) =>
+  `<li data-k="${escape(`${m.id}:${r.id}`)}" data-search="${escape(searchable(m, r))}"><a class="line" href="${escape(r.url)}"><span class="amt">${money(r.price)}</span><span class="q">${escape(r.question)}</span><span class="side"><span class="mk">${escape(m.name)}</span><span>${escape(r.seller.name)}${r.seller.test ? " · test store" : ""}</span>${r.updated ? `<span>Updated ${date(r.updated)}</span>` : ""}</span></a></li>`;
+
+/** The markets as text tabs, as on /bids: All, then each market with a listing, the fullest first. */
+function tabs(exchange, current) {
+  const tab = (href, name, n, on) => `<li><a href="${href}"${on ? ' class="on" aria-current="page"' : ""}>${escape(name)}<small>${n}</small></a></li>`;
+  const fullest = [...exchange.markets].sort((a, b) => b.rows.length - a.rows.length || a.name.localeCompare(b.name));
+  return `<nav class="tabs" aria-label="Markets"><ul>${tab("/marketplace", "All", exchange.pieces, !current)}${fullest.map((m) => tab(`/marketplace/${m.id}`, m.name, m.rows.length, m === current)).join("")}</ul></nav>`;
 }
 
-/** The latest events as list items, and a key that changes only when they do, so the strip redraws on real news. */
-function latest(exchange) {
-  const events = exchange.recent(5);
-  const item = (e) =>
-    e.row
-      ? `<li data-k="${escape(`${e.day}:${e.row.id}`)}"><a href="${escape(e.row.url)}"><time>${date(e.day)}</time>Updated in ${escape(e.market.name)}: ${escape(clip(e.row.question, 48))}</a></li>`
-      : `<li data-k="${escape(`${e.day}:${e.seller.name}`)}"><a href="${escape(e.seller.store)}"><time>${date(e.day)}</time>${escape(e.seller.name)} opened a store</a></li>`;
-  return { html: events.map(item).join(""), key: events.map((e) => `${e.day}:${e.row ? e.row.id : e.seller.name}`).join("|") };
+/** The tabs and the rows, narrowed to one market (or none), a seller and a search. Without a script the form searches on the server. */
+function list(exchange, current, { q = "", seller = "" }) {
+  const query = q.trim().toLowerCase();
+  const who = exchange.sellers.find((s) => slug(s.name) === seller);
+  const shown = entries(current ? [current] : exchange.markets).filter(({ m, r }) => (!who || r.seller === who) && (!query || searchable(m, r).includes(query)));
+  return `${tabs(exchange, current)}<ul class="list">${shown.map(line).join("")}</ul><p class="empty none"${shown.length ? " hidden" : ""}>Nothing here matches that yet.</p>`;
 }
 
-function tape(exchange) {
-  const { html, key } = latest(exchange);
-  if (!html) return "";
-  return `<div class="tape"><span>Latest</span><ul data-live="latest" data-key="${escape(key)}">${html}</ul></div>`;
+function search(action, exchange, { q = "", seller = "" }) {
+  const who = exchange?.sellers.find((s) => slug(s.name) === seller);
+  return `<form class="search" method="get" action="${action}" role="search">${SEARCH_ICON}${who ? `<input type="hidden" name="seller" value="${escape(slug(who.name))}">` : ""}<input type="search" name="q" value="${escape(q)}" placeholder="Search questions, markets, sellers" aria-label="Search the markets"></form>`;
 }
 
 function stores(exchange) {
@@ -63,37 +63,17 @@ function stores(exchange) {
   return `<h2 class="part">Stores</h2><ul class="stores">${exchange.sellers.map(store).join("")}</ul>`;
 }
 
-/** The markets, by tab, optionally narrowed by a search and a seller. */
-export function marketplacePage(exchange, { tab = "", q = "", seller = "" } = {}) {
-  const tabs = exchange?.tabs ?? [];
-  const current = tabs.find((t) => slug(t) === tab) ?? "";
-  const who = exchange?.sellers.find((s) => slug(s.name) === seller);
-  const query = q.trim().toLowerCase();
-  const shown = (exchange?.markets ?? []).filter(
-    (m) => (!current || m.tab === current) && (!who || m.rows.some((r) => r.seller === who)) && (!query || searchable(m).includes(query))
-  );
-  const link = (t) => {
-    const params = new URLSearchParams({ ...(t ? { tab: slug(t) } : {}), ...(who ? { seller: slug(who.name) } : {}) });
-    return `/marketplace${params.size ? `?${params}` : ""}`;
-  };
-  const sellerPick = exchange?.sellers.length
-    ? `<form method="get" action="/marketplace">${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<select name="seller" aria-label="Seller"><option value="">All sellers</option>${exchange.sellers.map((s) => `<option value="${escape(slug(s.name))}"${s === who ? " selected" : ""}>${escape(s.name)}</option>`).join("")}</select> <button type="submit">Go</button></form>`
-    : "";
-  const sections = (current ? [current] : tabs)
-    .map((t) => [t, shown.filter((m) => m.tab === t)])
-    .filter(([, list]) => list.length)
-    .map(([t, list]) => `<section class="tab"><h2>${escape(t)}</h2><ul class="grid">${list.map(card).join("")}</ul></section>`)
-    .join("");
+/** Every market's pieces as one list of rows, narrowed by a search or a seller. */
+export function marketplacePage(exchange, filters = {}) {
   const body = !exchange
     ? `<p class="empty">The markets can't be loaded right now. Try again in a minute.</p>`
     : !exchange.markets.length
       ? `<p class="empty">No market has a listing yet.</p>`
-      : `${sections}<p class="empty none"${shown.length ? " hidden" : ""}>Nothing here matches that yet.</p>`;
+      : list(exchange, null, filters);
   const count = (key, n, one) => `<li><b data-stat="${key}" aria-label="${n}">${n}</b>${n === 1 ? one : `${one}s`}</li>`;
   const head = `<header class="head"><div><h1>Markets</h1>
 ${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "market")}${count("pieces", exchange.pieces, "piece")}${count("sellers", exchange.sellers.length, "seller")}</ul>` : ""}</div>
-<form class="search" method="get" action="/marketplace" role="search">${SEARCH_ICON}${current ? `<input type="hidden" name="tab" value="${escape(slug(current))}">` : ""}<input type="search" name="q" value="${escape(q)}" placeholder="Search questions, markets, sellers" aria-label="Search the markets"></form></header>
-<div class="tabs"><ul>${["", ...tabs].map((t) => `<li><a href="${link(t)}"${t === current ? ' class="on" aria-current="page"' : ""}>${escape(t || "All")}</a></li>`).join("")}</ul>${sellerPick}</div>`;
+${search("/marketplace", exchange, filters)}</header>`;
   const data = exchange && {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -107,13 +87,13 @@ ${exchange ? `<ul class="stats">${count("markets", exchange.markets.length, "mar
     description: "Browse markets of firsthand experience. Read free samples; every payment goes straight to the person who lived it.",
     canonical: HOME,
     section: "markets",
-    body: `${head}${exchange ? tape(exchange) : ""}${body}${exchange ? stores(exchange) : ""}`,
+    body: `${head}${body}${exchange ? stores(exchange) : ""}`,
     data
   });
 }
 
-/** One market: every piece listed in it, with its free sample and a way to buy. */
-export function marketPage(exchange, id) {
+/** One market: the same list of rows, narrowed to it, with its tab lit. */
+export function marketPage(exchange, id, filters = {}) {
   const m = exchange?.market(id);
   if (!m) {
     return page({
@@ -125,19 +105,18 @@ export function marketPage(exchange, id) {
     });
   }
   const people = sellersOf(m);
-  const item = (r) =>
-    `<li class="offer"><div><h2><a href="${escape(r.url)}">${escape(r.question)}</a></h2>${r.sample ? `<blockquote>${escape(r.sample)}</blockquote>` : ""}${r.usefulIf ? `<p class="fit">Useful if ${escape(sentence(r.usefulIf))}</p>` : ""}<p class="by">From <a href="${escape(r.seller.store)}">${escape(r.seller.name)}</a>${r.seller.test ? " · test store" : ""}${r.updated ? ` · updated ${date(r.updated)}` : ""}</p></div>
-<div class="buy"><a class="go" href="${escape(r.url)}">View &amp; buy · ${money(r.price)} →</a></div></li>`;
-  const nearby = exchange.markets.filter((other) => other.tab === m.tab && other !== m);
+  // This market's own counts, fixed: the page's poll follows the whole exchange, so nothing here carries data-stat.
+  const stat = (value, label) => `<li><b>${value}</b>${label}</li>`;
   return page({
     title: `${m.name} · Lore markets`,
     description: `${plural(m.rows.length, "firsthand piece")} on ${m.name.toLowerCase()}, from ${plural(people.length, "seller")}. Samples are free.`,
     canonical: `${HOME}/${m.id}`,
     section: "markets",
     alternate: `${HOME}/${m.id}.json`,
-    body: `<p class="crumb"><a href="/marketplace">Markets</a> / <a href="/marketplace?tab=${slug(m.tab)}">${escape(m.tab)}</a></p><h1>${escape(m.name)}</h1>
-<ul class="stats"><li><b>${m.rows.length}</b>${m.rows.length === 1 ? "piece" : "pieces"}</li><li><b>${people.length}</b>${people.length === 1 ? "seller" : "sellers"}</li><li><b>${money(Math.min(...m.rows.map((r) => r.price)))}</b>lowest price</li></ul>
-<ul class="offers">${m.rows.map(item).join("")}</ul>${nearby.length ? `<h2 class="part">More in ${escape(m.tab)}</h2><ul class="related">${nearby.map((o) => `<li><a href="/marketplace/${o.id}">${escape(o.name)} · ${o.rows.length}</a></li>`).join("")}</ul>` : ""}`,
+    body: `<header class="head"><div><p class="crumb"><a href="/marketplace">Markets</a></p><h1>${escape(m.name)}</h1>
+<ul class="stats">${stat(m.rows.length, m.rows.length === 1 ? "piece" : "pieces")}${stat(people.length, people.length === 1 ? "seller" : "sellers")}${stat(money(Math.min(...m.rows.map((r) => r.price))), "lowest price")}</ul></div>
+${search(`/marketplace/${m.id}`, exchange, filters)}</header>
+${list(exchange, m, filters)}`,
     data: { "@context": "https://schema.org", "@type": "ItemList", name: m.name, url: `${HOME}/${m.id}`, numberOfItems: m.rows.length, itemListElement: m.rows.map((r, i) => ({ "@type": "ListItem", position: i + 1, item: offer(r) })) }
   });
 }
@@ -201,12 +180,11 @@ const worker = {
     }
     const exchange = await Exchange.load(list);
     if (stats) {
-      const { html, key } = latest(exchange);
-      return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length, latest: html, latest_key: key }, { headers: { "cache-control": "public, max-age=30" } });
+      return Response.json({ markets: exchange.markets.length, pieces: exchange.pieces, sellers: exchange.sellers.length }, { headers: { "cache-control": "public, max-age=30" } });
     }
-    if (id) return html(marketPage(exchange, id), exchange.market(id) ? 200 : 404);
-    const params = url.searchParams;
-    return html(marketplacePage(exchange, { tab: params.get("tab") ?? "", q: params.get("q") ?? "", seller: params.get("seller") ?? "" }));
+    const filters = { q: url.searchParams.get("q") ?? "", seller: url.searchParams.get("seller") ?? "" };
+    if (id) return html(marketPage(exchange, id, filters), exchange.market(id) ? 200 : 404);
+    return html(marketplacePage(exchange, filters));
   }
 };
 
