@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-27
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -130,3 +130,4 @@ because each can land alone: this item (skip on PRs that cannot affect the app),
 XC-079 (skip on pushes to `main`, which depends on the ruleset staying strict)
 and XC-081 (cancel a PR's superseded run). Their savings overlap; do not add them.
 XC-077 shortens the job itself and is independent of all three.
+- XC-083's reading (2026-11-09): 264 of 414 PR runs (63.8%) started a macOS job between 2026-10-27 and 2026-11-09, inside the about-68% target.

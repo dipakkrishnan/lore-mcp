@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-27
+updated: 2026-11-09
 ---
 
 ## Problem
@@ -132,3 +132,4 @@ up as a second push with a new SHA, which no query can tie to the first.
 The 48-of-228 baseline here matches XC-077; XC-072's "26 of 456 runs (5.7%)" is a
 step count, as XC-077's Notes explain, and the per-run baseline for Oct 5-20 was
 26 of 100.
+- XC-083's reading (2026-11-09): the desktop job failed on 58 of 307 runs (18.9%), with 30 walks passing on retry across 28 runs, from 2026-10-27 to 2026-11-09. The under-3% target is not met; it moved to XC-130, which names the causes.

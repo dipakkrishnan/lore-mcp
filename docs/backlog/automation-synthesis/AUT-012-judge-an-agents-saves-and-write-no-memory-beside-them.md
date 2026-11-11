@@ -3,7 +3,7 @@ id: AUT-012
 title: Judge an agent's saves, and write no memory beside them
 priority: P1
 effort: S
-component: automation
+component: automation-synthesis
 status: in-review
 related: [AUT-005, APP-233, APP-235, APP-263]
 blockers: []
