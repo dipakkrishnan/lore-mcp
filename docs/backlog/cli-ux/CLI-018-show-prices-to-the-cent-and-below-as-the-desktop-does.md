@@ -4,7 +4,7 @@ title: Show prices below a cent, and past two decimals, as the desktop does
 priority: P2
 effort: S
 component: cli-ux
-status: in-review
+status: ready
 related: [APP-211, APP-019]
 blockers: []
 dependencies: []
@@ -54,3 +54,5 @@ the free/paid line in `price()` on the stored, rounded value. Leave `CARD_MINIMU
 
 Found 2026-11-11 by the lore-worker while reading the deploy price guard (`MINIMUM_PRICE`,
 lore/deploy.py:133) after TEST-deploy (#697). APP-211 and APP-019 cover the desktop only.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria give exact commands, outputs and the test lines to change.

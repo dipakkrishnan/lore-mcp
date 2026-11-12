@@ -2,7 +2,7 @@
 id: APP-036
 title: Guide Cloudflare and wallet setup inside Desktop
 priority: P1
-effort: M
+effort: L
 component: desktop-app
 status: ready
 related: [APP-004, APP-005, APP-006, APP-030, MON-006, XC-005]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -65,3 +65,5 @@ this ticket owns the deeper first-time deployment guidance. Implement the first
 real dogfood break, not every possible Cloudflare or wallet workflow.
 
 **Prioritization pass 2026-08-26:** No blockers, scope explicitly excludes a general browser/shell bridge. Promoted `in-review` → `ready`.
+
+**Prioritization pass 2026-11-11:** Effort M → L: six criteria spanning new typed runtime actions, a Cloudflare and Coinbase conversation harness with resume and failure branches, and checkpointed cancellation is more than two days of work.

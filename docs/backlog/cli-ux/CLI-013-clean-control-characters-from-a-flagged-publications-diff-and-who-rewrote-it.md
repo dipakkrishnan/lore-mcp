@@ -4,13 +4,13 @@ title: Clean control characters from a flagged publication's diff and from who i
 priority: P1
 effort: XS
 component: cli-ux
-status: in-review
+status: ready
 related: [XC-019, CLI-002, CLI-014, CLI-015]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -63,3 +63,5 @@ Found by PR #445 (tests for `lore/ui.py`), which reported this and left it
 unpinned. `updated_at` is out of scope: the store writes it and the note cuts
 it to its first ten characters. CLI-002's subprocess smoke test runs
 `lore publication list` and could carry an end-to-end case once this lands.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria name the exact test file and inputs.

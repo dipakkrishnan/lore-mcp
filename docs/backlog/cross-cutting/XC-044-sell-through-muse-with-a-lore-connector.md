@@ -1,7 +1,7 @@
 ---
 id: XC-044
 title: Sell through Muse with a Lore connector
-priority: P1
+priority: P2
 effort: L
 component: cross-cutting
 status: ready
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["Muse connector review and business verification", "Stripe: connected account profile management enabled for Lore (only for the SPT route)"]
 github_issue: null
 created: 2026-10-04
-updated: 2026-10-06
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -71,3 +71,5 @@ checkout handoff the connector's job is helping Muse users find Lore pieces;
 the payment itself still goes through Lore's checkout. Before submitting,
 yourlore.dev needs real /privacy and /terms pages: today the site's fallback
 serves the home page at both.
+
+**Prioritization pass 2026-11-11:** P1 → P2: effort L and both dependencies (Muse connector review, Stripe connected-account profile management) are outside the repo, so it can't move ahead of the unblocked S/M items in P1.

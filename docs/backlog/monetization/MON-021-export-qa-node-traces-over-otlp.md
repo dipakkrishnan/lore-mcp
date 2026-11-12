@@ -4,13 +4,13 @@ title: Export QA node traces over OTLP and assert node health after each deploy
 priority: P2
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [MON-008, MON-020, XC-008, XC-029]
 blockers: [XC-029]
 dependencies: ["An OTLP destination for lore-qa configured in the maintainers' Cloudflare Workers Observability dashboard, pointed at the XC-029 collector — cannot be created from a tracked file"]
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -52,3 +52,5 @@ itself, extended to post-deploy request evidence.
 Blocked on `XC-029` existing at all, and on dashboard access to create the
 destination — the same blocker shape `MON-016` already describes for
 `MON-008`'s secrets.
+
+**Prioritization pass 2026-11-11:** Moved `ready` → `in-review`: its blocker XC-029 is still `ready`, not `completed`, so it cannot start yet.

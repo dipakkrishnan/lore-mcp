@@ -1,16 +1,16 @@
 ---
 id: APP-137
 title: Give Today one next step instead of five equal ones
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-136, APP-138, APP-139]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -36,3 +36,7 @@ setup guide, Linear onboarding.
 - [ ] Today shows at most one primary action at a time.
 - [ ] The remaining setup steps are in a collapsed checklist with a count.
 - [ ] One "Draft something to sell" entry replaces Paste and Publish.
+
+## Notes
+
+**Prioritization pass 2026-11-11:** Moved `ready` → `in-review` and P1 → P2: APP-283 (#641) replaced Today with an Inbox, so these criteria name a page that no longer exists. Rewrite them against the Inbox, or mark this `obsolete` if the Inbox already gives one next step.

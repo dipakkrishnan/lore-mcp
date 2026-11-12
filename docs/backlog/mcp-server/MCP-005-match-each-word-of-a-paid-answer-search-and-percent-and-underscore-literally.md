@@ -4,13 +4,13 @@ title: Match each word of a paid-answer search, and % and _ literally
 priority: P2
 effort: S
 component: mcp-server
-status: in-review
+status: ready
 related: [MCP-003, MCP-004, EVAL-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -79,3 +79,5 @@ splitting answers `[]` without querying the database.
   buyer.
 - Without an `ORDER BY`, which 8 rows come back from a large match is
   arbitrary. Ranking results is out of scope here.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers, every criterion is a concrete query/result pair. The non-ASCII case-folding question is explicitly out of scope.

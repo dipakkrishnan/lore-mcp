@@ -1,16 +1,16 @@
 ---
 id: XC-112
 title: Say a broken answer from the hosted store plainly, not as a Python error
-priority: P2
+priority: P1
 effort: XS
 component: cross-cutting
-status: in-review
+status: ready
 related: [APP-181, XC-088]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-31
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -55,3 +55,5 @@ the connection.
 Separate from APP-181, whose criterion 2 covers the visible symptom across every
 tab; this is the one fix in `hosted.py`. Not reproduced, from reading only: a
 truncated relay answer in `feedback.submit` skips the spool update the same way.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready` and P2 → P1: XS, no blockers, and it is the `hosted.py` half of APP-181 (P1), which can't stop tabs printing Python errors while this path raises them.
