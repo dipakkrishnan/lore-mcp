@@ -30,7 +30,14 @@ from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
 from lore.cloudflare import Account
-from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
+from lore.store import (
+    AnswerSettings,
+    JobKind,
+    JobStatus,
+    PublicationKind,
+    Status,
+    Store,
+)
 
 
 def write_launch_key(path: Path, text: str) -> None:
@@ -202,6 +209,23 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("2026-09-02    free  A", output.getvalue())
         self.assertNotIn("refund owed", output.getvalue())
 
+    def test_node_sales_shows_prices_below_a_cent(self) -> None:
+        row = {
+            "kind": "publication",
+            "item_id": "0000000000000000fcdb4b42",
+            "title": "A",
+            "price_usd": 0.001,
+            "network": "eip155:84532",
+            "payer": "0xpayer",
+            "tx": "0xtx",
+            "sold_at": "2026-09-02T18:00:00Z",
+        }
+        rows = [deploy_module.Sale(**row | {"tx": f"0xtx{n}"}) for n in range(3)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("3 sales · $0.003", output.getvalue())
+        self.assertIn("2026-09-02  $0.001  A", output.getvalue())
+
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
         with patch("lore.deploy.views", return_value=rows), captured() as output:
@@ -292,6 +316,34 @@ class MainDispatchTest(LoreTestCase):
             self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 1)
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
+
+    def test_node_secret_hides_a_typed_value_in_a_terminal(self) -> None:
+        """MON-006: provider API keys are typed here, so they are never echoed."""
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch("getpass.getpass", return_value=" sk-ant \n") as hidden,
+        ):
+            self.assertEqual(cli.main(["node", "secret", "ANTHROPIC_API_KEY"]), 0)
+        hidden.assert_called_once()
+        self.assertEqual(secret.call_args.args, ("ANTHROPIC_API_KEY", "sk-ant"))
+
+    def test_node_secrets_lists_names_without_owner_gate(self) -> None:
+        names = ["ANTHROPIC_API_KEY", "LORE_WALLET"]
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            patch.object(cli, "_interactive", return_value=False),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets"]), 0)
+        self.assertEqual(output.getvalue().split(), names)
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), names)
 
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
@@ -1137,6 +1189,22 @@ class StatusTest(LoreTestCase):
         self.assertIn("● Codex", text)
         self.assertIn("○ Claude Code", text)
 
+    def test_status_shows_prices_below_a_cent(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.001)
+            store.set_answer_settings(
+                AnswerSettings(
+                    answer_price_usd=0.001,
+                    answer_enabled=True,
+                    proxy_preamble="Act as Ada's concise, evidence-first proxy.",
+                )
+            )
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("Publication price: $0.001", text)
+        self.assertIn("enabled ($0.001 per answer)", text)
+
     def test_status_keeps_reminding_while_a_revocation_has_not_reached_the_node(
         self,
     ) -> None:
@@ -1192,17 +1260,49 @@ class PriceTest(LoreTestCase):
 
         with captured() as output:
             self.assertEqual(cli.price(1.239), 0)
-        self.assertIn("$1.24", output.getvalue())
+        self.assertIn("$1.239", output.getvalue())
         with Store() as store:
             self.assertEqual(store.setting("price_usd"), 1.239)
 
         with captured() as output:
             cli.price(None)
-        self.assertIn("$1.24 per publication", output.getvalue())
+        self.assertIn("$1.239 per publication", output.getvalue())
 
         with captured() as output:
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
+
+    def test_price_below_a_cent_is_shown_whole(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.price(0.001), 0)
+        self.assertIn("Publication price set to $0.001", output.getvalue())
+        with captured() as output:
+            cli.price(None)
+        self.assertIn("$0.001 per publication", output.getvalue())
+
+    def test_price_that_rounds_to_zero_is_free(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.price(0.0000004), 0)
+        self.assertIn("Publications are free", output.getvalue())
+        self.assertNotIn("$0.00", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting("price_usd"), 0.0)
+
+    def test_usd_keeps_two_to_six_decimals(self) -> None:
+        cases = {
+            0.001: "$0.001",
+            1.239: "$1.239",
+            0.5: "$0.50",
+            1: "$1.00",
+            0.01: "$0.01",
+            0: "$0.00",
+            0.0000004: "$0.00",
+            0.1234567: "$0.123457",
+            0.0030000000000000005: "$0.003",
+        }
+        for amount, expected in cases.items():
+            with self.subTest(amount=amount):
+                self.assertEqual(cli._usd(amount), expected)
 
     def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
         with captured() as output:
@@ -1411,6 +1511,15 @@ class AnswerCommandTest(LoreTestCase):
         )
         self.assertEqual(settings.answer_price_usd, 0.5)
         self.assertTrue(settings.answer_enabled)
+
+    def test_enabling_below_a_cent_shows_the_whole_price(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_enable(self.proxy_file(), 0.001), 0)
+        self.assertIn("$0.001 per answer", output.getvalue())
 
     def test_invalid_price_or_empty_proxy_is_refused(self) -> None:
         for amount in (0.0, -1.0, float("nan"), float("inf")):
@@ -2512,6 +2621,33 @@ class PublicationCommandTest(LoreTestCase):
         self.assertIn('"Pricing lesson" was rewritten by', text)
         self.assertIn("-Pricing lesson about deployment", text)
         self.assertIn("+a changed body", text)
+
+    def test_list_shows_changed_lines_that_start_with_dashes_or_pluses(self) -> None:
+        def write(content: str, fingerprint: str) -> None:
+            with Store() as store:
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path="Pricing lesson",
+                    source_key="Pricing lesson",
+                    fingerprint=fingerprint,
+                    title="Pricing lesson",
+                    content=content,
+                )
+
+        # The snapshot taken at publish holds the approved text.
+        write("title\n---\nbody\n--flag", "approved")
+        self.publish()
+        write("title\nbody\n++x", "changed")
+        with captured() as out:
+            cli.publication_list()
+        lines = out.getvalue().splitlines()
+        for expected in ("      ----", "      ---flag", "      +++x"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, lines)
+        text = out.getvalue()
+        self.assertNotIn("--- approved", text)
+        self.assertNotIn("+++ current", text)
 
     def test_list_groups_publications_flagged_by_the_same_change(self) -> None:
         first = self.publish("First claim")
