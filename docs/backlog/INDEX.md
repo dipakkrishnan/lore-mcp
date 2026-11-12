@@ -226,24 +226,7 @@ obsolete), then `priority` (P0 → P3).
 | [MON-041](./monetization/MON-041-explain-free-copies-where-the-price-is-set-and-limit-them-per-reader.md) | Explain free copies where the price is set and limit them per reader | P1 | S | monetization | ready | MON-040, APP-136, MON-035 | — | — | — |
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [MON-056](./monetization/MON-056-let-a-seller-send-a-bid-answer-from-their-own-store.md) | Let a seller send a bid answer from their own store, with no admin token | P1 | M | monetization | ready | APP-274, MON-051, XC-115, XC-118 | — | MON-051, APP-274 | — |
-<<<<<<< HEAD
 | [CLI-015](./cli-ux/CLI-015-keep-tabs-and-separator-characters-from-reshaping-the-terminal-cards.md) | Keep tabs and separator characters from reshaping the terminal cards | P2 | S | cli-ux | ready | CLI-013, XC-019 | — | — | — |
-=======
-<<<<<<< HEAD
->>>>>>> origin/main
-| [MCP-005](./mcp-server/MCP-005-match-each-word-of-a-paid-answer-search-and-percent-and-underscore-literally.md) | Match each word of a paid-answer search, and % and _ literally | P2 | S | mcp-server | ready | MCP-003, MCP-004, EVAL-002 | — | — | — |
-=======
-| [CLI-014](./cli-ux/CLI-014-show-every-changed-line-in-a-flagged-publications-diff.md) | Show every changed line in a flagged publication's diff, including lines that start with -- or ++ | P2 | XS | cli-ux | ready | XC-019, CLI-013 | — | — | — |
-<<<<<<< HEAD
-=======
->>>>>>> origin/main
-| [CLI-018](./cli-ux/CLI-018-show-prices-to-the-cent-and-below-as-the-desktop-does.md) | Show prices below a cent, and past two decimals, as the desktop does | P2 | S | cli-ux | ready | APP-211, APP-019 | — | — | — |
-<<<<<<< HEAD
-=======
->>>>>>> origin/main
-| [MON-058](./monetization/MON-058-stop-a-failed-d1-list-from-crashing-or-hiding-why-the-deploy-stopped.md) | Stop a failed `d1 list` from crashing the deploy or hiding why it stopped | P2 | S | monetization | ready | XC-085, XC-069, XC-086 | — | — | — |
->>>>>>> origin/main
-| [MON-057](./monetization/MON-057-say-no-way-to-be-paid-on-a-first-deploy-not-worker-not-found.md) | Say "no way to be paid" on a first deploy, not "Worker not found" | P2 | S | monetization | ready | MON-047, XC-069, XC-085, MON-024 | — | — | — |
 | [XC-044](./cross-cutting/XC-044-sell-through-muse-with-a-lore-connector.md) | Sell through Muse with a Lore connector | P2 | L | cross-cutting | ready | XC-039, MON-026, XC-041 | — | "Muse connector review and business verification", "Stripe: connected account profile management enabled for Lore (only for the SPT route)" | — |
 | [APP-070](./desktop-app/APP-070-let-the-owner-type-while-lore-works.md) | Let the owner type while Lore works | P2 | M | desktop-app | ready | APP-069, APP-054 | — | — | — |
 | [APP-080](./desktop-app/APP-080-list-setup-and-publish-under-recent-runs.md) | List setup and publish under Recent runs | P2 | M | desktop-app | ready | APP-007 | — | — | — |
@@ -314,15 +297,9 @@ obsolete), then `priority` (P0 → P3).
 | [APP-029](./desktop-app/APP-029-one-live-input-at-a-time.md) | One live input at a time — the card or the composer, never both | P0 | S | desktop-app | completed | APP-016, APP-020, APP-028 | — | — | — |
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
-<<<<<<< HEAD
 | [APP-183](./desktop-app/APP-183-make-the-stores-status-agree-with-itself-everywhere.md) | Make the store's status agree with itself everywhere | P1 | S | desktop-app | completed | APP-136, APP-081, APP-079 | — | — | — |
-=======
-<<<<<<< HEAD
 | [MON-006](./monetization/MON-006-split-deploy-into-its-own-skill.md) | Move deploy mechanics from the skill into the CLI when edge serving lands | P1 | S | monetization | completed | MON-002, MON-004, MON-005, XC-005 | — | — | — |
-=======
 | [XC-112](./cross-cutting/XC-112-say-a-broken-answer-from-the-hosted-store-plainly.md) | Say a broken answer from the hosted store plainly, not as a Python error | P1 | XS | cross-cutting | completed | APP-181, XC-088 | — | — | — |
->>>>>>> origin/main
->>>>>>> origin/main
 | [CLI-013](./cli-ux/CLI-013-clean-control-characters-from-a-flagged-publications-diff-and-who-rewrote-it.md) | Clean control characters from a flagged publication's diff and from who it says rewrote the memory | P1 | XS | cli-ux | completed | XC-019, CLI-002, CLI-014, CLI-015 | — | — | — |
 | [MON-042](./monetization/MON-042-settle-keyless-real-money-stores-through-payai.md) | Settle keyless real-money stores through PayAI, not the test facilitator | P1 | XS | monetization | completed | MON-005, MON-025 | — | — | — |
 | [XC-097](./cross-cutting/XC-097-tag-every-test-by-level-and-run-the-tiers-separately.md) | Tag every test by level and run the tiers separately | P1 | M | cross-cutting | completed | XC-096, XC-099, APP-272, XC-106, XC-107 | — | — | — |
@@ -444,19 +421,11 @@ obsolete), then `priority` (P0 → P3).
 | [APP-203](./desktop-app/APP-203-a-row-menu-is-never-cut-off.md) | A row menu is never cut off | P1 | XS | desktop-app | completed | APP-200, APP-201 | — | — | — |
 | [APP-204](./desktop-app/APP-204-a-row-menu-closes-on-a-click-elsewhere.md) | A row menu closes on a click elsewhere | P1 | XS | desktop-app | completed | APP-200, APP-203 | — | — | — |
 | [XC-128](./cross-cutting/XC-128-fix-the-two-flakes-main-hit-after-the-test-pyramid.md) | Fix the two flakes main hit after the test pyramid | P1 | S | cross-cutting | completed | XC-106, APP-270, XC-124, XC-109 | — | — | — |
-<<<<<<< HEAD
-| [MON-058](./monetization/MON-058-stop-a-failed-d1-list-from-crashing-or-hiding-why-the-deploy-stopped.md) | Stop a failed `d1 list` from crashing the deploy or hiding why it stopped | P2 | S | monetization | completed | XC-085, XC-069, XC-086 | — | — | — |
-=======
-<<<<<<< HEAD
-| [CLI-018](./cli-ux/CLI-018-show-prices-to-the-cent-and-below-as-the-desktop-does.md) | Show prices below a cent, and past two decimals, as the desktop does | P2 | S | cli-ux | completed | APP-211, APP-019 | — | — | — |
-=======
-<<<<<<< HEAD
-| [CLI-014](./cli-ux/CLI-014-show-every-changed-line-in-a-flagged-publications-diff.md) | Show every changed line in a flagged publication's diff, including lines that start with -- or ++ | P2 | XS | cli-ux | completed | XC-019, CLI-013 | — | — | — |
-=======
 | [MCP-005](./mcp-server/MCP-005-match-each-word-of-a-paid-answer-search-and-percent-and-underscore-literally.md) | Match each word of a paid-answer search, and % and _ literally | P2 | S | mcp-server | completed | MCP-003, MCP-004, EVAL-002 | — | — | — |
->>>>>>> origin/main
->>>>>>> origin/main
->>>>>>> origin/main
+| [CLI-014](./cli-ux/CLI-014-show-every-changed-line-in-a-flagged-publications-diff.md) | Show every changed line in a flagged publication's diff, including lines that start with -- or ++ | P2 | XS | cli-ux | completed | XC-019, CLI-013 | — | — | — |
+| [CLI-018](./cli-ux/CLI-018-show-prices-to-the-cent-and-below-as-the-desktop-does.md) | Show prices below a cent, and past two decimals, as the desktop does | P2 | S | cli-ux | completed | APP-211, APP-019 | — | — | — |
+| [MON-058](./monetization/MON-058-stop-a-failed-d1-list-from-crashing-or-hiding-why-the-deploy-stopped.md) | Stop a failed `d1 list` from crashing the deploy or hiding why it stopped | P2 | S | monetization | completed | XC-085, XC-069, XC-086 | — | — | — |
+| [MON-057](./monetization/MON-057-say-no-way-to-be-paid-on-a-first-deploy-not-worker-not-found.md) | Say "no way to be paid" on a first deploy, not "Worker not found" | P2 | S | monetization | completed | MON-047, XC-069, XC-085, MON-024 | — | — | — |
 | [XC-122](./cross-cutting/XC-122-draw-the-markets-pages-as-rows.md) | Draw the Markets pages as rows, in the site's one look | P2 | S | cross-cutting | completed | XC-093, XC-114, XC-094 | — | — | — |
 | [XC-083](./cross-cutting/XC-083-measure-the-ci-changes-over-the-50-runs-after-each-lands.md) | Measure the CI changes over the 50 runs after each lands | P2 | XS | cross-cutting | completed | XC-077, XC-078, XC-080, XC-081, XC-072, APP-247, XC-084, XC-130 | XC-077 | — | — |
 | [XC-103](./cross-cutting/XC-103-unit-test-the-bridge-s-payment-policy-outside-its-stdio-script.md) | Unit-test the bridge's payment policy outside its stdio script | P2 | S | cross-cutting | completed | XC-099 | — | — | — |

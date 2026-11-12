@@ -97,7 +97,13 @@ class _Wrangler:
         d1_id_in_output: bool = True,
         d1_execute_refusals: int = 0,
         install_rewrites_lockfile: bool = False,
+        deployed: bool | None = None,
+        not_found: str = refusals.WORKER_NOT_FOUND,
     ) -> None:
+        # Whether the account already has the store's Worker: a wallet secret
+        # means it does; otherwise it doesn't until a deploy here makes it (MON-057).
+        self.deployed = has_wallet_secret if deployed is None else deployed
+        self.not_found = not_found
         self.deploy_output = deploy_output
         self.logged_in = logged_in
         self.login_fails = login_fails
@@ -146,6 +152,9 @@ class _Wrangler:
                 code, err = 1, "Authentication error [code: 10000]"
             elif self.secret_list_output is not None:
                 out = self.secret_list_output
+            elif not self.deployed:
+                # Wrangler has no empty list for a Worker that was never deployed.
+                code, err = 1, self.not_found
             else:
                 out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
         elif tail[:2] == ("secret", "put"):
@@ -178,6 +187,7 @@ class _Wrangler:
             code, err = 1, refusals.MANY_ACCOUNTS
         elif tail == ("deploy",):
             out = self.deploy_output
+            self.deployed = True
         elif tail[:2] == ("d1", "execute"):
             if self.d1_execute_refusals:
                 self.d1_execute_refusals -= 1
@@ -2029,6 +2039,134 @@ class WhyTheStoreFailedTest(_NodeCase):
         (self.store / ".installed").write_text("an older lockfile")
         _, wrangler = self._deploy(None, price_usd=None, inbox_only=True)
         self.assertTrue([c for c in wrangler.commands if c[:2] == ("npm", "install")])
+
+
+# How wrangler really prints the refusal: esbuild colours it even into a pipe.
+COLOURED_NOT_FOUND = refusals.WORKER_NOT_FOUND.replace(
+    "✘ [ERROR] Worker",
+    "\x1b[31m✘ \x1b[41;31m[\x1b[41;97mERROR\x1b[41;31m]\x1b[0m \x1b[1mWorker",
+).replace("not found.\n", "not found.\x1b[0m\n", 1)
+
+
+class WorkerNotFoundTest(_NodeCase):
+    """MON-057: a first deploy with no way to be paid hears that, not wrangler's
+    "Worker not found" from the payout check's `secret list`."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        with Store() as store:
+            store.set_setting("telemetry_noticed", True)
+            store.set_setting("price_usd", 0.37)
+
+    def _run(
+        self, wrangler: _Wrangler, wallet: str | None = None, **options: bool
+    ) -> BaseException | None:
+        """One deploy against `wrangler`; the error it ended with, if any."""
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job"),
+            captured(),
+        ):
+            try:
+                deploy_module.deploy(wallet, **options)
+            except (OSError, ValueError) as error:
+                return error
+        return None
+
+    def _reasons(self) -> list[object]:
+        log = self.lore_home / "usage.log"
+        lines = log.read_text().splitlines() if log.exists() else []
+        events = [json.loads(line) for line in lines]
+        return [e["props"]["reason"] for e in events if e["name"] == "store.failed"]
+
+    def _assert_refused_for_no_payout(
+        self, wrangler: _Wrangler, error: BaseException | None
+    ) -> None:
+        self.assertIsInstance(error, ValueError)
+        said = str(error)
+        self.assertIn("your store has no way to be paid yet", said)
+        self.assertIn("lore cards connect", said)
+        self.assertIn("--wallet", said)
+        self.assertNotIn("not found", said)
+        self.assertEqual(deploy_module.StoreFailed.of(error).reason, "no_payout")  # type: ignore[arg-type]
+        self.assertEqual(self._reasons(), ["no_payout"])
+        self.assertIn(" no_payout: ", deploy_module.store_log().read_text())
+        # Refused in seconds: nothing was made on the account.
+        self.assertEqual(wrangler.named("d1", "create", "lore-publications"), [])
+        self.assertEqual(wrangler.named("deploy"), [])
+
+    def test_the_fake_answers_not_found_until_a_deploy_has_run(self) -> None:
+        wrangler = _Wrangler(has_wallet_secret=False)
+        listed = wrangler(("wrangler", "secret", "list"), cwd=str(self.store))
+        self.assertEqual(listed.returncode, 1)
+        self.assertIn('✘ [ERROR] Worker "lore" not found.', listed.stderr)
+        wrangler(("wrangler", "deploy"), cwd=str(self.store))
+        listed = wrangler(("wrangler", "secret", "list"), cwd=str(self.store))
+        self.assertEqual((listed.returncode, listed.stdout), (0, "[]"))
+
+    def test_a_first_deploy_with_no_way_to_be_paid_says_so(self) -> None:
+        for said in (refusals.WORKER_NOT_FOUND, COLOURED_NOT_FOUND):
+            with self.subTest(coloured="\x1b" in said):
+                shutil.rmtree(self.lore_home / "logs", ignore_errors=True)
+                (self.lore_home / "usage.log").unlink(missing_ok=True)
+                wrangler = _Wrangler(has_wallet_secret=False, not_found=said)
+                error = self._run(wrangler)
+                self.assertTrue(wrangler.named("secret", "list"))
+                self._assert_refused_for_no_payout(wrangler, error)
+
+    def test_a_deployed_store_with_no_payout_is_still_refused(self) -> None:
+        wrangler = _Wrangler(has_wallet_secret=False, deployed=True)
+        self._assert_refused_for_no_payout(wrangler, self._run(wrangler))
+
+    def test_a_store_online_for_agents_hears_the_same_refusal(self) -> None:
+        # The inbox-only deploy creates the Worker; the listing then answers [].
+        wrangler = _Wrangler(has_wallet_secret=False)
+        self.assertIsNone(self._run(wrangler, inbox_only=True))
+        self.assertTrue(wrangler.deployed)
+        wrangler.commands.clear()
+        error = self._run(wrangler)
+        self.assertIsInstance(error, ValueError)
+        self.assertIn("no way to be paid", str(error))
+        self.assertEqual(wrangler.named("deploy"), [])
+
+    def test_other_listing_failures_still_stop_the_deploy(self) -> None:
+        # A not-found without wrangler's deploy-first advice is some other refusal.
+        for said in (
+            "Authentication error [code: 10000]",
+            "✘ [ERROR] A request to the Cloudflare API failed: not found [code: 10007]",
+            '✘ [ERROR] Worker "lore" not found.\n',
+        ):
+            with self.subTest(said=said):
+                wrangler = _Wrangler(has_wallet_secret=False, not_found=said)
+                error = self._run(wrangler)
+                self.assertIsInstance(error, deploy_module.StoreFailed)
+                self.assertIn(
+                    "reading your store's settings from Cloudflare failed", str(error)
+                )
+                self.assertEqual(wrangler.named("deploy"), [])
+
+    def test_a_first_deploy_with_a_wallet_or_cards_is_unchanged(self) -> None:
+        wrangler = _Wrangler(has_wallet_secret=False)
+        self.assertIsNone(self._run(wrangler, WALLET))
+        self.assertEqual(wrangler.named("secret", "list"), [])
+        self.assertTrue(wrangler.named("deploy"))
+        self.assertEqual(wrangler.secret_values["LORE_WALLET"], WALLET + "\n")
+
+        with Store() as store:
+            store.set_setting("stripe_account", "acct_1Seller")
+        wrangler = _Wrangler(has_wallet_secret=False)
+        self.assertIsNone(self._run(wrangler))
+        self.assertEqual(wrangler.named("secret", "list"), [])
+        self.assertTrue(wrangler.named("deploy"))
+
+    def test_wranglers_own_source_still_advises_a_deploy_first(self) -> None:
+        source = WranglerWordsTest.node / "node_modules/wrangler/wrangler-dist/cli.js"
+        if not source.is_file():
+            self.skipTest("the store's packages aren't installed here")
+        text = source.read_text()
+        self.assertIn("run \\`wrangler deploy\\` first to create it.", text)
+        self.assertIn('telemetryMessage: "secret list worker not found"', text)
 
 
 class ReadyTheAccountTest(_NodeCase):
