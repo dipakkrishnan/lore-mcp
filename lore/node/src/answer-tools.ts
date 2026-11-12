@@ -17,6 +17,42 @@ async function validCitations(env: Env, viewed: Set<string>, cited: string[]) {
   return candidates.filter((id) => active.has(id));
 }
 
+export const MAX_SEARCH_TERMS = 8;
+/** D1 rejects a LIKE pattern longer than this many bytes ("LIKE or GLOB pattern too complex"). */
+export const MAX_PATTERN_BYTES = 50;
+
+const LIKE_SPECIAL = /[\\%_]/;
+
+function utf8Length(codePoint: number) {
+  return codePoint < 0x80 ? 1 : codePoint < 0x800 ? 2 : codePoint < 0x10000 ? 3 : 4;
+}
+
+/** The longest prefix of `term`, by whole code points, whose likePattern fits D1's limit. */
+function fitPattern(term: string) {
+  let kept = "";
+  let bytes = 2; // the leading and trailing %
+  for (const char of term) {
+    const size = utf8Length(char.codePointAt(0) ?? 0) + (LIKE_SPECIAL.test(char) ? 1 : 0);
+    if (bytes + size > MAX_PATTERN_BYTES) break;
+    kept += char;
+    bytes += size;
+  }
+  return kept;
+}
+
+/**
+ * Whitespace-separated words of a search: at most MAX_SEARCH_TERMS of them, each
+ * cut (by whole code points) so its escaped LIKE pattern fits MAX_PATTERN_BYTES.
+ */
+export function searchTerms(query: string): string[] {
+  return query.trim().split(/\s+/).filter(Boolean).slice(0, MAX_SEARCH_TERMS).map(fitPattern);
+}
+
+/** A LIKE pattern matching `term` literally anywhere, for use with ESCAPE '\\'. */
+export function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+}
+
 export function createAnswerTools(
   env: Env,
   finish: (outcome: AnswerOutcome) => void,
@@ -55,15 +91,24 @@ export function createAnswerTools(
   const memorySearch: AgentTool<typeof searchParameters> = {
     name: "memory_search",
     label: "Search publications",
-    description: "Search publication titles, teasers, topics, and content for words.",
+    description:
+      "Search publication titles, teasers, topics, and content. Every word must appear; word order does not matter.",
     parameters: searchParameters,
     async execute(_callId, { query }) {
-      const needle = `%${query.replace(/[%_]/g, " ")}%`;
+      const terms = searchTerms(query);
+      if (!terms.length) return { content: [{ type: "text", text: "[]" }], details: {} };
+      const where = terms
+        .map((_, index) => {
+          const n = `?${index + 1}`;
+          return `(${["title", "teaser", "content", "topic"]
+            .map((column) => `${column} LIKE ${n} ESCAPE '\\'`)
+            .join(" OR ")})`;
+        })
+        .join(" AND ");
       const { results } = await env.LORE_DB.prepare(
-        `SELECT public_id AS id, title, teaser, topic FROM publications
-         WHERE title LIKE ?1 OR teaser LIKE ?1 OR content LIKE ?1 OR topic LIKE ?1 LIMIT 8`
+        `SELECT public_id AS id, title, teaser, topic FROM publications WHERE ${where} LIMIT 8`
       )
-        .bind(needle)
+        .bind(...terms.map(likePattern))
         .all();
       return { content: [{ type: "text", text: JSON.stringify(results) }], details: {} };
     }
