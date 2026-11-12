@@ -4,13 +4,13 @@ title: Keep tabs and separator characters from reshaping the terminal cards
 priority: P2
 effort: S
 component: cli-ux
-status: ready
+status: completed
 related: [CLI-013, XC-019]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,18 +49,18 @@ and the same tab rule for diff lines (CLI-013 adds the cleaning there).
 
 ## Acceptance criteria
 
-- [ ] A tab in each of the title, metadata, teaser, useful if, not useful
+- [x] A tab in each of the title, metadata, teaser, useful if, not useful
       if, free sample and body prints as one or more spaces on both cards,
       never as a raw tab and never as nothing.
-- [ ] `\x0b`, `\x0c`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028` and `\u2029` in a
+- [x] `\x0b`, `\x0c`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028` and `\u2029` in a
       body do not start a new line on either card, and none of them is
       printed.
-- [ ] `a\rb` in a title prints `ab`. In a body it prints as two lines, which
+- [x] `a\rb` in a title prints `ab`. In a body it prints as two lines, which
       is today's behaviour, kept so that a lone carriage return can never
       move the cursor back over a line.
-- [ ] A memory changed only by one of the characters above shows the same
+- [x] A memory changed only by one of the characters above shows the same
       line split in its flag diff as on its card.
-- [ ] The existing control-character tests in `tests/test_ui.py` still pass.
+- [x] The existing control-character tests in `tests/test_ui.py` still pass.
 
 ## Notes
 
@@ -82,3 +82,26 @@ one shared `clean()` helper in `lore/ui.py` and, as its stated tradeoff, now
 deletes tabs inside flagged-publication diff lines too, so this item fixes
 both cards and the diff in one place: apply the tab rule inside `clean()`.
 The zero-width/direction-character question in the Notes stays out of scope.
+
+**Implemented 2026-11-12.** `ui.clean()` now expands tabs to 8-column stops
+before it removes controls, so every field on both cards, and every
+flagged-publication diff line, shows a tab as spaces. This reverses CLI-013's
+stated tradeoff of deleting tabs in diff lines. `clean()` also removes U+2028
+and U+2029. They are not in `CONTROL_CHARACTERS`, so a body split only at real
+line breaks would otherwise have printed them. A separate `CARD_CHARACTERS`
+table holds them, and `CONTROL_CHARACTERS` is unchanged for its other
+importers (feedback, blueprint, capture, marketplace).
+
+A new `store.text_lines()` splits at `\n`, `\r\n` and `\r` only. Both card
+bodies and `flag_detail`'s diff use it, so they break text at the same places.
+
+One limit: `textwrap.fill` drops whitespace at the end of a wrapped line. A tab
+at the end of a body line, at a wrap point, or on a line of its own prints as
+nothing, as trailing spaces would. It is invisible either way, so the tests
+cover tabs inside a line. Tab width is counted from the start of the cleaned
+string, so after a `teaser: ` label or a diff's `+` prefix a tab is narrower
+than 8 spaces.
+
+Out of scope, as above: zero-width and direction-changing characters. Also
+noticed but not changed: `cli.py` prints `memory.title` without `clean()` at
+one site (around line 1605).
