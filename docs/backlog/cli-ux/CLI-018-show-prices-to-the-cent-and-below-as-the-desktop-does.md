@@ -4,7 +4,7 @@ title: Show prices below a cent, and past two decimals, as the desktop does
 priority: P2
 effort: S
 component: cli-ux
-status: ready
+status: completed
 related: [APP-211, APP-019]
 blockers: []
 dependencies: []
@@ -42,12 +42,12 @@ the free/paid line in `price()` on the stored, rounded value. Leave `CARD_MINIMU
 
 ## Acceptance criteria
 
-- [ ] `lore price 0.001` prints "$0.001", and `lore price` then prints "$0.001 per publication".
-- [ ] `lore status` shows a $0.001 publication price and a $0.001 answer price as "$0.001";
+- [x] `lore price 0.001` prints "$0.001", and `lore price` then prints "$0.001 per publication".
+- [x] `lore status` shows a $0.001 publication price and a $0.001 answer price as "$0.001";
       `lore answer on` at 0.001 says "$0.001 per answer".
-- [ ] `lore sales` with three $0.001 sales shows "$0.003" as the total and "$0.001" on each row.
-- [ ] `lore price 0.0000004` says publications are free.
-- [ ] tests/test_cli.py:1188 and :1196 change from "$1.24" to "$1.239". Two-decimal prices are unchanged:
+- [x] `lore sales` with three $0.001 sales shows "$0.003" as the total and "$0.001" on each row.
+- [x] `lore price 0.0000004` says publications are free.
+- [x] tests/test_cli.py:1188 and :1196 change from "$1.24" to "$1.239". Two-decimal prices are unchanged:
       the $0.01 sales tests (around test_cli.py:191-201) and "enabled at $0.50" (around :1401) still pass.
 
 ## Notes
@@ -56,3 +56,20 @@ Found 2026-11-11 by the lore-worker while reading the deploy price guard (`MINIM
 lore/deploy.py:133) after TEST-deploy (#697). APP-211 and APP-019 cover the desktop only.
 
 **Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria give exact commands, outputs and the test lines to change.
+
+**Implementation 2026-11-11:** Added `_usd()` in lore/cli.py: it formats to six decimals, trims trailing
+zeros and keeps at least two, the same output as the desktop's `Intl.NumberFormat` with
+`maximumFractionDigits: 6`. The seven sites use it. `lore price` now bases the free/paid line on the stored
+value `round(amount, 6)`, so 0.0000004 says "Publications are free". Formatting at six decimals also absorbs
+float noise in the sales total (three $0.001 sales sum to 0.0030000000000000005 and print $0.003).
+`CARD_MINIMUM_USD:.2f` and the SQL/manifest `:.6f` lines are unchanged.
+
+Tradeoffs and follow-ups:
+- The desktop's `Intl` output has thousands separators ($1,000.00) and the CLI's doesn't. No current price is
+  that large; `f"{amount:,.6f}"` would add them if a seller ever needs it.
+- Python rounds half to even at the seventh decimal and `Intl` rounds half away from zero, so a price with
+  seven or more decimals can differ by $0.000001. Prices are stored to six decimals, so this only affects
+  float sums.
+- `lore answer on 0.0000004` passes the `price <= 0` check, rounds to 0.0, and then `AnswerSettings`
+  refuses it after the charter is approved, with the generic "cannot be enabled without ... a positive
+  answer price" error. It wasn't changed here and could become its own follow-up.
