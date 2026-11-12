@@ -604,7 +604,8 @@ class MemoryPage {
     }
     if (first?.at) prop("Saved", when(first.at));
     prop("Topic", s.library.items.find((item) => item.id === memory.id)?.project_label || memory.project || "Unsorted");
-    if (drafted && typeof s.pricing.publication_usd === "number") prop("Price", dollars(s.pricing.publication_usd));
+    const each = storePrice(s);
+    if (drafted && each !== null) prop("Price", dollars(each));
     prop("Updated", when(memory.updated_at));
     if (kept) list.append(...kept.children);
     side.append(list);
@@ -810,10 +811,26 @@ function pushDetail(items, index) {
   return `${item.count} publication${item.count === 1 ? "" : "s"} on your store${change}`;
 }
 
-/** Online for the owner's agents only is not live: nothing is for sale (XC-069). @param {Snapshot["node"]} node */
+/** APP-183: how the store stands, worked out once for every screen: its word, the tone of its pill, and whether it takes
+ * play money. Online for the owner's agents only is not live: nothing is for sale (XC-069). An unknown network is not
+ * the test one. @param {Pick<Snapshot, "node">} s @returns {{label: string, tone: "ok" | "attention" | "", test: boolean}} */
+function storeStatus(s) {
+  const { live, selling } = s.node;
+  const label = live.state === "online" ? (selling === false ? "Online" : "Live") : live.state === "unreachable" ? "Offline" : "Not set up";
+  return { label, tone: live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : "", test: live.network === TEST_NETWORK };
+}
+
+/** @param {Snapshot["node"]} node */
 function nodeLabel(node) {
-  const state = node.live.state;
-  return state === "online" ? (node.selling === false ? "Online" : "Live") : state === "unreachable" ? "Offline" : "Not set up";
+  return storeStatus({ node }).label;
+}
+
+/** APP-183: the one price per piece every screen shows: what the owner saved, which the store sells at once any update
+ * goes out, or, with nothing saved, what the store charges. Null when neither is known. @param {Snapshot} s */
+function storePrice(s) {
+  const saved = s.pricing.publication_usd;
+  const live = s.node.live.price_usd;
+  return typeof saved === "number" ? saved : typeof live === "number" ? live : null;
 }
 
 /** @param {string | null} network */
@@ -2386,8 +2403,9 @@ function stalePrice(s) {
 /** The one editor for what a buyer pays: the price per piece and, from a CLI that has them, its free copies. */
 function openPriceSheet() {
   const pricing = snapshot?.pricing;
+  const each = snapshot ? storePrice(snapshot) : null;
   const form = new FormSheet("Price");
-  const amount = form.field("Price per piece", { inputMode: "decimal", placeholder: "0.01", ariaLabel: "Price per publication in US dollars", value: typeof pricing?.publication_usd === "number" ? String(pricing.publication_usd) : "" }, "$");
+  const amount = form.field("Price per piece", { inputMode: "decimal", placeholder: "0.01", ariaLabel: "Price per publication in US dollars", value: each === null ? "" : String(each) }, "$");
   const copies = typeof pricing?.free_copies === "number" ? form.field("Free copies", { inputMode: "numeric", ariaLabel: "Free copies of each piece", value: String(pricing.free_copies) }) : null;
   form.group("", [amount.row, ...(copies ? [copies.row] : [])]);
   form.note("Buyers pay this for each piece, by card or through their AI agent.");
@@ -2593,8 +2611,8 @@ class InventoryView {
 
   /** @param {Snapshot} s @param {InventoryRow} row */
   row(s, row) {
-    const each = dollars(s.pricing.publication_usd ?? 0);
-    const cost = typeof s.pricing.publication_usd === "number" ? each : "";
+    const each = storePrice(s);
+    const cost = each === null ? "" : dollars(each);
     const setPrice = /** @type {[string, () => void]} */ (["Set price", openPriceSheet]);
     // Its mark names where it came from on hover; nothing on record reads as unknown, not as Lore's.
     const sources = row.from?.sources ?? [];
@@ -3444,8 +3462,8 @@ function cardWay(s) {
 /** The card minimum, when Stripe is connected and the price is under it; null otherwise. @param {Snapshot} s */
 function cardMinimum(s) {
   if (!cards || cards instanceof Error || !(cards.account || cards.ready)) return null;
-  const amount = s.pricing.publication_usd;
-  return typeof amount === "number" && amount >= cards.minimum_usd ? null : cards.minimum_usd;
+  const amount = storePrice(s);
+  return amount !== null && amount >= cards.minimum_usd ? null : cards.minimum_usd;
 }
 
 /** Get paid → To your wallet: agents can also pay the wallet the store names directly. @param {Snapshot} s */
@@ -3476,8 +3494,9 @@ function freeCopies(count) {
 
 /** Settings → Your store → Price: the one number, its free copies, and the one way to change both. @param {Snapshot} s */
 function priceSetting(s) {
-  const set = typeof s.pricing.publication_usd === "number";
-  const value = set ? [`${price(s.pricing.publication_usd)} per piece`, freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ") : "Not set";
+  const each = storePrice(s);
+  const set = each !== null;
+  const value = set ? [`${price(each)} per piece`, freeCopies(s.pricing.free_copies)].filter(Boolean).join(" · ") : "Not set";
   const detail = el("span");
   detail.append(el("span", "", "What buyers pay for each piece, by card or through their AI agent."));
   const minimum = cardMinimum(s);
@@ -3489,7 +3508,6 @@ function priceSetting(s) {
 
 /** Settings → Your store → Address: where buyers find the store, whether it answers, and one way to open it. @param {Snapshot} s */
 function addressRow(s) {
-  const live = s.node.live;
   if (!s.node.url) return row("Address", "Where buyers find your pieces once your store opens.", cell(pill("Not open"), button("Open your store", "secondary", () => void startDeploy())), false);
   const home = s.node.url.replace(/\/mcp$/, "");
   const detail = el("span", "address");
@@ -3498,7 +3516,8 @@ function addressRow(s) {
   if (console) detail.append(outLink("Hosted on Cloudflare ↗", console, "quiet-link"));
   const newer = storeUpdate(s);
   if (newer) detail.append(newer.note);
-  return row("Address", detail, cell(pill(nodeLabel(s.node), live.state === "online" ? "ok" : live.state === "unreachable" ? "attention" : ""), ...(newer ? [newer.update] : []), ...(s.node.selling === false ? [button("Open your store", "secondary", () => void startDeploy())] : []), outLink("Open ↗", home)), false);
+  const status = storeStatus(s);
+  return row("Address", detail, cell(pill(status.label, status.tone), ...(newer ? [newer.update] : []), ...(s.node.selling === false ? [button("Open your store", "secondary", () => void startDeploy())] : []), outLink("Open ↗", home)), false);
 }
 
 /** APP-231: a newer store from Lore, offered quietly where the store shows, never as a step: a short line, and an
@@ -4685,7 +4704,7 @@ function renderFaq(s) {
     ])),
     section("Getting paid", card([
       qa("Who buys?", "AI agents in the middle of a task, and people who find your store page. They read your short descriptions and samples for free, and pay to read the full piece."),
-      qa("What does a buyer pay?", faqPrice(s.pricing.publication_usd)),
+      qa("What does a buyer pay?", faqPrice(storePrice(s))),
       qa("How do I get paid?", "By card: Stripe pays you out to your bank. Set it up in Settings → Get paid. Agents can also pay a wallet you control directly. Either way, Lore never holds your money."),
       qa("How do buyers find me?", "Once your store is open, list it from Settings. Agents that use the Lore marketplace will see it.")
     ])),
@@ -4701,7 +4720,6 @@ function renderFaq(s) {
 
 /** @param {Snapshot} s */
 function renderSettings(s) {
-  const live = s.node.live;
   // What Lore has run for the owner (store updates, readings, tasks) is a log, not an automation, so it sits last here.
   const runs = recentRuns(s);
   const path = el("span", "mono path", s.home.replace(/^\/Users\/[^/]+/, "~"));
@@ -4734,7 +4752,7 @@ function renderSettings(s) {
         ? [row("Paid answers", "Buyers' agents can ask you a question and pay for each answer.", cell(el("span", "value", `${price(s.pricing.answer_usd)} per answer`)), false)]
         : []),
       // Stores open on real money; only one opened before that sits on the test network.
-      ...(live.network === TEST_NETWORK
+      ...(storeStatus(s).test
         ? [row("Test payments", "Your store takes play money while it's on the test network. Switch when you want real buyers paying real money.", cell(pill("Test"), button("Switch to real payments", "secondary", () => void startDeploy(REAL_MONEY))), false)]
         : []),
       ...marketplaceRow(s)
@@ -5098,7 +5116,7 @@ function render() {
 function accountState(status, s) {
   const credential = status?.credentials[0] ?? null;
   const [name] = provider(credential);
-  const store = s?.node.url ? ` · Store ${nodeLabel(s.node).toLowerCase()}` : "";
+  const store = s?.node.url ? ` · Store ${storeStatus(s).label.toLowerCase()}` : "";
   return { line: credential ? `Signed in with ${name}${store}` : "Not signed in", signOut: Boolean(credential) };
 }
 
@@ -5986,7 +6004,8 @@ async function startDeploy(intent = STORE_INTENT) {
 /** What the owner just made, in their terms: what is on sale, for how much, and where the money lands. @param {Snapshot} s */
 function storeOpened(s) {
   const count = s.publications.counts.active;
-  const each = typeof s.pricing.publication_usd === "number" ? ` at ${price(s.pricing.publication_usd)} each` : "";
+  const usd = storePrice(s);
+  const each = usd === null ? "" : ` at ${price(usd)} each`;
   const onSale = `${count === 1 ? "Your approved piece is" : `All ${count} approved pieces are`} on sale${each}.`;
   const payout = s.node.live.payout;
   return payout ? `${onSale} Every payment lands at ${payout.slice(0, 6)}…${payout.slice(-4)}, and nowhere else.` : onSale;
@@ -6315,9 +6334,9 @@ function extrasForm({ extras, piece }) {
 async function previewPage(candidate) {
   const live = snapshot?.node;
   const store = {
-    priceUsd: snapshot?.pricing.publication_usd ?? live?.live.price_usd ?? 0.01,
+    priceUsd: (snapshot ? storePrice(snapshot) : null) ?? 0.01,
     origin: live?.url ?? "https://your-store.yourlore.dev",
-    test: live?.live.network === TEST_NETWORK
+    test: snapshot ? storeStatus(snapshot).test : false
   };
   try {
     await window.lore.preview({ candidate, store });

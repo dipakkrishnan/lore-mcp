@@ -210,6 +210,7 @@ obsolete), then `priority` (P0 → P3).
 | [MON-050](./monetization/MON-050-say-plainly-when-a-dropped-document-cannot-be-converted.md) | Say plainly when a dropped document can't be converted, and never fetch its remote images | P3 | XS | monetization | in-review | MON-044, MON-048, MON-049, MON-023 | — | — | — |
 | [CLI-015](./cli-ux/CLI-015-keep-tabs-and-separator-characters-from-reshaping-the-terminal-cards.md) | Keep tabs and separator characters from reshaping the terminal cards | P3 | S | cli-ux | in-review | CLI-013, XC-019 | — | — | — |
 | [XC-076](./cross-cutting/XC-076-keep-a-wrong-shaped-public-list-inside-could-not-read.md) | Keep a wrong-shaped public list inside "could not read" | P3 | XS | cross-cutting | in-review | XC-036, XC-075 | — | — | — |
+| [APP-293](./desktop-app/APP-293-keep-inventorys-date-on-one-line.md) | Keep Inventory's date on one line | P3 | S | desktop-app | in-review | APP-282, APP-183 | — | — | — |
 | [MON-055](./monetization/MON-055-run-five-real-bids-by-hand-before-building-more.md) | Run five real bids by hand before building more | P0 | S | monetization | ready | MON-051, XC-114, APP-274 | — | — | — |
 | [MON-031](./monetization/MON-031-say-what-becomes-public-when-a-seller-takes-cards.md) | Tell sellers and buyers what card checkout makes visible about them | P1 | S | monetization | ready | MON-025, MON-030 | — | — | — |
 | [APP-010](./desktop-app/APP-010-constrain-native-read-to-owner-selected-files.md) | Constrain native read to owner-selected files | P1 | M | desktop-app | ready | APP-003, APP-005, APP-009 | — | — | — |
@@ -223,7 +224,6 @@ obsolete), then `priority` (P0 → P3).
 | [APP-139](./desktop-app/APP-139-update-the-store-automatically.md) | Update the store automatically instead of asking to Push or Redeploy | P1 | M | desktop-app | ready | APP-136, APP-137, MON-004 | — | — | — |
 | [APP-180](./desktop-app/APP-180-open-a-store-from-one-form-with-progress-states.md) | Open a store from one form with progress states, not an agent chat | P1 | M | desktop-app | ready | APP-136, APP-057, APP-056 | — | — | — |
 | [APP-181](./desktop-app/APP-181-never-show-a-seller-a-raw-error-message.md) | Never show a seller a raw error message | P1 | S | desktop-app | ready | APP-085, APP-109, APP-014, STO-004 | — | — | — |
-| [APP-183](./desktop-app/APP-183-make-the-stores-status-agree-with-itself-everywhere.md) | Make the store's status agree with itself everywhere | P1 | S | desktop-app | ready | APP-136, APP-081, APP-079 | — | — | — |
 | [MON-041](./monetization/MON-041-explain-free-copies-where-the-price-is-set-and-limit-them-per-reader.md) | Explain free copies where the price is set and limit them per reader | P1 | S | monetization | ready | MON-040, APP-136, MON-035 | — | — | — |
 | [XC-059](./cross-cutting/XC-059-open-a-store-without-cloudflare-or-a-wallet-for-card-only-sellers.md) | Open a store without Cloudflare or a wallet for card-only sellers | P1 | L | cross-cutting | ready | XC-039, MON-025, APP-136 | — | — | — |
 | [MON-056](./monetization/MON-056-let-a-seller-send-a-bid-answer-from-their-own-store.md) | Let a seller send a bid answer from their own store, with no admin token | P1 | M | monetization | ready | APP-274, MON-051, XC-115, XC-118 | — | MON-051, APP-274 | — |
@@ -312,9 +312,13 @@ obsolete), then `priority` (P0 → P3).
 | [APP-032](./desktop-app/APP-032-approval-drafts-render-where-the-owner-is.md) | Approval drafts render where the owner is | P0 | S | desktop-app | completed | APP-020, APP-023, APP-006 | — | — | — |
 | [STO-001](./store-import/STO-001-private-by-default-and-publications-table.md) | Private-by-default memories and a separate publications table | P0 | M | store-import | completed | CLI-001, ONB-001, XC-001, XC-002 | — | — | [#6](https://github.com/dipakkrishnan/lore-mcp/issues/6) |
 <<<<<<< HEAD
+| [APP-183](./desktop-app/APP-183-make-the-stores-status-agree-with-itself-everywhere.md) | Make the store's status agree with itself everywhere | P1 | S | desktop-app | completed | APP-136, APP-081, APP-079 | — | — | — |
+=======
+<<<<<<< HEAD
 | [MON-006](./monetization/MON-006-split-deploy-into-its-own-skill.md) | Move deploy mechanics from the skill into the CLI when edge serving lands | P1 | S | monetization | completed | MON-002, MON-004, MON-005, XC-005 | — | — | — |
 =======
 | [XC-112](./cross-cutting/XC-112-say-a-broken-answer-from-the-hosted-store-plainly.md) | Say a broken answer from the hosted store plainly, not as a Python error | P1 | XS | cross-cutting | completed | APP-181, XC-088 | — | — | — |
+>>>>>>> origin/main
 >>>>>>> origin/main
 | [CLI-013](./cli-ux/CLI-013-clean-control-characters-from-a-flagged-publications-diff-and-who-rewrote-it.md) | Clean control characters from a flagged publication's diff and from who it says rewrote the memory | P1 | XS | cli-ux | completed | XC-019, CLI-002, CLI-014, CLI-015 | — | — | — |
 | [MON-042](./monetization/MON-042-settle-keyless-real-money-stores-through-payai.md) | Settle keyless real-money stores through PayAI, not the test facilitator | P1 | XS | monetization | completed | MON-005, MON-025 | — | — | — |
