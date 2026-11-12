@@ -293,6 +293,34 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
 
+    def test_node_secret_hides_a_typed_value_in_a_terminal(self) -> None:
+        """MON-006: provider API keys are typed here, so they are never echoed."""
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch("getpass.getpass", return_value=" sk-ant \n") as hidden,
+        ):
+            self.assertEqual(cli.main(["node", "secret", "ANTHROPIC_API_KEY"]), 0)
+        hidden.assert_called_once()
+        self.assertEqual(secret.call_args.args, ("ANTHROPIC_API_KEY", "sk-ant"))
+
+    def test_node_secrets_lists_names_without_owner_gate(self) -> None:
+        names = ["ANTHROPIC_API_KEY", "LORE_WALLET"]
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            patch.object(cli, "_interactive", return_value=False),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets"]), 0)
+        self.assertEqual(output.getvalue().split(), names)
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), names)
+
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
             patch.object(sys.stdin, "isatty", return_value=False),

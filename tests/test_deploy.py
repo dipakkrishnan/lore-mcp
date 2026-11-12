@@ -81,6 +81,7 @@ class _Wrangler:
         login_fails: bool = False,
         has_wallet_secret: bool = True,
         secret_list_fails: bool = False,
+        secret_list_output: str | None = None,
         install_fails: bool = False,
         secret_put_fails: bool = False,
         secret_put_fails_for: str | None = None,
@@ -101,6 +102,7 @@ class _Wrangler:
         self.login_fails = login_fails
         self.has_wallet_secret = has_wallet_secret
         self.secret_list_fails = secret_list_fails
+        self.secret_list_output = secret_list_output
         self.install_fails = install_fails
         self.secret_put_fails = secret_put_fails
         self.secret_put_fails_for = secret_put_fails_for
@@ -137,9 +139,11 @@ class _Wrangler:
             out = "logged in as ada" if self.logged_in else "You are not authenticated."
         elif tail[:1] == ("login",):
             code = 1 if self.login_fails else 0
-        elif tail == ("secret", "list"):
+        elif tail[:2] == ("secret", "list"):
             if self.secret_list_fails:
                 code, err = 1, "Authentication error [code: 10000]"
+            elif self.secret_list_output is not None:
+                out = self.secret_list_output
             else:
                 out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
         elif tail[:2] == ("secret", "put"):
@@ -348,11 +352,63 @@ class RealMoneyTest(_NodeCase):
             self.assertEqual(deploy_module.secret("CDP_API_KEY_ID", "key-id"), 0)
         self.assertEqual(wrangler.secret_values, {"CDP_API_KEY_ID": "key-id\n"})
 
-    def test_only_the_coinbase_credentials_and_a_real_value_are_accepted(self) -> None:
-        with self.assertRaisesRegex(ValueError, "keeps only"):
+    def test_only_the_node_credentials_and_a_real_value_are_accepted(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "keeps only CDP_API_KEY_ID, .*LORE_ANSWER_MODEL, not LORE_WALLET",
+        ):
             deploy_module.secret("LORE_WALLET", "0x1")
         with self.assertRaisesRegex(ValueError, "no value"):
             deploy_module.secret("CDP_API_KEY_SECRET", "")
+
+    def test_the_answer_provider_credentials_are_vaulted_too(self) -> None:
+        """MON-006: the skill sends the owner to `lore node secret`, not wrangler."""
+        wrangler = self._staged()
+        with patch("lore.deploy.subprocess.run", side_effect=wrangler), captured():
+            for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LORE_ANSWER_MODEL"):
+                self.assertEqual(deploy_module.secret(name, "v"), 0)
+        self.assertEqual(
+            wrangler.secret_values,
+            {
+                "ANTHROPIC_API_KEY": "v\n",
+                "OPENAI_API_KEY": "v\n",
+                "LORE_ANSWER_MODEL": "v\n",
+            },
+        )
+
+    def test_secret_names_lists_names_only(self) -> None:
+        wrangler = self._staged()
+        wrangler.secret_list_output = json.dumps(
+            [
+                {"name": "LORE_WALLET", "type": "secret_text"},
+                {"name": "ANTHROPIC_API_KEY", "type": "secret_text"},
+            ]
+        )
+        with patch("lore.deploy.subprocess.run", side_effect=wrangler):
+            self.assertEqual(
+                deploy_module.secret_names(), ["ANTHROPIC_API_KEY", "LORE_WALLET"]
+            )
+        self.assertEqual(
+            wrangler.named("secret", "list", "--format", "json"),
+            [wrangler.commands[-1]],
+        )
+
+    def test_an_unreadable_secret_listing_is_an_error_not_an_empty_vault(self) -> None:
+        self._staged()
+        for output in ("not json", '{"name": "LORE_WALLET"}', '[{"type": "x"}]'):
+            wrangler = _Wrangler(secret_list_output=output)
+            with (
+                self.subTest(output=output),
+                patch("lore.deploy.subprocess.run", side_effect=wrangler),
+                self.assertRaisesRegex(OSError, "could not read"),
+            ):
+                deploy_module.secret_names()
+        wrangler = _Wrangler(secret_list_fails=True)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            self.assertRaisesRegex(OSError, "reading your store's secrets"),
+        ):
+            deploy_module.secret_names()
 
     def test_the_network_is_set_after_the_deploy_in_plain_words(self) -> None:
         with Store() as store:

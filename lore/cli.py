@@ -530,9 +530,14 @@ def parser() -> argparse.ArgumentParser:
     node_views.add_argument("--json", action="store_true")
     node_secret = node_commands.add_parser(
         "secret",
-        help="vault a Coinbase credential on the node; the value is read from stdin",
+        help="vault a node credential (Coinbase or answer-provider); the value is "
+        "asked for without echo in a terminal, else read from stdin",
     )
     node_secret.add_argument("name", choices=deploy_module.SECRETS)
+    node_secrets = node_commands.add_parser(
+        "secrets", help="the names of the secrets vaulted on the node, never values"
+    )
+    node_secrets.add_argument("--json", action="store_true")
     node_accounts = node_commands.add_parser(
         "accounts", help="the Cloudflare accounts your sign-in can put the store on"
     )
@@ -844,7 +849,9 @@ def main(argv: list[str] | None = None) -> int:
                 return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
-                return deploy_module.secret(args.name, sys.stdin.read().strip())
+                return deploy_module.secret(args.name, _secret_value(args.name))
+            if args.node_command == "secrets":
+                return secret_names(args.json)
             if args.node_command == "host":
                 return host_store()
             if args.node_command == "login":
@@ -1643,6 +1650,27 @@ def views(as_json: bool) -> int:
         print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
     if not rows:
         muted("No page views yet.")
+    return 0
+
+
+def _secret_value(name: str) -> str:
+    """A typed secret is never echoed; a piped or desktop one is read as given."""
+    if sys.stdin.isatty():
+        import getpass
+
+        return getpass.getpass(f"{name}: ").strip()
+    return sys.stdin.read().strip()
+
+
+def secret_names(as_json: bool) -> int:
+    names = deploy_module.secret_names()
+    if as_json:
+        print(json.dumps(names))
+        return 0
+    for name in names:
+        print(f"  {name}")
+    if not names:
+        muted("No secrets on the node yet.")
     return 0
 
 
