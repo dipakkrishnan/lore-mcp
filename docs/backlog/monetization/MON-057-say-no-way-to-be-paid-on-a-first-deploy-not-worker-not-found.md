@@ -1,10 +1,10 @@
 ---
 id: MON-057
 title: Say "no way to be paid" on a first deploy, not "Worker not found"
-priority: P3
+priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [MON-047, XC-069, XC-085, MON-024]
 blockers: []
 dependencies: []
@@ -52,3 +52,5 @@ missing. That would let a store with no wallet and no cards deploy and open for 
 Found 2026-11-11 by the lore-worker while reading `lore/deploy.py` after TEST-deploy (#697). Reproduced by
 reading wrangler 4.147's `secret list` handler; the repo pins 4.151.1 (lore/node/package.json), so confirm the
 wording there when implementing.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready` and P3 → P2: no blockers, concrete criteria against the fake wrangler, and it is the first message a new seller without a payout sees (XC-085 is P0 on the same theme).

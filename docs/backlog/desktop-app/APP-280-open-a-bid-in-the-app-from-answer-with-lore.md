@@ -4,13 +4,13 @@ title: Open a bid in the app from "Answer with Lore"
 priority: P1
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [XC-093, XC-115, APP-274, MON-051]
-blockers: []
+blockers: [APP-274]
 dependencies: []
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -37,3 +37,5 @@ the bid to drafting an answer, and someone who installs it loses the bid they ca
 ## Notes
 
 Filed from the XC-093 rework (Nov 1). The site side already carries the id in the URL.
+
+**Prioritization pass 2026-11-11:** Moved `ready` → `in-review` and recorded APP-274 as a blocker: the approach starts "the same draft-from-memory flow APP-274 uses", and APP-274 is still `in-progress`.

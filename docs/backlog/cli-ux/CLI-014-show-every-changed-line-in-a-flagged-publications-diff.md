@@ -4,13 +4,13 @@ title: Show every changed line in a flagged publication's diff, including lines 
 priority: P2
 effort: XS
 component: cli-ux
-status: in-review
+status: ready
 related: [XC-019, CLI-013]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -53,3 +53,5 @@ exactly the headers; either way, do not match by prefix.
 Found by PR #445 (tests for `lore/ui.py`), which reported this and kept its
 fixtures away from it. Same function as CLI-013. They could ship together but
 don't depend on each other.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria are concrete fixture assertions. Can ship with CLI-013.

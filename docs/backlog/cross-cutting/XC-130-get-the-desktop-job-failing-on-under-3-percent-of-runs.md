@@ -4,13 +4,13 @@ title: Get the desktop job failing on under 3% of runs
 priority: P2
 effort: M
 component: cross-cutting
-status: ready
+status: in-review
 related: [XC-080, XC-083, XC-109, XC-124, XC-126, XC-128]
 blockers: [XC-124, XC-126]
 dependencies: []
 github_issue: null
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -60,3 +60,5 @@ While the job fails this often, XC-109 keeps it out of the required checks.
   approach: record the miss and move the measurement to its own item.
 - Once this target is met, XC-109's question of making the job required can be
   asked again.
+
+**Prioritization pass 2026-11-11:** Moved `ready` → `in-review`: blockers XC-124 (`ideation`) and XC-126 (`ready`) are not `completed`.

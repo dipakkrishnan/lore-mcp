@@ -4,7 +4,7 @@ title: Stop a failed `d1 list` from crashing the deploy or hiding why it stopped
 priority: P2
 effort: S
 component: monetization
-status: in-review
+status: ready
 related: [XC-085, XC-069, XC-086]
 blockers: []
 dependencies: []
@@ -63,3 +63,5 @@ While here: `_ensure_d1` writes the config with `config.write_text` (deploy.py:7
 `materialize`'s docstring promises the config is only ever written with its id. A torn write on a first
 deploy brings back the placeholder, and the next run then refuses `exists_elsewhere` about the owner's own
 database.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers, each criterion is a concrete fake-wrangler case in tests/test_deploy.py.
