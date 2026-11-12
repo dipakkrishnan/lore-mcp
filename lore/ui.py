@@ -10,6 +10,16 @@ from .store import Memory, Publication
 CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
 
 
+def clean(text: object) -> str:
+    """`text` as a string with C0 and C1 control characters removed.
+
+    Everything remote that reaches the terminal goes through here: card
+    titles and bodies, a flag's actor and its diff lines (CLI-013). It is the
+    one place to change when tabs are kept rather than deleted (CLI-015).
+    """
+    return str(text).translate(CONTROL_CHARACTERS)
+
+
 def COLOR(
     stdout: TextIO | None = None, environ: Mapping[str, str] | None = None
 ) -> bool:
@@ -74,19 +84,19 @@ def memory_card(
 ) -> None:
     label = f"Memory {current} of {total}" if current and total else memory.status
     print(f"\n{paint('2', '─' * 72)}")
-    print(paint("1", memory.title.translate(CONTROL_CHARACTERS)))
+    print(paint("1", clean(memory.title)))
     metadata = f"{label} · {memory.source} · {memory.project or 'general'}"
     if memory.source_path and memory.source_path != "agent-session":
         # The locator is the provenance the owner captured; without it the card
         # gives no way back to the file, page, or attachment it came from.
         metadata += f" · {memory.source_path}"
-    print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
+    print(paint("2", clean(metadata)))
     print()
     body = memory.content
     if len(body) > 1800:
         body = body[:1800].rstrip() + "\n…"
     for paragraph in body.splitlines():
-        paragraph = paragraph.translate(CONTROL_CHARACTERS)
+        paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
 
 
@@ -100,9 +110,9 @@ def changed_memory_note(detail: dict[str, object], labels: dict[str, str]) -> st
     if detail["origin"] == "automation":
         actor = "Lore's synthesis"
     else:
-        actor = labels.get(str(detail["source"]), str(detail["source"]))
+        actor = clean(labels.get(str(detail["source"]), str(detail["source"])))
     when = str(detail["updated_at"])[:10]
-    title = str(detail["title"]).translate(CONTROL_CHARACTERS)
+    title = clean(detail["title"])
     return f'"{title}" was rewritten by {actor} on {when}'
 
 
@@ -117,6 +127,8 @@ def flag_diff(detail: dict[str, object], labels: dict[str, str]) -> None:
         )
         return
     for line in diff:
+        # Clean first, so the prefix checks see what the owner will see.
+        line = clean(line)
         if line.startswith(("---", "+++")):
             continue
         if line.startswith("+"):
@@ -138,7 +150,7 @@ def publication_card(
     if publication.source_changed_at:
         label += " · source changed"
     print(f"\n{paint('2', '─' * 72)}")
-    print(paint("1", publication.title.translate(CONTROL_CHARACTERS)))
+    print(paint("1", clean(publication.title)))
     metadata = (
         f"{label} · {publication.kind} · {len(publication.provenance)} source memories"
     )
@@ -146,19 +158,19 @@ def publication_card(
         # The topic is externally visible wherever discovery groups by it, so it is
         # shown on the approval card: approving the publication approves the label.
         metadata += f" · topic: {publication.topic}"
-    print(paint("2", metadata.translate(CONTROL_CHARACTERS)))
+    print(paint("2", clean(metadata)))
     if publication.teaser:
         # The teaser is the free surface: it is what every buyer reads without
         # paying, so approving the publication approves this advertisement.
-        print(paint("2", f"teaser: {publication.teaser}".translate(CONTROL_CHARACTERS)))
+        print(paint("2", clean(f"teaser: {publication.teaser}")))
     for label, text in (
         ("useful if", publication.useful_if),
         ("not useful if", publication.not_useful_if),
         ("free sample", publication.sample),
     ):
         if text:
-            print(paint("2", f"{label}: {text}".translate(CONTROL_CHARACTERS)))
+            print(paint("2", clean(f"{label}: {text}")))
     print()
     for paragraph in publication.content.splitlines():
-        paragraph = paragraph.translate(CONTROL_CHARACTERS)
+        paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
