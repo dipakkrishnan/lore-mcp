@@ -43,26 +43,38 @@ interface ManifestRow {
   sample?: string;
   useful_if?: string;
   not_useful_if?: string;
+  /** Roughly how long the paid text runs, counted without reading it out. */
+  words?: number;
 }
 
 // Free like the teaser, but listed only when the owner wrote them.
 const EXTRAS = ["sample", "useful_if", "not_useful_if"] as const;
 
 export type CatalogEntry = Omit<ManifestRow, "topic">;
+
+/** The topic as buyers see it: its short name before any ":" or ";", in sentence case, since an older
+ * piece's topic can run on into a private detail (MON-052). */
+export const publicTopic = (topic: string) => {
+  const name = topic.split(/[:;]/)[0].trim();
+  return name && name[0].toUpperCase() + name.slice(1);
+};
 export type Catalog = { manifest_version: 1; publication_count: number; topics: Record<string, CatalogEntry[]> };
 
 export async function manifest(env: Env): Promise<Catalog> {
   const { results } = await env.LORE_DB.prepare(
     `SELECT public_id AS id, teaser, topic, kind, sample, useful_if, not_useful_if,
-            substr(updated_at, 1, 10) AS updated_at
-     FROM publications WHERE teaser <> ''
+            substr(updated_at, 1, 10) AS updated_at,
+            length(prose) - length(replace(prose, ' ', '')) + 1 AS words
+     FROM (SELECT *, trim(replace(replace(content, char(10), ' '), char(13), ' ')) AS prose FROM publications)
+     WHERE teaser <> '' AND trim(sample) <> ''
      ORDER BY topic, updated_at DESC, public_id`
   ).all<ManifestRow>();
+  // A piece with no free sample isn't offered: a buyer would have nothing but a price to judge it by (MON-052).
   const topics: Record<string, CatalogEntry[]> = {};
   for (const row of results) {
-    const { id, teaser, topic, kind, updated_at } = row;
+    const { id, teaser, topic, kind, updated_at, words } = row;
     const extras = Object.fromEntries(EXTRAS.filter((key) => row[key]).map((key) => [key, row[key]]));
-    (topics[topic] ??= []).push({ id, teaser, kind, updated_at, ...extras });
+    (topics[publicTopic(topic)] ??= []).push({ id, teaser, kind, updated_at, ...extras, words });
   }
   return { manifest_version: 1, publication_count: results.length, topics };
 }

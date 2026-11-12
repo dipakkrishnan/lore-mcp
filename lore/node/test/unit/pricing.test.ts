@@ -96,7 +96,7 @@ describe("findItem", () => {
       pricing: [{ id: B, teaser: "A floor protects", kind: "content", updated_at: "2026-08-02" }]
     }
   };
-  const set: Collection = { id: C, title: "Both", price_usd: 1, pieces: [B, "f".repeat(24), A] };
+  const set: Collection = { id: C, title: "Both", price_usd: 1, pieces: [B, "f".repeat(24), A], shelf: [] };
 
   it("finds a piece with its topic and section", () => {
     expect(findItem(catalog, [set], B)).toEqual({ piece: { ...catalog.topics.pricing[0], topic: "pricing", section: 1 } });

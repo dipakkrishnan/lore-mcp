@@ -131,8 +131,8 @@ test("new free parts for a live piece are staged by the agent and decided only b
     input,
     encoding: "utf8"
   });
-  const card = { title: "Price low", teaser: "How to set a first price.", content: "Price low first.", kind: /** @type {const} */ ("claim"), topic: "pricing", provenance: [1] };
-  const extras = { publication_id: 1, sample: "We started at a dollar.", useful_if: "you price an API", not_useful_if: "" };
+  const card = { title: "Price low", teaser: "How to set a first price.", content: "Price low first.", kind: /** @type {const} */ ("claim"), topic: "First prices", sample: "We guessed at first. Then we tested.", provenance: [1] };
+  const extras = { publication_id: 1, sample: "We started at a dollar. Few paid.", useful_if: "you price an API", not_useful_if: "" };
   try {
     await lore(directory, ["capture", "apply", "-"], JSON.stringify([{ title: "Pricing", content: "Price low first.", project: "pricing" }]));
     assert.equal(piped(["publication", "extras", "draft", "-"], JSON.stringify([extras])).status, 1, "nothing is on sale yet");
@@ -142,14 +142,14 @@ test("new free parts for a live piece are staged by the agent and decided only b
     const [staged] = await extrasCandidates(directory);
     assert.deepEqual(staged.extras, extras);
     assert.equal(staged.piece.title, "Price low");
-    assert.equal(staged.piece.sample, "");
+    assert.equal(staged.piece.sample, card.sample);
     const refused = piped(["publication", "extras", "decide"], JSON.stringify({ extras, approve: true }));
     assert.equal(refused.status, 1);
     assert.match(refused.stderr, /only from the Lore desktop app/);
-    await decideExtras(directory, extras, { ...extras, sample: "The owner's excerpt." }, true);
+    await decideExtras(directory, extras, { ...extras, sample: "The owner's excerpt. In their words." }, true);
     assert.deepEqual(await extrasCandidates(directory), []);
     const listed = await lore(directory, ["publication", "list"]);
-    assert.match(listed, /free sample: The owner's excerpt\./);
+    assert.match(listed, /free sample: The owner's excerpt\. In their words\./);
     assert.equal((await readState(directory)).publications.counts.active, 1, "the same piece, not a new one");
     await assert.rejects(decideExtras(directory, extras, extras, true), { message: /not drafted/ });
   } finally {

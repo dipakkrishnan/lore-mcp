@@ -10,7 +10,7 @@ teaser here must match SMOKE_EXPECT_TOPIC/SMOKE_EXPECT_TEASER in
 
 from lore.store import Store
 
-TOPIC = "ci-smoke"
+TOPIC = "CI smoke"
 TEASER = "worker-smoke: seeded via a real lore push --local"
 
 
@@ -31,6 +31,7 @@ def main() -> None:
             content="Full content the smoke test never reads or asserts on.",
             topic=TOPIC,
             teaser=TEASER,
+            sample="A free sample the smoke test seeds. A piece without one isn't for sale.",
             provenance=[memory_id],
         )
 

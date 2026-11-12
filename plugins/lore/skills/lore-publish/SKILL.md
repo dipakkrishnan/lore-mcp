@@ -93,10 +93,12 @@ statement of what the owner knows, at the precision the evidence supports.
 - `kind` is `"claim"` unless the owner explicitly asks to publish a specific
   document verbatim — that is `"content"`, one item at a time, never a bulk
   action and never your suggestion by default.
-- `topic` is the topic the owner confirmed for this pass, verbatim — the same
-  string on every candidate in the batch. It becomes the externally visible
-  grouping label wherever buyers browse this node, so it must be the owner's
-  approved wording, never your own summary.
+- `topic` is the public heading for the topic the owner confirmed: one to four
+  words in sentence case ("Travel", "Pricing agent APIs"), at most 40
+  characters, the same string on every candidate in the batch. Buyers browse
+  the store under it, so it is never the private topic name (a memory's title
+  or topic label), which can give the piece away; Lore refuses one that is.
+  The owner can change it on the approval card.
 - `teaser` is the advertisement: it is the only text of this publication a
   buyer ever reads for free (grouped by topic in the discover manifest).
   Write it question-shaped — what the publication answers, with the stakes —
@@ -106,11 +108,12 @@ statement of what the owner knows, at the precision the evidence supports.
 - `useful_if` and `not_useful_if` are one short line each (under 200
   characters), finishing "Useful if …" and "Not useful if …": who the piece is
   for and who should skip it. Free, so they say who it's for, never what it says.
-- `sample` is a free excerpt anyone can read on the piece's page (under 800
-  characters): setup or context that shows the owner's voice and first-hand
-  detail, never the finding, numbers, or recommendation that make the piece
-  worth buying. Leave it empty when no part reads well without giving the
-  piece away. Lore refuses a sample that contains the whole paid text.
+- `sample` is a free excerpt anyone can read on the piece's page (at least two
+  sentences, under 800 characters): setup or context that shows the owner's
+  voice and first-hand detail, never the finding, numbers, or recommendation
+  that make the piece worth buying. Buyers and their agents judge the piece by
+  it, so every candidate needs one: Lore refuses a draft without a sample, and
+  a sample that contains the whole paid text.
 
 Write the candidates to `~/.lore/publish-candidates.json`:
 
@@ -124,7 +127,7 @@ Write the candidates to `~/.lore/publish-candidates.json`:
     "sample": "We had two weeks before launch and a deck we were proud of. I sent it cold to twelve founders I'd been warned were deck people, and ran short live demos for everyone else.",
     "content": "Across one launch: 3 short live demos produced 7 follow-up trials from 10 qualified viewers; a polished deck sent cold produced 0 replies from 12. Small sample; treat as a strong prior, not a law.",
     "kind": "claim",
-    "topic": "go-to-market lessons",
+    "topic": "Go-to-market lessons",
     "provenance": [12, 31]
   }
 ]
@@ -172,7 +175,8 @@ say that the payment flow will ask whether to keep the exact publication through
 
 To add or rewrite the `sample`, `useful_if` and `not_useful_if` of a piece
 that is already approved (pieces published before these fields existed have
-none), don't draft a new publication: that would mint a new link. Read the
+none, and a piece without a sample isn't shown for sale), don't draft a new
+publication: that would mint a new link. Read the
 piece with `lore publication list` (its `id` is printed under it), then stage
 new free parts by id. The three given values replace the piece's current ones,
 so carry over any you want to keep; the same limits and the no-whole-paid-text

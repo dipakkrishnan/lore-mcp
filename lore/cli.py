@@ -2053,12 +2053,20 @@ def _candidates_path() -> Path:
     return home() / "publish-candidates.json"
 
 
-def _validated_candidates(text: str) -> list[PublicationInput]:
-    """Validate a drafted batch the way review does, provenance included."""
+def _validated_candidates(
+    text: str, *, for_sale: bool = True, waiting: Sequence[PublicationInput] = ()
+) -> list[PublicationInput]:
+    """Validate a drafted batch the way review does, provenance included. A
+    draft already `waiting` is held to what it was staged under, so one that
+    predates a rule never blocks the draft sent beside it."""
     candidates = PUBLICATION_CANDIDATES.validate_json(text)
     with Store() as store:
         for candidate in candidates:
-            _candidate(candidate, store)
+            _candidate(
+                candidate,
+                store,
+                for_sale=for_sale and candidate not in waiting,
+            )
     return candidates
 
 
@@ -2066,7 +2074,8 @@ def _staged() -> list[PublicationInput]:
     path = _candidates_path()
     if not path.is_file():
         return []
-    return _validated_candidates(path.read_text(encoding="utf-8"))
+    # A draft staged before a rule it breaks still shows, so the owner can fix it on its card.
+    return _validated_candidates(path.read_text(encoding="utf-8"), for_sale=False)
 
 
 def _stage(candidates: list[PublicationInput]) -> None:
@@ -2101,8 +2110,11 @@ def _staged_extras() -> list[PublicationExtras]:
     return _validated_extras(path.read_text(encoding="utf-8"))
 
 
-def _candidate(raw: object, missing_check: Store) -> Publication:
-    """Validate one drafted candidate into a previewable Publication."""
+def _candidate(
+    raw: object, missing_check: Store, *, for_sale: bool = True
+) -> Publication:
+    """Validate one drafted candidate into a previewable Publication, as it
+    would go on sale unless `for_sale` is off."""
     candidate = PublicationInput.model_validate(raw)
     if not candidate.teaser:
         # The teaser is the entire free surface for this publication, so approval
@@ -2112,6 +2124,8 @@ def _candidate(raw: object, missing_check: Store) -> Publication:
     missing = missing_check.missing_memories(candidate.provenance)
     if missing:
         raise ValueError(f"candidate provenance references unknown memories: {missing}")
+    if for_sale:
+        candidate = missing_check.for_sale(candidate)
     return Publication(
         id=0, **candidate.model_dump(), active=1, created_at="", updated_at=""
     )
@@ -2160,6 +2174,7 @@ def publication_apply(path: str) -> int:
                         or candidate.not_useful_if
                     )
                     content = ask("Content (enter keeps current)") or candidate.content
+                    topic = ask("Public topic (enter keeps current)") or candidate.topic
                     try:
                         candidate = _candidate(
                             candidate.model_dump(
@@ -2172,6 +2187,7 @@ def publication_apply(path: str) -> int:
                                 "useful_if": useful_if,
                                 "not_useful_if": not_useful_if,
                                 "content": content,
+                                "topic": topic,
                             },
                             store,
                         )
@@ -2223,7 +2239,7 @@ def publication_draft(file: str) -> int:
     with Store() as store:
         for_sale = store.list_publications(active_only=True)
     candidates = []
-    for candidate in _validated_candidates(text):
+    for candidate in _validated_candidates(text, waiting=_staged()):
         if repeated := _repeats(candidate, for_sale):
             warn(
                 f"Skipped “{candidate.title}”: it repeats “{repeated.title}”, "
@@ -2263,7 +2279,7 @@ def publication_decide() -> int:
             break
     else:
         raise ValueError("that candidate is not drafted; nothing saved")
-    for field in ("kind", "topic", "provenance", "bid"):
+    for field in ("kind", "provenance", "bid"):
         if getattr(decision.candidate, field) != getattr(original, field):
             raise ValueError("only a draft's wording can be edited")
     if decision.approve:

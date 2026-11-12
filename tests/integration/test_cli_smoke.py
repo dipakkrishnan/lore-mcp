@@ -263,6 +263,7 @@ class OwnerLifecycleTest(unittest.TestCase):
                         "content": "Freeze the schema two days out; rehearse rollback.",
                         "topic": "launching",
                         "teaser": "What do we lock down before a launch?",
+                        "sample": "Our last launch slipped twice. This one didn't.",
                         "provenance": [
                             captured[0]["id"],
                             memories["Rollback drill"]["id"],
@@ -277,7 +278,7 @@ class OwnerLifecycleTest(unittest.TestCase):
 
         listed = self.lore("publication", "list")
         self.assertIn("Launching without drama", listed)
-        self.assertIn("active · claim · 2 source memories · topic: launching", listed)
+        self.assertIn("active · claim · 2 source memories · topic: Launching", listed)
         self.assertIn("  id 1", listed)
 
         # As the desktop app writes it: a folder and a file only the owner can open.
@@ -307,7 +308,7 @@ class OwnerLifecycleTest(unittest.TestCase):
                 (
                     "Launching without drama",
                     "Freeze the schema two days out; rehearse rollback.",
-                    "launching",
+                    "Launching",
                     "What do we lock down before a launch?",
                 )
             ],

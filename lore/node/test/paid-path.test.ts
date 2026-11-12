@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 // access to the host filesystem.
 import contract from "../../../contracts/mcp_tools.json";
 import { TOOL_NAMES, entryKeysProblem } from "../scripts/surface";
-import { newTicketId } from "../src/answer-state";
+import { manifest, newTicketId } from "../src/answer-state";
 import { PRICE_USD, usdcBaseUnits } from "../src/price";
 import { mockFacilitator } from "./facilitator";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
@@ -99,7 +99,7 @@ describe("discover", () => {
       const entries = Object.values(payload.topics as Record<string, object[]>).flat();
       expect(entries.length).toBeGreaterThan(0);
       for (const entry of entries) {
-        expect(["id", "kind", "not_useful_if", "sample", "teaser", "updated_at", "useful_if"]).toEqual(expect.arrayContaining(Object.keys(entry)));
+        expect(["id", "kind", "not_useful_if", "sample", "teaser", "updated_at", "useful_if", "words"]).toEqual(expect.arrayContaining(Object.keys(entry)));
       }
       expect(JSON.stringify(payload)).not.toContain("owner-approved content");
     } finally {
@@ -211,11 +211,14 @@ describe("get (paid)", () => {
     }
   });
 
-  it("never settles a get for a piece that isn't for sale, such as one revoked after discover", async () => {
+  it("never settles a get for a piece that isn't for sale, such as one revoked after discover or one with no free sample", async () => {
+    for (const revokedId of [newTicketId(), "1111111111111111807ae5f3"]) await neverSold(revokedId);
+  });
+
+  async function neverSold(revokedId: string) {
     const fetchSpy = mockFacilitator();
     const client = await connect();
     try {
-      const revokedId = newTicketId();
       const token = await challengeAndBuildToken(client, revokedId);
       const result = await client.callTool({ name: "get", arguments: { id: revokedId }, _meta: { "x402/payment": token } });
       expect(result.isError).toBe(true);
@@ -228,8 +231,9 @@ describe("get (paid)", () => {
       expect(sold?.n).toBe(0);
     } finally {
       await client.close();
+      vi.restoreAllMocks();
     }
-  });
+  }
 
   it("fails closed on an invalid credential: no content, settlement never attempted", async () => {
     const fetchSpy = mockFacilitator({ verify: { kind: "rejected", reason: "INVALID_SIGNATURE" } });
@@ -370,7 +374,8 @@ describe("before anyone pays", () => {
     title: "XC013-PAID-TITLE",
     content: "XC013-PAID-CONTENT",
     topic: "xc013-paid-topic",
-    teaser: "a request-path teaser"
+    teaser: "a request-path teaser",
+    sample: "A request-path sample. It is free to read."
   };
   const PAID_ONLY = [PIECE.title, PIECE.content];
 
@@ -396,10 +401,10 @@ describe("before anyone pays", () => {
 
   beforeAll(async () => {
     await env.LORE_DB.prepare(
-      `INSERT INTO publications (public_id, title, content, kind, topic, teaser, updated_at)
-       VALUES (?1, ?2, ?3, 'note', ?4, ?5, '2026-01-03T00:00:00Z')`
+      `INSERT INTO publications (public_id, title, content, kind, topic, teaser, sample, updated_at)
+       VALUES (?1, ?2, ?3, 'note', ?4, ?5, ?6, '2026-01-03T00:00:00Z')`
     )
-      .bind(PIECE.id, PIECE.title, PIECE.content, PIECE.topic, PIECE.teaser)
+      .bind(PIECE.id, PIECE.title, PIECE.content, PIECE.topic, PIECE.teaser, PIECE.sample)
       .run();
     // A fresh Worker's first answer can run past the per-test timeout; spend
     // that wait here rather than in whichever test happens to run first.
@@ -449,8 +454,8 @@ describe("before anyone pays", () => {
         expect(payload.price_usd).toBe(PRICE_USD);
         expect(payload).not.toHaveProperty("free_copies");
         const topics = payload.topics as Record<string, Record<string, unknown>[]>;
-        expect(topics[PIECE.topic]).toEqual([
-          { id: PIECE.id, teaser: PIECE.teaser, kind: "note", updated_at: "2026-01-03" }
+        expect(topics["Xc013-paid-topic"]).toEqual([
+          { id: PIECE.id, teaser: PIECE.teaser, kind: "note", updated_at: "2026-01-03", sample: PIECE.sample, words: 1 }
         ]);
         for (const entry of Object.values(topics).flat()) {
           expect(entryKeysProblem(Object.keys(entry)), JSON.stringify(entry)).toBeNull();
@@ -701,6 +706,33 @@ describe("store pages", () => {
     expect(html).toContain("a free sample the owner approved");
     expect(html).toContain("Useful if you are testing the free surface");
     expect(html).not.toContain("the secret owner-approved content");
+  });
+
+  it("doesn't offer a piece that has no free sample, on the store, on its page, or to checkout (MON-052)", async () => {
+    const unsampled = "1111111111111111807ae5f3";
+    const store = await (await visit("/")).text();
+    expect(store).toContain("a teaser that is safe to advertise");
+    expect(store).not.toContain("a second teaser");
+    expect(store).not.toContain(`/p/${unsampled}`);
+    for (const path of [`/p/${unsampled}`, `/p/${unsampled}.json`]) expect((await visit(path)).status).toBe(404);
+  });
+
+  it("heads a piece with its topic's public name, on the store and in discover's catalog (MON-052)", async () => {
+    const id = newTicketId();
+    await env.LORE_DB.prepare(
+      `INSERT INTO publications (public_id, title, content, kind, topic, teaser, sample, updated_at)
+       VALUES (?1, 'Seats', 'Pick the left side.', 'claim', 'travel: window seat on United', 'Which seat?', 'I fly a lot. Seats matter.', '2026-01-04')`
+    )
+      .bind(id)
+      .run();
+    try {
+      const store = await (await visit("/")).text();
+      expect(store).toContain("<h2>Travel <small>1</small></h2>");
+      expect(store).not.toContain("window seat");
+      expect(Object.keys((await manifest(env)).topics)).toContain("Travel");
+    } finally {
+      await env.LORE_DB.prepare("DELETE FROM publications WHERE public_id = ?1").bind(id).run();
+    }
   });
 
   it("answers HEAD with headers only", async () => {

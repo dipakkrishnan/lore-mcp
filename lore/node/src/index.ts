@@ -211,7 +211,7 @@ export class LorePaidMCP extends McpAgent<Env> {
     const publication = (id: string) =>
       this.env.LORE_DB.prepare(
         `SELECT public_id AS id, title, content, topic, kind, updated_at
-         FROM publications WHERE public_id = ?1`
+         FROM publications WHERE public_id = ?1 AND trim(sample) <> ''`
       )
         .bind(id)
         .first<{ id: string; title: string }>();
@@ -376,14 +376,14 @@ function sellable(env: Env, catalog: Catalog, sets: Collection[], settings: Answ
       page: (store, problem, left = 0) => publicationPage(found, store, problem, left)
     };
   }
-  const { set, entries } = item;
+  const { set } = item;
   return {
     id,
     teaser: set.title,
     priceUsd: set.price_usd,
     sold: (copy) => `Collection: ${copy.title}`,
     copy: () => collectionCopy(env.LORE_DB, set),
-    page: (store, problem) => collectionPage(set, entries, store, priceOf(settings), problem)
+    page: (store, problem) => collectionPage(set, store, priceOf(settings), problem)
   };
 }
 
