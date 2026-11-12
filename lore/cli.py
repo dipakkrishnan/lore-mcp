@@ -81,6 +81,14 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+
+
+def _usd(amount: float) -> str:
+    """Format dollars as the desktop does (CLI-018): two to six decimals, zeros trimmed."""
+    whole, _, cents = f"{amount:.6f}".partition(".")
+    return f"${whole}.{cents.rstrip('0').ljust(2, '0')}"
+
+
 # Reads the app repeats every minute (CLI-016): one failing says the store is out of
 # reach, not that a command the owner ran broke, so it is never a `cli.failed`.
 POLLED_READS = {("node", "sales"), ("node", "views")}
@@ -1629,12 +1637,12 @@ def sales(as_json: bool) -> int:
     given = len(rows) - len(paid)
     total = sum(row.price_usd for row in paid)
     free = f" · {given} free {'copy' if given == 1 else 'copies'}" if given else ""
-    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · ${total:.2f}{free}")
+    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · {_usd(total)}{free}")
     for row in rows:
         to = f" to {row.payer}" if row.payer else ""
         owed = f"  (refund owed{to})" if row.refund_owed else ""
         free_copy = row.network == deploy_module.FREE_NETWORK
-        amount = "  free" if free_copy else f"${row.price_usd:.2f}"
+        amount = "  free" if free_copy else _usd(row.price_usd)
         print(f"  {row.sold_at[:10]}  {amount}  {row.title}{owed}")
     return 0
 
@@ -1729,13 +1737,13 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
+        f"Publication price: {_usd(publication_price) if isinstance(publication_price, (int, float)) else 'not set'}"
     )
     print(f"Free copies: {free} per piece")
     print(
         "Answer tier: "
         + (
-            f"enabled (${answer_settings.answer_price_usd:.2f} per answer)"
+            f"enabled ({_usd(answer_settings.answer_price_usd)} per answer)"
             if answer_settings.answer_enabled
             else "disabled"
         )
@@ -1768,7 +1776,11 @@ def price(amount: float | None) -> int:
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
-            print("not set" if current is None else f"${current:.2f} per publication")
+            print(
+                f"{_usd(current)} per publication"
+                if isinstance(current, (int, float))
+                else "not set"
+            )
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
@@ -1777,12 +1789,13 @@ def price(amount: float | None) -> int:
                 f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
                 "Keep the price there, or stop taking cards first: lore cards off"
             )
-        store.set_setting("price_usd", round(amount, 6))
+        stored = round(amount, 6)
+        store.set_setting("price_usd", stored)
         on_sale = deploy_module.selling(store)
     success(
         "Publications are free"
-        if amount == 0
-        else f"Publication price set to ${amount:.2f}"
+        if stored == 0
+        else f"Publication price set to {_usd(stored)}"
     )
     if on_sale:
         # The deployed Worker charges the price baked in at deploy time; a
@@ -1866,7 +1879,7 @@ def answer_enable(path: str, price: float) -> int:
                 answer_enabled=True,
             )
         )
-    success(f"Answer tier enabled at ${price:.2f} per answer")
+    success(f"Answer tier enabled at {_usd(round(price, 6))} per answer")
     muted("Ship it with `lore push`.")
     return 0
 

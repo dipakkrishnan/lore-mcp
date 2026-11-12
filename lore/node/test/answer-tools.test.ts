@@ -3,7 +3,13 @@ import { env } from "cloudflare:workers";
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AnswerOutcome } from "../src/answer-state";
-import { createAnswerTools } from "../src/answer-tools";
+import {
+  createAnswerTools,
+  likePattern,
+  MAX_PATTERN_BYTES,
+  MAX_SEARCH_TERMS,
+  searchTerms
+} from "../src/answer-tools";
 import { FIXTURE_PUBLICATION_ID } from "./setup";
 
 describe("answer tools", () => {
@@ -90,11 +96,14 @@ function toolbox(viewed?: Set<string>) {
   return { call, outcomes };
 }
 
-async function insertPublication(id: string, fields: { title: string; content?: string }) {
+async function insertPublication(
+  id: string,
+  fields: { title: string; content?: string; teaser?: string }
+) {
   await env.LORE_DB.prepare(
-    "INSERT INTO publications (public_id, title, content, kind, topic) VALUES (?1, ?2, ?3, 'note', 'zoo')"
+    "INSERT INTO publications (public_id, title, content, kind, topic, teaser) VALUES (?1, ?2, ?3, 'note', 'zoo', ?4)"
   )
-    .bind(id, fields.title, fields.content ?? "")
+    .bind(id, fields.title, fields.content ?? "", fields.teaser ?? "a zoo teaser")
     .run();
 }
 
@@ -194,10 +203,107 @@ describe("answer tools, one at a time", () => {
       expect(await search("quantum farming")).toEqual([]);
     });
 
-    it("treats % and _ in the query as plain spaces, not wildcards", async () => {
+    it("matches % and _ literally", async () => {
       expect((await search("Fixture")).length).toBeGreaterThan(0);
       expect(await search("Fix%Publication")).toEqual([]);
       expect(await search("Fixtur_")).toEqual([]);
+    });
+
+    // Each piece gets its own checksummed id and is deleted afterwards, so
+    // these never leak into the other tests in this file.
+    const searchIds = async (query: string) => (await search(query)).map(({ id }) => id);
+    async function withPieces(contents: string[], run: (ids: string[]) => Promise<void>) {
+      const ids = contents.map((_, index) =>
+        checksummedId(`55555555555555${String(index).padStart(2, "0")}`)
+      );
+      try {
+        for (const [index, id] of ids.entries())
+          await insertPublication(id, { title: `piece ${index}`, content: contents[index] });
+        await run(ids);
+      } finally {
+        await deletePublications(ids);
+      }
+    }
+
+    it("matches every word in any order, with other words between them", async () => {
+      await withPieces(["pricing tiers for a 100% café plan"], async ([piece]) => {
+        expect(await searchIds("pricing tiers")).toContain(piece);
+        expect(await searchIds("tiers pricing")).toContain(piece);
+        expect(await searchIds("pricing plan")).toContain(piece);
+        expect(await searchIds("  plan\tcafé\n pricing ")).toContain(piece);
+      });
+    });
+
+    it("does not return a piece missing one of the words from every field", async () => {
+      await withPieces(["kestrel falcon heron", "kestrel heron only"], async ([both, one]) => {
+        const found = await searchIds("kestrel falcon");
+        expect(found).toContain(both);
+        expect(found).not.toContain(one);
+        expect(await searchIds("kestrel heron")).toEqual(expect.arrayContaining([both, one]));
+      });
+    });
+
+    it("matches a word across fields: one in the title, another in the content", async () => {
+      await withPieces(["ocelot lives here"], async ([piece]) => {
+        expect(await searchIds("ocelot piece")).toContain(piece);
+      });
+    });
+
+    it("matches % literally, not as a wildcard", async () => {
+      await withPieces(["quokka 100% sure", "quokka 100 x sure"], async ([percent, spaced]) => {
+        const found = await searchIds("100%");
+        expect(found).toContain(percent);
+        expect(found).not.toContain(spaced);
+      });
+    });
+
+    it("matches _ literally, not as a wildcard", async () => {
+      await withPieces(["wombat a_b", "wombat axb"], async ([underscore, other]) => {
+        const found = await searchIds("a_b");
+        expect(found).toContain(underscore);
+        expect(found).not.toContain(other);
+      });
+    });
+
+    it("matches a backslash literally, including a trailing one, without throwing", async () => {
+      await withPieces(
+        ["numbat C:\\dir\\ end", "numbat C:dir end"],
+        async ([slashed, plain]) => {
+          for (const query of ["C:\\dir\\", "dir\\", "\\", "numbat\\d"]) {
+            const found = await searchIds(query);
+            if (query === "numbat\\d") {
+              expect(found).toEqual([]);
+              continue;
+            }
+            expect(found).toContain(slashed);
+            expect(found).not.toContain(plain);
+          }
+        }
+      );
+    });
+
+    it(`ignores words past the first ${MAX_SEARCH_TERMS}`, async () => {
+      expect(MAX_SEARCH_TERMS).toBe(8);
+      const words = ["ant", "bee", "cicada", "dragonfly", "earwig", "flea", "gnat", "hornet"];
+      await withPieces([`insects: ${words.join(" ")}`], async ([piece]) => {
+        expect(await searchIds([...words, "absentword"].join(" "))).toContain(piece);
+        expect(await searchIds(["absentword", ...words].join(" "))).not.toContain(piece);
+      });
+    });
+
+    it("ignores characters past the 48 that fit D1's 50-byte LIKE pattern", async () => {
+      expect(MAX_PATTERN_BYTES).toBe(50);
+      const long = "y".repeat(48);
+      await withPieces([`marmot ${long}.`], async ([piece]) => {
+        expect(await searchIds(`${long}absent`)).toContain(piece);
+        expect(await searchIds(`${"y".repeat(47)}absent`)).not.toContain(piece);
+        expect(await searchIds("\\".repeat(100))).toEqual([]);
+        expect(await searchIds("\u{1F98A}".repeat(100))).toEqual([]);
+      });
+    });
+
+    it("answers [] to a whitespace-only query", async () => {
+      expect(await search("   \t\n ")).toEqual([]);
     });
 
     it("returns at most eight pieces", async () => {
@@ -281,5 +387,32 @@ describe("answer tools, one at a time", () => {
       });
       expect(outcomes).toEqual([{ status: "refused", reason: "not covered" }]);
     });
+  });
+});
+
+describe("searchTerms and likePattern", () => {
+  it("splits on whitespace and drops empty words", () => {
+    expect(searchTerms("  a\tb\n\nc  ")).toEqual(["a", "b", "c"]);
+    expect(searchTerms(" \t\n")).toEqual([]);
+  });
+
+  it("caps the number of words, and cuts each by whole code points to fit the pattern", () => {
+    expect(searchTerms("1 2 3 4 5 6 7 8 9 10")).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+    expect(searchTerms("y".repeat(60))).toEqual(["y".repeat(48)]);
+    // Escaped characters take two bytes of the pattern.
+    expect(searchTerms("%".repeat(30))).toEqual(["%".repeat(24)]);
+    // A four-byte emoji is never cut in half: 12 fit in 48 bytes.
+    const fox = "\u{1F98A}";
+    expect(searchTerms(fox.repeat(20))).toEqual([fox.repeat(12)]);
+    expect(searchTerms(`ab${fox.repeat(20)}`)).toEqual([`ab${fox.repeat(11)}`]);
+    for (const term of searchTerms(`${"é".repeat(40)} ${"_\\".repeat(40)}`))
+      expect(new TextEncoder().encode(likePattern(term)).length).toBeLessThanOrEqual(
+        MAX_PATTERN_BYTES
+      );
+  });
+
+  it("escapes backslash, % and _", () => {
+    expect(likePattern("a_b%c\\")).toBe("%a\\_b\\%c\\\\%");
+    expect(likePattern("plain")).toBe("%plain%");
   });
 });

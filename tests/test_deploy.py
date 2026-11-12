@@ -87,6 +87,7 @@ class _Wrangler:
         secret_put_fails_for: str | None = None,
         d1_exists: bool = False,
         d1_exists_quietly: bool = False,
+        d1_list: str | None = None,
         email_unverified: bool = False,
         d1_email_unverified: bool = False,
         no_subdomain: bool = False,
@@ -109,6 +110,7 @@ class _Wrangler:
         self.puts: list[tuple[str, object]] = []
         self.d1_exists = d1_exists
         self.d1_exists_quietly = d1_exists_quietly
+        self.d1_list = d1_list
         self.email_unverified = email_unverified
         self.d1_email_unverified = d1_email_unverified
         self.no_subdomain = no_subdomain
@@ -167,7 +169,7 @@ class _Wrangler:
             elif self.d1_id_in_output:
                 out = f'database_id = "{DATABASE_ID}"\n'
         elif tail == ("d1", "list", "--json"):
-            out = json.dumps([{"uuid": DATABASE_ID, "name": "lore-publications"}])
+            code, out, err = self._listing()
         elif tail == ("deploy",) and self.email_unverified:
             code, err = 1, refusals.VERIFY_EMAIL
         elif tail == ("deploy",) and self.no_subdomain:
@@ -183,6 +185,24 @@ class _Wrangler:
             else:
                 out = json.dumps([{"results": SALES, "success": True}])
         return subprocess.CompletedProcess(args, code, stdout=out, stderr=err)
+
+    def _listing(self) -> tuple[int, str, str]:
+        """What `d1 list --json` says: the database by default, or one way it fails (MON-058)."""
+        said = {
+            "refused": (1, json.dumps(WRANGLER_REFUSAL, indent=2), ""),
+            "not_signed_in": (1, "", "✘ [ERROR] Not logged in"),
+            "fetch_failed": (1, "", "✘ [ERROR] fetch failed"),
+            "empty": (1, "", ""),
+            "none_listed": (0, "[]", ""),
+            "object": (0, '{"result": []}', ""),
+            "null": (0, "null", ""),
+            "strings": (0, '["lore-publications"]', ""),
+            "garbage": (0, "not json", ""),
+        }
+        if self.d1_list is None:
+            listed = [{"uuid": DATABASE_ID, "name": "lore-publications"}]
+            return 0, json.dumps(listed), ""
+        return said[self.d1_list]
 
     def named(self, *tail: str) -> list[tuple[str, ...]]:
         return [command for command in self.commands if command[1:] == tail]
@@ -1713,26 +1733,58 @@ class DeployTest(_NodeCase):
             self._deploy(d1_create_fails=True)
 
     def test_an_unresolvable_database_id_says_what_to_paste_where(self) -> None:
+        # A listing that works but doesn't name the database: only the owner can find its id.
         with Store() as store:
-            store.set_setting("price_usd", 0.01)
-        wrangler = _Wrangler(d1_exists=True)
-        original = wrangler.__call__
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+        with self.assertRaisesRegex(OSError, "paste it into wrangler.jsonc"):
+            self._deploy(d1_exists=True, d1_list="none_listed")
 
-        def no_listing(args, **kwargs):
-            if tuple(args[1:]) == ("d1", "list", "--json"):
-                return subprocess.CompletedProcess(
-                    args, 0, stdout="not json", stderr=""
+    def test_a_listing_that_is_not_a_list_of_objects_names_the_listing(self) -> None:
+        # MON-058: wrangler said yes but printed something else; never a crash, never "paste it".
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+        for listing in ("object", "null", "strings", "garbage"):
+            with self.subTest(listing=listing):
+                with self.assertRaisesRegex(
+                    OSError, "wrangler d1 list --json"
+                ) as raised:
+                    self._deploy(d1_exists=True, d1_list=listing)
+                self.assertNotIsInstance(raised.exception, (AttributeError, TypeError))
+                self.assertNotIn("paste it into wrangler.jsonc", str(raised.exception))
+                self.assertIn(
+                    deploy_module.D1_PLACEHOLDER,
+                    (self.store / "wrangler.jsonc").read_text(),
                 )
-            return original(args, **kwargs)
 
-        with (
-            patch("lore.deploy.subprocess.run", side_effect=no_listing),
-            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
-            patch("lore.cli.push_job"),
-            captured(),
-            self.assertRaisesRegex(OSError, "wrangler d1 list"),
+    def test_a_fresh_installation_is_refused_before_any_listing(self) -> None:
+        # MON-058: #257's refusal comes first, so a listing that would fail can't replace it.
+        for script in (
+            {"d1_exists": True, "d1_list": "refused"},
+            {"d1_exists_quietly": True, "d1_list": "refused"},
         ):
-            deploy_module.deploy(WALLET)
+            with self.subTest(script=script):
+                wrangler = _Wrangler(**script)  # type: ignore[arg-type]
+                with (
+                    patch("lore.deploy.subprocess.run", side_effect=wrangler),
+                    patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+                    patch("lore.cli.push_job") as push,
+                    captured(),
+                    self.assertRaises(deploy_module.StoreFailed) as raised,
+                ):
+                    deploy_module.deploy(None, inbox_only=True)
+                self.assertEqual(raised.exception.reason, "exists_elsewhere")
+                self.assertEqual(wrangler.named("d1", "list", "--json"), [])
+                self.assertEqual(wrangler.named("deploy"), [])
+                push.assert_not_called()
+
+    def test_the_resolved_id_is_written_whole(self) -> None:
+        # A torn write would bring back the placeholder, then refuse the owner's own database.
+        with patch("lore.deploy._replace", wraps=deploy_module._replace) as replace:
+            code, _ = self._deploy()
+        self.assertEqual(code, 0)
+        self.assertIn(
+            self.store / "wrangler.jsonc", [c.args[0] for c in replace.call_args_list]
+        )
 
     def test_an_owner_pasted_database_id_survives_a_re_materialize(self) -> None:
         # Re-running deploy overwrites the shipped config; resetting a resolved
@@ -1906,6 +1958,51 @@ class WhyTheStoreFailedTest(_NodeCase):
         for private in ("Ada", "0123456789abcdef", "@", "dash.cloudflare.com"):
             with self.subTest(private=private):
                 self.assertNotIn(private, words)
+
+    def test_a_failed_listing_carries_wranglers_refusal_to_the_log_and_usage(
+        self,
+    ) -> None:
+        # MON-058: a listing wrangler refused stops the deploy with wrangler's own words,
+        # not a traceback and not "paste the id yourself", and is logged and counted.
+        # An inbox-only store that has deployed before, so the listing is reached.
+        with Store() as store:
+            store.set_setting("node_url", "https://lore.example.workers.dev/mcp")
+            store.set_setting(deploy_module.SELLING_SETTING, False)
+        listing = "listing your Cloudflare databases (wrangler d1 list) failed"
+        for case, reason in (
+            ("refused", "other"),
+            ("not_signed_in", "not_signed_in"),
+            ("fetch_failed", "other"),
+            ("empty", "other"),
+        ):
+            with self.subTest(case=case):
+                # Each case reads only what it wrote: the log keeps only its tail, so no offset.
+                deploy_module.store_log().unlink(missing_ok=True)
+                (self.lore_home / "usage.log").unlink(missing_ok=True)
+                failed = self._failed(d1_exists=True, d1_list=case)
+                self.assertIsInstance(failed, deploy_module.StoreFailed)
+                self.assertTrue(deploy_module.store_log().exists())
+                log = deploy_module.store_log().read_text()
+                self.assertNotIn("paste it into wrangler.jsonc", str(failed))
+                self.assertNotIn("paste it into wrangler.jsonc", log)
+                self.assertEqual(
+                    [e["props"] for e in self._sent() if e["name"] == "store.failed"],
+                    [{"reason": reason}],
+                )
+                self.assertEqual(failed.reason, reason)
+                if case == "refused":
+                    self.assertIn("Authentication error", str(failed))
+                    self.assertIn("Authentication error", log)
+                elif case == "not_signed_in":
+                    self.assertEqual(str(failed), deploy_module.NOT_SIGNED_IN)
+                    self.assertIn("Not logged in", log)
+                elif case == "fetch_failed":
+                    self.assertIn("listing your Cloudflare databases", str(failed))
+                    self.assertIn("fetch failed", str(failed))
+                    self.assertIn("fetch failed", log)
+                else:
+                    self.assertEqual(str(failed), listing)
+                    self.assertIn("listing your Cloudflare databases", log)
 
     def test_a_payout_refusal_is_counted_and_stays_a_plain_refusal(self) -> None:
         with self.assertRaisesRegex(ValueError, "no way to be paid"):
