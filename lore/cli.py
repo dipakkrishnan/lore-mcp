@@ -1709,7 +1709,7 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if publication_price is None else _usd(publication_price)}"
+        f"Publication price: {_usd(publication_price) if isinstance(publication_price, (int, float)) else 'not set'}"
     )
     print(f"Free copies: {free} per piece")
     print(
@@ -1748,7 +1748,11 @@ def price(amount: float | None) -> int:
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
-            print("not set" if current is None else f"{_usd(current)} per publication")
+            print(
+                f"{_usd(current)} per publication"
+                if isinstance(current, (int, float))
+                else "not set"
+            )
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
