@@ -367,6 +367,28 @@ class SkillContractTest(unittest.TestCase):
         # The desktop switch reads the same field, never the local list.
         self.assertIn("read gate > 1 from `lore desktop-state`", gate)
 
+    def test_the_payment_skill_leaves_wrangler_to_the_cli(self) -> None:
+        """MON-006: every deploy mechanic is a `lore node` command; the skill names
+        no wrangler call for the agent or the owner to run, and neither the skill
+        nor the CLI's own words claim the node serves canary content."""
+        skill = (OWNER_SKILLS / "lore-enable-payments/SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotRegex(skill, r"(?i)wrangler")
+        for command in ("lore node accounts", "lore node login", "lore node secrets"):
+            with self.subTest(command=command):
+                self.assertIn(command, skill)
+        for name in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "LORE_ANSWER_MODEL"):
+            with self.subTest(secret=name):
+                self.assertIn(f"lore node secret {name}", skill)
+        for path in (
+            OWNER_SKILLS / "lore-enable-payments/SKILL.md",
+            ROOT / "lore/cli.py",
+            ROOT / "lore/deploy.py",
+        ):
+            with self.subTest(source=path.name):
+                self.assertNotRegex(path.read_text(encoding="utf-8"), r"(?i)canary")
+
     def test_the_payment_skill_refuses_a_recovery_phrase(self) -> None:
         """The one secret worse than an API key to land in a transcript."""
         skill = (

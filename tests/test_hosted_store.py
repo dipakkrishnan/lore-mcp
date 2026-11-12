@@ -4,6 +4,8 @@ its agents' saves reach it with no Cloudflare account."""
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import urllib.error
 from pathlib import Path
@@ -178,3 +180,70 @@ class InboxTest(HostedCase):
         self.claim()
         with self.assertRaisesRegex(InboxError, "reading your agents failed: no such"):
             Inbox().agents()
+
+
+class BrokenAnswerTest(HostedCase):
+    """XC-112: whatever breaks between the store and the Mac reads as Lore's servers
+    not answering, never as a Python error."""
+
+    MODES = (
+        "closed",
+        "reset",
+        "truncated",
+        "status",
+        "nonjson",
+        "nonobject",
+        "noresults",
+        "badresults",
+        "errorbody",
+    )
+    FAIL = "reading your agents failed"
+
+    def broken(self, mode: str) -> None:
+        self.stand_in.broken = mode
+        self.addCleanup(setattr, self.stand_in, "broken", None)
+
+    def test_each_broken_answer_is_said_as_busy(self) -> None:
+        claimed = self.claim()
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.broken(mode)
+                with self.assertRaises(HostedError) as said:
+                    claimed.sql("SELECT 1", self.FAIL)
+                self.assertEqual(str(said.exception), f"{self.FAIL}. {hosted.BUSY}")
+
+    def test_an_unreadable_error_body_keeps_its_status(self) -> None:
+        claimed = self.claim()
+        self.broken("errorbody")
+        with self.assertRaises(HostedError) as said:
+            claimed.sql("SELECT 1", self.FAIL)
+        self.assertEqual(said.exception.status, 503)
+
+    def test_agents_list_says_a_broken_answer_plainly(self) -> None:
+        self.online()
+        with Store() as store:
+            Agents(store).connect("Grok", "grok")
+        with captured() as out:
+            self.assertEqual(main(["agents", "list"]), 0)
+        self.assertNotIn("No personal agents connected.", out.getvalue())
+        escaped = (
+            "KeyError",
+            "IncompleteRead",
+            "RemoteDisconnected",
+            "JSONDecodeError",
+            "BadStatusLine",
+            "ConnectionResetError",
+            "HTTPError",
+        )
+        for mode in self.MODES:
+            with self.subTest(mode=mode):
+                self.broken(mode)
+                err, out = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                    code = main(["agents", "list"])
+                self.assertEqual(code, 2)
+                said = err.getvalue()
+                self.assertNotIn("Traceback", said)
+                for name in escaped:
+                    self.assertNotIn(name, said)
+                self.assertIn(hosted.BUSY, said)

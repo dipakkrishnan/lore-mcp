@@ -4,13 +4,13 @@ title: Move deploy mechanics from the skill into the CLI when edge serving lands
 priority: P1
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [MON-002, MON-004, MON-005, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-26
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -45,7 +45,7 @@ XC-002 / PR #38 merges).
       account to a live, smoke-checked node serving their active publications,
       and records the node URL in settings.
 - [x] Revocation reaches the deployed node.
-- [ ] The skill's deploy section contains no wrangler invocations, and neither
+- [x] The skill's deploy section contains no wrangler invocations, and neither
       skill nor CLI claims the node serves canary content.
 
 ## Notes
@@ -101,3 +101,34 @@ criterion 3 as written says "no wrangler invocations," which is falsifiable
 and false. Reverting `status` to `ready` and unchecking criterion 3 until
 either the section genuinely has none, or the criterion is reworded to the
 narrower claim it actually means.
+
+**Completed 2026-11-11 (criterion 3).** Every wrangler call the skill named
+now has a `lore node` replacement, so the owner and the agent drive only the CLI:
+
+- `npx wrangler whoami` → `lore node accounts` (fails with "not signed in to
+  Cloudflare" when logged out, and prints the account id the workers.dev
+  subdomain step needs); `! npx wrangler login` → `! lore node login`. The
+  desktop "online for the owner's agents" path drops its whoami step and relies
+  on deploy's own not-signed-in message, then `cloudflare_login`, then a rerun.
+- `npx wrangler secret put ANTHROPIC_API_KEY | OPENAI_API_KEY |
+  LORE_ANSWER_MODEL` → `lore node secret <NAME>`: `deploy.SECRETS` widened from
+  the two Coinbase keys to these five (LORE_WALLET stays deploy's alone), and a
+  value typed in a terminal is read with `getpass`, never echoed. Piped and
+  desktop stdin are unchanged, and the owner-only gate stays.
+- `npx wrangler secret list` → new `lore node secrets [--json]`, backed by
+  `deploy.secret_names()` (`wrangler secret list --format json` under
+  `tools()`), names only. A listing that fails or cannot be parsed is an error,
+  never an empty vault. It is read-only, so it is not owner-gated.
+- `npx wrangler tail` → removed; failures already print the next step and the
+  full log is in `~/.lore/logs/store.log`.
+
+Verification: `git grep -n -i wrangler --
+plugins/lore/skills/lore-enable-payments/SKILL.md` returns nothing, which
+`test_the_payment_skill_leaves_wrangler_to_the_cli` pins. The same test pins
+that neither the skill nor `lore/cli.py` / `lore/deploy.py` says "canary". The
+internal client names (`lore-x402-canary` in `lore/node/package.json`, the
+smoke and pay scripts) are not claims to owners and were left alone.
+`lore/node/README.md`'s answer-tier snippet now uses `lore node secret` as
+well. Follow-ups, out of scope: the CLI's own hints still say
+`npx wrangler login` (cli.py, deploy.py) where `lore node login` would do, and
+a `lore node logs` wrapper around `wrangler tail` could restore live tailing.

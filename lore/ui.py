@@ -127,10 +127,9 @@ def flag_diff(detail: dict[str, object], labels: dict[str, str]) -> None:
         )
         return
     for line in diff:
-        # Clean first, so the prefix checks see what the owner will see.
+        # Clean first, so the colour follows what the owner will see. The
+        # store hands over hunks only, so every line is printed.
         line = clean(line)
-        if line.startswith(("---", "+++")):
-            continue
         if line.startswith("+"):
             print(paint("32", f"      {line}"))
         elif line.startswith("-"):
