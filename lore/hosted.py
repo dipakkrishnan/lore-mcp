@@ -8,6 +8,7 @@ deploys their own store on Cloudflare uses that one instead."""
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import secrets
@@ -117,8 +118,10 @@ class Hosted:
 
     def sql(self, query: str, fail: str) -> Rows:
         """Every statement's rows, all or none, as `wrangler d1 execute` gives them."""
-        answer = self._send("/owner/sql", {"sql": query}, fail)
-        return cast(Rows, answer["results"])
+        results = self._send("/owner/sql", {"sql": query}, fail).get("results")
+        if not isinstance(results, list):
+            raise HostedError(f"{fail}. {BUSY}")
+        return cast(Rows, results)
 
     def _key(self) -> OwnerKey:
         try:
@@ -149,7 +152,7 @@ class Hosted:
         )
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-                return cast(dict[str, object], json.loads(response.read()))
+                answer = json.loads(response.read())
         except urllib.error.HTTPError as error:
             said = _said(error)
             raise HostedError(
@@ -157,6 +160,14 @@ class Hosted:
             ) from None
         except (urllib.error.URLError, TimeoutError):
             raise HostedError(f"{fail}. {UNREACHABLE}") from None
+        # XC-112: the server took the request but its answer broke on the way back (a
+        # dropped connection, a deploy restarting mid-answer): Lore's servers, not the
+        # owner's internet. URLError and TimeoutError are OSErrors, so they come first.
+        except (http.client.HTTPException, OSError, ValueError):
+            raise HostedError(f"{fail}. {BUSY}") from None
+        if not isinstance(answer, dict):
+            raise HostedError(f"{fail}. {BUSY}")
+        return cast(dict[str, object], answer)
 
 
 def agent_address(store: Store) -> str | None:
@@ -192,7 +203,7 @@ def _said(error: urllib.error.HTTPError) -> str | None:
     """The store's own words for a refusal; None when it's Lore's servers that failed."""
     try:
         return str(json.loads(error.read())["error"])
-    except (ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError, http.client.HTTPException, OSError):
         return None
 
 
