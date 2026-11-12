@@ -320,6 +320,75 @@ class FlagTest(PlainTerminalTest):
             ui.changed_memory_note(_detail(origin="automation"), LABELS),
             '"Pricing notes" was rewritten by Lore\'s synthesis on 2026-08-02',
         )
+        # A hostile label on that source changes nothing: synthesis is named.
+        self.assertEqual(
+            ui.changed_memory_note(
+                _detail(origin="automation"), {"claude": "Ev\x1b[2Jil\x07Feed\x9b"}
+            ),
+            '"Pricing notes" was rewritten by Lore\'s synthesis on 2026-08-02',
+        )
+
+    def test_control_characters_in_a_source_label_never_reach_the_note(
+        self,
+    ) -> None:
+        # A feed's title becomes the source's label, and its owner chooses it.
+        note = ui.changed_memory_note(_detail(), {"claude": "Ev\x1b[2Jil\x07Feed\x9b"})
+        self.assertEqual(
+            note, '"Pricing notes" was rewritten by Ev[2JilFeed on 2026-08-02'
+        )
+
+    def test_control_characters_in_an_unlabelled_source_name_never_reach_the_note(
+        self,
+    ) -> None:
+        note = ui.changed_memory_note(_detail(source="s\x1b[2J\x07\x9bx"), LABELS)
+        self.assertEqual(note, '"Pricing notes" was rewritten by s[2Jx on 2026-08-02')
+
+    # Written by hand: difflib cannot put ESC into an @@ line, but a stored
+    # diff is just a list of strings and the printer must not trust it.
+    HOSTILE_DIFF = [
+        "@@ -1 +1 @@\x1b[2J",
+        "-old\x1b[2J\x07",
+        "+b\x1b[2Jevil\x9b",
+        " same\x07\x9b",
+    ]
+
+    def test_control_characters_in_diff_lines_never_reach_the_terminal(
+        self,
+    ) -> None:
+        with captured() as output:
+            ui.flag_diff(_detail(diff=self.HOSTILE_DIFF), LABELS)
+        printed = output.getvalue()
+        self.assertEqual(
+            printed.splitlines(),
+            [
+                f"    ! {NOTE}",
+                "      @@ -1 +1 @@[2J",
+                "      -old[2J",
+                "      +b[2Jevil",
+                "       same",
+            ],
+        )
+        for character in ("\x1b", "\x07", "\x9b"):
+            self.assertNotIn(character, printed)
+
+    def test_cleaned_diff_lines_keep_their_colour(self) -> None:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
+            ui.flag_diff(_detail(diff=self.HOSTILE_DIFF), LABELS)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(
+            lines[1:],
+            [
+                "\033[2m      @@ -1 +1 @@[2J\033[0m",
+                "\033[31m      -old[2J\033[0m",
+                "\033[32m      +b[2Jevil\033[0m",
+                "\033[2m       same\033[0m",
+            ],
+        )
+        for line in lines:
+            # Exactly the two ESCs paint() adds; nothing else gets through.
+            self.assertEqual(line.count("\x1b"), 2)
+            self.assertNotIn("\x07", line)
+            self.assertNotIn("\x9b", line)
 
     def test_a_source_with_no_label_is_named_as_stored(self) -> None:
         self.assertEqual(
