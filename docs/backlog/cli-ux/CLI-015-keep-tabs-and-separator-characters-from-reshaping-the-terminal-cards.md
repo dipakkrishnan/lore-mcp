@@ -1,16 +1,16 @@
 ---
 id: CLI-015
 title: Keep tabs and separator characters from reshaping the terminal cards
-priority: P3
+priority: P2
 effort: S
 component: cli-ux
-status: in-review
+status: ready
 related: [CLI-013, XC-019]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -74,3 +74,11 @@ in open PR #439 for blueprint text and the listed store name, covers the same
 class of character. Whichever of the two is implemented first should pick
 one character policy that both use, rather than each component choosing its
 own.
+
+**Prioritization pass 2026-11-11 (after CLI-013):** Promoted `in-review` →
+`ready` and P3 → P2. No blockers or dependencies, and every criterion is a
+concrete input/output check against `tests/test_ui.py`. CLI-013 (#702) landed
+one shared `clean()` helper in `lore/ui.py` and, as its stated tradeoff, now
+deletes tabs inside flagged-publication diff lines too, so this item fixes
+both cards and the diff in one place: apply the tab rule inside `clean()`.
+The zero-width/direction-character question in the Notes stays out of scope.
