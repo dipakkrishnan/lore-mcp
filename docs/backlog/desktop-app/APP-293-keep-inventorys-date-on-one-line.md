@@ -4,7 +4,7 @@ title: Keep Inventory's date on one line
 priority: P3
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-282, APP-183]
 blockers: []
 dependencies: []
