@@ -404,6 +404,22 @@ def _pid_alive(pid: int) -> bool:
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n*", re.S)
 GIST_CHARS = 180
 
+LINE_BREAK = re.compile(r"\r\n|\r|\n")
+
+
+def text_lines(text: str) -> list[str]:
+    """`text` split into lines at `\\n`, `\\r\\n` and `\\r` only (CLI-015).
+
+    `str.splitlines` also breaks at vertical tab, form feed, the file, group
+    and record separators, NEL and the Unicode line and paragraph separators,
+    so a memory card and its flag diff would start new lines the text never
+    had. Otherwise this matches `splitlines`: no trailing empty line after a
+    final break, and no lines at all for empty text."""
+    lines = LINE_BREAK.split(text)
+    if lines[-1] == "":
+        lines.pop()
+    return lines
+
 
 def gist(content: str) -> str:
     """What a memory is about, in a line a list can show beside its title: the summary its
@@ -1486,8 +1502,8 @@ class Store:
                 # here means no reader has to guess which lines are headers.
                 diff = list(
                     difflib.unified_diff(
-                        snapshot["content"].splitlines(),
-                        memory["content"].splitlines(),
+                        text_lines(snapshot["content"]),
+                        text_lines(memory["content"]),
                         lineterm="",
                     )
                 )[2:]

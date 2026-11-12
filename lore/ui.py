@@ -5,19 +5,26 @@ import sys
 import textwrap
 from typing import Mapping, TextIO
 
-from .store import Memory, Publication
+from .store import Memory, Publication, text_lines
 
 CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
+# What `clean` removes: the control range, plus the Unicode line and paragraph
+# separators, which are not controls but would start a new line on a terminal
+# that honours them. Kept apart so CONTROL_CHARACTERS' importers are unchanged.
+CARD_CHARACTERS = {**CONTROL_CHARACTERS, 0x2028: None, 0x2029: None}
 
 
 def clean(text: object) -> str:
-    """`text` as a string with C0 and C1 control characters removed.
+    """`text` as a string with tabs expanded to spaces and C0 and C1 control
+    characters and the Unicode line and paragraph separators removed.
 
     Everything remote that reaches the terminal goes through here: card
-    titles and bodies, a flag's actor and its diff lines (CLI-013). It is the
-    one place to change when tabs are kept rather than deleted (CLI-015).
+    titles and bodies, a flag's actor and its diff lines (CLI-013). Tabs are
+    expanded first, to 8-column stops, so indented code and tab-separated
+    columns keep their spacing instead of collapsing (CLI-015). Text with
+    several lines is split with `text_lines` before it gets here.
     """
-    return str(text).translate(CONTROL_CHARACTERS)
+    return str(text).expandtabs().translate(CARD_CHARACTERS)
 
 
 def COLOR(
@@ -95,7 +102,7 @@ def memory_card(
     body = memory.content
     if len(body) > 1800:
         body = body[:1800].rstrip() + "\n…"
-    for paragraph in body.splitlines():
+    for paragraph in text_lines(body):
         paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
 
@@ -170,6 +177,6 @@ def publication_card(
         if text:
             print(paint("2", clean(f"{label}: {text}")))
     print()
-    for paragraph in publication.content.splitlines():
+    for paragraph in text_lines(publication.content):
         paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")

@@ -17,8 +17,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
-from helpers import LoreTestCase
+from helpers import LoreTestCase, captured
 
+from lore import ui
 from lore.store import (
     JOB_MAX_ROWS,
     STATUSES,
@@ -34,6 +35,7 @@ from lore.store import (
     Verdict,
     gist,
     new_public_id,
+    text_lines,
     valid_public_id,
 )
 
@@ -735,6 +737,36 @@ class SettingIfUnsetTest(LoreTestCase):
             self.assertIs(deploy.setting("node_selling"), True)
 
 
+SEPARATORS = ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class TextLinesTest(unittest.TestCase):
+    """`text_lines` is `str.splitlines` that breaks at line breaks only."""
+
+    def test_it_agrees_with_splitlines_on_line_breaks(self) -> None:
+        for text in (
+            "",
+            "a",
+            "a\n",
+            "a\r",
+            "\n",
+            "\r\n",
+            "a\n\n",
+            "a\r\nb",
+            "a\rb\nc",
+            "a\n\nb",
+            "\n\na",
+        ):
+            with self.subTest(text=repr(text)):
+                self.assertEqual(text_lines(text), text.splitlines())
+
+    def test_other_separators_stay_inside_their_line(self) -> None:
+        for separator in SEPARATORS:
+            with self.subTest(separator=repr(separator)):
+                text = f"one{separator}two\nthree"
+                self.assertEqual(text_lines(text), [f"one{separator}two", "three"])
+
+
 class PublicationTest(LoreTestCase):
     """Publications are the only externally-readable rows, so every guard on
     creating one is a guard on what a stranger's agent can be sold."""
@@ -895,6 +927,49 @@ class PublicationTest(LoreTestCase):
         diff_text = "\n".join(entry["diff"])
         self.assertIn("-Pricing lesson about deployment", diff_text)
         self.assertIn("+a changed body", diff_text)
+
+    def test_a_separator_that_is_not_a_line_break_splits_the_diff_as_the_card(
+        self,
+    ) -> None:
+        # CLI-015: the diff and the card must break a memory into the same
+        # lines, so a change made only of one of these characters is shown as
+        # one changed line, the line the card prints, not as several.
+        derived = self.publish()
+        for number, separator in enumerate(SEPARATORS):
+            with self.subTest(separator=repr(separator)):
+                content = f"Pricing lesson{separator}about deployment"
+                with Store() as store:
+                    store.put(
+                        source="test",
+                        origin="native",
+                        source_path="Pricing lesson",
+                        source_key="Pricing lesson",
+                        fingerprint=f"changed {number}",
+                        title="Pricing lesson",
+                        content=content,
+                    )
+                    publication = next(
+                        p for p in store.stale_publications() if p.id == derived
+                    )
+                    [detail] = store.flag_detail(publication)
+                    memory = store.search("Pricing lesson")[0]
+                self.assertEqual(
+                    detail["diff"],
+                    ["@@ -1 +1 @@", "-Pricing lesson about deployment", f"+{content}"],
+                )
+                with mock.patch.object(ui, "COLOR", lambda: False):
+                    with captured() as diff_output:
+                        ui.flag_diff(detail, {})
+                    with captured() as card_output:
+                        ui.memory_card(memory)
+                [added] = [
+                    line.removeprefix("      +")
+                    for line in diff_output.getvalue().splitlines()
+                    if line.startswith("      +")
+                ]
+                card_body = card_output.getvalue().split("\n\n", 1)[1].splitlines()
+                self.assertEqual(card_body, ["Pricing lessonabout deployment"])
+                self.assertEqual(added, card_body[0])
 
     def test_flag_detail_degrades_without_a_snapshot(self) -> None:
         # A publication approved before this feature shipped (or whose row

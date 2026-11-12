@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import difflib
 import io
+import re
 import sys
 import unittest
 from contextlib import redirect_stderr
@@ -37,6 +38,10 @@ def _memory(**overrides: object) -> Memory:
 
 
 RULE = "─" * 72
+
+# CLI-015: characters `str.splitlines` breaks at that are not line breaks.
+SEPARATORS = ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+TAB_AS_SPACES = re.compile(r"four +tab")
 
 
 class PlainTerminalTest(unittest.TestCase):
@@ -684,6 +689,78 @@ class MemoryCardTest(PlainTerminalTest):
             "\n"
             "Body text\n",
         )
+
+
+class TabAndSeparatorTest(PlainTerminalTest):
+    """CLI-015: a card looks like the text the owner approves. A tab becomes
+    spaces, not nothing, and a body breaks only where the text has a line
+    break."""
+
+    def assert_tab_shown_as_spaces(self, text: str) -> None:
+        self.assertNotIn("\t", text)
+        self.assertRegex(text, TAB_AS_SPACES)
+
+    def test_a_tab_in_each_memory_card_field_prints_as_spaces(self) -> None:
+        for field in ("title", "project", "content"):
+            with self.subTest(field=field):
+                with captured() as output:
+                    ui.memory_card(_memory(**{field: "four\ttab"}))
+                self.assert_tab_shown_as_spaces(output.getvalue())
+
+    def test_a_tab_in_each_publication_card_field_prints_as_spaces(self) -> None:
+        for field in (
+            "title",
+            "topic",
+            "teaser",
+            "useful_if",
+            "not_useful_if",
+            "sample",
+            "content",
+        ):
+            with self.subTest(field=field):
+                with captured() as output:
+                    ui.publication_card(_publication(**{field: "four\ttab"}))
+                self.assert_tab_shown_as_spaces(output.getvalue())
+
+    def test_indented_code_keeps_its_indent(self) -> None:
+        with captured() as output:
+            ui.memory_card(_memory(content="def f():\n\treturn 1"))
+        self.assertTrue(output.getvalue().endswith("\ndef f():\n        return 1\n"))
+
+    def test_separators_in_a_body_neither_break_the_line_nor_print(self) -> None:
+        for separator in SEPARATORS:
+            for card, make in (
+                (ui.memory_card, _memory),
+                (ui.publication_card, _publication),
+            ):
+                with self.subTest(separator=repr(separator), card=card.__name__):
+                    with captured() as output:
+                        card(make(content=f"one{separator}two"))
+                    text = output.getvalue()
+                    self.assertNotIn(separator, text)
+                    self.assertTrue(text.endswith("\n\nonetwo\n"))
+
+    def test_a_carriage_return_is_dropped_in_a_title_but_breaks_a_body(
+        self,
+    ) -> None:
+        for card, make in (
+            (ui.memory_card, _memory),
+            (ui.publication_card, _publication),
+        ):
+            with self.subTest(card=card.__name__):
+                with captured() as output:
+                    card(make(title="a\rb", content="c\rd"))
+                text = output.getvalue()
+                self.assertNotIn("\r", text)
+                self.assertEqual(text.split("\n")[2], "ab")
+                self.assertTrue(text.endswith("\n\nc\nd\n"))
+
+    def test_a_tab_in_a_diff_line_prints_as_spaces(self) -> None:
+        with captured() as output:
+            ui.flag_diff(_detail(diff=["@@ -1 +1 @@", "-four tab", "+four\ttab"]), {})
+        printed = output.getvalue()
+        self.assertNotIn("\t", printed)
+        self.assertRegex(printed, r"\n      \+four +tab\n")
 
 
 if __name__ == "__main__":
