@@ -2513,6 +2513,33 @@ class PublicationCommandTest(LoreTestCase):
         self.assertIn("-Pricing lesson about deployment", text)
         self.assertIn("+a changed body", text)
 
+    def test_list_shows_changed_lines_that_start_with_dashes_or_pluses(self) -> None:
+        def write(content: str, fingerprint: str) -> None:
+            with Store() as store:
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path="Pricing lesson",
+                    source_key="Pricing lesson",
+                    fingerprint=fingerprint,
+                    title="Pricing lesson",
+                    content=content,
+                )
+
+        # The snapshot taken at publish holds the approved text.
+        write("title\n---\nbody\n--flag", "approved")
+        self.publish()
+        write("title\nbody\n++x", "changed")
+        with captured() as out:
+            cli.publication_list()
+        lines = out.getvalue().splitlines()
+        for expected in ("      ----", "      ---flag", "      +++x"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, lines)
+        text = out.getvalue()
+        self.assertNotIn("--- approved", text)
+        self.assertNotIn("+++ current", text)
+
     def test_list_groups_publications_flagged_by_the_same_change(self) -> None:
         first = self.publish("First claim")
         second = self.publish("Second claim")
