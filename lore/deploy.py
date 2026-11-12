@@ -125,9 +125,17 @@ class PageViews(BaseModel):
 VIEWS = TypeAdapter(list[PageViews])
 # Plain words for the two chains the Worker accepts as LORE_NETWORK.
 NETWORKS = {"real": "eip155:8453", "test": "eip155:84532"}
-# The owner's own Coinbase facilitator credentials, optional: without them real
-# money settles through a keyless facilitator. Nothing else is vaulted here.
-SECRETS = ("CDP_API_KEY_ID", "CDP_API_KEY_SECRET")
+# What the owner may vault on the node through `lore node secret`: their own
+# Coinbase facilitator credentials (optional; without them real money settles
+# through a keyless facilitator) and the paid-answer provider's key and model.
+# LORE_WALLET is not here: `lore node deploy --wallet` sets it.
+SECRETS = (
+    "CDP_API_KEY_ID",
+    "CDP_API_KEY_SECRET",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "LORE_ANSWER_MODEL",
+)
 # The smallest price the six-decimal formatter can render without collapsing
 # to zero; `lore price` rounds to six decimals, so this matches its floor.
 MINIMUM_PRICE = 1e-6
@@ -812,9 +820,9 @@ def views() -> list[PageViews]:
 
 
 def secret(name: str, value: str) -> int:
-    """Vault one Coinbase credential on the node."""
+    """Vault one node credential (Coinbase or answer-provider) on the node."""
     if name not in SECRETS:
-        raise ValueError(f"the node keeps only {' and '.join(SECRETS)}, not {name}")
+        raise ValueError(f"the node keeps only {', '.join(SECRETS)}, not {name}")
     if not value:
         raise ValueError(f"no value given for {name}")
     target = tools()
@@ -827,6 +835,31 @@ def secret(name: str, value: str) -> int:
     )
     success(f"Stored {name} in Cloudflare's vault")
     return 0
+
+
+def secret_names() -> list[str]:
+    """The names of the secrets vaulted on the node, sorted; never their values.
+
+    A listing that fails or cannot be read is an error, never an empty vault:
+    "no secrets" would send the owner to re-enter keys that are already there."""
+    target = tools()
+    listing = _run(
+        (str(target / WRANGLER), "secret", "list", "--format", "json"),
+        target,
+        fail="reading your store's secrets from Cloudflare failed",
+    )
+    try:
+        rows = json.loads(listing.stdout or "")
+        if not isinstance(rows, list):
+            raise TypeError("not a list")
+        names = [row["name"] for row in rows]
+        if not all(isinstance(name, str) for name in names):
+            raise TypeError("a name is not text")
+    except (ValueError, KeyError, TypeError) as error:
+        raise OSError(
+            f"could not read the secret list Cloudflare returned ({error})"
+        ) from error
+    return sorted(names)
 
 
 def _token(wrangler: str, target: Path) -> str | None:

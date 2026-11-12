@@ -51,7 +51,7 @@ model calls with your own API key, so set the per-answer price above the
 per-answer cost the stored telemetry reports.
 
 ```sh
-npx wrangler secret put ANTHROPIC_API_KEY
+lore node secret ANTHROPIC_API_KEY          # asked for without echo
 lore answer on <proxy-file> 0.50
 lore push                                   # ship proxy charter, price, and the switch
 ```
