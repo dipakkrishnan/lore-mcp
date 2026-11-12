@@ -634,6 +634,17 @@ def _detail(result: subprocess.CompletedProcess[str]) -> str:
         return refusal.group(1).strip() if refusal else output.strip()[-2000:]
 
 
+def _never_deployed(result: subprocess.CompletedProcess[str]) -> bool:
+    """Whether wrangler refused because the Worker doesn't exist on the account
+    yet, told by its words (`Worker "lore" not found` and its advice to run
+    `wrangler deploy` first), not by the exit code every refusal shares."""
+    said = re.sub(r"\x1b\[[0-9;]*m", "", f"{result.stderr or ''}{result.stdout or ''}")
+    return bool(
+        re.search(r'Worker "[^"\n]+"[^\n]*?\s+not\s+found', said)
+        and re.search(r"run\s+`wrangler\s+deploy`\s+first", said)
+    )
+
+
 def _timeout_detail(error: subprocess.TimeoutExpired) -> str:
     """Whatever partial output a killed subprocess produced before it was cut
     off — `TimeoutExpired.stdout`/`.stderr` hold only what had already been
@@ -1170,13 +1181,17 @@ def _deploy(
     if not wallet and not inbox_only and not takes_cards():
         # This check exists so a missing payout address costs seconds, not a
         # deploy. A listing that failed says nothing about the wallet, so it
-        # stops the deploy rather than being read as "no wallet". Card
-        # payments are enough on their own: such a store sells by card alone.
-        listing = _run(
-            (wrangler, "secret", "list"),
-            target,
-            fail="reading your store's settings from Cloudflare failed",
-        )
+        # stops the deploy rather than being read as "no wallet" — except
+        # wrangler's answer that the Worker was never deployed (MON-057): no
+        # Worker has no secrets, so that is "no wallet", and the refusal below
+        # names the ways out. The check is never skipped for a missing Worker.
+        # Card payments are enough on their own: such a store sells by card alone.
+        listing = _run((wrangler, "secret", "list"), target)
+        if listing.returncode and not _never_deployed(listing):
+            raise OSError(
+                "reading your store's settings from Cloudflare failed:\n"
+                f"{_detail(listing)}"
+            )
         if "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
                 "your store has no way to be paid yet; turn on card payments "
