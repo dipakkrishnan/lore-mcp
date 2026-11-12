@@ -643,7 +643,9 @@ def _ensure_d1(
     Wrangler validates D1 bindings at deploy time, so the placeholder must
     become a real id first. Idempotent: if the database already exists (a
     re-materialize reset this config, say) *and* this installation has
-    deployed a node before, its id is recovered via `d1 list`.
+    deployed a node before, its id is recovered via `d1 list`. A listing
+    wrangler refuses stops the deploy with wrangler's own words, and one that
+    prints anything but a list of objects stops it naming the listing (MON-058).
 
     A fresh installation (no `node_url` recorded locally) that still finds an
     existing `lore-publications` database is a different situation: the
@@ -652,7 +654,9 @@ def _ensure_d1(
     case (#257) — adopting that database here would point this deploy's
     Worker at it, and the push that follows replaces its publications
     wholesale with this installation's (empty) local set. Refuse instead of
-    silently adopting it.
+    silently adopting it, before any listing, so nothing the listing does can
+    hide that refusal. The resolved id is written whole with `_replace`: a torn
+    write would bring the placeholder back and refuse the owner's own database.
     """
     config = target / "wrangler.jsonc"
     text = config.read_text()
@@ -673,20 +677,7 @@ def _ensure_d1(
     # TOML-vs-JSON output changes, so match the value rather than the syntax.
     match = re.search(r'database_id[":\s=]+([0-9a-fA-F-]{32,36})', output)
     database_id = match.group(1) if match else None
-    if database_id is None:
-        listing = _run((wrangler, "d1", "list", "--json"), target)
-        try:
-            entries = json.loads(listing.stdout or "[]")
-        except ValueError:
-            entries = []
-        database_id = next(
-            (e.get("uuid") for e in entries if e.get("name") == D1_NAME), None
-        )
-    if not database_id:
-        raise OSError(
-            f"could not determine the {D1_NAME} database id; run "
-            f"`npx wrangler d1 list` in {target} and paste it into wrangler.jsonc"
-        )
+    # Decided before any listing, so a listing that fails can't hide #257's refusal (MON-058).
     if already_existed and not os.environ.get("LORE_ADOPT_EXISTING_D1"):
         with Store() as store:
             known_node = store.setting("node_url", None)
@@ -703,6 +694,27 @@ def _ensure_d1(
                 "it into wrangler.jsonc yourself, or rerun with "
                 "LORE_ADOPT_EXISTING_D1=1 set.",
             )
+    if database_id is None:
+        listing = _run(
+            (wrangler, "d1", "list", "--json"),
+            target,
+            fail="listing your Cloudflare databases (wrangler d1 list) failed",
+        )
+        database_id = next(
+            (
+                uuid
+                for entry in _listed_databases(listing.stdout)
+                if entry.get("name") == D1_NAME
+                and isinstance(uuid := entry.get("uuid"), str)
+                and uuid
+            ),
+            None,
+        )
+    if not database_id:
+        raise OSError(
+            f"could not determine the {D1_NAME} database id; run "
+            f"`npx wrangler d1 list` in {target} and paste it into wrangler.jsonc"
+        )
     if not already_existed:
         # A database made in this run is a new store: it sells nothing until a
         # full deploy's push opens it. Written before its id, so a write that
@@ -711,8 +723,22 @@ def _ensure_d1(
         # overwritten (XC-069).
         with Store() as store:
             store.set_setting_if_unset(SELLING_SETTING, False)
-    config.write_text(text.replace(D1_PLACEHOLDER, database_id))
+    _replace(config, text.replace(D1_PLACEHOLDER, database_id))
     return "adopted" if already_existed else "created"
+
+
+def _listed_databases(stdout: str | None) -> list[dict[str, object]]:
+    """What `wrangler d1 list --json` printed, read strictly: a list of objects, or an error naming it."""
+    try:
+        listed = json.loads(stdout or "")
+    except ValueError:
+        listed = None
+    if isinstance(listed, list) and all(isinstance(entry, dict) for entry in listed):
+        return listed
+    said = " ".join((stdout or "").split())[:200]
+    raise OSError(
+        f"`wrangler d1 list --json` printed something Lore can't read: {said}"
+    )
 
 
 def _staged() -> Path:
