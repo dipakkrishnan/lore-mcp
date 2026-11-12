@@ -992,6 +992,51 @@ class PublicationTest(LoreTestCase):
         )
         self.assertTrue(all(entry["diff"] is None for entry in detail))
 
+    def change_pricing_lesson(self, content: str, fingerprint: str = "changed") -> None:
+        with Store() as store:
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint=fingerprint,
+                title="Pricing lesson",
+                content=content,
+            )
+
+    def only_flag_diff(self, publication_id: int) -> list[str] | None:
+        with Store() as store:
+            publication = next(
+                p for p in store.stale_publications() if p.id == publication_id
+            )
+            (entry,) = store.flag_detail(publication)
+        return entry["diff"]  # type: ignore[return-value]
+
+    def test_flag_detail_diff_has_no_file_headers(self) -> None:
+        derived = self.publish()
+        self.change_pricing_lesson("a changed body")
+        diff = self.only_flag_diff(derived)
+        assert diff is not None
+        self.assertTrue(diff[0].startswith("@@"), diff)
+        self.assertNotIn("--- approved", diff)
+        self.assertNotIn("+++ current", diff)
+
+    def test_flag_detail_keeps_lines_that_start_with_dashes(self) -> None:
+        self.change_pricing_lesson("title\n---\nbody\n--flag", fingerprint="approved")
+        derived = self.publish()
+        self.change_pricing_lesson("title\nbody\n++x")
+        diff = self.only_flag_diff(derived)
+        assert diff is not None
+        for line in ("----", "---flag", "+++x"):
+            with self.subTest(line=line):
+                self.assertIn(line, diff)
+
+    def test_flag_detail_diff_with_no_changed_lines_stays_empty(self) -> None:
+        # A new fingerprint over the same text flags without a single changed line.
+        derived = self.publish()
+        self.change_pricing_lesson("Pricing lesson about deployment")
+        self.assertEqual(self.only_flag_diff(derived), [])
+
     def test_flag_detail_is_empty_for_an_unflagged_publication(self) -> None:
         pid = self.publish()
         with Store() as store:

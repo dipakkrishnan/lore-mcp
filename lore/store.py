@@ -1422,7 +1422,9 @@ class Store:
         For each provenance memory that appears to have caused the flag,
         report its title, source, origin, and update time, plus a unified
         diff between the approval-time snapshot and the memory's current
-        text where a snapshot was recorded. A publication approved before
+        text where a snapshot was recorded. The diff holds hunks only, with
+        no file headers, so every line in it is a hunk header, a change or
+        context. A publication approved before
         this feature shipped (or whose provenance memory has no snapshot for
         some other reason) has nothing to diff against, so a memory in that
         state is reported with `diff: None` instead — degrading to name,
@@ -1479,15 +1481,16 @@ class Store:
                 continue  # no snapshot to compare, and this one never triggered a flag
             diff = None
             if snapshot is not None:
+                # Hunks only: unified_diff puts exactly one "---"/"+++" file
+                # header pair first (when there is any hunk), and dropping it
+                # here means no reader has to guess which lines are headers.
                 diff = list(
                     difflib.unified_diff(
                         snapshot["content"].splitlines(),
                         memory["content"].splitlines(),
-                        fromfile="approved",
-                        tofile="current",
                         lineterm="",
                     )
-                )
+                )[2:]
             changed.append(
                 {
                     "memory_id": memory_id,
