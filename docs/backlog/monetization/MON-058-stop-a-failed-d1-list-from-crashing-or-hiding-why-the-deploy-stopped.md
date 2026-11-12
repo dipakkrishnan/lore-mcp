@@ -4,7 +4,7 @@ title: Stop a failed `d1 list` from crashing the deploy or hiding why it stopped
 priority: P2
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [XC-085, XC-069, XC-086]
 blockers: []
 dependencies: []
@@ -41,14 +41,14 @@ that names the listing.
 
 ## Acceptance criteria
 
-- [ ] A listing that exits non-zero, with a JSON error object or with no output, raises `OSError`/`StoreFailed`
+- [x] A listing that exits non-zero, with a JSON error object or with no output, raises `OSError`/`StoreFailed`
       carrying wrangler's refusal, never `AttributeError`/`TypeError`. The store log gets an entry and
       `store.failed` is recorded.
-- [ ] A listing that exits 0 with something other than a list of objects raises an `OSError` naming the
+- [x] A listing that exits 0 with something other than a list of objects raises an `OSError` naming the
       listing.
-- [ ] A fresh installation (no `node_url`) whose `d1 create` says "already exists" refuses with
+- [x] A fresh installation (no `node_url`) whose `d1 create` says "already exists" refuses with
       `exists_elsewhere`, whatever the listing would have done (test: the listing fails, or is never run).
-- [ ] A listing that names `lore-publications` on an installation that has deployed before still adopts its
+- [x] A listing that names `lore-publications` on an installation that has deployed before still adopts its
       id (existing behaviour, still tested).
 
 ## Notes
@@ -65,3 +65,12 @@ deploy brings back the placeholder, and the next run then refuses `exists_elsewh
 database.
 
 **Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers, each criterion is a concrete fake-wrangler case in tests/test_deploy.py.
+
+**Implemented 2026-11-11:** `_ensure_d1` now decides `exists_elsewhere` before any listing, runs the listing
+with `fail=` so wrangler's refusal reaches `StoreFailed.of` (store log + `store.failed`), and reads its output
+with a strict `_listed_databases`. Non-JSON (or any non-list-of-objects) output at exit 0 now raises an
+`OSError` naming `wrangler d1 list --json` instead of reading as "no id"; only a valid list without the
+database still gets the "paste it into wrangler.jsonc" message. A failed listing with no output reports as
+"listing your Cloudflare databases (wrangler d1 list) failed" with reason `other`. The config is now written
+with `_replace`. Still unconfirmed: whether real wrangler prints its `d1 list --json` refusal as JSON on stdout
+(the tests cover both that and a plain `✘ [ERROR]` line on stderr).
