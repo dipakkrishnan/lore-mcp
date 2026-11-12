@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import socket
 import sqlite3
+import struct
 import threading
 import time
 import urllib.request
@@ -34,6 +36,8 @@ class Hosted(ThreadingHTTPServer):
         self.domain = domain
         self.owners: dict[str, str] = {}
         self.nonces: set[str] = set()
+        # XC-112: how /owner/sql answers broken, once the claim and signature hold.
+        self.broken: str | None = None
         self.lock = threading.Lock()
 
     def d1(self, store: str) -> D1:
@@ -92,6 +96,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(
                     401, {"error": "this request isn't signed by the store's owner"}
                 )
+            if self.server.broken:
+                return self._break(self.server.broken)
             try:
                 answer = self.server.d1(store).execute(json.loads(body)["sql"])
             except sqlite3.Error as error:
@@ -124,6 +130,39 @@ class Handler(BaseHTTPRequestHandler):
             return False
         self.server.nonces.add(nonce)
         return True
+
+    def _break(self, mode: str) -> None:
+        """A broken answer from the store (XC-112), as a dropped connection, a deploy
+        restarting mid-answer or a misbehaving proxy would give it."""
+        self.close_connection = True
+        if mode == "closed":
+            return
+        if mode == "status":
+            self.wfile.write(b"NOT HTTP\r\n")
+            return
+        if mode in ("reset", "truncated", "errorbody"):
+            self.send_response(503 if mode == "errorbody" else 200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "100")
+            self.end_headers()
+            self.wfile.write(b'{"results": [')
+            self.wfile.flush()
+            if mode == "reset":
+                self.connection.setsockopt(
+                    socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+                )
+            return
+        raw = {
+            "nonjson": b"<html>",
+            "nonobject": b"[1]",
+            "noresults": b"{}",
+            "badresults": b'{"results": 5}',
+        }[mode]
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
 
     def _send(self, status: int, body: dict[str, object]) -> None:
         data = json.dumps(body).encode()
