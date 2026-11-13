@@ -20,6 +20,7 @@ from typing import AsyncIterator
 from unittest.mock import patch
 
 import anyio
+import httpx2
 from fixtures.granola import Granola
 from helpers import LoreTestCase
 from mcp import Client
@@ -132,6 +133,60 @@ class HostedTest(LoreTestCase):
         with failing(OSError("offline")), Store() as store:
             read = Registry(store).read([str(added["name"])])
         self.assertEqual(read[0]["state"], "unreachable")
+
+    def sign_in_fails(self, error: Exception) -> str:
+        with failing(error), Store() as store:
+            with self.assertRaises(SourceError) as failed:
+                Registry(store).connect("granola", "", show=print)
+        said = str(failed.exception)
+        self.assertNotIn("\n", said, "the desktop shows the last stderr line")
+        return said
+
+    def test_a_timed_out_sign_in_says_the_browser_never_answered(self) -> None:
+        """CAP-025: a sign-in nobody answered is not a refusal."""
+        self.assertEqual(
+            self.sign_in_fails(OAuthFlowError("no answer from the browser")),
+            "Granola didn't hear back from your browser. "
+            "Try again and approve Lore on the page it opens.",
+        )
+        self.assertEqual(
+            self.sign_in_fails(OAuthFlowError("access_denied")),
+            "Granola didn't let Lore in. Try again.",
+        )
+
+    def test_the_vendors_reason_is_shown_when_it_has_one(self) -> None:
+        def status(code: int, text: str) -> httpx2.HTTPStatusError:
+            request = httpx2.Request("POST", "https://mcp.granola.ai/mcp")
+            response = httpx2.Response(code, text=text, request=request)
+            return httpx2.HTTPStatusError("refused", request=request, response=response)
+
+        said = self.sign_in_fails(
+            status(
+                401, "Unauthorized: user has not created a Granola account yet\nmore"
+            )
+        )
+        self.assertEqual(
+            said,
+            "Lore couldn't reach Granola. Granola says: "
+            "Unauthorized: user has not created a Granola account yet",
+        )
+        self.assertEqual(
+            self.sign_in_fails(status(502, "")),
+            "Lore couldn't reach Granola. Try again.",
+        )
+        leaky = self.sign_in_fails(
+            status(
+                400,
+                "bad request for owner@example.com token=abcdefghijklmnopqrstuvwxyz0123",
+            )
+        )
+        self.assertNotIn("owner@example.com", leaky)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz0123", leaky)
+        self.assertTrue(
+            leaky.startswith("Lore couldn't reach Granola. Granola says: bad request")
+        )
+        long = self.sign_in_fails(status(500, "x " * 200))
+        self.assertLessEqual(len(long.split("Granola says: ")[1]), 120)
 
     def test_signing_in_starts_clean_and_then_reads(self) -> None:
         server = "https://mcp.granola.ai/mcp"

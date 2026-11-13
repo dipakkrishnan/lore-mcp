@@ -108,6 +108,8 @@ class _Wrangler:
         self.secret_put_fails = secret_put_fails
         self.secret_put_fails_for = secret_put_fails_for
         self.puts: list[tuple[str, object]] = []
+        # MON-057: wrangler lists a Worker's secrets only once it has been deployed.
+        self.deployed = False
         self.d1_exists = d1_exists
         self.d1_exists_quietly = d1_exists_quietly
         self.d1_list = d1_list
@@ -146,8 +148,12 @@ class _Wrangler:
                 code, err = 1, "Authentication error [code: 10000]"
             elif self.secret_list_output is not None:
                 out = self.secret_list_output
+            elif self.has_wallet_secret:
+                out = '[{"name":"LORE_WALLET"}]'
+            elif self.deployed:
+                out = "[]"
             else:
-                out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
+                code, err = 1, refusals.WORKER_NOT_FOUND
         elif tail[:2] == ("secret", "put"):
             failing = self.secret_put_fails or tail[2] == self.secret_put_fails_for
             code = 1 if failing else 0
@@ -178,6 +184,7 @@ class _Wrangler:
             code, err = 1, refusals.MANY_ACCOUNTS
         elif tail == ("deploy",):
             out = self.deploy_output
+            self.deployed = True
         elif tail[:2] == ("d1", "execute"):
             if self.d1_execute_refusals:
                 self.d1_execute_refusals -= 1
@@ -1527,6 +1534,32 @@ class DeployTest(_NodeCase):
         with self.assertRaisesRegex(ValueError, "no way to be paid") as refused:
             self._deploy(None, has_wallet_secret=False)
         self.assertIn("lore cards connect", str(refused.exception))
+
+    def test_a_first_deploy_with_no_way_to_be_paid_says_so_not_worker_not_found(
+        self,
+    ) -> None:
+        """MON-057: on an account that never ran the Worker, `secret list` says
+        "not found"; that means no wallet, not a failed settings read."""
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+        wrangler = _Wrangler(has_wallet_secret=False)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job"),
+            captured(),
+            self.assertRaises(ValueError) as refused,
+        ):
+            deploy_module.deploy(None)
+        self.assertIn("no way to be paid", str(refused.exception))
+        self.assertIn("--wallet", str(refused.exception))
+        self.assertNotIn("not found", str(refused.exception))
+        self.assertTrue(wrangler.named("secret", "list"))
+        self.assertEqual(
+            [c for c in wrangler.commands if c[1:3] == ("d1", "create")], []
+        )
+        self.assertEqual(wrangler.named("deploy"), [])
+        # Counted as no_payout: WhyTheStoreFailedTest's payout test runs this same path.
 
     def test_card_payments_open_a_store_with_no_payout_address(self) -> None:
         # XC-039 cards are enough to sell: the store opens selling by card alone,

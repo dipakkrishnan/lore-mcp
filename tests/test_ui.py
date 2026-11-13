@@ -686,5 +686,65 @@ class MemoryCardTest(PlainTerminalTest):
         )
 
 
+SEPARATORS = ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class CardShapeTest(PlainTerminalTest):
+    """CLI-015: a card looks like the text the owner approves. A tab is spacing, and
+    only a newline starts a line."""
+
+    def test_a_tab_is_spacing_in_every_field_of_both_cards(self) -> None:
+        with captured() as output:
+            ui.memory_card(_memory(title="t\tone", source="s\tsrc", content="b\tbody"))
+            ui.publication_card(
+                _publication(
+                    title="p\ttitle",
+                    topic="to\tpic",
+                    teaser="te\tase",
+                    useful_if="u\tif",
+                    not_useful_if="n\tif",
+                    sample="sa\tmple",
+                    content="c\tbody",
+                )
+            )
+        text = output.getvalue()
+        self.assertNotIn("\t", text)
+        for field in (
+            "t one",
+            "s src",
+            "b body",
+            "p title",
+            "to pic",
+            "te ase",
+            "u if",
+            "n if",
+            "sa mple",
+            "c body",
+        ):
+            first, second = field.split(" ")
+            with self.subTest(field=field):
+                self.assertRegex(text, rf"{first} +{second}")
+
+    def test_only_a_newline_starts_a_line_in_a_body(self) -> None:
+        body = "one" + "".join(f"{c}x{n}" for n, c in enumerate(SEPARATORS))
+        for card in (
+            lambda: ui.memory_card(_memory(content=body)),
+            lambda: ui.publication_card(_publication(content=body)),
+        ):
+            with self.subTest(card=card), captured() as output:
+                card()
+            text = output.getvalue()
+            for character in SEPARATORS:
+                self.assertNotIn(character, text)
+            self.assertEqual(text.splitlines()[-1], "onex0x1x2x3x4x5x6x7")
+
+    def test_a_carriage_return_joins_a_title_and_breaks_a_body(self) -> None:
+        with captured() as output:
+            ui.memory_card(_memory(title="a\rb", content="c\rd"))
+        lines = output.getvalue().splitlines()
+        self.assertIn("ab", lines)
+        self.assertEqual(lines[-2:], ["c", "d"])
+
+
 if __name__ == "__main__":
     unittest.main()

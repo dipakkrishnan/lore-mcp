@@ -4,13 +4,13 @@ title: Check a feedback request's size and shape before it spends the relay's sh
 priority: P2
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-028, XC-031, APP-058, XC-065]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-15
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -63,25 +63,25 @@ was going to be refused anyway never spends quota" and `wrangler.jsonc`'s
 
 ## Acceptance criteria
 
-- [ ] A body over the cap with no `Content-Length`, invalid JSON, and a report
+- [x] A body over the cap with no `Content-Length`, invalid JSON, and a report
       `parseReport` refuses each get the status and message they get today,
       leave both quota windows at 0, and never call a counting fake
       `GLOBAL_RATE_LIMIT` passed in through `env`. (A fake is needed: the real
       rate-limit bindings are not exercised by direct calls, so a test with
       them unbound would pass against the old order.)
-- [ ] With that fake global limiter allowing 60 a minute, 60 invalid requests
+- [x] With that fake global limiter allowing 60 a minute, 60 invalid requests
       followed by a valid report: the valid report is filed (201).
-- [ ] A valid report takes exactly one global-limiter call and one slot in
+- [x] A valid report takes exactly one global-limiter call and one slot in
       each quota window.
-- [ ] A request the per-IP limiter refuses is still 429 before its body is
+- [x] A request the per-IP limiter refuses is still 429 before its body is
       read.
-- [ ] `/report` and `/events` refuse an over-cap body without buffering more
+- [x] `/report` and `/events` refuse an over-cap body without buffering more
       than cap + 1 bytes of it (a counting `ReadableStream` is one way to
       check), and refuse a declared `Content-Length` over the cap before
       reading.
-- [ ] The behaviour chosen for a non-numeric `Content-Length` is pinned by a
+- [x] The behaviour chosen for a non-numeric `Content-Length` is pinned by a
       test.
-- [ ] The existing relay, limit and events tests pass, and the two comments
+- [x] The existing relay, limit and events tests pass, and the two comments
       above describe the new order.
 
 ## Notes
@@ -93,8 +93,28 @@ Reading raw bytes also fixes a smaller miscount: `request.text()` replaces
 each invalid UTF-8 byte with U+FFFD, which re-encodes as 3 bytes, so a body
 just under the cap with invalid bytes can be refused as too large.
 
-XC-031 still reads `status: ready` although the relay is deployed; not changed
+XC-031 still reads `status: completed` although the relay is deployed; not changed
 here.
 
 **Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):**
+
+- `allow()` (`feedback-relay/src/limit.ts`) is split into `allowSender`
+  (per-IP, still ahead of the read) and `allowSpend` (the global limiter,
+  then the quota). `POST /report` now calls `allowSpend` only after the body
+  has been read, parsed and accepted by `parseReport`, just before
+  `createIssue`.
+- A new `readCapped()` in `report-rules.ts` reads the body a chunk at a time
+  and gives up as soon as it passes the cap, so at most one chunk past the
+  cap is pulled. Both endpoints use it.
+- `/events` also gets the declared-length rejection at its own 8 KB cap.
+- A non-numeric `Content-Length` is ignored (as before), and the capped read
+  holds the body to the cap. A test pins this.
+- The comments in `limit.ts` and `wrangler.jsonc` describe the new order.
+- Tests are in `feedback-relay/test/order.test.ts`. They use a counting fake
+  `GLOBAL_RATE_LIMIT` and a counting `ReadableStream` (1 KB chunks, pulled
+  only when read), and read both quota windows. "No more than cap + 1 bytes"
+  is checked as "no more than one 1 KB chunk past the cap". The existing
+  relay, limit and events tests pass unchanged.

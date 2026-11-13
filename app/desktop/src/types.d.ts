@@ -16,7 +16,11 @@ type MemoryItem = {
   arrival: number;
   /** What a reading judged of it (APP-235); null when none has. Optional: an installed CLI older than this app omits it. */
   verdict?: Verdict | null;
+  /** The memories it grows out of (`to`) and that grow out of it (`from`), each with the reason (CAP-002). Optional: an older CLI omits it. */
+  links?: MemoryLink[];
 };
+
+type MemoryLink = { id: number; title: string; reason: string; direction: "to" | "from" };
 
 type PublicationItem = {
   id: number;
@@ -292,7 +296,11 @@ type ProposedMemory = {
   content: string;
   project?: string;
   source_path?: string;
+  /** Earlier memories this one grows out of, as the agent proposed them (CAP-002). */
+  related?: ProposedLink[];
 };
+
+type ProposedLink = { id: number; title?: string; reason: string };
 
 type SavedMemory = { id: number; status: string; title: string };
 
