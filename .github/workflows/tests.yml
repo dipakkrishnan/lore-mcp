@@ -25,6 +25,11 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv run --extra dev ruff check lore tests evals .github/scripts docs/backlog/agents support/seed
       - run: uv run --extra dev ruff format --check lore tests evals .github/scripts docs/backlog/agents support/seed
+      # XC-131: docs/backlog/INDEX.md is derived from the item files. A step
+      # here, not a new workflow with a paths filter (XC-078's reason about
+      # required checks): fails when the index drifts from its items or holds
+      # a merge conflict marker, and never writes.
+      - run: python3 docs/backlog/agents/regenerate_index.py --check
 
   python-unit:
     name: Python unit tests
