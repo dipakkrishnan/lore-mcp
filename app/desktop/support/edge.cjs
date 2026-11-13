@@ -2393,6 +2393,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("nothing was kept", !(await js(`document.querySelector("#log").textContent.includes("Keep")`)));
         await js(`window.__lore.event({ type: "dismiss", id: "preview-1" })`);
 
+        // CAP-002: a proposed memory names what it grows out of, each link with its reason and the owner's Remove.
+        await js(`window.__lore.preview({ type: "memories", id: "preview-links", task: null, entries: [{ title: "Price the first tier low", content: "A low first price got the first ten buyers; we raised it once there were receipts.", project: "pricing", related: [{ id: 4, title: "Failed launch at Actively", reason: "Learned from the launch that priced too high." }, { id: 7, title: "First ten buyers", reason: "The buyers this price brought in." }] }] })`);
+        check("a proposed memory shows its links, each with its reason and a Remove", await waitFor(`document.querySelectorAll("#request .memory-links .read-line").length === 2 && document.querySelector("#request .memory-links").textContent.includes("Learned from the launch that priced too high.")`));
+        await shot("memory-links");
+        await js(`window.lore.setAppearance("dark")`);
+        check("…and drawn dark", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
+        await shot("memory-links-dark");
+        await js(`window.lore.setAppearance("light")`);
+        await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`);
+        await js(`window.__lore.event({ type: "dismiss", id: "preview-links" })`);
+
         // open_url: one card, two stages, same size; the page opens through the window-open handler.
         await js(`window.open = (url) => { window.__opened = url; return null; }; true`);
         await js(`window.__lore.preview({ type: "open", id: "preview-open", task: null, title: "Fund the test buyer", url: "https://portal.cdp.coinbase.com/products/faucet", note: "Free Coinbase login. Keep Base Sepolia and USDC selected, paste 0x3f9a…d21c and press Send." })`);

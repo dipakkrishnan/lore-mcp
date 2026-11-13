@@ -780,6 +780,11 @@ test("a memory card saves exactly what the owner kept, through the CLI's private
   assert.ok(ceiling > 0, "lore/capture.py names MAX_TITLE");
   assert.equal(validEntries([]), true, "dropping every entry is a valid decision");
   assert.equal(validEntries([{ title: "t", content: "c", project: "p" }]), true);
+  // CAP-002: an entry may carry the links the owner kept, each an id and a reason.
+  assert.equal(validEntries([{ title: "t", content: "c", related: [{ id: 4, title: "Launch", reason: "Learned there." }] }]), true);
+  for (const related of [[{ id: "4", reason: "r" }], [{ id: 4, reason: "" }], [{ id: 4, reason: "r".repeat(301) }], "x"]) {
+    assert.equal(validEntries([{ title: "t", content: "c", related }]), false, `refuses related ${JSON.stringify(related).slice(0, 30)}`);
+  }
   for (const bad of [[{ title: " ", content: "c" }], [{ title: "t", content: "" }], [{ title: "t".repeat(ceiling + 1), content: "c" }], [{ title: "t", content: "c", project: 3 }], [{ title: "t", content: "c", project: "p".repeat(201) }], "nope"]) {
     assert.equal(validEntries(bad), false, `main refuses ${JSON.stringify(bad).slice(0, 40)} before the CLI sees it`);
   }

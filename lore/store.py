@@ -495,6 +495,25 @@ class Store:
                 updated_at TEXT NOT NULL,
                 arrival INTEGER NOT NULL DEFAULT 0
             );
+            -- CAP-002: what an earlier memory a new one grows out of, and why, in
+            -- one sentence. One direction stored; readers ask both. A memory that
+            -- is deleted or discarded takes its links with it.
+            CREATE TABLE IF NOT EXISTS memory_links (
+                from_id INTEGER NOT NULL,
+                to_id INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (from_id, to_id)
+            );
+            CREATE TRIGGER IF NOT EXISTS memory_links_deleted AFTER DELETE ON memories
+            BEGIN
+                DELETE FROM memory_links WHERE from_id = OLD.id OR to_id = OLD.id;
+            END;
+            CREATE TRIGGER IF NOT EXISTS memory_links_discarded
+            AFTER UPDATE OF status ON memories WHEN NEW.status = 'discarded'
+            BEGIN
+                DELETE FROM memory_links WHERE from_id = NEW.id OR to_id = NEW.id;
+            END;
             -- APP-212: the order memories arrived in. A memory's id can come back
             -- after the newest one is deleted; AUTOINCREMENT never hands a number
             -- out twice, so "arrived since" and "seen" stay true. One row at most,
@@ -1051,6 +1070,48 @@ class Store:
             (value,),
         )
 
+    def add_links(self, memory_id: int, related: list[tuple[int, str]]) -> None:
+        """Link a memory to the earlier ones it grows out of (CAP-002). Checked by the
+        caller first; a link already there keeps its first reason."""
+        now = datetime.now(timezone.utc).isoformat()
+        self.db.executemany(
+            "INSERT OR IGNORE INTO memory_links(from_id,to_id,reason,created_at) "
+            "VALUES (?,?,?,?)",
+            [(memory_id, to_id, reason, now) for to_id, reason in related],
+        )
+        self.db.commit()
+
+    def links(self) -> dict[int, list[dict[str, object]]]:
+        """Every memory's links, both ways, with the other memory's title and the
+        reason: `to` an earlier memory it grows out of, `from` a later one."""
+        found: dict[int, list[dict[str, object]]] = {}
+        for row in self.db.execute(
+            "SELECT l.from_id, l.to_id, l.reason, f.title AS from_title, "
+            "t.title AS to_title FROM memory_links l "
+            "JOIN memories f ON f.id = l.from_id JOIN memories t ON t.id = l.to_id "
+            "ORDER BY l.created_at, l.from_id, l.to_id"
+        ):
+            found.setdefault(row["from_id"], []).append(
+                {
+                    "id": row["to_id"],
+                    "title": row["to_title"],
+                    "reason": row["reason"],
+                    "direction": "to",
+                }
+            )
+            found.setdefault(row["to_id"], []).append(
+                {
+                    "id": row["from_id"],
+                    "title": row["from_title"],
+                    "reason": row["reason"],
+                    "direction": "from",
+                }
+            )
+        return found
+
+    def links_of(self, memory_id: int) -> list[dict[str, object]]:
+        return self.links().get(memory_id, [])
+
     def memory_inventory(self) -> list[dict[str, object]]:
         """Every memory's row, with who is on record as its `sources`, newest first. The
         source, origin and path are there for whoever names a memory with none on record."""
@@ -1060,11 +1121,13 @@ class Store:
         ).fetchall()
         credited = self.contributors()
         judged = self.verdicts()
+        linked = self.links()
         return [
             {
                 **dict(row),
                 "sources": credited.get(row["id"], []),
                 "verdict": judged.get(row["id"]),
+                "links": linked.get(row["id"], []),
             }
             for row in rows
         ]
