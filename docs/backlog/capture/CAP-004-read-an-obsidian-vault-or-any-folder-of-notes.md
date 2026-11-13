@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["STO-003 for the source kind and state; a folder can be dropped through lore-capture today"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -37,7 +37,7 @@ enters the library; the correction flow remains the content gate.
 - [ ] Picking a vault shows a preview with the note count and date range,
       then imports the chosen notes as private memories, each linking to
       its file.
-- [ ] A second read imports only new or changed notes.
+- [x] A second read imports only new or changed notes.
 - [ ] Notes shorter than a sentence are skipped and the count says so.
 - [ ] A vault under Documents, Desktop, or Downloads triggers the macOS
       folder prompt once with Lore's own purpose string, not Electron's.
@@ -64,3 +64,24 @@ preview() with count, date range and skipped count) and tick those met; then
 close, or rewrite to what is still unmet (most likely seeing the macOS
 folder prompt on the signed build). Prioritization flag (not acted on): done
 (likely).
+
+**Close-out (2026-11-13):** Stays in-review. Checked each criterion.
+- C1 partly met. `lore/sources.py` `preview()` returns `count`, the `from`/`to`
+  date range and `skipped`, and `lore sources preview --folder` exposes it.
+  Imports are private and each `Item` keeps the file path as `source_path`. But
+  the desktop app never shows that preview. `openConnect()` in
+  `app/desktop/src/renderer.js` goes from "Choose a folder…" straight to
+  `connectSource`. The app needs a preview step, or the criterion needs
+  rewording to the CLI.
+- C2 met. Store imports fingerprint content and count `unchanged`
+  (`tests/test_sources.py::test_unchanged_files_are_counted_and_not_rewritten`,
+  `tests/test_cli.py` folder walk). A deleted memory stays gone on re-read
+  (`test_a_deleted_folder_memory_stays_gone_when_the_folder_is_read_again`).
+- C3 met in the CLI only. `Reader.keeps()` drops anything shorter than a
+  sentence, and `preview()` counts it as `skipped`
+  (`test_preview_counts_what_would_be_kept_and_writes_nothing`). The app shows
+  no such count, which is tied to C1.
+- C4 code done, observation open. `app/desktop/forge.config.js` sets
+  `NSDocumentsFolderUsageDescription`, `NSDesktopFolderUsageDescription` and
+  `NSDownloadsFolderUsageDescription` with Lore's copy. Someone still has to see
+  the prompt once on a signed build.

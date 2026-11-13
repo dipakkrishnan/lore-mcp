@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -33,14 +33,14 @@ hosted transcription service in this item.
 
 ## Acceptance criteria
 
-- [ ] Clicking the microphone requests permission if needed and starts
+- [x] Clicking the microphone requests permission if needed and starts
       recording; clicking it again stops.
-- [ ] Recording has a visible state and an accessible label.
-- [ ] The transcript lands in the existing composer and remains editable; it
+- [x] Recording has a visible state and an accessible label.
+- [x] The transcript lands in the existing composer and remains editable; it
       is never submitted automatically.
-- [ ] Permission denial or unavailable recognition produces a useful fallback
+- [x] Permission denial or unavailable recognition produces a useful fallback
       to macOS Dictation.
-- [ ] Raw audio is not persisted, and the UI states whether recognition is
+- [x] Raw audio is not persisted, and the UI states whether recognition is
       on-device or needs the network.
 - [ ] The packaged app declares the required macOS permissions and tests the
       permission, transcript, stop, and failure boundaries.
@@ -103,3 +103,24 @@ dictation, src/dictation.cjs, August). Tick the criteria against it, decide
 whether to strike "fall back to macOS Dictation" and "say whether
 recognition is on-device", then close. Prioritization flag (not acted on):
 done (criteria never ticked).
+
+**Close-out (2026-11-13):** Stays in-review. Criteria 1-5 are ticked against code that shipped in
+`53eb7b28` and `dce92664` (2026-08-28, whisper.cpp). In
+`app/desktop/src/renderer.js`, a `#dictate` click calls `startDictation`,
+which asks `window.lore.microphone()` (`systemPreferences.askForMediaAccess`
+in `ipc.cjs`). A second click calls `finishDictation`. `dictationMode` sets
+the listening bar, `aria-label` ("Stop dictating") and `aria-pressed`. Off
+talk-it-through mode, the transcript is put into `#capture-input` and
+focused, not submitted. Denial and failures say `DICTATE_HINT` (the macOS
+dictation key). `src/dictation.cjs` writes the WAV to a temp file and
+removes it in `finally`. Recognition is always on this Mac, and the
+permission prompt says so (`NSMicrophoneUsageDescription` in
+`forge.config.js`). Criterion 6 is half met. The permission is declared
+(`forge.config.js`, `com.apple.security.device.audio-input` in
+`packaging/entitlements.plist`), and there are tests for permission denied
+(`test/unit/renderer-talk.test.cjs`), whisper transcription with no audio
+left behind (`test/component/app.test.cjs`), and talk-mode stop and Esc.
+What remains: no test drives the button path end to end (click, click
+again, transcript in the composer, nothing sent), and none covers a
+transcription failure ("Lore couldn't transcribe that"). Add those two
+renderer tests to close.

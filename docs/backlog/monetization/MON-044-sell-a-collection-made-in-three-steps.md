@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 421
 created: 2026-10-09
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -68,3 +68,14 @@ validation item and close this one.
 Before it can be ready: Move "a real buyer purchases a collection" to a
 launch-validation item, then close. Prioritization flag (not acted on): done
 except the market-event criterion.
+
+**Close-out (2026-11-13):** Stays in-review. The four code criteria hold on
+this branch (PR #425, merged 2026-10-22): `toolName()` gives
+`collection_<id>` in `lore/node/src/collections.ts`, and collections are
+listed in `site/src/markets.js`. What remains is the one market-event
+criterion, "a real buyer purchases a collection". It cannot be built: an owner
+has to put a collection on sale and a buyer has to buy it. No launch-validation
+item exists to move it to (a search of `docs/backlog/` found none). Either the
+owner lists a collection and waits for a sale, or a launch-validation item is
+filed for this and similar market-event checks (MON-047's live card sale,
+MON-025's 1¢ purchase) and this item closes.

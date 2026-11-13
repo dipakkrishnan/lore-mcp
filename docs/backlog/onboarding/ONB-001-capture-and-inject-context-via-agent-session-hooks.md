@@ -10,7 +10,7 @@ blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -83,3 +83,18 @@ be ready: The owner decides whether to take it up now. The criteria target a
 "captures tier" that doesn't exist (STO-001 shipped memories and
 publications only); rescope against CAP-036's agent inbox and lore-
 synthesize. Prioritization flag (not acted on): obsolete (possibly).
+
+**Close-out (2026-11-13):** Stays in-review, pending the owner's decision. It is
+not done: none of it is built. `plugins/lore/` holds only `skills/`, with no
+`hooks/hooks.json`. No `SessionEnd` or `SessionStart` hook exists anywhere in
+`lore/`, `plugins/` or `app/desktop/src`, and there is no `captures` table.
+It is only half obsolete. The capture half's target, a captures tier, was
+never built. Agent-originated memories now arrive another way: an agent saves
+to the hosted inbox (XC-067), and CAP-036 (completed) brings those saves in as
+a typed `agent` source that goes through lore-synthesize and approval. Owner
+dictation goes through the lore-capture skill. The injection half
+(`SessionStart` `additionalContext` with the owner's relevant lore) has no
+replacement. What remains: the owner either closes this as obsolete or
+rewrites it as a `SessionStart`-injection-only item against today's library,
+with the capture criteria dropped. Neither choice is mechanical, so the
+criteria are left as written.

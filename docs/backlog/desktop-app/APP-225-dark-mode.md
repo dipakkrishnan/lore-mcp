@@ -4,13 +4,13 @@ title: Dark mode that follows the Mac
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-220, APP-222, APP-247]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -44,7 +44,7 @@ one bright window, and the owner could not choose otherwise.
 
 - [x] Appearance: Match Mac / Light / Dark in Settings, kept across launches, switching live
 - [x] A Dark mode switch in the account menu flips the window live and keeps the choice
-- [ ] Dark tokens from the marketplace palette, text at WCAG AA
+- [ ] ~~Dark tokens from the marketplace palette, text at WCAG AA~~ Superseded: APP-281 (#638) replaced the palette with the Linear tokens, so the palette and its contrast now belong to APP-281's tokens. The `--text-3` AA gap is a separate follow-up (see Close-out).
 - [x] No literal colour outside the token blocks (unit test)
 - [x] Dark marks readable on dark without recolouring
 - [x] Edge walks run dark with `LORE_EDGE_APPEARANCE=dark`. Each walk checks
@@ -68,3 +68,14 @@ Stays in-review. Before it can be ready: Reword criterion 3 to defer the
 palette to APP-281, file the --text-3 contrast fix as its own small item
 (APP-281 already shipped), then close. Prioritization flag (not acted on):
 done except the AA criterion.
+
+**Close-out (2026-11-13):** completed. What APP-225 built is on main and ticked.
+Appearance and the dark switch are tested by the settings walk. The token-only
+rule has a unit test. The dark-tile marks are in `app/desktop/src/styles.css`
+(the `img:is([src$="/openai.svg"], …)` rule under `prefers-color-scheme: dark`).
+Criterion 3 is struck because APP-281 owns the palette now. The contrast gap is
+real and wider than the audit said. Measured on this branch: dark `--text-3`
+#76777e is 4.27:1 on `--bg` #0f1011 and 3.78:1 on `--bg-raised` #1c1d21.
+Light `--text-3` #8f9098 is 3.10:1 on #fcfcfd and 3.18:1 on #ffffff, so both
+themes fall under AA 4.5:1 for body text. `--text-2` passes (dark 6.2:1). This
+needs its own small item. Proposed in the close-out report, not filed here.

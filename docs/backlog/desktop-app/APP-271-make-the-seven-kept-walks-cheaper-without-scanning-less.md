@@ -10,7 +10,7 @@ blockers: [APP-270]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -217,3 +217,15 @@ N runs, or to tie them to XC-084.
 Before it can be ready: Re-scope the time targets (a median over N main
 runs, or tie them to XC-084); blocker APP-270 must close first.
 Prioritization flag (not acted on): done except the time targets: #683.
+
+**Close-out (2026-11-13):** Stays in-review. The two structural criteria hold
+on this branch: `grep -c 'sleep(' app/desktop/support/edge.cjs` is 14, and
+every view still scans (PR #683). Both time criteria are still unmet on main:
+the last three green CI runs (43400916244, 43400510839, 43400048013, all
+2026-11-13) took 311, 287 and 351 s in the walks step (target 150 s), with
+`agents` alone at 149, 135 and 138 s (target 100 s). APP-270 has now closed
+and handed its 200 s walks-step criterion here. What remains is an owner
+decision, not more of this item's approach: re-scope the targets (a median
+over N main runs, or a target that holds with `agents` solo per XC-084), or
+take on the next cut (letting `agents` share the runner once XC-083/XC-084
+allow it).

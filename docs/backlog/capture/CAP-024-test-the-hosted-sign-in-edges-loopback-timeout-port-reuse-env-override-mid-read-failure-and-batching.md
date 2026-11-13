@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -108,3 +108,23 @@ port reuse, the LORE_<APP>_SERVER override, a failure partway through a
 read, get_meetings batching and Notion pacing. Refresh the line references.
 Prioritization flag (not acted on): partial duplicate of existing loopback
 tests (#435) and CAP-030.
+
+**Close-out (2026-11-13):** Stays in-review. About half of tests 1-9 already exist
+in `tests/test_hosted.py`. Do not rewrite these:
+- the timeout (`test_a_timed_out_sign_in_says_the_browser_never_answered`,
+  `test_nobody_landing_is_a_failed_sign_in_not_an_endless_wait`);
+- other paths and the refusal (`test_another_path_waits_on_and_a_refusal_ends_it_at_once`,
+  `test_a_browser_asking_for_something_else_first_does_not_end_the_wait`);
+- the landing texts (`test_the_landing_page_tells_the_owner_whether_lore_got_in`);
+- a declined approval (`test_a_declined_approval_is_a_failed_sign_in`);
+- the vendor 401 text (`test_the_vendors_reason_is_shown_when_it_has_one`, CAP-025);
+- Notion pacing (`test_notion_pages_through_search_slowly_and_reads_page_text`
+  asserts one `anyio.sleep(Notion.pause)`).
+Still missing:
+- test 3, two sign-ins in sequence plus one overlapping binding three distinct ports;
+- test 4, the `LORE_<APP>_SERVER` override. No test sets `LORE_GRANOLA_SERVER`
+  or `LORE_NOTION_SERVER`;
+- test 5, a fetch that fails on the second of three ids;
+- test 6, pinning one `get_meetings` call per meeting;
+- test 8, `_refused` unwrapping nested `ExceptionGroup`s.
+Rewrite the item to those five before it goes to ready.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -46,8 +46,10 @@ automatic pricing. `MON-009` owns evidence for finer publication pricing;
 - [x] First approval with no price set leads the owner to set one.
 - [x] Pricing is not silently applied by the agent: the owner confirms the
       exact amount through the typed Desktop action.
-- [x] Changing the price of a live node offers redeploy, never claims `push`
-      changed it, and `discover` shows the new amount after redeploy.
+- [x] Changing the price of a live node says the store still charges the old
+      price and offers Update store, and `discover` shows the new amount after
+      that update (since APP-139 a push carries the price; only a store from
+      before pushed prices needs a redeploy).
 - [ ] The flow is walked end to end on a real node before the item closes.
 
 ## Notes
@@ -111,3 +113,15 @@ owner step or fold it into a shared live-proof item.
 Stays in-review. Before it can be ready: Rewrite criteria 5 and 6 for push-
 carries-price (APP-139, #408), move the live walk into APP-005, and close.
 Prioritization flag (not acted on): done except the live walk.
+
+**Close-out (2026-11-13):** Stays in-review. Criterion 5 is restated for push-carries-price (APP-139,
+#408). The code matches it: `stalePrice` in `app/desktop/src/renderer.js`
+compares `node.live.price_usd` with the saved price, and `nextStep` and
+the For Sale note show "Your store still charges $X" with Update store.
+`lore/cli.py` notes that a new price reaches the store on its next push.
+Criterion 6, the live-node walk, is still open. It is owner work on a
+real-money node. APP-005's live test (criterion 3) covers a first deploy,
+not a price change, so the walk can't be struck as moved there unless
+APP-005 gains that step. To close: the owner changes the price on a live
+store, presses Update store and sees `discover` report the new amount; or
+add that step to APP-005 and strike criterion 6 here naming it.

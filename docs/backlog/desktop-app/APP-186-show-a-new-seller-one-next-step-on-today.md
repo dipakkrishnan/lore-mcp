@@ -4,13 +4,13 @@ title: Show a new seller one next step on Today, not four orange rows
 priority: P3
 effort: S
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-109, APP-030]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -42,3 +42,14 @@ on Today, open PR #402); fold this into APP-137 if that lands first.
 Before it can be ready: Rewrite against the Inbox's first-run state, or
 close. Prioritization flag (not acted on): obsolete: Today was replaced by
 the Inbox (APP-283, #641); overlaps APP-137.
+
+**Close-out (2026-11-13):** obsolete. Today is gone. APP-283 (completed,
+87a79efb / #641) replaced it with an Inbox. The Inbox carries at most one "step"
+row: `Inbox.rows` adds a single `step:` entry from `input.step`
+(`app/desktop/src/inbox.js` ~71). That row comes from `nextStep()`
+(`app/desktop/src/renderer.js` ~951), which returns exactly one next action by
+stage (store trouble, unpushed changes, approved-not-on-sale, drafts, sell,
+connect). There are no longer four orange "Needs you" rows, and the two selling
+rows are one stage. The edge agents walk asserts "…its new memories and the
+next step are each one row". Any remaining "one next step" polish belongs to
+APP-137, which survives this item.

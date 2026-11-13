@@ -4,13 +4,13 @@ title: Linear foundation: tokens, sans type, one canvas, workspace menu
 priority: P3
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-256, APP-261, APP-225, APP-282, APP-283, APP-284, APP-285, APP-286]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -36,10 +36,10 @@ Audit ship-order step 3, one small diff every screen inherits:
 
 ## Acceptance criteria
 
-- [ ] No serif and no raw font size, radius or duration in a component rule (unit test).
-- [ ] Main window has no vibrancy; the sidebar and main area share one ramp in dark and light.
-- [ ] Workspace menu, ⌕ and ✎ at the top of the sidebar; New lists Memory, Collection, Automation as one-line rows.
-- [ ] Desktop unit tests and walks green; before/after screenshots of every main screen in dark at 1440×900.
+- [x] No serif and no raw font size, radius or duration in a component rule (unit test).
+- [x] Main window has no vibrancy; the sidebar and main area share one ramp in dark and light.
+- [x] Workspace menu, ⌕ and ✎ at the top of the sidebar; New lists Memory, Collection, Automation as one-line rows.
+- [x] Desktop unit tests and walks green; before/after screenshots of every main screen in dark at 1440×900.
 
 ## Notes
 
@@ -49,3 +49,23 @@ to rows), APP-283 (Inbox), APP-284 (object pages), APP-285 (⌘K commands and Se
 **Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
 Before it can be ready: Close as completed; the --text-3 contrast gap needs
 its own item. Prioritization flag (not acted on): done: #638.
+
+**Close-out (2026-11-13):** Completed by PR #638 (merged 2026-11-02).
+Evidence on this branch:
+- Tokens and no serif: `app/desktop/test/unit/app.test.cjs` test "APP-281:
+  type, radii and timing come from tokens, and the app has no serif" fails on
+  any raw font size, radius or duration in a component rule, and on any serif.
+- One canvas: `createWindow` in `app/desktop/src/main.cjs` sets no
+  `vibrancy` (comment "APP-281: one canvas"); `--bg-side` is one step up from
+  `--bg` in both themes in `styles.css`.
+- Sidebar: `app/desktop/src/index.html` has the workspace menu (`#account`,
+  `#account-menu` with Settings, Help & FAQ, feedback, Dark mode, Sign out),
+  the find (`#search`, ⌘K) and compose (`#new-open`, ⌘N) icons, and New as
+  one-line rows with Memory, Collection and Automation (plus Writing to sell,
+  added later).
+- Tests and screens: the PR reports `npm test` 172 pass, walks 20 of 21 (the
+  `schedule` failure reproduced on untouched main and CI was green), and
+  before/after dark 1440×900 shots of every main screen.
+Leftover, not filed: the `--text-3` tertiary-text contrast gap noted in
+APP-225's Notes. It belongs with APP-225 (dark mode, in-review) or a small
+item of its own.

@@ -4,13 +4,13 @@ title: Count only live pieces in the For Sale tab
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-093, APP-091]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -37,3 +37,14 @@ Filed from the 2026-10-06 new-seller audit.
 to in-review. Before it can be ready: Nothing to build as written; close it.
 Prioritization flag (not acted on): obsolete/done: APP-282's Inventory tabs
 and the Pending status cover both criteria.
+
+**Close-out (2026-11-13):** obsolete. The For Sale tab and its sidebar count
+are gone. APP-282 (bf2e5ee0, #657) merged Memories and For Sale into Inventory,
+whose sidebar count is all items (`renderer.js` ~5098). Inventory's last shelf is
+labelled by store state: `["sale", forSale(s) ? "On sale" : "Ready to sell"]`
+(~2487). Each piece's status follows the same rule: "Pending" while the store is
+open but the piece is not live, otherwise "On sale" or "Ready to sell" (~2648).
+With no store, nothing reads as on sale. Approved pieces still show, marked
+"Ready to sell", and the Inbox's next step says "N approved pieces aren't on
+sale yet" (`nextStep`, ~962). The confusion this item describes can no longer
+happen.

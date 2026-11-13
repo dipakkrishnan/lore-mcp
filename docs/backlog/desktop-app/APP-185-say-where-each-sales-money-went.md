@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -29,7 +29,7 @@ Express account may not be able to sign in to.
 ## Acceptance criteria
 
 - [ ] Every sale row says where the money went
-- [ ] The Stripe link opens a page an Express seller is signed in to
+- [ ] ~~The Stripe link opens a page an Express seller is signed in to~~ No longer applicable: sellers connect their own Stripe account (`lore cards account acct_…`, `checkout/README.md`), not an Express account Lore creates, so dashboard.stripe.com is theirs to sign in to
 
 ## Notes
 
@@ -41,3 +41,13 @@ whether "by card" / "by an agent" on sale rows (saleRow, now in Inventory's
 Sales group) should read "to your bank via Stripe" / "to your wallet", and
 where; otherwise mark obsolete. Prioritization flag (not acted on): partly
 obsolete: the Express-dashboard premise doesn't hold.
+
+**Close-out (2026-11-13):** stays in-review. The Express criterion is struck
+(see above). The checkout Worker charges on the seller's own connected account,
+and `checkout/src` has no Express or login-link code. Criterion 1 is still
+unmet. `saleRow()` (`app/desktop/src/renderer.js` ~2677) titles each sale
+"<title> · by card" or "· by an agent", with a Receipt link to
+`dashboard.stripe.com/payments/<tx>` or Basescan. It never says "to your bank
+via Stripe" or "to your wallet". What remains is a copy decision: do Sales
+rows in Inventory's Sales group say where the money went? If yes, it is a
+one-line change in `saleRow`. If no, mark this obsolete.

@@ -10,7 +10,7 @@ blockers: [MON-027]
 dependencies: ["Decision: which cut to launch with", "Tempo testnet (Moderato) reachable from the Worker"]
 github_issue: null
 created: 2026-09-15
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -120,3 +120,16 @@ Before it can be ready: MON-027 is completed or dropped; then an owner
 decides whether MPP is still wanted alongside the Stripe card path, and the
 three cuts are rewritten to match. Prioritization flag (not acted on):
 partly obsolete: cut 3 overlaps the Stripe path (XC-039, MON-047, MON-054).
+
+**Close-out (2026-11-13):** Stays in-review; it is not done and not wholly
+obsolete. No MPP code exists on this branch: `mppx`, `Mppx` and Tempo appear
+nowhere in `lore/`, `bridge/`, `site/` or `app/desktop/src`, and
+`docs/backlog/monetization/README.md` still calls the MPP origin gate "the
+launch rail", so all five criteria are open. Cut 3's goal, a buyer with no
+crypto wallet paying by card, is now served by the Stripe card path (XC-039,
+MON-047, MON-054; a card-only store "sells by card" on its piece pages, per
+`lore/node/src/storefront.ts`), so cut 3 is
+likely obsolete. Cuts 1 and 2 are untouched and undecided. Blocker MON-027
+(the Tempo credits walk) is still in-review. What remains: MON-027 completes or
+is dropped, then the owner decides whether MPP is still wanted beside the
+card path, and the cuts are rewritten or the item is closed as obsolete.

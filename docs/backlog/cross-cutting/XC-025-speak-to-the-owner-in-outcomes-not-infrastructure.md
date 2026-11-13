@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -37,7 +37,9 @@ skills and no contract test for it.
 
 - [ ] A deploy thread in the desktop app contains none of: Cloudflare, Node,
       wrangler, Worker, Sepolia, eip155, outside a card or Settings.
-- [ ] The contract test pins the rule for both skills.
+- [ ] ~~The contract test pins the rule for both skills.~~ Struck: dropped on
+      purpose (0cbf4ac). The desktop system prompt owns owner-facing voice, and a
+      copy pin would drift, as this item's own 2026-09-04 review says.
 
 ## Notes
 
@@ -51,3 +53,12 @@ Reviewed 2026-09-04: a rule in two skills plus a test would drift; the system pr
 Stays in-review. Before it can be ready: One manual desktop deploy-thread
 run confirming none of the banned words appear (the rule is in agent.mjs),
 then close. Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review; only a live check is left. The rule
+is in code. `app/desktop/src/agent.mjs` (around line 590) says "Never mention
+tools, commands, files, or plumbing to the owner: no Cloudflare, Node, wrangler,
+Worker, Base, Sepolia, network ids..." (8f4b62e). The payments skill's desktop
+paragraph says "Say 'real money', never 'mainnet', and never name Base,
+Sepolia...". Criterion 2 is struck. Criterion 1 needs one manual desktop deploy
+thread whose prose has none of the banned words outside a card or Settings.
+After that, close.
