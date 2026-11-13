@@ -4,13 +4,13 @@ title: Say when the AI session has expired and offer to sign back in
 priority: P3
 effort: S
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-181, APP-183]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -55,3 +55,17 @@ Before it can be ready: The only gap is noticing expiry outside a running
 turn (the workspace menu says "Signed in" until a job fails). Re-scope to
 that or close. Prioritization flag (not acted on): mostly duplicate of
 APP-199.
+
+**Close-out (2026-11-13):** obsolete, as a duplicate of APP-199 (completed,
+ddc4bdf / #446), which survives it. When the provider refuses the session
+(`SIGN_IN_EXPIRED`, `app/desktop/src/agent.mjs` ~205),
+`#signInAgain()` (~1068) deletes the stored credential and holds the task at
+"needs_you". It then emits `signed-out`: "Your Claude sign-in expired. Sign in
+again to keep going." The renderer (`renderer.js` ~6658) re-reads
+`agentStatus`, so the workspace line (`accountState`, ~5116) and Settings read
+"Not signed in". It shows the sign-in screen with that sentence. One sign-in
+then continues the thread, with no sign-out step. That covers all four
+criteria, with the sign-in screen in place of a separate "Session expired"
+label. The gap this item still names is noticing an expired session while
+idle, before any turn runs. It has no criterion here. It is listed as a
+possible follow-up in the close-out report rather than kept open on this item.

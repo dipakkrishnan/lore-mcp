@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -91,3 +91,19 @@ whether paths outside home, like /etc/hosts, are in scope. Add the hard-
 link-inside-lore case as an explicit criterion, and name an fd-identity
 check that works on macOS. Prioritization flag (not acted on): mostly
 superseded by the APP-048/APP-227 Seatbelt read policy.
+
+**Close-out (2026-11-13):** Stays in-review, as only partly superseded. Since APP-048 and APP-226,
+`createSandboxedReadOperations` (`app/desktop/src/agent.mjs`) reads only
+through Seatbelt under `sandboxPolicy`. That policy denies the whole
+account home (so `~/.ssh` too) except Lore's home, the runtime, the skills
+and setup's history roots. A link inside Lore's home that points out is
+refused, and a folder swapped mid-read is refused (`sandbox.test.cjs`,
+"read goes through the sandbox…"). Attachments go through
+`attachments.cjs`, which refuses credential-shaped files and those Lore
+didn't plant. Three things remain. (1) Paths outside the home, such as
+`/etc/hosts`, are not in `denyRead`, so they are readable, and no test
+covers them. The item must decide whether they are in scope. (2) No test
+covers a hard link planted inside Lore's home (the 2026-11-12 plan review
+case). (3) Criterion 5's named tests (`/etc/hosts`, `~/.ssh`) don't exist
+as such. Rewrite the Problem and criteria against `sandboxPolicy` per the
+prioritization note before this goes back to ready.

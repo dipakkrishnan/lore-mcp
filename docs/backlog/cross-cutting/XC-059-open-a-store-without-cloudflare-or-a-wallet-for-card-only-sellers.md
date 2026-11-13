@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -46,3 +46,16 @@ is now XC-071 (hosted store). Restate against the hosted store, scoped to
 making the wallet optional when cards are on plus the Settings copy, and
 list XC-071 as related or a blocker. Prioritization flag (not acted on):
 partly duplicate of XC-071.
+
+**Close-out (2026-11-13):** Stays in-review. The wallet half shipped and the
+hosting half did not.
+- Mostly met: MON-047 (c25eb46e, #506) opens a store that sells "By card" with
+  no payout address. See `PAYOUT_PATHS` in `app/desktop/src/renderer.js` and
+  `BY_CARD` / `BY_CARD_ONLY` in `app/desktop/src/state.cjs`. "Adding one later
+  turns on agent payments" was not verified.
+- Open, C1: opening a store still needs Cloudflare. The hosted store is XC-071,
+  still `ideation`.
+- Open, C3: Settings shows only a "Hosted on Cloudflare ↗" link
+  (`renderer.js` around line 3516), not a plain-words line about hosting.
+Restate it against XC-071 as the 2026-11-12 prioritization asked, with
+XC-071 as the blocker.

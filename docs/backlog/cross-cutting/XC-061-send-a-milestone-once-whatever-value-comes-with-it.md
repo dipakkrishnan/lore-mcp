@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-10
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -66,3 +66,16 @@ and different reach.
 **Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
 be ready: Already fixed in lore/usage.py record() (XC-105). Confirm with a
 test, then close. Prioritization flag (not acted on): done.
+
+**Close-out (2026-11-13):** Stays in-review. The fix is in code, but criterion 3
+(the test) is not met. `lore/usage.py` `record()` passes `value if prop else ""`
+to `_record()`, so a value on an event with no property is dropped (ee82f1e5,
+#636). `event_key()` gives `name:` for a `once` event, which is the same key
+older installs hold, so criteria 1 and 2 hold by reading the code.
+`tests/test_usage.py::test_a_value_on_an_event_that_carries_none_never_leaves`
+checks only that the value never leaves. It does not record two different
+values and assert one send and one key, and it does not seed `usage_sent` with
+`name:` and assert nothing is sent. One note for whoever writes that test:
+`memory.saved` now carries a `via` property, so the item's example no longer
+fits. Use a property-less `once` event such as `piece.drafted` or
+`piece.approved`.

@@ -4,13 +4,13 @@ title: Guide Cloudflare and wallet setup inside Desktop
 priority: P3
 effort: L
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-004, APP-005, APP-006, APP-030, MON-006, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-25
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -76,3 +76,14 @@ APP-057, in-app Cloudflare sign-in, bundled Node, card payout). Mark
 obsolete, or narrow to a named remaining break from a real-money first
 deploy; APP-180 and XC-059 own the form-based open-store flow.
 Prioritization flag (not acted on): obsolete (likely).
+
+**Close-out (2026-11-13):** Obsolete. The premise is gone. Criterion 1 walks the owner through funding
+a Base Sepolia buyer wallet, which MON-025's real-money store replaced, and
+the hand-holding it asked for shipped elsewhere. APP-056 (completed) hands
+every browser step to the owner through one attended card. APP-057
+(completed) takes a store to real money without a terminal. Fixed typed
+runtime actions now exist in `app/desktop/src/agent.mjs`: `cloudflare_login`,
+`open_store` (deploy on the owner's confirm), `open_url` and
+`propose_price`, with no general shell or URL bridge, under the APP-008
+sandbox. The remaining form-based open-store flow belongs to APP-180 and
+XC-059.

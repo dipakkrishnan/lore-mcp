@@ -4,13 +4,13 @@ title: Connect a personal agent and hear when it saves something
 priority: P3
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [XC-067, CAP-036, CAP-037, AUT-005]
 blockers: [CAP-036]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -48,12 +48,12 @@ turns saves into memories, and memories into pieces for sale, never closes.
 
 ## Acceptance criteria
 
-- [ ] With no store online, Connect an agent puts it online first, then continues to the setup without starting over.
-- [ ] Connect an agent → the sheet shows a working address, key and instructions that can be copied, for each of the five choices.
-- [ ] A save made with that key reaches the app within a minute while it is open, becomes memories, posts one notification, and raises the badge.
-- [ ] Manage → Get a new key revokes the old key; Disconnect revokes it and keeps or deletes its memories as chosen.
-- [ ] Offline or signed out of nothing: the watch fails quietly and retries; it never blocks the UI.
-- [ ] An edge scenario (`support/edge.sh agents`) drives connect, a stand-in save, the notification and the Today card, and is in `test:edge`.
+- [ ] ~~With no store online, Connect an agent puts it online first, then continues to the setup without starting over.~~ Superseded: the store now goes online for agents with no Cloudflare step (`open_store` with `inbox_only`). The edge walk checks "with no store online, the sheet goes straight to which agent, with no Cloudflare step".
+- [ ] ~~Connect an agent → the sheet shows a working address, key and instructions that can be copied, for each of the five choices.~~ Superseded by APP-217 (2ea1c94): one copied link or message per agent, Muse "coming soon" with no key, and the address-plus-key variant kept only under Other. XC-068 adds sign-in.
+- [x] A save made with that key reaches the app within a minute while it is open, becomes memories, posts one notification, and raises the badge.
+- [x] Manage → Get a new key revokes the old key; Disconnect revokes it and keeps or deletes its memories as chosen.
+- [x] Offline or signed out of nothing: the watch fails quietly and retries; it never blocks the UI.
+- [x] An edge scenario (`support/edge.sh agents`) drives connect, a stand-in save, the notification and the Today card (now the Inbox row), and is in `test:edge`.
 
 ## Notes
 
@@ -100,3 +100,22 @@ Before it can be ready: Close as completed or superseded; check the 60 s
 agents watch meets "within a minute" and move the rest to APP-217.
 Prioritization flag (not acted on): done/superseded by APP-217 (#481) and
 XC-068.
+
+**Close-out (2026-11-13):** completed. Shipped in 347769b. Criteria 1 and 2 are
+struck as superseded (APP-217, XC-068); see above. The rest is on main:
+- **Watch.** `Watch` in `app/desktop/src/agents.cjs` polls on the APP-232 `PACE`:
+  every 3 s while an app asks to sign in, 10 s on screen, 60 s away, so a save
+  lands within a minute. A failed `waiting()` or `read()` is swallowed and
+  retried next check (~60-70). The overlap rule is tested in
+  `test/unit/app.test.cjs` ("APP-232: a check asked for during one under way…").
+- **Notification and badge.** `main.cjs` `reading.Badge` posts them.
+- **Manage.** `renderer.js` ~4644-4651 offers Get a new key and Disconnect
+  (keep or delete).
+- **Edge walk.** `support/edge.cjs` ~1510-1950 is in `test:edge` via
+  `support/walks.cjs` (`{ name: "agents" }`). It asserts "a save with that key
+  reaches the store", "its saves are one Mac notification that names Grok",
+  "…and a red 2 on the dock", "the Inbox's row for them is named for Grok",
+  "…the old one no longer works" after a new key, and "Disconnect offers to keep
+  or delete what Grok Bot saved".
+
+Live checks against real Claude and ChatGPT stay with APP-217's open criterion.

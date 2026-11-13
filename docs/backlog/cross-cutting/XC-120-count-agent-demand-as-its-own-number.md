@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -92,3 +92,13 @@ Stays in-review. Before it can be ready: Someone with PostHog access
 confirms known-User-Agent requests arrive with the right family and no IP,
 then builds the "Agent demand, weekly" insight. The agent.mcp half waits on
 XC-117. Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review. The code is on main (#624): `site/src/demand.js`
+`countDemand`, called from `site/src/agents.js` `frontDoor` (`agent.llms`,
+`agent.catalog` and the others), from `site/src/worker.js` (`agent.json`),
+and from `site/src/bid-routes.js` (`agent.bid`). No site route sends
+`agent.mcp` yet, because XC-117 is still in-review. Both criteria need
+someone with PostHog access: confirm that a known-User-Agent request to
+each live endpoint arrives with the right `agent` and `$ip: null`, then
+save the "Agent demand, weekly" insight described above. No code is
+missing for the endpoints that exist.

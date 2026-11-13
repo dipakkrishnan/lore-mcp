@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -75,3 +75,9 @@ Stays in-review. Before it can be ready: The reader shipped in #455; a
 person records and anonymizes a real Takeout export for the contract test
 (the current fixture was built from documented field names, not recorded).
 Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review. The reader is done (`TakeoutExport`
+in `lore/sources.py`, 7f4ed230, #455). The only open criterion needs a person.
+`tests/fixtures/exports/takeout/` has not changed since #455 and is still made
+up from documented field names. Someone has to record and anonymize a real
+Takeout export, swap it in, and then tick criterion 4 and close.

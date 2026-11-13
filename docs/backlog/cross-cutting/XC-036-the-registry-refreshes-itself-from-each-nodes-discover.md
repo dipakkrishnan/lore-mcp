@@ -4,13 +4,13 @@ title: The registry refreshes itself from each node's discover
 priority: P3
 effort: XS
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-033, XC-034, XC-022, XC-031, APP-119]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-27
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -48,7 +48,7 @@ issue-form URL, `delist` pushes it empty, and `status` reads the raw file.
 - [x] `lore marketplace list|delist|status` hold no credential and call no relay.
 - [x] Settings shows Not listed / Pending / Listed and opens the form in the browser.
 - [x] The relay's listing route, tests, and secrets are deleted.
-- [ ] The registry PR's workflow lists the first real node end to end.
+- [x] The registry PR's workflow lists the first real node end to end.
 
 ## Notes
 
@@ -61,3 +61,14 @@ feedback relay for sellers without one is a possible later step, not built.
 Stays in-review. Before it can be ready: Confirm lore-marketplace listing
 issue #4 was listed by the refresh workflow and not by hand, then close.
 Prioritization flag (not acted on): done (likely).
+
+**Close-out (2026-11-13):** Completed. In dipakkrishnan/lore-marketplace, issue #4
+("shane's store") was listed by the refresh workflow, not by hand.
+`github-actions[bot]` commit c8e2b20 ("Refresh from each node's discover",
+2026-10-07T02:46:42Z) added the `Shane` entry (`lore.shanedasbach.workers.dev`,
+`eip155:8453`, 5 publications). Two seconds later `github-actions` replied
+"Listed. Buyers can now find your store..." and closed the issue. The bot has
+kept refreshing daily since (latest ed078ba, 2026-10-27). Spot-checked criteria
+1-4 on this branch: `lore/node/src/index.ts` `discover` carries `listed` and
+`name` from `settings.listedName`; `lore marketplace list|delist|status` are in
+`lore/cli.py`; `feedback-relay/src` has no listing route.

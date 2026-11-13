@@ -4,13 +4,13 @@ title: Ship a drag-to-Applications disk image beside the update zip
 priority: P3
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-126, APP-040, APP-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -33,11 +33,11 @@ an arrow and the Applications folder.
 
 ## Acceptance criteria
 
-- [ ] `npm run make` produces `Lore-macOS-arm64.dmg` and the zip.
-- [ ] Mounted, the image shows Lore.app and an Applications link side by side over the drag picture, at 1x and Retina.
-- [ ] With signing variables set, `spctl -a -t open --context context:primary-signature` accepts the image and
+- [x] `npm run make` produces `Lore-macOS-arm64.dmg` and the zip.
+- [x] Mounted, the image shows Lore.app and an Applications link side by side over the drag picture, at 1x and Retina.
+- [x] With signing variables set, `spctl -a -t open --context context:primary-signature` accepts the image and
       `stapler validate` passes.
-- [ ] The update check still finds the zip.
+- [x] The update check still finds the zip.
 
 ## Notes
 
@@ -45,3 +45,21 @@ an arrow and the Applications folder.
 Before it can be ready: Confirm criterion 3 (spctl and stapler validate) on
 a signed release build, then close. Prioritization flag (not acted on):
 done: #669; signing check needs a signed build.
+
+**Close-out (2026-11-13):** Completed. PR #669 (merged 2026-11-06) added the
+`postMake` hook in `app/desktop/forge.config.js`, which runs
+`app/desktop/packaging/dmg.sh` / `dmg.py` (dmgbuild) to write
+`out/make/Lore-macOS-<arch>.dmg` beside the zip. The signed release v0.1.25
+carries both `Lore-macOS-arm64.dmg` and `Lore-macOS-arm64.zip`. Checked on
+2026-11-13 against that release's DMG:
+- `spctl -a -t open --context context:primary-signature` printed "accepted,
+  source=Notarized Developer ID", and `xcrun stapler validate` printed "The
+  validate action worked!" (criterion 3).
+- Mounted read-only, it holds `Lore.app`, `Applications -> /Applications`,
+  `.VolumeIcon.icns`, `.DS_Store` and `.background.tiff`, with a 660×400 @72
+  rep and a 1320×800 @144 rep. The background reads "To install, *drag* Lore
+  to Applications", with the arrow between the icon spots at (180, 236) and
+  (480, 236) (criterion 2). This was checked from the image's files, not from
+  a Finder window by eye.
+- `https://update.electronjs.org/dipakkrishnan/lore-mcp/darwin-arm64/0.1.24`
+  answers with the v0.1.25 `Lore-macOS-arm64.zip` URL (criterion 4).

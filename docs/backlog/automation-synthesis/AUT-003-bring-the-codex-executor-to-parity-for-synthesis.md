@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["windup (separate repo) for the `before` and `reasoning_effort` changes"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -57,8 +57,10 @@ condition next to the Codex option. No change to which executor is default.
 - [ ] `lore sync` runs before synthesis under Codex by the same mechanism as
       under Claude, or neither uses `before` and the test pins the prompt's
       first instruction instead.
-- [ ] The profile step's executor choice states the Codex-app-running
-      condition.
+- [ ] ~~The profile step's executor choice states the Codex-app-running
+      condition.~~ Struck: AUT-010 took the executor choice out of the app; Lore
+      runs every routine there. Only the terminal `lore-onboard` skill still offers
+      Claude or Codex.
 
 ## Notes
 
@@ -76,3 +78,20 @@ terminal skill's executor options or drop it. Criteria 3 and 4
 (reasoning_effort, running `before` the same way) live in windup, a separate
 repo; a person has to land that change or the criteria must be cut to the
 in-repo part. Prioritization flag (not acted on): partly obsolete (AUT-010).
+
+**Close-out (2026-11-13):** Stays in-review; nothing in criteria 1-4 has shipped.
+Checked on main at 3a755ba3:
+- C1 open. `build_prompt()` says "list the Claude and Codex session files
+  modified in that window" but never names a directory. `task_for()` still passes
+  `add_dirs=(claude_home(), codex_home())` only for Claude and `()` for Codex.
+- C2 open. The "## First run" block tells every executor to "delegate coherent
+  slices ... to subagents". There is no executor condition.
+- C3 open. Neither `Task` nor `AutomationProfile` has a `reasoning_effort` field.
+  That belongs to windup, a separate repo.
+- C4 open. `before=(... "sync", "--record-job")` is set for both executors. How
+  Codex runs it is still up to windup.
+- C5 struck as obsolete (AUT-010). If the terminal skill needs a "Codex app must
+  be running" line, it goes in `plugins/lore/skills/lore-onboard/SKILL.md`'s
+  executor options.
+Next step: cut C3 and C4 to an in-repo dependency note or land them in windup,
+then do C1 and C2, which are each a few lines in `lore/automation.py`.

@@ -4,13 +4,13 @@ title: Show setup progress as a step count or percent, not just "Setting up"
 priority: P3
 effort: S
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-022]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -56,3 +56,12 @@ no further progress indication.
 **Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
 Before it can be ready: The owner confirms obsolete: the sidebar "Setting
 up" chip no longer exists. Prioritization flag (not acted on): obsolete.
+
+**Close-out (2026-11-13):** Obsolete. The premise is gone. The sidebar chip that read "Setting up" no
+longer exists: `renderAccount` in `app/desktop/src/renderer.js` sets only
+the account line from `accountState` and the sign-out button. "Setting up"
+now appears only as "Setting up your store…" while a deploy runs
+(`THINKING.deploy`, and the live status in `agent.mjs`). The setup task
+this chip tracked became APP-215's first-run chat (completed, #486), which
+reports its own steps (`firstrun.step`). A progress indicator for the store
+deploy would be a new item against that flow.

@@ -4,13 +4,13 @@ title: Let the owner type while Lore works
 priority: P3
 effort: M
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-069, APP-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -51,3 +51,10 @@ next queue). Pick one: rewrite this as APP-100's first slice or mark
 obsolete. Refresh stale references (agent.mjs line, Pi version).
 Prioritization flag (not acted on): duplicate of APP-100 (conflicting
 design).
+
+**Close-out (2026-11-13):** Obsolete, a duplicate. APP-100 ("Let the owner keep typing while Lore
+works", in-review) survives. It owns the same problem with a fuller
+design, an Up next queue with no steering, which replaces this item's
+steer() approach. The problem itself is still live:
+`app/desktop/src/agent.mjs:884` still throws "Lore is already working"
+while busy. Carry it under APP-100.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -41,10 +41,10 @@ The owner walked the app before 0.1.17 and found these problems:
 
 ## Acceptance criteria
 
-- [ ] Today shows one folded card per contributor; a click opens it.
-- [ ] Four new saves that change no memory still show on Today as "4 saves · already in your memories".
-- [ ] `lore search --source X --limit N` returns the N newest.
-- [ ] "Push my store" in a drafting thread can't call `open_store`. A test proves it.
+- [x] Today (now the Inbox) shows one folded card per contributor; a click opens it.
+- [x] Four new saves that change no memory still show on Today (now the Inbox) as "4 saves · already in your memories".
+- [x] `lore search --source X --limit N` returns the N newest.
+- [x] "Push my store" in a drafting thread can't call `open_store`. A test proves it.
 - [ ] No green focus or selection rim remains, in light or dark.
 
 ## Notes
@@ -52,3 +52,18 @@ The owner walked the app before 0.1.17 and found these problems:
 **Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
 Before it can be ready: Confirm the criteria on main (they say Today, now
 the Inbox) and close. Prioritization flag (not acted on): done: #505.
+
+**Close-out (2026-11-13):** stays in-review, with one small CSS gap left.
+Shipped in 61db3c0e (#505), and checked on main. Criteria 1-2:
+`app/desktop/src/inbox.js` ~78-83 adds one `ready:` row per contributor group,
+"N saves … · already in your memories" when no memory changed, and it opens on
+click. Criterion 3: `lore/store.py` orders by `updated_at DESC, id DESC`, and
+`tests/test_store.py::test_search_puts_the_newest_first_within_a_day` covers it.
+Criterion 4: `agent.mjs` ~1013 gives `cloudflare_login` / `open_store` only to
+the `deploy` task. `test/component/agent.test.cjs:160` ("asked in chat to push
+the store, the agent can't…") proves it. Criterion 5 fails. The global ring is
+neutral (`:focus-visible { outline: 2px solid var(--ring) }`, `styles.css:85`),
+but two accent-green focus outlines survive from MON-044 (#425), which predates
+#505: `.collection-name:focus-visible` (`styles.css:644`) and
+`.paste-row textarea:focus-visible` (`styles.css:652`). The work left is to
+switch both to `var(--ring)`, then tick criterion 5 and close.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -89,9 +89,11 @@ and return an error). The desktop edge scenario
 
 ## Acceptance criteria
 
-- [ ] Test 1 fails on `main` (before the `listing` change) and passes
-      after it; the commit message for the fix cites F-gr-01.
-- [ ] `lore/sources.py` `Granola.listing` returns `{"time_range":
+- [ ] ~~Test 1 fails on `main` (before the `listing` change) and passes
+      after it; the commit message for the fix cites F-gr-01.~~ Struck: the fix
+      already landed (69464b4d, #357), so the red-first order cannot happen. Test 1
+      is still wanted as a plain contract test against the recording.
+- [x] `lore/sources.py` `Granola.listing` returns `{"time_range":
       "last_30_days"}` and nothing else changes in `lore/`.
 - [ ] `tests/fixtures/granola.py` no longer accepts `custom_start`/
       `custom_end`, uses UUID meeting ids, and its `list_meetings`/
@@ -122,3 +124,17 @@ longer happen and criterion 2 is met. Rewrite to the test-only work left:
 UUID meeting ids in the stand-in, checking get_meetings' inputs, a test
 against the recorded schema, and jsonschema in the dev dependencies.
 Prioritization flag (not acted on): mostly done.
+
+**Close-out (2026-11-13):** Stays in-review, test-only work left. The user-facing
+bug is fixed: `Granola.listing` returns `{"time_range": "last_30_days"}`
+(`lore/sources.py`, CAP-009, 69464b4d, #357). `tests/fixtures/granola.py`'s
+`list_meetings` now takes only the `Literal["this_week", "last_week",
+"last_30_days"]` time range, so `custom_start`/`custom_end` are gone. Still open:
+- The stub's meeting ids are still `m-1`/`m-2`, not UUIDs.
+- `get_meetings` does not check 1-10 items or the UUID format.
+- No test in `tests/test_hosted.py` validates `listing()`/`reading()` against
+  `tests/fixtures/live/granola/tools-schema.json` (test 1), or compares the
+  stub's schema with the recording (test 3).
+- `jsonschema` is only a transitive entry in `uv.lock`. It is not a declared
+  dev dependency in `pyproject.toml`.
+- Re-running `support/edge.sh connectors` belongs with that change.

@@ -4,13 +4,13 @@ title: Measure the desktop app's test coverage
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003]
 blockers: [APP-066]
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -62,3 +62,15 @@ until then the renderer's number reflects whether someone remembered to run
 review. Before it can be ready: Close it: desktop coverage is measured
 (test:*:coverage scripts, CI floor). Prioritization flag (not acted on):
 duplicate of XC-098 and XC-108.
+
+**Close-out (2026-11-13):** Obsolete, a duplicate. The surviving items are XC-098 (completed, #614),
+which measures `app/desktop` coverage with `node --test
+--experimental-test-coverage` (`test:coverage`, `test:unit:coverage` and
+`test:component:coverage` in `app/desktop/package.json`) and records the
+baseline and the files V8 leaves out (`main.cjs`, `preload.cjs`,
+`renderer.js`, `markdown.js`, `runtime.cjs`) in its notes; and XC-108
+(completed), which sets the desktop `coverageFloor` in `package.json`,
+enforced in CI by `.github/scripts/coverage_summary.py --floor`. XC-108
+chose never to exclude a file to meet the floor, which retires this item's
+"list Electron-only files for a later gate" criterion. APP-066, its blocker,
+is completed.
