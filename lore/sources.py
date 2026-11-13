@@ -1031,13 +1031,16 @@ class FeedReader(Reader):
             ),
             "",
         )
+        # CAP-040: the key stays the entry's first link, as it always was, so a feed read
+        # before this keeps its memories; the link the owner follows is the post itself.
         link = _field(entry, "link")
         identity = link or _field(entry, "id", "guid") or f"entry-{index}"
         post = self._post(
             _field(entry, "title"),
             _Html(body).text(),
-            link or f"{self.source.locator}#{identity}",
-            _field(entry, "pubDate", "published", "updated", "date"),
+            _alternate(entry) or f"{self.source.locator}#{identity}",
+            # When it was written, whatever order the feed lists its dates in.
+            _first(entry, "published", "pubDate", "date", "updated"),
         )
         # ponytail: anonymous entries use their position; prefer a publisher ID
         # if one appears, since reordering those entries changes their keys.
@@ -2365,6 +2368,23 @@ def _project(source: Source, path: Path) -> str:
     ):
         return "work"
     return "personal"
+
+
+def _first(element: Element, *names: str) -> str:
+    """The first of `names`, in that order of preference, that the element has."""
+    return next((value for name in names if (value := _field(element, name))), "")
+
+
+def _alternate(entry: Element) -> str:
+    """An entry's link to the post itself: Atom's `rel="alternate"`, which a link
+    with no `rel` is (RFC 4287), else its first link (CAP-040)."""
+    for child in entry:
+        if child.tag.rpartition("}")[2] != "link":
+            continue
+        value = "".join(child.itertext()).strip() or child.get("href", "").strip()
+        if value and child.get("rel", "alternate") == "alternate":
+            return value
+    return _field(entry, "link")
 
 
 def _field(element: Element, *names: str) -> str:
