@@ -4,13 +4,13 @@ title: Say plainly when a dropped document can't be converted, and never fetch i
 priority: P2
 effort: XS
 component: monetization
-status: ready
+status: completed
 related: [MON-044, MON-048, MON-049, MON-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-23
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -42,13 +42,13 @@ that name the file and say what to do ("paste its text instead").
 
 ## Acceptance criteria
 
-- [ ] With `subprocess.run` patched to raise `TimeoutExpired`, then
+- [x] With `subprocess.run` patched to raise `TimeoutExpired`, then
       `FileNotFoundError`, `cli.main(["collection", "add", <id>, ...])`
       returns 1. Stderr is one line that names the file and contains no
       `Traceback` or `Errno`, and `cli.failed` is recorded for `collection`.
-- [ ] textutil's arguments include `-noload` for `.html`, `.htm` and
+- [x] textutil's arguments include `-noload` for `.html`, `.htm` and
       `.webarchive` input, checked in a test.
-- [ ] Covered by tests in `tests/test_collection_drops.py` (or `tests/test_cli.py`
+- [x] Covered by tests in `tests/test_collection_drops.py` (or `tests/test_cli.py`
       for the `main` exit path).
 
 ## Notes
@@ -64,3 +64,14 @@ That is a deliberate choice and is left alone here. Open PR #427 reuses
 
 **Prioritization (2026-11-12):** Priority P2 (was P3). Promoted to ready:
 unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `Collections._read` (`lore/collection.py`)
+passes `-noload` for `.html`, `.htm` and `.webarchive`. It turns textutil's
+`TimeoutExpired` into "Lore took too long converting <file>; paste its text
+instead" and a missing `textutil` into "Lore can't convert <file> on this
+computer; paste its text instead". Both are `ValueError`s, so `cli.main`
+prints one `lore:` line, returns 1 and records `cli.failed` for
+`collection`. Tests: `test_a_document_that_cannot_be_converted_fails_in_one_plain_line`
+(`tests/test_collection.py`) and
+`test_a_web_page_is_converted_without_loading_its_remote_resources`
+(`tests/test_collection_drops.py`). The 60 s timeout is unchanged.

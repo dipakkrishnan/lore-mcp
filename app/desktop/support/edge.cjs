@@ -795,6 +795,19 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.lore.setAppearance("dark")`);
         check("switched to dark, Inventory turns at once", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
         await shot("inventory-rows-dark");
+        // APP-293: a two-digit day ("Nov 10") draws on one line, at 1440 and 900 wide, the row keeps its height, and the
+        // price column stays put. The walk's own dates vary, so each row is shown that day for the measure, then restored.
+        const dated = `(() => { const rows = [...document.querySelectorAll("#content .invrow")]; const was = rows.map((r) => r.querySelector(".age").textContent); const before = rows.map((r) => r.querySelector(".cost").getBoundingClientRect().right); rows.forEach((r) => { r.querySelector(".age").textContent = "Nov 10"; }); const seen = rows.map((r, at) => { const age = r.querySelector(".age"); return { lines: Math.round(age.getBoundingClientRect().height / parseFloat(getComputedStyle(age).lineHeight)), height: r.getBoundingClientRect().height, moved: r.querySelector(".cost").getBoundingClientRect().right - before[at] }; }); rows.forEach((r, at) => { r.querySelector(".age").textContent = was[at]; }); return seen; })()`;
+        const oneLine = (seen) => seen.length > 0 && seen.every((row) => row.lines === 1 && row.height >= 32 && row.height <= 40 && row.moved === 0);
+        const wide = await js(`innerWidth`);
+        for (const width of [1440, NARROW_WIDTH]) {
+          await window.webContents.debugger.sendCommand("Emulation.setDeviceMetricsOverride", { width, height: window.getContentSize()[1], deviceScaleFactor: 0, mobile: false });
+          await until(() => js(`innerWidth === ${width}`));
+          const seen = await js(dated);
+          check(`at ${width}px an Inventory row dated "Nov 10" draws its date on one line, 32-40px tall, its price unmoved`, oneLine(seen), JSON.stringify(seen.slice(0, 3)));
+        }
+        await window.webContents.debugger.sendCommand("Emulation.clearDeviceMetricsOverride");
+        await until(() => js(`innerWidth === ${wide}`));
         await js(`window.lore.setAppearance("light")`);
         check("…and back to light", await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`), await js(BG));
         // APP-271: no shot here: Inventory is as store-sales scanned it, light again after the dark one.
