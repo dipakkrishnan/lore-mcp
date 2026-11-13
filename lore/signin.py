@@ -74,11 +74,14 @@ class Loopback(HTTPServer):
     """Where the browser lands once the owner answers the app's approval page."""
 
     wait = 300.0
+    # CAP-030: how long one connection may keep the wait reading it before it is dropped.
+    connection_timeout = 5.0
 
     def __init__(self) -> None:
         super().__init__(("127.0.0.1", 0), _Landing)
         self.timeout = self.wait
         self.answer: dict[str, str] | None = None
+        self.deadline = 0.0
 
     def server_bind(self) -> None:
         # HTTPServer names itself by looking the bound address up in reverse DNS. A resolver
@@ -104,13 +107,26 @@ class Loopback(HTTPServer):
 
     def _listen(self) -> None:
         # A browser asks for more than the callback (a favicon), so keep answering until it lands.
-        deadline = time.monotonic() + self.wait
-        while self.answer is None and time.monotonic() < deadline:
+        # CAP-030: one deadline for the whole wait. Each request gets only the time left, so a
+        # stray one late in the wait can't start the clock again.
+        self.deadline = time.monotonic() + self.wait
+        while self.answer is None and (left := self.left()) > 0:
+            self.timeout = left
             self.handle_request()
+
+    def left(self) -> float:
+        return self.deadline - time.monotonic()
 
 
 class _Landing(BaseHTTPRequestHandler):
     server: Loopback
+
+    def setup(self) -> None:
+        super().setup()
+        # CAP-030: a connection that sends nothing is dropped after a short while, never later
+        # than the wait's own end, so the browser's real callback queued behind it is read.
+        limit = min(self.server.connection_timeout, self.server.left())
+        self.connection.settimeout(max(0.01, limit))
 
     def do_GET(self) -> None:
         url = urlsplit(self.path)
