@@ -88,3 +88,7 @@ required, partly because it fails on things like this.
 - Not covered: `npm ci` still clones the `electron/node-gyp` git dependency
   from github.com, and `setup-uv` fetches uv from releases.astral.sh. Neither
   is a GitHub release download.
+- Grepping a log for `releases/download` also matches setup-uv's own line
+  ("Downloading uv from https://releases.astral.sh/github/uv/releases/download/..."),
+  which is Astral's mirror, not github.com. Grep for
+  `github.com/.*releases/download` instead.
