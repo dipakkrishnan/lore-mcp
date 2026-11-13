@@ -1172,12 +1172,18 @@ def _deploy(
         # deploy. A listing that failed says nothing about the wallet, so it
         # stops the deploy rather than being read as "no wallet". Card
         # payments are enough on their own: such a store sells by card alone.
-        listing = _run(
-            (wrangler, "secret", "list"),
-            target,
-            fail="reading your store's settings from Cloudflare failed",
-        )
-        if "LORE_WALLET" not in (listing.stdout or ""):
+        listing = _run((wrangler, "secret", "list"), target)
+        said = f"{listing.stderr or ''}{listing.stdout or ''}"
+        # MON-057: a Worker never deployed (or deleted) has no secrets to list,
+        # and wrangler says so as an error. That means no LORE_WALLET; any other
+        # failure still says nothing about the wallet, so it stops the deploy.
+        never_deployed = "not found" in said and "wrangler deploy" in said
+        if listing.returncode and not never_deployed:
+            raise OSError(
+                "reading your store's settings from Cloudflare failed:\n"
+                f"{_detail(listing)}"
+            )
+        if listing.returncode or "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
                 "your store has no way to be paid yet; turn on card payments "
                 "(lore cards connect) or rerun with --wallet 0x<your public address>"
