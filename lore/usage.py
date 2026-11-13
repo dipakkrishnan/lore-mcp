@@ -13,6 +13,7 @@ list (contracts/usage_events.json) before passing it on.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import sqlite3
@@ -223,18 +224,27 @@ def _send(event: dict[str, object]) -> None:
             "events": [event],
         }
     ).encode()
-    request = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={"Content-Type": "application/json", "User-Agent": feedback.USER_AGENT},
-    )
+    try:
+        request = urllib.request.Request(
+            url,
+            data=body,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": feedback.USER_AGENT,
+            },
+        )
+    except ValueError:
+        # An address urllib can't use (`not-a-url`) is no relay (XC-062).
+        return
 
     def post() -> None:
         try:
             with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS):
                 pass
-        except OSError:
+        # A host or port http.client refuses (InvalidURL) fails here, off the
+        # command thread; it is dropped like a dead relay, never printed.
+        except (OSError, ValueError, http.client.HTTPException):
             pass
 
     # Not a daemon: the command finishes its own work first, then waits at

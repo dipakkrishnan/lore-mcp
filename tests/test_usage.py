@@ -4,7 +4,7 @@ import json
 import os
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
@@ -462,3 +462,64 @@ class SendTest(LoreTestCase):
             Path(usage.log_path()).mkdir()
             self.assertFalse(usage.record("cli.failed", "push"))
         urlopen.assert_not_called()
+
+    def test_an_address_urllib_cannot_use_is_no_relay(self) -> None:
+        for address in ("not-a-url", "relay.example/events", ":///"):
+            with (
+                self.subTest(address=address),
+                patch.dict(os.environ, {"LORE_USAGE_URL": address}),
+                patch.object(usage.threading, "Thread") as thread,
+                patch("urllib.request.urlopen") as urlopen,
+            ):
+                self.assertTrue(usage.record("cli.failed", "other"))
+                thread.assert_not_called()
+                urlopen.assert_not_called()
+
+    def test_a_failing_command_with_a_bad_relay_address_prints_only_its_error(
+        self,
+    ) -> None:
+        err = StringIO()
+        with (
+            patch.dict(os.environ, {"LORE_USAGE_URL": "not-a-url"}),
+            captured(),
+            redirect_stderr(err),
+            patch.object(cli, "push", side_effect=ValueError("push broke")),
+        ):
+            self.assertEqual(cli.main(["push"]), 1)
+        self.assertEqual(err.getvalue(), "lore: push broke\n")
+        self.assertEqual(self.logged()[-1]["props"], {"command": "push"})
+
+    def test_a_milestone_with_a_bad_relay_address_still_ends_the_command_cleanly(
+        self,
+    ) -> None:
+        batch = json.dumps([{"title": "A lesson", "content": "the body"}])
+        err = StringIO()
+        with (
+            patch.dict(os.environ, {"LORE_USAGE_URL": "not-a-url"}),
+            patch("sys.stdin", StringIO(batch)),
+            captured() as out,
+            redirect_stderr(err),
+        ):
+            self.assertEqual(cli.main(["capture", "apply", "-"]), 0)
+            (result,) = json.loads(out.getvalue())
+            self.assertNotEqual(result["status"], "unchanged")
+            self.assertEqual(cli.main(["telemetry", "record", "store.opened"]), 0)
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(
+            [event["name"] for event in self.logged()],
+            ["memory.saved", "store.opened"],
+        )
+
+    def test_an_address_that_fails_inside_the_sender_is_dropped_quietly(
+        self,
+    ) -> None:
+        # The Request builds, then http.client refuses the port on the sender
+        # thread; no proxy may stand in and answer instead.
+        with (
+            patch.dict(
+                os.environ, {"LORE_USAGE_URL": "http://127.0.0.1:notaport/events"}
+            ),
+            patch("urllib.request.getproxies", return_value={}),
+        ):
+            self.assertTrue(self.record("cli.failed", "other"))
+        self.assertEqual([event["name"] for event in self.logged()], ["cli.failed"])
