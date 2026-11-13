@@ -1,7 +1,7 @@
 ---
 id: MON-044
 title: Sell a collection made in three steps
-priority: P1
+priority: P3
 effort: L
 component: monetization
 status: in-review
@@ -63,3 +63,8 @@ collection," is a market event. It cannot happen until an owner puts a
 collection on sale, and no live store has one today. A human should either
 list a collection and wait for a sale, or move that criterion to a launch-
 validation item and close this one.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Move "a real buyer purchases a collection" to a
+launch-validation item, then close. Prioritization flag (not acted on): done
+except the market-event criterion.

@@ -1,7 +1,7 @@
 ---
 id: XC-018
 title: Support concurrent test, beta, and production environments
-priority: P2
+priority: P3
 effort: L
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/87
 created: 2026-08-07
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -115,3 +115,9 @@ not this pass.
 approach is "rough shape, not a full design" and leaves open whether `test` and
 `beta` are standing or on-demand deployments, which it says "needs a decision before
 `implementation` starts". That decision is a person's, so the item is not ready.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Re-scope against the hosted store (XC-071,
+docs/hosted-store.md), which changes what an "environment" is, then make the
+standing-vs-on-demand decision. Prioritization flag (not acted on): partly
+obsolete.

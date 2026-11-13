@@ -2,7 +2,7 @@
 id: CAP-007
 title: Read Apple Notes through Automation
 priority: P2
-effort: S
+effort: M
 component: capture
 status: in-review
 related: [STO-003, APP-121, APP-120, APP-116]
@@ -10,7 +10,7 @@ blockers: [APP-121]
 dependencies: ["STO-003 for the source kind and state"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -56,3 +56,11 @@ check is `AEDeterminePermissionToAutomateTarget` with `askUserIfNeeded`
 false, which needs a small native helper; a harmless `tell application
 "Notes" to name` forcing the prompt is the fallback. iMessage is not in
 scope: it needs Full Disk Access and a typedstream decoder.
+
+**Prioritization (2026-11-12):** Priority P2, effort M (was S). Stays in-
+review. Before it can be ready: Blocker APP-121 is still in-review; its only
+open box is a manual check that macOS asks "Lore wants to control Notes", so
+complete APP-121 or drop it as a blocker. Name the connectors-list UI this
+plugs into after the APP-281/282 redesign. Effort raised to M: per-note
+osascript loop with progress, HTML-to-text, a sheet before the permission
+prompt, silent-grant check, and a denied state linking to System Settings.

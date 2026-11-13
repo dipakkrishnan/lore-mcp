@@ -1,8 +1,8 @@
 ---
 id: AUT-004
 title: The weekly synthesis day is silently Monday, whatever the owner was told
-priority: P1
-effort: S
+priority: P3
+effort: M
 component: automation-synthesis
 status: in-review
 related: [AUT-001, AUT-002, APP-030]
@@ -100,3 +100,12 @@ was not kept; the facts about the code stand on their own.
   shaped plist (Weekday 1) under tmp and returns that path, or that
   Path.home, shutil.which and sys.platform are all patched. Also patch the
   subprocess calls that _set_weekday makes.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort M (was S).
+Stays in-review. Before it can be ready: Rescope to terminal hosts: add
+"day" to the terminal checkpoint JSON in the lore-onboard SKILL.md, and say
+whether the fix goes in windup or an in-repo post-install patch. Fold in the
+reviewer's open points in Notes (day: null treated as missing, codex_day
+never raises, a malformed-TOML take_over test, tests never run the real
+windup install). Prioritization flag (not acted on): partly obsolete
+(AUT-010).

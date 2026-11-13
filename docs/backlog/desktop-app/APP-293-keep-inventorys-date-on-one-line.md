@@ -1,16 +1,16 @@
 ---
 id: APP-293
 title: Keep Inventory's date on one line
-priority: P3
-effort: S
+priority: P2
+effort: XS
 component: desktop-app
-status: in-review
+status: ready
 related: [APP-282, APP-183]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,7 @@ column after it stays where it is. Check the row at 900px wide too, where the wa
 ## Notes
 
 Found by APP-183's design review. This is a separate item because APP-183 only changed the row's price.
+
+**Prioritization (2026-11-12):** Priority P2 (was P3), effort XS (was S).
+Promoted to ready: unblocked, criteria checkable, and the premise checked
+against the code.

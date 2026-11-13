@@ -1,7 +1,7 @@
 ---
 id: CLI-016
 title: Stop background store polls from flooding cli.failed
-priority: P1
+priority: P3
 effort: XS
 component: cli-ux
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-01
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,8 @@ per-command set in cli.py. If store reachability matters, record it as a separat
 ## Notes
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Only closing it: confirm the tests and mark it
+completed. Prioritization flag (not acted on): done: commit 09ee5c15 (#629)
+added POLLED_READS in cli.py and skips cli.failed for those reads.

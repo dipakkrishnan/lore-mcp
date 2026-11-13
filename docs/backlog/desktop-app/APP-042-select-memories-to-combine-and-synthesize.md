@@ -1,7 +1,7 @@
 ---
 id: APP-042
 title: Let a desktop owner select memories to combine and synthesize
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/173
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -50,3 +50,9 @@ concrete acceptance criterion could be written without inventing the output
 shape, which the issue doesn't specify.
 
 **Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: The output shape (new memory, edit, or draft) and an
+engine answer from the reporter or owner; check whether collections already
+cover picking memories to combine. Prioritization flag (not acted on):
+possible duplicate of collections.

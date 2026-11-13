@@ -1,8 +1,8 @@
 ---
 id: APP-030
 title: Chain the next rung after setup — publish and open-your-store from the Done card
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-020, APP-023, APP-019, MON-006]
@@ -72,3 +72,8 @@ to real money, so criterion 3 is intentionally untrue and criterion 4's
 Sepolia proof no longer matches the product. Close this once those two
 criteria are rewritten or struck, and move the live paid-path proof into the
 shared live-proof work (APP-005).
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: Strike criteria 3 and 4 (MON-025
+reversed both), move the live proof to APP-005, and close. Prioritization
+flag (not acted on): done.

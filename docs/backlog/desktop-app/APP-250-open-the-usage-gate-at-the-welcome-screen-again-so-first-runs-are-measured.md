@@ -1,7 +1,7 @@
 ---
 id: APP-250
 title: Open the usage gate at the welcome screen again so first runs are measured
-priority: P0
+priority: P3
 effort: XS
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-01
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -43,3 +43,7 @@ From the Oct 28 metrics audit: PostHog shows 2 new installs since launch, while 
 visits and GitHub shows 23 v0.1.19 downloads. That gap can't be explained until this lands.
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P0). Stays in-review.
+Before it can be ready: Run criterion 1 once on a fresh LORE_HOME, then
+close. Prioritization flag (not acted on): done: #634.

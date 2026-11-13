@@ -1,8 +1,8 @@
 ---
 id: APP-008
 title: Replace the bash regex boundary with an OS sandbox; cards stay UX
-priority: P2
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-003, APP-004]
@@ -88,3 +88,9 @@ dropped. The one real hole is the todo test in sandbox.test.cjs ("the
 agent's shell cannot change Lore's database": lore.db is still writable from
 the agent's shell), which no backlog item tracks yet and should become its
 own item before this one closes.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was M).
+Stays in-review. Before it can be ready: Drop criterion 5 (no classifier
+left to compare against). File a new item for the todo test in
+test/component/sandbox.test.cjs (lore.db still writable from the agent's
+shell), then close. Prioritization flag (not acted on): done.

@@ -1,7 +1,7 @@
 ---
 id: XC-045
 title: Run card checkout on a restricted Stripe key
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
 status: ready
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A sandbox restricted key Dipak creates in the Stripe dashboard (keys can't be created through the API)"]
 github_issue: null
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-11-12
 ---
 
 ## Problem

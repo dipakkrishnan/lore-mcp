@@ -1,8 +1,8 @@
 ---
 id: XC-090
 title: Fill the activation funnel's missing steps (agent connected, drafted, any memory saved)
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: cross-cutting
 status: in-review
 related: [APP-250, XC-085, XC-092, APP-058, XC-067, CAP-036]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -48,3 +48,8 @@ Left out: the `surface` envelope field. The app already sends its own version
 that breakdown matters.
 
 From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Drop the `surface` criterion (file
+it separately if wanted) and close; the rest shipped in #635/#636.
+Prioritization flag (not acted on): done (except surface).

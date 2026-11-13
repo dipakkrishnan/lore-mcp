@@ -1,8 +1,8 @@
 ---
 id: XC-125
 title: Turn /download into an "Open Lore in 3 steps" page
-priority: P1
-effort: S
+priority: P2
+effort: XS
 component: cross-cutting
 status: in-review
 related: [APP-291, XC-093, APP-126]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: [APP-291]
 github_issue: null
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -42,3 +42,10 @@ steps" with the browser's downloads button pointed out.
 - [x] A bid id comes back as a link to its page; anything else is ignored.
 - [x] Light and dark, desktop and phone width, checked by screenshot.
 - [ ] Deployed only after a release carries `Lore-macOS-arm64.dmg` (APP-291); before that the link 404s.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: APP-291 must complete (add it as a
+blocker), then deploy and close. Prioritization flag (not acted on): done
+(code).

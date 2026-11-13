@@ -96,3 +96,11 @@ was not kept; the facts about the code stand on their own.
   always pushes after the revoke. Queue a follow-up push after the current
   one, or re-run goLive when pushNow finishes if unpushed() is still non-
   empty, and add a test for it.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Criterion 1 still fails ("Push now" remains). Turn the five plan-
+review findings into criteria: where the receipt or Updating state shows
+after a take-down or price change on Inventory; clear pushFailed after a
+successful deploy or when nothing is left; show the pending state after an
+extras decline; the exact retry-notice condition per screen; queue a follow-
+up push when a take-down lands mid-push.

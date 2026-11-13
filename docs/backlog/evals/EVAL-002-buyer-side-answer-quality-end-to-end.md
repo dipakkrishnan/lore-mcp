@@ -1,7 +1,7 @@
 ---
 id: EVAL-002
 title: Evaluate paid value from the buyer's side of the MCP surface
-priority: P1
+priority: P2
 effort: M
 component: evals
 status: in-review
@@ -74,3 +74,10 @@ key. No QA node has ever deployed, because the qa environment has no secrets
 (MON-016), and no work has happened since 2026-08-21. It should leave in-
 progress. It can go back to ready once MON-016 is done and a bounded answer-
 model key exists.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker MON-008 is still in-review, and MON-016 (qa
+secrets) is the real gate and should probably be listed as a blocker. A
+bounded QA answer-model key is still needed. Re-check whether a Base Sepolia
+settlement receipt is still the right proof now that card-on-bid
+(MON-051/054) and real-money stores (MON-025) shipped.

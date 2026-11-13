@@ -1,7 +1,7 @@
 ---
 id: STO-004
 title: Wait out the first migration instead of failing with database is locked
-priority: P1
+priority: P2
 effort: XS
 component: store-import
 status: in-review
@@ -71,3 +71,9 @@ LORE_HOME and confirm Memories shows no database error. CI's empty-home
 walks never check for that message, and the "unable to open database file"
 error was never reproduced. One attended first launch either closes this or
 turns it into a new bug.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Criterion 2 needs an observable check: one attended
+first launch on an empty LORE_HOME, or a criterion for an automated empty-
+home desktop walk that asserts no "database" error text in Memories or
+Inventory.

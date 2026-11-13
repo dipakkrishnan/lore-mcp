@@ -1,7 +1,7 @@
 ---
 id: MON-051
 title: Let buyers bid for a piece nobody sells yet
-priority: P0
+priority: P2
 effort: M
 component: monetization
 status: in-review
@@ -74,3 +74,10 @@ called conditional, so criterion 3 no longer describes how a bid is filled.
 Criterion 2 waits on MON-056. Back to in-review so the remaining criteria
 can be rewritten around the accept flow, or the item closed with them handed
 to MON-054 and MON-056.
+
+**Prioritization (2026-11-12):** Priority P2 (was P0). Stays in-review.
+Before it can be ready: Criterion 3 fills a bid through piece checkout,
+which MON-054's card-on-accept fill replaced; criterion 2 is MON-056's work.
+Rewrite both around the accept flow, or close and hand them to MON-054 and
+MON-056. Prioritization flag (not acted on): done / remaining criteria
+belong to MON-054 and MON-056.

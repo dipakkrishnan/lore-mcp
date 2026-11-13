@@ -1,7 +1,7 @@
 ---
 id: APP-270
 title: Fold the remaining overlapping walks down to seven
-priority: P1
+priority: P3
 effort: L
 component: desktop-app
 status: in-review
@@ -372,3 +372,8 @@ walks-step target is not met: main runs 191-375 s, and the solo `agents`
 walk alone takes 110-170 s. APP-271's 150 s target covers the same ground.
 Back to in-review so the time criterion can move to APP-271 (or XC-084) and
 this item can close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Move the time criterion to APP-271 or XC-084 and
+close; its blocker APP-269 must close too. APP-271 waits on this.
+Prioritization flag (not acted on): done: #679.

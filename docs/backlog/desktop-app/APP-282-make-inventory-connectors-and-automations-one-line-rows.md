@@ -1,8 +1,8 @@
 ---
 id: APP-282
 title: Make Inventory, Connectors and Automations one-line rows
-priority: P1
-effort: L
+priority: P2
+effort: M
 component: desktop-app
 status: in-review
 related: [APP-281, APP-255]
@@ -65,3 +65,9 @@ Connectors into Settings (APP-288, APP-289), so this item's remaining scope
 no longer matches the app's layout. Back to in-review to re-scope the rest
 to Connectors only (and Settings › Automations if wanted), or split it into
 a new item and close this one.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort M (was L).
+Stays in-review. Before it can be ready: Re-scope to Connectors (and
+Settings > Automations if wanted) as one-line rows, or close and file
+Connectors rows as a new item. Prioritization flag (not acted on): done for
+Inventory: #657.

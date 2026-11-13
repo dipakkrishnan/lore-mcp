@@ -1,7 +1,7 @@
 ---
 id: APP-263
 title: Connect Instinct by text-first setup
-priority: P1
+priority: P2
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 597
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -47,3 +47,8 @@ Instinct is its own agent app, at every step where an agent is connected:
 ## Notes
 
 From issue #597. The copy is a proposal to validate while dogfooding. It is not a claim of a native integration or a partnership.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: A person runs the Instinct dogfood (secure key
+handoff, one save, receipt on the Mac, disconnect revokes), then close.
+Prioritization flag (not acted on): done except the human dogfood criterion.

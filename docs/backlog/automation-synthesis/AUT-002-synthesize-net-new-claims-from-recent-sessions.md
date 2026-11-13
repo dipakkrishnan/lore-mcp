@@ -1,8 +1,8 @@
 ---
 id: AUT-002
 title: Synthesize net-new claims from recent sessions, named by the claim
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: automation-synthesis
 status: in-review
 related: [AUT-001, XC-016, APP-004]
@@ -61,3 +61,8 @@ removed by XC-043's prune (#359), so only the cadence window is still
 pinned. Moved back to in-review to decide whether that pin should come back
 or the third criterion should be dropped; if it is dropped, the item can
 close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: An owner decision: drop criterion 3
+so the item can close, or bring the pin back in tests/test_automation.py.
+Prioritization flag (not acted on): done apart from criterion 3.

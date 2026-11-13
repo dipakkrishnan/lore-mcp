@@ -1,7 +1,7 @@
 ---
 id: XC-126
 title: Keep the desktop job off GitHub release downloads
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
 status: ready
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-09
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem

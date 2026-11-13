@@ -1,7 +1,7 @@
 ---
 id: APP-291
 title: Ship a drag-to-Applications disk image beside the update zip
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -38,3 +38,10 @@ an arrow and the Applications folder.
 - [ ] With signing variables set, `spctl -a -t open --context context:primary-signature` accepts the image and
       `stapler validate` passes.
 - [ ] The update check still finds the zip.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Confirm criterion 3 (spctl and stapler validate) on
+a signed release build, then close. Prioritization flag (not acted on):
+done: #669; signing check needs a signed build.

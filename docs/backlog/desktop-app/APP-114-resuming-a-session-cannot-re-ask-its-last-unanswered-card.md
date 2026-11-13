@@ -1,8 +1,8 @@
 ---
 id: APP-114
 title: Resuming a session cannot re-ask its last unanswered card
-priority: P2
-effort: L
+priority: P3
+effort: S
 component: desktop-app
 status: in-review
 related: [APP-113, APP-018]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -76,3 +76,9 @@ left off" message, but neither `resumeTask` nor that string exists on main now, 
 the resume path has been reworked since this was filed. The item also says "needs
 investigation" and has no proposed fix. Re-check the current resume path against a
 real session with a dangling `toolCall` and rewrite the Problem before promoting.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort S (was L).
+Stays in-review. Before it can be ready: repairInterrupted (agent.mjs) now
+closes dangling tool calls and offers "Reply to keep going". Decide whether
+that satisfies criterion 1, then rewrite the Problem or close.
+Prioritization flag (not acted on): done (likely).

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-02
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -68,3 +68,8 @@ APP-192, which is blocked on this item's payment-seam work. Dynamic,
 demand-based pricing is a separate later idea (MON-043).
 
 **Review 2026-10-19:** not completed. Decision item, not done. MON-028 and XC-039 chose one price everywhere, which leaves the global price in place by default. No dogfood evidence or decision record. Needs a human decision before anything is built.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: An owner decision recorded in the item: keep one global price or
+allow an optional per-piece override, citing the seller's request and how
+the per-collection pattern (MON-044) and bid prices (MON-051) bear on it.

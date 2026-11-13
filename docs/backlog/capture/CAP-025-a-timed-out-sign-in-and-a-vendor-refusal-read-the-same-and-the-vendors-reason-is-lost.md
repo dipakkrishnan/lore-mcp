@@ -4,13 +4,13 @@ title: "Bug: a timed-out sign-in and a refusal read the same, and the vendor's r
 priority: P2
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-009, CAP-024, XC-057, APP-178, XC-025]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -91,3 +91,6 @@ F-gr-02, F-gr-03, R-05.
 Flakiness/safety: the vendor text in the test is the observed sentence,
 which contains no identity; never paste a real error body with an
 account id.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

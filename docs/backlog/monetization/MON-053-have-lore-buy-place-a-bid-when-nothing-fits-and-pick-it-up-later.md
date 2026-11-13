@@ -56,3 +56,9 @@ held back until /bids went live never landed, even though those routes have
 been live since early November. MON-054's card-on-accept model changed how
 an agent's answer gets bought and filled, so criterion 2 and the fill
 callback need re-scoping before the skill work resumes.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Rewrite criterion 2 for the card-on-accept model: an agent's bid
+has no card on file, so say how a later run accepts an answer and pays. Re-
+point the callback criterion: callbacks on new answers already ship, so only
+the callback when a bid is filled is open.

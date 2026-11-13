@@ -1,10 +1,10 @@
 ---
 id: XC-131
 title: Fail CI when the backlog index drifts from its items or holds conflict markers
-priority: P2
+priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-010, XC-078]
 blockers: []
 dependencies: []
@@ -56,3 +56,6 @@ Found during the 2026-11-12 delivery loop; repaired in #714. The
 ordering tie-break reads the existing `INDEX.md`, so `--check` should compare
 the set and content of rows separately from their order if order turns out to
 be unstable. Check this before choosing an exact-match comparison.
+
+**Prioritization (2026-11-12):** Priority P1 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

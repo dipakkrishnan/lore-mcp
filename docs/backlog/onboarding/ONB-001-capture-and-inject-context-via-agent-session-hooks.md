@@ -10,7 +10,7 @@ blockers: [XC-002]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/6
 created: 2026-07-26
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -77,3 +77,9 @@ deferred" section above says not to pick this up until intent-driven publishing 
 "earned it", a judgment call that `XC-002` shipping does not settle (see the
 2026-08-26 pass). The `blockers` field still lists `XC-002`, so the file also
 contradicted itself while marked `ready`. Needs the owner's decision first.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: The owner decides whether to take it up now. The criteria target a
+"captures tier" that doesn't exist (STO-001 shipped memories and
+publications only); rescope against CAP-036's agent inbox and lore-
+synthesize. Prioritization flag (not acted on): obsolete (possibly).

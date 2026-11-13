@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -118,3 +118,7 @@ live seed suite.
 
 Sequencing: blocked by `XC-048` (the env var name and file prefix).
 Blocks `XC-054` and `XC-055`.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Blocker XC-048 is in-review; restate the runner lines for pytest
+after XC-048 is rewritten.

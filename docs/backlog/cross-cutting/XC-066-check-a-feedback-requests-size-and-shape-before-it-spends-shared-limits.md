@@ -4,13 +4,13 @@ title: Check a feedback request's size and shape before it spends the relay's sh
 priority: P2
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-028, XC-031, APP-058, XC-065]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -95,3 +95,6 @@ just under the cap with invalid bytes can be refused as too large.
 
 XC-031 still reads `status: ready` although the relay is deployed; not changed
 here.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

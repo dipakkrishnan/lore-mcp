@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -48,3 +48,9 @@ are filed as `CAP-003` (seed from public posts), `APP-117` (examples),
 the scan finds nothing.
 
 **Review 2026-10-19:** not completed. Partial. The onboard skill and desktop prompt avoid persona questions on an empty library and there is an empty-state card, but nothing pins zero-history setup reaching capture without error. Needs a test or human run.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Criteria predate the redesign: "reaches capture" and "first-run
+rails" no longer exist since APP-283's Inbox. Restate both against the Inbox
+(what the empty Inbox and next-step row say at zero memories), and name how
+it is checked: an automated empty-history desktop walk or an attended run.

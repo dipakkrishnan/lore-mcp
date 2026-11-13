@@ -1,7 +1,7 @@
 ---
 id: MON-026
 title: Adopt the Machine Payments Protocol on the node, in three cuts
-priority: P2
+priority: P3
 effort: L
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: [MON-027]
 dependencies: ["Decision: which cut to launch with", "Tempo testnet (Moderato) reachable from the Worker"]
 github_issue: null
 created: 2026-09-15
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -114,3 +114,9 @@ Agents SDK"; mpp.dev Tempo charge and Stripe charge; Stripe "Monetize your
 MCP server"; PR #40's comment table for what dissolves into the platform.
 
 **Review 2026-10-19:** not completed. Not done. Commit bac38d4 only files this item. No MPP or Tempo code exists; all five criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: MON-027 is completed or dropped; then an owner
+decides whether MPP is still wanted alongside the Stripe card path, and the
+three cuts are rewritten to match. Prioritization flag (not acted on):
+partly obsolete: cut 3 overlaps the Stripe path (XC-039, MON-047, MON-054).

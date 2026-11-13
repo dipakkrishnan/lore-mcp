@@ -1,7 +1,7 @@
 ---
 id: CAP-019
 title: Contract-test the Bluesky reader against the recorded author feed, its request URL and its label
-priority: P1
+priority: P2
 effort: S
 component: capture
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -98,3 +98,7 @@ C-11 `BlueskyFeed`; F-bs-01, F-bs-02, R-03, R-08, R-09.
 
 Flakiness/safety: file-only; the DID in the recording is
 `did:plc:REDACTED` and must stay that way — never assert on it.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. The line
+references in criterion 3 and in the notes are stale.

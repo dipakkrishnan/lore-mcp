@@ -1,8 +1,8 @@
 ---
 id: XC-120
 title: Count agent demand as its own number
-priority: P1
-effort: S
+priority: P2
+effort: XS
 component: cross-cutting
 status: in-review
 related: [XC-116, XC-117, XC-091, XC-092]
@@ -86,3 +86,9 @@ criteria need someone with PostHog access to confirm that known-User-Agent
 requests to the live site arrive with the right agent family and no IP, and
 to build the "Agent demand, weekly" insight. Moved out of in-progress: what
 remains is owner work in PostHog, not code.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Someone with PostHog access
+confirms known-User-Agent requests arrive with the right family and no IP,
+then builds the "Agent demand, weekly" insight. The agent.mcp half waits on
+XC-117. Prioritization flag (not acted on): done (code).

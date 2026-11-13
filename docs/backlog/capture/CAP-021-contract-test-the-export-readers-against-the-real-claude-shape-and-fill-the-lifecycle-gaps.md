@@ -1,7 +1,7 @@
 ---
 id: CAP-021
 title: Contract-test the export readers against the real Claude shape and fill the export lifecycle gaps
-priority: P1
+priority: P2
 effort: M
 component: capture
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: ["A real ChatGPT export recorded with `record.py export-shape` into tests/fixtures/live/exports/chatgpt/real-shape.json (not yet received from OpenAI)"]
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -110,3 +110,8 @@ fixed timestamps as `build_exports.py` does.
 
 Sequencing: blocked by `XC-048` (file prefix). The ChatGPT half waits on
 the dependency; the item is still shippable without it.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. The ChatGPT half
+also waits on an external recording (the item already handles that with a
+skip).

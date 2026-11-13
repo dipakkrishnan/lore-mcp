@@ -1,7 +1,7 @@
 ---
 id: APP-178
 title: Walk the desktop sign-in cancel, needs-permission, nothing-found and Disconnect paths in the CI edge scenario
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -92,3 +92,9 @@ C-34; APP-128's cancellable connect for the sign-in case.
 Flakiness/safety: the stub is local; `PYTHON_KEYRING_BACKEND` stays the
 null keyring so the runner's Keychain is never touched. The `chmod`
 steps are restored in the scenario's cleanup.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Refresh the edge.cjs references and drop check 4
+(keep/delete on disconnect is already walked). Account for the connectors
+walk's 34 s budget. Keep the sign-in cancel, needs_permission, nothing_found
+and Manage-has-no-URL checks.

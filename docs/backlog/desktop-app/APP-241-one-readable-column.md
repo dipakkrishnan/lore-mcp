@@ -2,7 +2,7 @@
 id: APP-241
 title: Keep each page to one readable column on a wide window
 priority: P3
-effort: S
+effort: XS
 component: desktop-app
 status: in-review
 related: []
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -25,3 +25,9 @@ The page keeps one 840px column, centered. The sticky header still spans the win
 
 - At 2000px wide, Today's header, capture bar and rows share one centered 840px column.
 - Narrow windows look as before. Views with their own narrower cap (thread, first run) keep it.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3, effort XS (was S). Stays in-
+review. Before it can be ready: Close as completed. Prioritization flag (not
+acted on): done: #542.

@@ -2,7 +2,7 @@
 id: APP-005
 title: Package and prove the macOS desktop happy path
 priority: P1
-effort: L
+effort: M
 component: desktop-app
 status: in-review
 related: [APP-004, APP-006, APP-007, EVAL-002, XC-008]
@@ -84,3 +84,11 @@ real money, so the testnet proof needs rescoping, ideally into one live-
 proof item shared with APP-019 and APP-030. The item has also been doing
 double duty as the tag for version-bump PRs (#399-#662), which should get
 their own home.
+
+**Prioritization (2026-11-12):** Priority P1, effort M (was L). Stays in-
+review. Before it can be ready: Packaging, signing and notarization shipped
+(v0.1.25). Criteria 3 and 5 still describe a testnet buyer call, which
+MON-025 (real money) and MON-054 (card-on-bid) make wrong. Rewrite them as
+one real-money live-proof item that also takes in the leftover live walks
+from APP-019, APP-030, APP-044 and APP-098. Version-bump PRs (#399-#662)
+also use this id and need their own home.

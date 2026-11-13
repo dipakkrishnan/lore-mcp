@@ -1,8 +1,8 @@
 ---
 id: CAP-004
 title: Read an Obsidian vault or any folder of notes
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: capture
 status: in-review
 related: [STO-003, CAP-001, CAP-003, APP-120]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["STO-003 for the source kind and state; a folder can be dropped through lore-capture today"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -56,3 +56,11 @@ preview --folder` is in the CLI (`lore/cli.py:825`, `1118`), and `test:edge` inc
 an `obsidian` persona. Check each acceptance criterion against that code (preview
 with count and date range, re-read of changed notes only, short-note skip count, the
 macOS folder prompt strings) and rewrite the item to what is still unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Check criteria 1-4 against the code
+(Obsidian connector, folder walk skipping .obsidian/.trash/templates,
+preview() with count, date range and skipped count) and tick those met; then
+close, or rewrite to what is still unmet (most likely seeing the macOS
+folder prompt on the signed build). Prioritization flag (not acted on): done
+(likely).

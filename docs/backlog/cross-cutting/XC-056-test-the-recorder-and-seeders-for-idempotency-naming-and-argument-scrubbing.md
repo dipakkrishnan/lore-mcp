@@ -1,16 +1,16 @@
 ---
 id: XC-056
 title: Test the recorder and seeders for idempotency, file naming and argument scrubbing
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-053, XC-049, XC-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -99,3 +99,8 @@ come from env vars set by the test; nothing reaches Bluesky or Notion.
 The Medium ten-story rollover (md-05..11) is *not* in scope; it needs
 publishing on the seed account and belongs to a future live decision
 noted in `XC-054`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+Implementer note: Run the Python checks with tests/gate.py, not `unittest
+discover`.

@@ -4,13 +4,13 @@ title: Say why a buyer would pay on every draft
 priority: P2
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [APP-117, APP-046, MON-018, XC-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -54,3 +54,6 @@ cross-cutting. The tests are stated in the "Lore Buyer Thesis" artifact of
 2026-09-06.
 
 **Review 2026-10-19:** not completed. Not done. No three answers, undated-public-evidence line or CLI review-prompt lines exist. All 4 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

@@ -1,16 +1,16 @@
 ---
 id: XC-029
 title: Stand up the OTLP collector Worker and its Analytics Engine sink
-priority: P1
+priority: P3
 effort: M
 component: cross-cutting
-status: ready
+status: in-review
 related: [XC-030, APP-058, MON-021, CLI-004]
 blockers: []
 dependencies: ["A Cloudflare account and Workers Analytics Engine binding the maintainers control — distinct from any owner's node"]
 github_issue: null
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -53,3 +53,10 @@ building here, matching the standing anti-dashboard constraint (`APP-001`,
 **2026-09-07:** Filed alongside `XC-030`, `MON-020`, `MON-021`, and `CLI-004`.
 Blocks `APP-058` and `MON-021`, since neither has anywhere to send data
 without this.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Moved back from ready
+to in-review. Before it can be ready: APP-058 was completed through the
+relay /events route to PostHog, bypassing this collector; the only consumer
+left is MON-021. Decide whether MON-021 also uses relay -> PostHog (then
+close this) or re-scope this to MON-021 only. Prioritization flag (not acted
+on): obsolete (likely).

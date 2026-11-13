@@ -1,7 +1,7 @@
 ---
 id: MON-034
 title: Keep crawler traffic off the seller's Workers request limit
-priority: P2
+priority: P3
 effort: M
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -47,3 +47,8 @@ billed as requests
 free-plan request limit before quoting it to sellers.
 
 **Review 2026-10-19:** not completed. Not done. No robots.txt, yourlore.dev/s/<handle> proxy or rate-limit handling. No approach recorded in the item; needs a human choice of approach first.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Choose between proxying through
+yourlore.dev/s/<handle> and robots.txt, record the choice (criterion 1 is a
+decision), and check the free plan's request limit.

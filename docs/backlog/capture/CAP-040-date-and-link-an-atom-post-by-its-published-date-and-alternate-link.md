@@ -4,13 +4,13 @@ title: Date and link an Atom post by its published date and alternate link, what
 priority: P2
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-005, CAP-008, CAP-018, CAP-020, CAP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-27
-updated: 2026-10-27
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -99,3 +99,6 @@ The body choice (`encoded`/`content`/`description`/`summary`) is unaffected:
 its loop already runs over the names in priority order. `TasteFeed`,
 Letterboxd and Goodreads only call `_field` with single names, so they are
 unaffected too.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

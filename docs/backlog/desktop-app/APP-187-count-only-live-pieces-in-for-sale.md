@@ -1,16 +1,16 @@
 ---
 id: APP-187
 title: Count only live pieces in the For Sale tab
-priority: P2
+priority: P3
 effort: XS
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-093, APP-091]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -32,3 +32,8 @@ aren't live yet under a "Not on sale yet" label, and leave them out of the count
 ## Notes
 
 Filed from the 2026-10-06 new-seller audit.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: Nothing to build as written; close it.
+Prioritization flag (not acted on): obsolete/done: APP-282's Inventory tabs
+and the Pending status cover both criteria.

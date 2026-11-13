@@ -1,16 +1,16 @@
 ---
 id: APP-080
 title: List setup and publish under Recent runs
-priority: P2
-effort: M
+priority: P3
+effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-007]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -41,3 +41,9 @@ summary.
 Screenshots `27-dogfood-today-after-setup.png` and `70-dogfood-relaunch.png`.
 
 **Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort S (was M).
+Moved back from ready to in-review. Before it can be ready: The criteria
+name a Recent runs section on Today, which no longer exists; runs show as
+Activity in Settings. Rewrite against Settings > Activity and decide whether
+setup and publish rows still matter now that the Inbox shows what ran.

@@ -1,7 +1,7 @@
 ---
 id: APP-207
 title: Connect a personal agent and hear when it saves something
-priority: P0
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: [CAP-036]
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -94,3 +94,9 @@ turns saves into memories, and memories into pieces for sale, never closes.
   Grok are generic.
 
 **Review 2026-10-19:** not completed. Shipped in 347769b but largely superseded by APP-217 (2ea1c94): the sheet no longer shows address, key and instructions for each choice. Criteria need rewriting to match APP-217; confirm the watch interval is within a minute.
+
+**Prioritization (2026-11-12):** Priority P3 (was P0). Stays in-review.
+Before it can be ready: Close as completed or superseded; check the 60 s
+agents watch meets "within a minute" and move the rest to APP-217.
+Prioritization flag (not acted on): done/superseded by APP-217 (#481) and
+XC-068.

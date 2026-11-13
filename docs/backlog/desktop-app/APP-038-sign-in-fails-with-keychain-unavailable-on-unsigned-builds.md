@@ -1,8 +1,8 @@
 ---
 id: APP-038
 title: dogfood:new's HOME override hangs/breaks Keychain-backed sign-in
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-005, APP-013, APP-039]
@@ -113,3 +113,8 @@ criteria 1, 2 and 4 are met. The only open box asks a person to click
 through provider sign-in in `npm run dogfood:new`, which an agent cannot do.
 Close it after one manual sign-in run, or close it outright if dogfood:new
 is no longer how anyone tests sign-in.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: One person runs the provider sign-
+in in `npm run dogfood:new`, or close because dogfood:new is no longer the
+sign-in test path. Prioritization flag (not acted on): done.

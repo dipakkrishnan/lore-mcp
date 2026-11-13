@@ -1,7 +1,7 @@
 ---
 id: APP-272
 title: Stop spawning the real CLI in desktop tests that only check argv
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -124,3 +124,8 @@ the darwin-gated sandbox tests dominate the component tier, and those are
 out of this item's scope by its own approach. Back to in-review to decide
 whether to drop the target (XC-107 now reports each tier's time) or file a
 separate item to split sandbox.test.cjs, then close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Drop the 30 s target (XC-107 reports tier times) or
+file a separate item to split sandbox.test.cjs, then close. Prioritization
+flag (not acted on): done: #676.

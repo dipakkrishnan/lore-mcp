@@ -1,16 +1,16 @@
 ---
 id: AUT-003
 title: Bring the Codex executor to parity with Claude for synthesis
-priority: P2
+priority: P3
 effort: S
 component: automation-synthesis
-status: ready
+status: in-review
 related: [AUT-001, AUT-002, XC-016, APP-004]
 blockers: []
 dependencies: ["windup (separate repo) for the `before` and `reasoning_effort` changes"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -68,3 +68,11 @@ fine and the gaps are the ones above. Codex `exec` also accepts `--add-dir`
 if a write outside `~/.lore` is ever needed; it is not today.
 
 **Prioritization pass 2026-08-26:** No blockers on the lore-mcp side (the windup dependency is noted, not blocking); five concrete, independently-checkable gaps. Promoted `in-review` → `ready`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: Criterion 5 (the app's profile step
+states the Codex-app-running condition) is obsolete; restate it against the
+terminal skill's executor options or drop it. Criteria 3 and 4
+(reasoning_effort, running `before` the same way) live in windup, a separate
+repo; a person has to land that change or the criteria must be cut to the
+in-repo part. Prioritization flag (not acted on): partly obsolete (AUT-010).

@@ -1,7 +1,7 @@
 ---
 id: APP-271
 title: Make the seven kept walks cheaper without scanning less
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
 status: in-review
@@ -212,3 +212,8 @@ and the walks step at 248-375 s. The remaining targets depend on runner load
 and on XC-084's solo `agents` walk, not on more of this item's approach.
 Back to in-review to re-scope the time targets, for example to a median over
 N runs, or to tie them to XC-084.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Re-scope the time targets (a median over N main
+runs, or tie them to XC-084); blocker APP-270 must close first.
+Prioritization flag (not acted on): done except the time targets: #683.

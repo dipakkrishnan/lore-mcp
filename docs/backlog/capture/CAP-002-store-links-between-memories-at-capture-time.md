@@ -1,16 +1,16 @@
 ---
 id: CAP-002
 title: Store links between memories at capture time
-priority: P2
+priority: P3
 effort: M
 component: capture
-status: in-review
+status: ready
 related: [CAP-001, APP-108, APP-042, APP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -63,3 +63,6 @@ not readable, and the sentence is what the agent already has when it
 proposes the link.
 
 **Review 2026-10-19:** not completed. Not done. No `related` field, link table or snapshot links exist in lore/capture.py, store.py, snapshot.py or the lore-capture skill. All 5 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

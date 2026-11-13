@@ -1,7 +1,7 @@
 ---
 id: APP-246
 title: Let automations suggest collections for the owner to review
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -50,3 +50,9 @@ memories.
 - [ ] A newer suggestion for the same name replaces the older one, and memories since deleted are left out
 - [ ] Nothing reaches a collection or the store without the owner confirming in the picker and price step
 - [ ] "Suggest collections" is one of Lore's own automations: weekly, pausable and retimable, never removable
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Check the criteria against the Inbox (they say
+Today) and close. Prioritization flag (not acted on): done: #564/#571.

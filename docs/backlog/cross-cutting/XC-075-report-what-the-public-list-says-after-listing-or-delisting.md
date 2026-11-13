@@ -1,16 +1,16 @@
 ---
 id: XC-075
 title: Report what the public list says after listing or delisting
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-036, APP-119, MON-036]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -104,3 +104,9 @@ Left out of this item, for prioritization to decide:
   would fix both.
 - **Listings are overcounted.** `usage.record("store.listed")` fires on every
   `list`, including Stay listed and relisting an already-listed store.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+Implementer note: The test path moved: use
+app/desktop/test/component/app.test.cjs. It may churn if XC-071 replaces the
+GitHub registry.

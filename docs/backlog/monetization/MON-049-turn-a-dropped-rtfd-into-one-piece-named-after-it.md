@@ -4,13 +4,13 @@ title: Turn a dropped .rtfd document into one piece named after it
 priority: P3
 effort: XS
 component: monetization
-status: in-review
+status: ready
 related: [MON-044, MON-048, MON-050]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -45,3 +45,6 @@ path itself to `textutil -convert txt`, which reads rtfd input.
 `tests/test_collection_drops.py` (#550) already tests `_files`/`_read`. Open PR #427
 reuses `_files`/`_read` for `sell()`, so this fix reaches both paths. Other
 bundle formats (`.pages`) are not in `CONVERTIBLE` and are out of scope.
+
+**Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

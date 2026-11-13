@@ -1,7 +1,7 @@
 ---
 id: APP-237
 title: The memory sheet's header is one Draft for sale pill, an Edit icon and a More menu, and the desktop tests never ask for the owner's keychain
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -29,3 +29,9 @@ When `npm test` ran in `app/desktop`, the "listing switches the store on" test r
 
 - A long title wraps to two lines beside a compact action cluster, in every state: default, rename, edit and delete-confirm.
 - `npm test` never touches the login keychain.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Close as completed; the sheet half is moot.
+Prioritization flag (not acted on): done: #534.

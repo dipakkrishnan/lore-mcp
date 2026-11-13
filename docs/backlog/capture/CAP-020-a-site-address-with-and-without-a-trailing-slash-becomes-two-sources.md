@@ -1,16 +1,16 @@
 ---
 id: CAP-020
 title: "Bug: a site address with and without a trailing slash becomes two sources"
-priority: P1
+priority: P2
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-005, CAP-008, CAP-018, STO-003, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -92,3 +92,6 @@ Covers: W-05 (locator spellings, trailing-slash identity), C-03 `name`,
 C-10 `locate`, C-11; R-06.
 
 Flakiness/safety: pure string handling; `serving()` stub for test 3.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
