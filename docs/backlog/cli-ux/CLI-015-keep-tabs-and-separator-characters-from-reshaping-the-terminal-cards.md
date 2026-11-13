@@ -4,13 +4,13 @@ title: Keep tabs and separator characters from reshaping the terminal cards
 priority: P2
 effort: S
 component: cli-ux
-status: ready
+status: completed
 related: [CLI-013, XC-019]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-11-11
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -49,18 +49,18 @@ and the same tab rule for diff lines (CLI-013 adds the cleaning there).
 
 ## Acceptance criteria
 
-- [ ] A tab in each of the title, metadata, teaser, useful if, not useful
+- [x] A tab in each of the title, metadata, teaser, useful if, not useful
       if, free sample and body prints as one or more spaces on both cards,
       never as a raw tab and never as nothing.
-- [ ] `\x0b`, `\x0c`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028` and `\u2029` in a
+- [x] `\x0b`, `\x0c`, `\x1c`, `\x1d`, `\x1e`, `\x85`, `\u2028` and `\u2029` in a
       body do not start a new line on either card, and none of them is
       printed.
-- [ ] `a\rb` in a title prints `ab`. In a body it prints as two lines, which
+- [x] `a\rb` in a title prints `ab`. In a body it prints as two lines, which
       is today's behaviour, kept so that a lone carriage return can never
       move the cursor back over a line.
-- [ ] A memory changed only by one of the characters above shows the same
+- [x] A memory changed only by one of the characters above shows the same
       line split in its flag diff as on its card.
-- [ ] The existing control-character tests in `tests/test_ui.py` still pass.
+- [x] The existing control-character tests in `tests/test_ui.py` still pass.
 
 ## Notes
 
@@ -82,3 +82,16 @@ one shared `clean()` helper in `lore/ui.py` and, as its stated tradeoff, now
 deletes tabs inside flagged-publication diff lines too, so this item fixes
 both cards and the diff in one place: apply the tab rule inside `clean()`.
 The zero-width/direction-character question in the Notes stays out of scope.
+
+**Implementation (2026-11-13):**
+
+- `ui.clean` (`lore/ui.py`) expands tabs to spaces (`expandtabs(4)`) before
+  removing control characters. `CONTROL_CHARACTERS` also covers U+2028 and
+  U+2029. Every card field and every diff line goes through `clean`, so all of
+  them follow the same tab rule.
+- A new `store.text_lines()` splits only at `\n`, `\r\n` and a lone `\r`.
+  Both card bodies and `Store.flag_detail`'s diff use it, so the card and the
+  diff split lines the same way.
+- Tests are in `CardShapeTest` (`tests/test_ui.py`) and
+  `test_flag_detail_splits_lines_as_the_card_does` (`tests/test_store.py`).
+  The existing control-character tests still pass.
