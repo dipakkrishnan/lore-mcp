@@ -47,11 +47,19 @@ before the first agent is minted, so they exist even on a node deployed
 before this version.
 
 - **The owner's keys:** the Mac generates an X25519 key pair and a 32-byte
-  HMAC salt, and keeps the private key in the macOS Keychain. `lore push`
-  writes `inbox_public_key` and `inbox_salt` (both b64url, no padding) into
-  `node_settings` on every push. They are never omitted, because a push
-  replaces that table. A node without `inbox_public_key` refuses every
-  `/agent` write with "Lore isn't ready for agents on this store yet".
+  HMAC salt, and keeps the private key in the macOS Keychain. The store's
+  `inbox_public_key` and `inbox_salt` (both b64url, no padding) in
+  `node_settings` belong to the Mac that holds that private key (CAP-039).
+  A push replaces every other row of `node_settings` and keeps these two as
+  they are; it writes this Mac's keys only when the store has no
+  `inbox_public_key` yet. So a push from a Mac with no keys, or with
+  different ones, never changes the key waiting saves are sealed to.
+  Connecting an agent or allowing a sign-in reads the store's key first.
+  When the store has one this Mac doesn't hold, it refuses, makes no key,
+  and leaves `node_settings`, `agents` and the sign-in as they were. Moving
+  the key to another Mac on purpose is APP-224's. A node without
+  `inbox_public_key` refuses every `/agent` write with "Lore isn't ready for
+  agents on this store yet".
 
 ## Tokens
 
