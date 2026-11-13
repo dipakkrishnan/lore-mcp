@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import threading
 import unittest
 import urllib.request
-from contextlib import asynccontextmanager, redirect_stderr
+from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout
 from http.client import HTTPConnection
 from typing import AsyncIterator
 from unittest.mock import patch
@@ -475,6 +476,100 @@ class SignInTest(LoreTestCase):
         self.assertEqual(answer.code, "s3cret-code")  # type: ignore[attr-defined]
         self.assertNotIn("s3cret-code", printed.getvalue())
         self.assertNotIn("GET /", printed.getvalue())
+
+
+TOKEN = "tok-" + "0123456789abcdef" * 2 + "01234567"
+SERVER = "https://mcp.granola.ai/mcp"
+
+
+def signing_in(stub: MCPServer):  # type: ignore[no-untyped-def]
+    """`serving`, but every connection first keeps a token and a registration the way
+    the SDK does when the owner finishes an approval: through Lore's own storage."""
+
+    @asynccontextmanager
+    async def connect(self: HostedReader, auth: object) -> AsyncIterator[Client]:
+        storage = auth.context.storage  # type: ignore[attr-defined]
+        await storage.set_client_info(
+            OAuthClientInformationFull(client_id="lore-sec", client_name="Lore")
+        )
+        await storage.set_tokens(
+            OAuthToken(
+                access_token=TOKEN, token_type="Bearer", refresh_token=TOKEN[::-1]
+            )
+        )
+        async with Client(stub) as client:
+            yield client
+
+    return patch.object(HostedReader, "connect", connect)
+
+
+class SecretsTest(LoreTestCase):
+    """XC-052: a sign-in's tokens live in the Keychain and nowhere else."""
+
+    def test_sec_a_sign_in_leaves_nothing_but_keychain_entries(self) -> None:
+        from lore import cli, snapshot
+
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            signing_in(Granola().server),
+            self.assertLogs(level="DEBUG") as logs,
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            logging.getLogger("lore.test").debug("listening")
+            with Store() as store:
+                added = Registry(store).connect("granola", "", show=print)
+            with Store() as store:
+                registry = Registry(store)
+                registry.read([str(added["name"])])
+                entries = registry.entries()
+            state = snapshot.build()
+            self.assertEqual(cli.main(["sources", "list", "--json"]), 0)
+        # The sign-in really kept a token, in the Keychain alone.
+        kept = self.keyring.saved[("Lore", f"{SERVER} tokens")]
+        self.assertIn(TOKEN, kept)
+        self.assertIn(("Lore", f"{SERVER} client"), self.keyring.saved)
+        said = {
+            "added": json.dumps(added),
+            "entries": json.dumps(entries),
+            "desktop-state": json.dumps(state, default=str),
+            "stdout": out.getvalue(),
+            "stderr": err.getvalue(),
+            "logs": "\n".join(logs.output),
+        }
+        for secret in (TOKEN, TOKEN[::-1]):
+            for where, text in said.items():
+                with self.subTest(where=where):
+                    self.assertNotIn(secret, text)
+            for path in self.lore_home.rglob("*"):
+                if path.is_file():
+                    with self.subTest(path=str(path.relative_to(self.lore_home))):
+                        self.assertNotIn(secret.encode(), path.read_bytes())
+
+    def test_sec_signing_in_refreshes_both_keychain_entries(self) -> None:
+        self.keyring.set_password("Lore", f"{SERVER} tokens", "stale tokens")
+        self.keyring.set_password("Lore", f"{SERVER} client", "stale client")
+        with serving(Granola().server):
+            with Store() as store:
+                Registry(store).connect("granola", "", show=print)
+        # The stand-in registers nothing, so a refreshed sign-in leaves neither.
+        self.assertNotIn(("Lore", f"{SERVER} tokens"), self.keyring.saved)
+        self.assertNotIn(("Lore", f"{SERVER} client"), self.keyring.saved)
+
+    def test_sec_disconnect_forgets_both_entries_and_forgetting_twice_is_quiet(
+        self,
+    ) -> None:
+        with signing_in(Granola().server), Store() as store:
+            added = Registry(store).connect("granola", "")
+        self.assertEqual(
+            set(self.keyring.saved),
+            {("Lore", f"{SERVER} tokens"), ("Lore", f"{SERVER} client")},
+        )
+        with Store() as store:
+            Registry(store).remove(str(added["name"]), delete=False)
+        self.assertEqual(self.keyring.saved, {})
+        Keychain(SERVER).forget()
+        self.assertEqual(self.keyring.saved, {})
 
 
 if __name__ == "__main__":
