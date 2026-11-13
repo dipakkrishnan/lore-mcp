@@ -4,7 +4,7 @@ title: Keep the desktop job off GitHub release downloads
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-082, XC-109, XC-121]
 blockers: []
 dependencies: []
@@ -50,15 +50,41 @@ required, partly because it fails on things like this.
 
 ## Acceptance criteria
 
-- [ ] On a warm cache, the desktop job makes no request to `github.com`
+- [x] On a warm cache, the desktop job makes no request to `github.com`
       release downloads. Check this by grepping the job log for
       `releases/download` and for Electron's download line.
-- [ ] Bumping `electron`, `UV_VERSION` or `PYTHON_VERSION` misses the cache and
+- [x] Bumping `electron`, `UV_VERSION` or `PYTHON_VERSION` misses the cache and
       still passes.
-- [ ] Layout scan: this item touches no walk; no view scanned by the desktop
+- [x] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
 ## Notes
 
 - Found during the test-pyramid rollout, 2026-11-09. A subagent's check
   confirmed the CDN itself was fine; the 504s came from github.com's redirect.
+
+**Implementation (2026-11-12):**
+
+- `.github/workflows/tests.yml` (`Desktop macOS checks`): a `Pinned download
+  versions` step reads the installed `electron` version and `UV_VERSION` /
+  `PYTHON_VERSION` from `wheelhouse.sh`. An `electron-<version>` cache of
+  `~/Library/Caches/electron` is restored after `npm ci`, and an `Unpack
+  Electron` step runs `node_modules/electron/install.js` before the unit tier,
+  saying whether the zip came from the cache or names the `releases/download`
+  URL it fetches. A `wheelhouse-uv<UV>-py<PY>` cache holds `packaging/out/uv`
+  and `UV_PYTHON_INSTALL_DIR`; on a hit `npm run package` runs with
+  `UV_PYTHON_DOWNLOADS=never`. Both keep XC-082's rules (no `restore-keys`,
+  saved only by a green job).
+- `forge.config.js` passes `download.checksums` from `electron/checksums.json`.
+  Without it, `@electron/packager`'s `@electron/get` fetches
+  `SHASUMS256.txt` from GitHub releases on every package, even on a cache hit
+  (it bypasses the cache for checksums). Pinned by
+  `test/unit/packaging.test.cjs`.
+- `wheelhouse.sh` prints the uv release URL before its silent `curl`, so a log
+  shows whether `out/uv` came from the cache.
+- Pointing `ELECTRON_MIRROR` at a closed port on a hit, to make a stray request
+  fail the job, doesn't work: `@electron/get` keys its cache on the download
+  URL, so a different mirror misses the cache.
+- Not covered: `npm ci` still clones the `electron/node-gyp` git dependency
+  from github.com, and `setup-uv` fetches uv from releases.astral.sh. Neither
+  is a GitHub release download.
