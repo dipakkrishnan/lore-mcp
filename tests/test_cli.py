@@ -2970,8 +2970,13 @@ class PushTest(LoreTestCase):
             store.set_setting("answer_price_usd", 0.5)
             store.set_setting("answer_enabled", True)
         sql = self.push_sql([])
-        self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
-        self.assertIn("CREATE TABLE node_settings", sql)
+        # CAP-039: every setting but the store's inbox key is replaced.
+        self.assertIn("CREATE TABLE IF NOT EXISTS node_settings", sql)
+        self.assertIn(
+            "DELETE FROM node_settings WHERE key NOT IN "
+            "('inbox_salt', 'inbox_public_key');",
+            sql,
+        )
         q = chr(39)
         self.assertIn(f"{q}Ada{q}{q}s public proxy charter{q}", sql)
         self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)
