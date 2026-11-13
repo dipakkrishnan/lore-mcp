@@ -4,13 +4,13 @@ title: Clean control characters from a flagged publication's diff and from who i
 priority: P1
 effort: XS
 component: cli-ux
-status: in-review
+status: completed
 related: [XC-019, CLI-002, CLI-014, CLI-015]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -48,14 +48,14 @@ diff lines.
 
 ## Acceptance criteria
 
-- [ ] A test in `tests/test_ui.py`: a source whose label contains `ESC`,
+- [x] A test in `tests/test_ui.py`: a source whose label contains `ESC`,
       `BEL` and `0x9b` is named in the note without them.
-- [ ] The same with no label, where the note falls back to the source's
+- [x] The same with no label, where the note falls back to the source's
       stored name.
-- [ ] Added, removed, unchanged and `@@` lines that contain `ESC`, `BEL` or
+- [x] Added, removed, unchanged and `@@` lines that contain `ESC`, `BEL` or
       `0x9b` are printed without them, and each still starts with its
       `+`/`-`/space/`@` and keeps its colour when colour is on.
-- [ ] The "Lore's synthesis" wording for `origin: automation` is unchanged.
+- [x] The "Lore's synthesis" wording for `origin: automation` is unchanged.
 
 ## Notes
 
@@ -63,3 +63,15 @@ Found by PR #445 (tests for `lore/ui.py`), which reported this and left it
 unpinned. `updated_at` is out of scope: the store writes it and the note cuts
 it to its first ten characters. CLI-002's subprocess smoke test runs
 `lore publication list` and could carry an end-to-end case once this lands.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria name the exact test file and inputs.
+
+**Implemented 2026-11-11:** `lore/ui.py` now has one `clean()` helper that
+both cards, `changed_memory_note` (actor and title) and `flag_diff` use.
+`flag_diff` cleans each line before checking its prefix, so a line is
+coloured by what the owner actually sees; the removed characters are never
+`+`, `-`, space or `@`, so ordinary lines keep their first character. A
+synthesis rewrite still reads "Lore's synthesis" whatever the source's label.
+Tradeoff: tabs inside diff lines are now deleted, as they already are on the
+cards. **CLI-015 should apply its tab rule inside `clean()`** so diff lines
+get it too.

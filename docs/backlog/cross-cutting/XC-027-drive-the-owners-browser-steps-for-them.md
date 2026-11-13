@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A browser-use surface the desktop can drive with the owner watching (Claude in Chrome, Playwright over the owner's browser, or similar)"]
 github_issue: null
 created: 2026-09-05
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -39,3 +39,9 @@ sandbox question: a browser Lore drives is a much larger surface than a URL
 it opens.
 
 **Review 2026-10-19:** not completed. Not done. e246979 only filed it and added a four-line faucet note. No browser driving of the faucet; blocked on the APP-008 sandbox question.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: The only criterion (funding the test buyer from the faucet) is
+moot: desktop has no test buyer or faucet and opens on real money. It needs
+a new target, and is still behind APP-008. Prioritization flag (not acted
+on): obsolete.

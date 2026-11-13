@@ -1,7 +1,7 @@
 ---
 id: MCP-004
 title: Keep pieces with no teaser out of paid answers and get
-priority: P2
+priority: P1
 effort: S
 component: mcp-server
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -96,3 +96,10 @@ and say why in Notes.
   could equally sit under `monetization`, which owns the paid `answer` path.
 - Checked and fine: the storefront (`/p/<id>`, the listing, `/paid`,
   `/free`), receipts and card checkout all resolve through `pieces(catalog)`.
+
+**Prioritization pass 2026-11-11:** Left in `in-review`: the intent check above asks whether teaser-less pieces should be unsellable or sellable-but-unlisted. That's an owner call to confirm before an unattended run implements one side of it.
+
+**Prioritization (2026-11-12):** Priority P1 (was P2). Stays in-review.
+Before it can be ready: One owner decision (the intent check in Notes): are
+pieces without a teaser unsellable, or sellable but unlisted? Also say
+whether _push filters too.

@@ -1,16 +1,16 @@
 ---
 id: AUT-002
 title: Synthesize net-new claims from recent sessions, named by the claim
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: automation-synthesis
-status: in-progress
+status: in-review
 related: [AUT-001, XC-016, APP-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -53,3 +53,16 @@ it writes one `Memory synthesis — DATE` file, references statuses and a
 profile as not set while the stale job keeps running. Re-running "Choose how
 Lore learns from your agents" reinstalls under the same task id and replaces
 it. That drift is XC-016's problem; this item only sharpens the prompt.
+
+**Backlog audit (2026-11-12), moved to in-review:** The prompt change from
+PR #123 is live on main and meets the first two criteria. The test that
+pinned the search-before-write and claim-naming rules was deliberately
+removed by XC-043's prune (#359), so only the cadence window is still
+pinned. Moved back to in-review to decide whether that pin should come back
+or the third criterion should be dropped; if it is dropped, the item can
+close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: An owner decision: drop criterion 3
+so the item can close, or bring the pin back in tests/test_automation.py.
+Prioritization flag (not acted on): done apart from criterion 3.

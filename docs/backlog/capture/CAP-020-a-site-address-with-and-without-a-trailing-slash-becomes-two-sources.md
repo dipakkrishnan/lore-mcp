@@ -1,16 +1,16 @@
 ---
 id: CAP-020
 title: "Bug: a site address with and without a trailing slash becomes two sources"
-priority: P1
+priority: P2
 effort: S
 component: capture
-status: in-review
+status: completed
 related: [CAP-005, CAP-008, CAP-018, STO-003, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -76,14 +76,14 @@ PR and in `## Notes` here after implementation.
 
 ## Acceptance criteria
 
-- [ ] Test 1 fails on current `main` (two names) and passes after the
+- [x] Test 1 fails on current `main` (two names) and passes after the
       change; tests 2-3 pass.
-- [ ] `SiteFeed`, `MediumFeed` and `BlueskyFeed` all produce one name per
+- [x] `SiteFeed`, `MediumFeed` and `BlueskyFeed` all produce one name per
       place across the spellings listed; `FeedLocatorTest` documents the
       full table.
-- [ ] No existing test's expected count or key changes except the ones
+- [x] No existing test's expected count or key changes except the ones
       that pinned the slash (called out in the diff).
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -92,3 +92,26 @@ Covers: W-05 (locator spellings, trailing-slash identity), C-03 `name`,
 C-10 `locate`, C-11; R-06.
 
 Flakiness/safety: pure string handling; `serving()` stub for test 3.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):**
+
+- `FeedReader.locate` (`lore/sources.py`) now normalises a site address. It
+  lower-cases the scheme and host, drops `:443`/`:80` and a trailing `/`,
+  keeps a path or query, and drops a fragment. The label is the normalised
+  host.
+- `BlueskyFeed.locate` lower-cases the handle, since a handle is a domain
+  name.
+- `docs/connectors.md` states the rule.
+- New `FeedSpellingTest` in `tests/test_feed.py`:
+  - one name per place for Blog, Substack, Medium and Bluesky across the
+    spellings;
+  - a path, a query and a non-default port still count;
+  - adding the slash spelling after the bare one is a re-read with one source.
+- No existing test changed: none pinned a kept trailing slash.
+- Migration: a source connected before this change keeps its stored `name`,
+  because the registry keys by stored name, so no existing library changes.
+  A site connected earlier with a trailing slash and connected again now
+  without one becomes a second source once, then stays one.

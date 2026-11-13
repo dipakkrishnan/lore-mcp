@@ -1,16 +1,16 @@
 ---
 id: APP-269
 title: Retire the first five walks whose checks now live in unit tests
-priority: P1
+priority: P3
 effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-266, APP-267, APP-268, APP-270, XC-083]
 blockers: [APP-266, APP-267, APP-268]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -273,3 +273,16 @@ PR's next run, with XC-107's job, carries the same line.
 
 Not run locally: the walks open real Electron windows on this Mac, so they
 were left to CI.
+
+**Backlog audit (2026-11-12), moved to in-review:** Everything this item set
+out to do landed in PR #678. The one open criterion, a walks step under 300
+s, was handed in its own Notes to APP-270 and APP-271, which carry tighter
+targets; main now runs 191-375 s, under 300 s on 10 of the last 12 green
+runs. Back to in-review so the time criterion can be dropped as superseded
+by APP-271 and the item closed, rather than staying in-progress with nobody
+working on it.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Drop the time criterion as superseded by APP-271 or
+XC-084, then close; APP-270 waits on this. Prioritization flag (not acted
+on): done: #678.

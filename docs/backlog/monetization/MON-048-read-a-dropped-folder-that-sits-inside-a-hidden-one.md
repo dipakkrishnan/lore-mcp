@@ -4,13 +4,13 @@ title: Read a dropped folder that sits inside a hidden folder or is named with .
 priority: P3
 effort: XS
 component: monetization
-status: in-review
+status: ready
 related: [MON-044, MON-049, MON-050]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -55,3 +55,6 @@ of this bug. Open PR #427 moves `add`'s body into
 fix reaches both paths either way, but land it after #427 if that merges
 first. The desktop app passes only absolute paths (`state.cjs`), and Finder
 hides dot-folders by default, so the CLI is the likelier trigger. Hence P3.
+
+**Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

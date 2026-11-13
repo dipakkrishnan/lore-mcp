@@ -1,7 +1,7 @@
 ---
 id: ONB-007
 title: Learn who the owner is from the public web before the first question
-priority: P2
+priority: P3
 effort: M
 component: onboarding
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A web search the desktop agent can call; it has no web tool today"]
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -62,3 +62,9 @@ is real: either the provider's built-in web search or a small Lore-side
 search call.
 
 **Review 2026-10-19:** not completed. Not done. Commit f5762ca only adds this item. The web-search tool it depends on does not exist; all four criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: A decision on the web-search dependency (provider's
+built-in tool or a Lore-side call). Restate the first-interview-card and
+topic-suggestion criteria against the Inbox and New > Memory flow; depends
+on ONB-004 being restated first.

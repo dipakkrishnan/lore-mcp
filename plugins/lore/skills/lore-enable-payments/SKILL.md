@@ -29,8 +29,8 @@ having at least one.
 > no Coinbase developer keys in the app (the node settles through a keyless
 > facilitator). Ask every decision through `ask_user`. The app runs everything
 > that touches the store; your shell has no network and cannot write
-> `~/.lore/node`, so never run `lore node deploy`, `lore push`, `npx wrangler`,
-> or `npm` yourself. Three tools do it instead: `cloudflare_login` (opens
+> `~/.lore/node`, so never run `lore node deploy`, `lore push`, Cloudflare's
+> own command-line tool, or `npm` yourself. Three tools do it instead: `cloudflare_login` (opens
 > Cloudflare in the owner's browser and returns who is signed in — never send
 > the owner to a terminal), `open_store` (the app deploys or redeploys the
 > store and pushes the approved publications, then says how it went), and the
@@ -75,10 +75,9 @@ having at least one.
 > **Online for the owner's agents.** When the latest message asks to put the
 > store online so the owner's personal agents can save to it, nothing goes on
 > sale, so none of the order above applies: no publication check, no price,
-> no payout address. Only two steps:
+> no payout address. One step:
 >
-> 1. Cloudflare: `npx wrangler whoami`; not signed in → `cloudflare_login`.
-> 2. `lore node deploy --inbox-only` as a bash call with an explicit timeout of
+> 1. `lore node deploy --inbox-only` as a bash call with an explicit timeout of
 >    at least 300 seconds (MON-023). If it stops with "not signed in to
 >    Cloudflare", call `cloudflare_login` and rerun it. Say plainly if it
 >    fails or times out.
@@ -110,13 +109,13 @@ the guide; the skill is your script.
 - **Defer at decision points.** Price, path order, wallet choice, stopping early —
   ask one question with a recommendation and take the owner's answer. Mechanics
   are yours; decisions are theirs.
-- **Verify from state, never by asking.** `npx wrangler whoami`, `lore status`,
+- **Verify from state, never by asking.** `lore node accounts`, `lore status`,
   and the chain itself. Resume from the first thing not configured; never re-ask
   for something already set. User-reported success is not evidence — faucets and
   wallet apps report wrong-network sends as success. When in doubt about any
   address, its truth is `https://sepolia.basescan.org/address/<addr>`.
 - **Interactive logins run in the owner's session.** In Claude Code have them type
-  `! npx wrangler login`; elsewhere they run it in their own shell. You never see
+  `! lore node login`; elsewhere they run it in their own shell. You never see
   credentials either way.
 - **Two wallets, two roles — say which, every time.** Conflating them is the most
   common owner error. Show this once early, and name the role every time an
@@ -236,19 +235,22 @@ enable it yet. If they decline the draft or price, continue without answers.
 Verify three prerequisites from state, then one command:
 
 0. `node --version` — `lore node deploy` needs Node to stage the Worker and run
-   wrangler, and a fresh machine may not have it. Missing? Say what you're
+   the deploy tooling, and a fresh machine may not have it. Missing? Say what you're
    installing and why, get a yes, then install via the platform's package
    manager (`brew install node` on macOS) **in the background** while the
    wallet/price steps proceed — the owner should never sit watching a package
    manager.
 
-1. `npx wrangler whoami` — not logged in? In Lore desktop call `cloudflare_login`;
-   elsewhere see "interactive logins" above. Free tier is enough.
+1. `lore node accounts` — it lists the Cloudflare accounts the sign-in reaches,
+   or stops with "not signed in to Cloudflare". Not signed in? In Lore desktop
+   call `cloudflare_login`; elsewhere the owner runs `lore node login` (see
+   "interactive logins" above). `lore node deploy` also signs in by itself when
+   it has to. Free tier is enough.
 2. If deploy later fails with "register a workers.dev subdomain" (one-time per
    account): frame and open
    `https://dash.cloudflare.com/<account-id>/workers-and-pages` (account id from
-   `whoami`) — the **Your subdomain** panel is where they pick a name. Wrangler's
-   own `/workers/onboarding` link 404s; don't use it.
+   `lore node accounts`) — the **Your subdomain** panel is where they pick a
+   name. Cloudflare's own `/workers/onboarding` link 404s; don't use it.
 
 ```sh
 lore node deploy --wallet <payout-address> --network real   # desktop: real money, one pass
@@ -267,19 +269,20 @@ database, deploys, stores the payout address as the Worker's `LORE_WALLET` secre
 (Cloudflare's vault, not this machine), pushes the active publication set, and
 smoke-checks the live node with real MCP calls. The staged Worker advertises and
 charges the configured price; rerun deploy after changing it. It spends nothing.
-If a step fails it prints what to do next; `npx wrangler tail` streams live errors.
+If a step fails it prints what to do next; the full log of every store step is
+in `~/.lore/logs/store.log`.
 Rerunning is always safe — it is also the redeploy path.
 
 Deployed earlier? `lore status` shows the URL as `Node (last deploy):` — ask the
 owner only if status cannot answer. After any publication change: `lore push`.
 
-If they chose answers, select Anthropic or OpenAI after the base node exists. From
-`~/.lore/node`, the owner enters the provider key through
-`npx wrangler secret put ANTHROPIC_API_KEY` or
-`npx wrangler secret put OPENAI_API_KEY` in their own terminal; never ask them to
-paste it into conversation. For OpenAI, they also run
-`npx wrangler secret put LORE_ANSWER_MODEL` and enter `gpt-5.6-luna`. Verify the
-secret names with `npx wrangler secret list`.
+If they chose answers, select Anthropic or OpenAI after the base node exists. The
+owner enters the provider key in their own terminal with
+`lore node secret ANTHROPIC_API_KEY` or `lore node secret OPENAI_API_KEY`, which
+asks for the value without showing it; never ask them to paste it into
+conversation. For OpenAI, they also run `lore node secret LORE_ANSWER_MODEL` and
+enter `gpt-5.6-luna`. Verify the secret names with `lore node secrets`, which
+lists names only, never values.
 
 Then show the exact draft and price again and have the owner run this in a real
 terminal:
@@ -346,8 +349,14 @@ Real money is a separate, deliberate step. Never initiate it; the owner asks.
 When they do, verify the gates **from state** before driving anything:
 
 1. At least one active publication pushed to the node (a real buyer must
-   never pay real USDC against an empty catalog) — `lore publication list`
-   and the node's own `discover` manifest.
+   never pay real USDC against an empty catalog). Read it from the node's own
+   `discover` manifest: run `lore desktop-state` and look at
+   `publications.items[].live`. `true` on at least one approved publication
+   holds the gate. `false` means approved here but not on the node; `null`
+   means the node could not be reached, so nothing is confirmed. Either fails
+   the gate. `lore publication list` and `lore status` count approval on this
+   Mac only and never prove a publication is live, so do not use them for this
+   gate.
 2. A full test-network payment settled end to end — `lore node sales --json`
    lists every settled sale with its network and payer, so one row on
    `eip155:84532` proves the rail. Whether any came from a wallet that is not
@@ -362,7 +371,7 @@ Neither direction of this switch needs the payout address. `lore node deploy
 that already has a deploy — the same node `lore status` already shows a URL
 for — and `LORE_WALLET` is already stored on it as a Worker secret from the
 first deploy (step 5's `--wallet` is a first-deploy argument, not a
-network-switch one). Only pass `--wallet` again if `npx wrangler secret list`
+network-switch one). Only pass `--wallet` again if `lore node secrets`
 shows `LORE_WALLET` is unexpectedly missing. Do not ask the owner for their
 payout address on a network switch.
 
@@ -375,8 +384,11 @@ never in conversation); half a pair refuses to start.
 
 > **Lore desktop:** a store opened from the app is already on real money. The
 > switch exists only for a store opened earlier on the test network: read gate
-> 1 from `lore publication list`, quietly, say where it stands in one
-> sentence, and take the owner's explicit yes as gate 3; a settled test sale
+> 1 from `lore desktop-state` (`publications.items[].live`, not `lore
+> publication list`), quietly, say where it stands in one sentence, and if no
+> approved publication is live (`false`, or `null` when the node could not be
+> reached) say which and stop, pointing the owner to the app's **Push**
+> button. Take the owner's explicit yes as gate 3; a settled test sale
 > is not required in the app. Never run `npm run pay`, query the chain, or
 > call an explorer from the app: its sandbox cannot bind sockets or reach
 > them. Then call `open_store` with network `real` and no address; the app
@@ -388,7 +400,8 @@ All gates hold in a terminal → `lore node deploy --network real`. The
 **Mainnet cutover** section of `~/.lore/node/README.md` covers the optional
 Coinbase keys (from `portal.cdp.coinbase.com`, whose API-keys page hides
 behind an "API key wallets" decoy) for an owner who asks for them; the key
-values go into `wrangler secret put` prompts in a real terminal and live in
+values go into `lore node secret CDP_API_KEY_ID` and
+`lore node secret CDP_API_KEY_SECRET` in a real terminal and live in
 Cloudflare's vault, never on this machine and never in this conversation.
 
 After the cutover deploy, close the loop where the owner can see it: the

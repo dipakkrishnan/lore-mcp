@@ -1,8 +1,8 @@
 ---
 id: CAP-015
 title: "Bug: Granola rejects Lore's list_meetings arguments; commit the fix and make the stand-in honour the recorded schema"
-priority: P0
-effort: S
+priority: P2
+effort: XS
 component: capture
 status: in-review
 related: [CAP-009, XC-050, XC-055, CAP-029, CAP-024, XC-048]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -114,3 +114,11 @@ fix.
 
 Flakiness/safety: in-process stub and a committed schema file; no
 network.
+
+**Prioritization (2026-11-12):** Priority P2 (was P0), effort XS (was S).
+Stays in-review. Before it can be ready: The user-facing bug is fixed
+(CAP-009, #357). Criterion 1 ("fails on main before the change") can no
+longer happen and criterion 2 is met. Rewrite to the test-only work left:
+UUID meeting ids in the stand-in, checking get_meetings' inputs, a test
+against the recorded schema, and jsonschema in the dev dependencies.
+Prioritization flag (not acted on): mostly done.

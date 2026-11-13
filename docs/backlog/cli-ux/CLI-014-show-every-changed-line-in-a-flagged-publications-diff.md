@@ -4,13 +4,13 @@ title: Show every changed line in a flagged publication's diff, including lines 
 priority: P2
 effort: XS
 component: cli-ux
-status: in-review
+status: completed
 related: [XC-019, CLI-013]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-14
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -39,13 +39,13 @@ exactly the headers; either way, do not match by prefix.
 
 ## Acceptance criteria
 
-- [ ] With the fixture above, `lore publication list` (or `flag_diff` on what
+- [x] With the fixture above, `lore publication list` (or `flag_diff` on what
       `flag_detail` returns) prints `----`, `---flag` and `+++x` as removed,
       removed and added lines.
-- [ ] Neither `--- approved` nor `+++ current` is printed.
-- [ ] A diff with several hunks still prints every hunk's `@@` line and no
+- [x] Neither `--- approved` nor `+++ current` is printed.
+- [x] A diff with several hunks still prints every hunk's `@@` line and no
       header.
-- [ ] A memory whose snapshot matches (no diff) and one with no snapshot
+- [x] A memory whose snapshot matches (no diff) and one with no snapshot
       print what they print today.
 
 ## Notes
@@ -53,3 +53,13 @@ exactly the headers; either way, do not match by prefix.
 Found by PR #445 (tests for `lore/ui.py`), which reported this and kept its
 fixtures away from it. Same function as CLI-013. They could ship together but
 don't depend on each other.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers or dependencies, criteria are concrete fixture assertions. Can ship with CLI-013.
+
+**Implemented 2026-11-11:** Took the preferred option. `Store.flag_detail`
+drops the leading `---`/`+++` header pair (`diff[2:]`; `unified_diff` emits
+exactly one, first, and only when there is a hunk, so an unchanged text still
+gives `[]`). `flag_diff` no longer matches any prefix and prints every line,
+coloured by its first character after CLI-013's clean step. Tests pin the
+fixture in `tests/test_ui.py`, `tests/test_store.py` and `tests/test_cli.py`,
+plus a two-hunk diff and the empty-diff case.

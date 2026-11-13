@@ -1,16 +1,16 @@
 ---
 id: XC-065
 title: Never tell an owner a feedback report failed after GitHub filed it
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-028, XC-031, CLI-003, APP-105, XC-066]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-15
-updated: 2026-10-15
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -95,3 +95,6 @@ worth its own item if it shows up in practice.
 
 The desktop half touches `app/desktop/src/renderer.js`, which several open
 PRs also edit; the relay and Python halves can ship first on their own.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

@@ -4,13 +4,13 @@ title: Design hosted nodes and list the Windows/Linux gap
 priority: P1
 effort: S
 component: docs
-status: in-review
+status: completed
 related: [MON-025, MON-029, MON-034, XC-036, XC-041, APP-040]
 blockers: []
 dependencies: []
 github_issue: 369
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -51,3 +51,9 @@ the per-seller Worker as the self-hosted path and migration target, and
 rejects Workers for Platforms as paying for isolation the identical tenant
 code does not need. Follow-up issues are not filed yet; the doc lists their
 titles.
+
+**Backlog audit (2026-11-12), closed as completed:** docs/hosted-nodes.md
+merged in PR #371 and meets every criterion, and issue #369 is closed. The
+follow-up issues the doc lists were never filed, and XC-071 (#502) later
+designed the hosted store separately. Neither is part of this item's
+acceptance, so it moves to completed.

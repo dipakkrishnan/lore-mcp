@@ -6,7 +6,7 @@
   --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-15: 15px; --fs-20: 20px;
   --r-4: 4px; --r-6: 6px; --r-8: 8px; --r-12: 12px; --r-pill: 999px;
   --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 20px; --s-6: 24px; --s-8: 32px; --s-10: 40px; --s-14: 56px;
-  --control: 28px; --control-lg: 36px; --nav-row: 32px; --row: 36px; --side: 228px; --icon: 16px; --header: 44px; --props: 272px; --page-col: 720px; --prop-label: 92px; --verb: 72px; --chip: 20px; --tab: 26px; --col-market: 96px; --col-left: 104px; --col-status: 84px;
+  --control: 28px; --control-lg: 36px; --nav-row: 32px; --row: 36px; --side: 228px; --icon: 16px; --header: 44px; --props: 272px; --page-col: 720px; --prop-label: 92px; --verb: 72px; --chip: 20px; --tab: 26px; --col-market: 96px; --col-left: 104px; --col-status: 84px; --col-date: 48px;
   --dur: 120ms; --dur-slow: 1.6s;
   --ease: cubic-bezier(0.23, 1, 0.32, 1);
   --bg: #fcfcfd;
@@ -616,6 +616,10 @@ dialog.palette[open] { animation: rise var(--dur) ease; }
 .read-teaser { font-size: var(--fs-13); color: var(--text-2); }
 .read-line { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--s-2); }
 .read-label { font-size: var(--fs-12); font-weight: 500; color: var(--text-2); padding-top: 2px; }
+/* CAP-002: a proposed memory's links, one line each, the owner's Remove at its end. */
+.memory-links .read-line { align-items: center; }
+.memory-links .read-label { padding-top: 0; }
+.memory-links .link { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); }
 .read-sample q { font-style: italic; color: var(--text-1); }
 .read-paid { display: flex; flex-direction: column; gap: var(--s-1); margin-top: var(--s-1); padding: var(--s-2) var(--s-3); border-radius: var(--r-6); background: var(--bg); }
 .read-paid p { white-space: pre-wrap; font-size: var(--fs-13); }
@@ -975,6 +979,8 @@ main.paged .status:not(:empty) { padding: var(--s-3) var(--s-6) 0; }
 .invrow .st.sale { color: var(--accent); }
 .invrow .st.draft, .invrow .st.wait { color: var(--amber); }
 .invrow .st.owed { color: var(--red); }
+/* APP-293: as wide as the widest short date ("Sep 30", "Nov 10"), on one line, so a two-digit day never wraps the row. */
+.invrow .age { width: var(--col-date); white-space: nowrap; }
 .invrow .cost { width: var(--s-10); text-align: right; flex-shrink: 0; font-size: var(--fs-12); color: var(--text-2); font-variant-numeric: tabular-nums; }
 /* A New row's title takes only the room it needs, so the mark sits right after it; a long title is cut short before the
    mark, which keeps its own width (APP-270). */

@@ -2,7 +2,7 @@
 id: MON-025
 title: Ask for the payout address last, and open the store on real money
 priority: P1
-effort: M
+effort: XS
 component: monetization
 status: in-review
 related: [MON-024, MON-022, MON-026, XC-024, APP-057, APP-098]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -73,3 +73,10 @@ flow this way") is recorded and declined; the non-custodial line stays.
 The buyer side of the same gap is MON-026 and MON-027.
 
 **Review 2026-10-19:** not completed. Shipped in 5c0a96e. Unmet: the 1 cent real-money purchase settling to a Coinbase account, and a v0.1.3 store opening without stalling. XC-069 has since offered "Open your store" before any approved publication, so criterion 1 has partly lapsed.
+
+**Prioritization (2026-11-12):** Priority P1, effort XS (was M). Stays in-
+review. Before it can be ready: The code shipped (#339). A person runs the
+1-cent real-money purchase to a Coinbase deposit address; someone runs the
+Zane walk-through or drops that criterion; criterion 1 needs a decision
+because XC-069 now offers "Open your store" before any approved publication.
+Prioritization flag (not acted on): done (code).

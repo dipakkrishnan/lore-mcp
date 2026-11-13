@@ -1,16 +1,16 @@
 ---
 id: APP-038
 title: dogfood:new's HOME override hangs/breaks Keychain-backed sign-in
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-005, APP-013, APP-039]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-09-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -106,3 +106,15 @@ and reverted during this investigation; restored to
 `~/Library/Keychains/login.keychain-db` + `/Library/Keychains/System.keychain`.)
 That path was abandoned as too risky to bake into an automated script for
 this reason, in favor of just not overriding `$HOME`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The HOME override fix
+and the schedule guard are on main (#191), and nothing has regressed;
+criteria 1, 2 and 4 are met. The only open box asks a person to click
+through provider sign-in in `npm run dogfood:new`, which an agent cannot do.
+Close it after one manual sign-in run, or close it outright if dogfood:new
+is no longer how anyone tests sign-in.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: One person runs the provider sign-
+in in `npm run dogfood:new`, or close because dogfood:new is no longer the
+sign-in test path. Prioritization flag (not acted on): done.

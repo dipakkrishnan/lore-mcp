@@ -1,7 +1,7 @@
 ---
 id: XC-072
 title: Stop the Desktop macOS CI job failing at random
-priority: P1
+priority: P3
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-20
-updated: 2026-10-27
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -120,3 +120,8 @@ means a hypothesis the data fits but does not prove.
 Related: `APP-066` (renderer tests in CI) already flagged that the personas
 might prove "too slow or flaky" to gate every PR. This item is that coming true
 for the Electron walks.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close it: superseded by XC-080/XC-083 (completed),
+XC-124 and XC-130. Uploading walk roots as an artifact on failure could move
+to XC-130 if still wanted. Prioritization flag (not acted on): obsolete.

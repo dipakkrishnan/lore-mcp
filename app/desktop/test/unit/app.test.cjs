@@ -89,6 +89,24 @@ test("an update downloads quietly, shows only when ready, and a copy outside App
   assert.equal(moved.boxes[0].message, "Move Lore to Applications so it can update itself");
 });
 
+// XC-057: the CLI prints this line (lore/cli.py _approve) and the desktop opens the page it
+// names; tests/test_cli.py emits the same fixture, so a change to either side fails a test.
+test("the desktop opens the approval page only from the CLI's exact line, on a sign-in host", () => {
+  const { approvalUrl } = require("../../src/state.cjs");
+  const line = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../../../tests/fixtures/approval-line.txt"), "utf8");
+  assert.equal(approvalUrl(line), "https://mcp-auth.granola.ai/oauth/authorize?client_id=lore-test");
+  assert.equal(approvalUrl(line.replace("https://mcp-auth.granola.ai/", "https://evil.example/")), null);
+  assert.equal(approvalUrl(line.replace("https://", "http://")), null);
+  assert.equal(approvalUrl("lore: Granola didn't let Lore in. Try again."), null);
+  assert.equal(approvalUrl(`${line} `), null);
+  assert.equal(approvalUrl(`Approve Lore in a browser: ${line.split(": ")[1]}`), null);
+});
+
+test("sign-in pages open only on Granola's, Notion's and Readwise's approval hosts", () => {
+  const { SIGN_IN } = require("../../src/state.cjs");
+  assert.deepEqual([...SIGN_IN].sort(), ["mcp-auth.granola.ai", "mcp.notion.com", "readwise.io"]);
+});
+
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../../src/state.cjs");
   assert.ok(openable("https://www.coinbase.com/"));
@@ -335,6 +353,14 @@ test("APP-281: type, radii and timing come from tokens, and the app has no serif
   assert.deepEqual(rules.match(/border-radius:(?!(?:\s*(?:var\(--r-[\w-]+\)|0|inherit))+\s*[;}])[^;}]+/g), null);
   assert.deepEqual(rules.match(/(?:transition|animation):[^;]*\b\d*\.?\d+m?s\b/g), null);
   assert.doesNotMatch(css, /serif\b(?<!sans-serif\b)|Georgia/);
+});
+
+test("APP-293: Inventory's date column is as wide as a token says and never wraps", async () => {
+  const css = await readFile(join(__dirname, "../../src/styles.css"), "utf8");
+  assert.match(css.match(/:root \{[^}]*\}/)?.[0] ?? "", /--col-date: \d+px;/);
+  const rule = css.match(/\n\.invrow \.age \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(rule, /width: var\(--col-date\);/);
+  assert.match(rule, /white-space: nowrap;/);
 });
 
 test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {

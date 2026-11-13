@@ -2,7 +2,7 @@
 id: APP-065
 title: Measure the desktop app's test coverage
 priority: P3
-effort: S
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-066, APP-060, APP-061, APP-062, APP-063, APP-064, XC-003]
@@ -10,7 +10,7 @@ blockers: [APP-066]
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-09-07
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -57,3 +57,8 @@ were found by hand precisely because no tool would say. Blocked on `APP-066`:
 measuring coverage is worth little until the renderer suite runs in CI, since
 until then the renderer's number reflects whether someone remembered to run
 `test:edge`, not what the tests cover.
+
+**Prioritization (2026-11-12):** Priority P3, effort XS (was S). Stays in-
+review. Before it can be ready: Close it: desktop coverage is measured
+(test:*:coverage scripts, CI floor). Prioritization flag (not acted on):
+duplicate of XC-098 and XC-108.

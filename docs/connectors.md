@@ -33,6 +33,12 @@ and `GoodreadsFeed` turn a username, profile link or feed link into the one
 feed, and also override `_item`: an entry keeps its rating and review, and one
 with neither is skipped as empty.
 
+A feed that can't be read says why in the row: "Couldn't find posts at that
+address." when the address answered but no feed was there (the app's own word
+for a post); "<label> is busy. Try again in a few minutes." when it answered
+429 (CAP-023); and "can't reach <label>" when it didn't answer at all. A feed
+with no posts yet is connected as nothing found, not refused.
+
 `choices()` is the one optional hook: what the app can offer without asking
 (Obsidian reads `obsidian.json` for its vaults). The rule is to ask only for
 what cannot be discovered.
@@ -44,7 +50,9 @@ read again on schedule (`refresh`; an export is read once). `locate` turns what
 the owner typed into the locator Lore saves plus a default label; `probe` says
 whether the place is connected, empty, unreachable, or needs permission;
 `items` yields what it found, counting what it could not read. `name` is the
-source's identity: every spelling of one place is one source, and an export is
+source's identity: every spelling of one place is one source (for a site, the
+host's case, a trailing slash and the scheme's default port are not a different
+place; a path or a query is), and an export is
 named by its product rather than its file, so a newer download replaces the
 old one instead of importing it twice. A reader that fails partway records the
 failure, and that failure, not the probe, is the state the owner sees.
@@ -63,6 +71,16 @@ for the desktop to open, and a loopback page on `127.0.0.1` catches the answer.
 The tokens go to the macOS Keychain (`lore/signin.py`, one entry per server),
 never to disk. Every later read is unattended: an expired sign-in or a missing
 tool fails the read, and the row says "<App> didn't answer. Sign in again."
+A sign-in that fails says which of three things happened (CAP-025):
+
+- nobody answered the approval page in time: "<App> didn't hear back from your
+  browser. Try again and approve Lore on the page it opens."
+- the owner, or the app, said no: "<App> didn't let Lore in. Try again."
+- anything else: "Lore couldn't reach <App>. Try again.", or, when the app
+  gave a reason, "Lore couldn't reach <App>. <App> says: <its first line>",
+  cut to 120 characters, with anything like an email address or a token
+  taken out.
+
 A sync reads only items it has not already kept. `LORE_<APP>_SERVER` points an
 app at a stand-in server, which the edge scenario uses.
 

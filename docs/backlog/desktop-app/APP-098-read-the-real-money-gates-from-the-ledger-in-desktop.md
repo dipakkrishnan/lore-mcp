@@ -1,7 +1,7 @@
 ---
 id: APP-098
 title: Read the real-money gates from the sales ledger in Desktop
-priority: P1
+priority: P3
 effort: XS
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -42,3 +42,8 @@ question to the owner.
 ## Notes
 
 **Review 2026-10-19:** not completed. Skill side shipped (886d427, 5c0a96e). Unmet: a live Switch-to-real-payments run on a store with a settled test sale reaching the CDP key step.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close it, or fold the walk into APP-005 if legacy
+testnet stores still matter. Prioritization flag (not acted on): obsolete
+(mostly).

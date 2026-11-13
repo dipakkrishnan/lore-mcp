@@ -62,6 +62,12 @@ allowed to write `INDEX.md`. Read `AGENTS.md` for the shared rules first.
    (`ideation, in-review, ready, in-progress, completed, obsolete`), then `priority`
    (`P0` first), matching the column order and header already in
    `INDEX.md`. Overwrite the whole table — don't try to diff/patch it.
+   `python3 docs/backlog/agents/regenerate_index.py --write` does this. To
+   confirm the index is current without touching it, run the same script
+   with `--check` (XC-131): it fails, naming the items whose rows differ,
+   when `INDEX.md` has drifted from its items or holds a merge-conflict
+   marker. CI runs `--check` on every pull request and push to `main`. Without
+   either flag the script only validates, so it never fixes a conflicted file.
 10. **Report findings** (dupes, broken refs, cycles, stale items,
     completion-drift hits, promotions made) to whoever invoked the audit.
     Hard errors (dupes, cycles, broken refs) should be surfaced clearly, not

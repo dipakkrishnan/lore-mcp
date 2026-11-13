@@ -299,12 +299,12 @@ def _detail(**overrides: object) -> dict[str, object]:
 
 
 def _diff(approved: list[str], current: list[str]) -> list[str]:
-    """The diff as `Store.flag_detail` builds it."""
+    """The diff as `Store.flag_detail` builds it: hunks only, no file headers."""
     return list(
         difflib.unified_diff(
             approved, current, fromfile="approved", tofile="current", lineterm=""
         )
-    )
+    )[2:]
 
 
 class FlagTest(PlainTerminalTest):
@@ -320,6 +320,75 @@ class FlagTest(PlainTerminalTest):
             ui.changed_memory_note(_detail(origin="automation"), LABELS),
             '"Pricing notes" was rewritten by Lore\'s synthesis on 2026-08-02',
         )
+        # A hostile label on that source changes nothing: synthesis is named.
+        self.assertEqual(
+            ui.changed_memory_note(
+                _detail(origin="automation"), {"claude": "Ev\x1b[2Jil\x07Feed\x9b"}
+            ),
+            '"Pricing notes" was rewritten by Lore\'s synthesis on 2026-08-02',
+        )
+
+    def test_control_characters_in_a_source_label_never_reach_the_note(
+        self,
+    ) -> None:
+        # A feed's title becomes the source's label, and its owner chooses it.
+        note = ui.changed_memory_note(_detail(), {"claude": "Ev\x1b[2Jil\x07Feed\x9b"})
+        self.assertEqual(
+            note, '"Pricing notes" was rewritten by Ev[2JilFeed on 2026-08-02'
+        )
+
+    def test_control_characters_in_an_unlabelled_source_name_never_reach_the_note(
+        self,
+    ) -> None:
+        note = ui.changed_memory_note(_detail(source="s\x1b[2J\x07\x9bx"), LABELS)
+        self.assertEqual(note, '"Pricing notes" was rewritten by s[2Jx on 2026-08-02')
+
+    # Written by hand: difflib cannot put ESC into an @@ line, but a stored
+    # diff is just a list of strings and the printer must not trust it.
+    HOSTILE_DIFF = [
+        "@@ -1 +1 @@\x1b[2J",
+        "-old\x1b[2J\x07",
+        "+b\x1b[2Jevil\x9b",
+        " same\x07\x9b",
+    ]
+
+    def test_control_characters_in_diff_lines_never_reach_the_terminal(
+        self,
+    ) -> None:
+        with captured() as output:
+            ui.flag_diff(_detail(diff=self.HOSTILE_DIFF), LABELS)
+        printed = output.getvalue()
+        self.assertEqual(
+            printed.splitlines(),
+            [
+                f"    ! {NOTE}",
+                "      @@ -1 +1 @@[2J",
+                "      -old[2J",
+                "      +b[2Jevil",
+                "       same",
+            ],
+        )
+        for character in ("\x1b", "\x07", "\x9b"):
+            self.assertNotIn(character, printed)
+
+    def test_cleaned_diff_lines_keep_their_colour(self) -> None:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
+            ui.flag_diff(_detail(diff=self.HOSTILE_DIFF), LABELS)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(
+            lines[1:],
+            [
+                "\033[2m      @@ -1 +1 @@[2J\033[0m",
+                "\033[31m      -old[2J\033[0m",
+                "\033[32m      +b[2Jevil\033[0m",
+                "\033[2m       same\033[0m",
+            ],
+        )
+        for line in lines:
+            # Exactly the two ESCs paint() adds; nothing else gets through.
+            self.assertEqual(line.count("\x1b"), 2)
+            self.assertNotIn("\x07", line)
+            self.assertNotIn("\x9b", line)
 
     def test_a_source_with_no_label_is_named_as_stored(self) -> None:
         self.assertEqual(
@@ -350,14 +419,12 @@ class FlagTest(PlainTerminalTest):
             ui.flag_diff(_detail(diff=[]), LABELS)
         self.assertEqual(output.getvalue(), f"    ! {NOTE}\n")
 
-    def test_the_diff_shows_what_left_and_what_arrived_without_file_headers(
-        self,
-    ) -> None:
+    def test_the_diff_shows_what_left_and_what_arrived(self) -> None:
         diff = _diff(
             ["Seats cost 5 each.", "Billed monthly."],
             ["Seats cost 7 each.", "Billed monthly."],
         )
-        self.assertEqual(diff[:2], ["--- approved", "+++ current"])
+        self.assertTrue(diff[0].startswith("@@"))
         with captured() as output:
             ui.flag_diff(_detail(diff=diff), LABELS)
         self.assertEqual(
@@ -368,6 +435,67 @@ class FlagTest(PlainTerminalTest):
             "      +Seats cost 7 each.\n"
             "       Billed monthly.\n",
         )
+
+    # A markdown rule, a command-line flag and a line starting with "++":
+    # each one's diff line starts with "---" or "+++" once it gets its marker.
+    DASHES_APPROVED = ["title", "---", "body", "--flag"]
+    DASHES_CURRENT = ["title", "body", "++x"]
+
+    def test_lines_starting_with_dashes_or_pluses_are_shown_as_changes(
+        self,
+    ) -> None:
+        with captured() as output:
+            ui.flag_diff(
+                _detail(diff=_diff(self.DASHES_APPROVED, self.DASHES_CURRENT)),
+                LABELS,
+            )
+        self.assertEqual(
+            output.getvalue().splitlines(),
+            [
+                f"    ! {NOTE}",
+                "      @@ -1,4 +1,3 @@",
+                "       title",
+                "      ----",
+                "       body",
+                "      ---flag",
+                "      +++x",
+            ],
+        )
+
+    def test_lines_starting_with_dashes_or_pluses_are_coloured_as_changes(
+        self,
+    ) -> None:
+        with patch.object(ui, "COLOR", lambda: True), captured() as output:
+            ui.flag_diff(
+                _detail(diff=_diff(self.DASHES_APPROVED, self.DASHES_CURRENT)),
+                LABELS,
+            )
+        self.assertEqual(
+            output.getvalue().splitlines()[1:],
+            [
+                "\033[2m      @@ -1,4 +1,3 @@\033[0m",
+                "\033[2m       title\033[0m",
+                "\033[31m      ----\033[0m",
+                "\033[2m       body\033[0m",
+                "\033[31m      ---flag\033[0m",
+                "\033[32m      +++x\033[0m",
+            ],
+        )
+
+    def test_every_hunk_header_is_shown(self) -> None:
+        approved = [f"line {n}" for n in range(1, 11)]
+        current = ["first", *approved[1:9], "last"]
+        with captured() as output:
+            ui.flag_diff(_detail(diff=_diff(approved, current)), LABELS)
+        lines = output.getvalue().splitlines()
+        self.assertEqual(
+            [line for line in lines if line.lstrip().startswith("@@")],
+            ["      @@ -1,4 +1,4 @@", "      @@ -7,4 +7,4 @@"],
+        )
+        self.assertNotIn("      --- approved", lines)
+        self.assertNotIn("      +++ current", lines)
+        self.assertIn("      -line 10", lines)
+        self.assertIn("      +last", lines)
 
     def test_removed_lines_are_red_and_added_lines_green(self) -> None:
         diff = _diff(
@@ -556,6 +684,66 @@ class MemoryCardTest(PlainTerminalTest):
             "\n"
             "Body text\n",
         )
+
+
+SEPARATORS = ("\x0b", "\x0c", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class CardShapeTest(PlainTerminalTest):
+    """CLI-015: a card looks like the text the owner approves. A tab is spacing, and
+    only a newline starts a line."""
+
+    def test_a_tab_is_spacing_in_every_field_of_both_cards(self) -> None:
+        with captured() as output:
+            ui.memory_card(_memory(title="t\tone", source="s\tsrc", content="b\tbody"))
+            ui.publication_card(
+                _publication(
+                    title="p\ttitle",
+                    topic="to\tpic",
+                    teaser="te\tase",
+                    useful_if="u\tif",
+                    not_useful_if="n\tif",
+                    sample="sa\tmple",
+                    content="c\tbody",
+                )
+            )
+        text = output.getvalue()
+        self.assertNotIn("\t", text)
+        for field in (
+            "t one",
+            "s src",
+            "b body",
+            "p title",
+            "to pic",
+            "te ase",
+            "u if",
+            "n if",
+            "sa mple",
+            "c body",
+        ):
+            first, second = field.split(" ")
+            with self.subTest(field=field):
+                self.assertRegex(text, rf"{first} +{second}")
+
+    def test_only_a_newline_starts_a_line_in_a_body(self) -> None:
+        body = "one" + "".join(f"{c}x{n}" for n, c in enumerate(SEPARATORS))
+        for card in (
+            lambda: ui.memory_card(_memory(content=body)),
+            lambda: ui.publication_card(_publication(content=body)),
+        ):
+            with self.subTest(card=card), captured() as output:
+                card()
+            text = output.getvalue()
+            for character in SEPARATORS:
+                self.assertNotIn(character, text)
+            self.assertEqual(text.splitlines()[-1], "onex0x1x2x3x4x5x6x7")
+
+    def test_a_carriage_return_joins_a_title_and_breaks_a_body(self) -> None:
+        with captured() as output:
+            ui.memory_card(_memory(title="a\rb", content="c\rd"))
+        lines = output.getvalue().splitlines()
+        self.assertIn("ab", lines)
+        self.assertEqual(lines[-2:], ["c", "d"])
 
 
 if __name__ == "__main__":

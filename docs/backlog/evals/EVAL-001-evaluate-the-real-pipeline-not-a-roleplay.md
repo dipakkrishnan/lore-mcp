@@ -1,16 +1,16 @@
 ---
 id: EVAL-001
 title: Evaluate the real Lore pipeline instead of a roleplay prompt
-priority: P1
+priority: P2
 effort: S
 component: evals
-status: ready
+status: in-review
 related: []
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-24
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -117,3 +117,7 @@ remaining work is re-running this with a working `codex` CLI (or accepting
 Claude-substitution as permanent and choosing a different, executor-neutral
 regression). Criteria 1-3 remain built and unaffected by this attempt.
 
+**Prioritization (2026-11-12):** Priority P2 (was P1). Moved back from ready
+to in-review. Before it can be ready: A decision on criterion 4: rerun with
+a working codex CLI, accept Claude or Lore's executor as the candidate, or
+drop the criterion and close.

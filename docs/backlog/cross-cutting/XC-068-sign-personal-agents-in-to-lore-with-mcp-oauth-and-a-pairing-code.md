@@ -10,7 +10,7 @@ blockers: [XC-067]
 dependencies: [@cloudflare/workers-oauth-provider]
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -68,3 +68,8 @@ Other). The first-run chat still hands out a private link.
   Grok Bot before calling it done, and fall back to the private link if it
   never asks.
 - ChatGPT's label for this is "OAuth"; confirm it on the build date.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: A live end-to-end run with real Claude ("Sign in now") and Grok
+Bot against a throwaway Cloudflare account, including the OAUTH_KV auto-
+create check.

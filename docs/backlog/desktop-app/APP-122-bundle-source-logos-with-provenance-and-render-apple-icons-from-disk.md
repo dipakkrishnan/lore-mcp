@@ -1,7 +1,7 @@
 ---
 id: APP-122
 title: Bundle source logos with provenance and render Apple icons from disk
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-17
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -60,3 +60,8 @@ letterboxd, medium, notion, obsidian, readwise and substack beside `claude.svg` 
 `createThumbnailFromPath`. Before promoting, list which catalog sources still lack a
 mark, check each existing asset for the source URL and pull date, and narrow the
 Problem and criteria to that remainder.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Narrow to the Apple-icon half and add CAP-007 as a
+blocker, or close the logo half as completed (only claude.svg and openai.svg
+lack a provenance comment).

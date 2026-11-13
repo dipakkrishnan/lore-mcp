@@ -1,16 +1,16 @@
 ---
 id: APP-282
 title: Make Inventory, Connectors and Automations one-line rows
-priority: P1
-effort: L
+priority: P2
+effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-281, APP-255]
 blockers: []
 dependencies: [APP-281]
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-03
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -55,3 +55,19 @@ row carries the source mark and a date; headers are 13px medium on the side band
 in the mock. Rows have no browser tooltip; a piece's views and sales show beside its actions on hover.
 
 Connectors and Automations remain.
+
+## Notes
+
+**Backlog audit (2026-11-12), moved to in-review:** Inventory's one-line
+rows shipped in PR #657, and nothing has moved here since 2026-11-04.
+Connectors are still drawn as tiles on main, and Automations moved out of
+Connectors into Settings (APP-288, APP-289), so this item's remaining scope
+no longer matches the app's layout. Back to in-review to re-scope the rest
+to Connectors only (and Settings › Automations if wanted), or split it into
+a new item and close this one.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort M (was L).
+Stays in-review. Before it can be ready: Re-scope to Connectors (and
+Settings > Automations if wanted) as one-line rows, or close and file
+Connectors rows as a new item. Prioritization flag (not acted on): done for
+Inventory: #657.

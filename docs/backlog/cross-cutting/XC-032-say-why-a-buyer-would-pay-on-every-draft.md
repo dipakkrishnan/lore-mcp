@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -54,3 +54,28 @@ cross-cutting. The tests are stated in the "Lore Buyer Thesis" artifact of
 2026-09-06.
 
 **Review 2026-10-19:** not completed. Not done. No three answers, undated-public-evidence line or CLI review-prompt lines exist. All 4 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Plan review (2026-11-13), flagged back to in-review:** Not implemented. The
+plan review found the change spans more than the item lists and leaves two
+decisions open:
+
+- Bid answers: drafts also come from the desktop's bid flow
+  (`app/desktop/src/agent.mjs` `BID_FIELDS` and its JSON prompt), not only from
+  the `lore-publish` skill. "Every draft candidate carries the three answers"
+  then also means the bid prompt and its validation, and decide whether a bid
+  answer (which already has a buyer) needs the "changes a decision" test at all.
+- Where the answers live: they are shown before Approve. Decide whether they
+  are kept on the approved publication (a `publications` column, a migration,
+  and what `_save`/`add_publication` accept) or only on the staged candidate
+  (`PublicationInput`, which `_save` must then exclude).
+- Required or optional: if `lore publication draft` requires them, every
+  existing drafting seed changes with this item (`app/desktop/support/edge.sh`,
+  `tests/test_cli.py`, the desktop component tests). Old staged candidates
+  without them must still render.
+- Wording for a failed test needs owner-facing copy. The desktop card change
+  needs a design review with dark screenshots.
+- With those decided this is M: the skill, the schema, the CLI card
+  (`ui.publication_card`) and the desktop card (`approvalForm`).

@@ -1,7 +1,7 @@
 ---
 id: CAP-018
 title: Contract-test the site feed readers against the recorded blog, Substack and Medium feeds
-priority: P1
+priority: P2
 effort: M
 component: capture
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -124,3 +124,8 @@ against a name.
 Sequencing: blocked by `XC-048` (file prefix). `CAP-020` (trailing-slash
 identity) changes `locate`, not counts; `XC-054` re-runs these
 expectations live.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. Line references
+are stale; re-check the counts against the current keeps() once XC-048
+lands.

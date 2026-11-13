@@ -4,13 +4,13 @@ title: Put an agent's saves on Today as they come in, and credit what an interru
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207, APP-213, AUT-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,8 @@ A reading that gives way to the owner also loses what it wrote. On Oct 21 a read
 ## Notes
 
 How often Lore asks the store is APP-232's job (PR #523: 10s on screen, 3s while an app waits to sign in), so this item leaves the pace alone.
+
+**Backlog audit (2026-11-12), closed as completed:** PR #528 shipped all
+four behaviours, and unit and component tests cover them. Today has since
+become the Inbox (APP-283), which reads the same Ready file, so the
+behaviour still holds. Closed as completed.

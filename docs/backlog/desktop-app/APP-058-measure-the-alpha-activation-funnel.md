@@ -4,13 +4,13 @@ title: Measure the alpha activation funnel
 priority: P1
 effort: S
 component: desktop-app
-status: in-progress
+status: completed
 related: [APP-001, APP-041, XC-030, XC-029, CLI-004]
-blockers: [XC-029, CLI-004]
+blockers: [CLI-004]
 dependencies: []
 github_issue: null
 created: 2026-09-03
-updated: 2026-10-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -36,14 +36,14 @@ launch.
 
 ## Acceptance criteria
 
-- [ ] The events can answer how many alpha installs reach setup, first saved
+- [x] The events can answer how many alpha installs reach setup, first saved
       memory, publication, store, and a viewed sale, plus whether they reopen
       Lore on a later day.
-- [ ] The event schema cannot carry user content, paths, URLs, payment details,
+- [x] The event schema cannot carry user content, paths, URLs, payment details,
       or secrets; automated coverage checks the allowlist.
-- [ ] Analytics failures never interrupt a user action, and Settings provides a
+- [x] Analytics failures never interrupt a user action, and Settings provides a
       plainly worded disclosure and off switch.
-- [ ] The implementation uses one existing or commodity event sink without a
+- [x] The implementation uses one existing or commodity event sink without a
       custom analytics service or in-app dashboard.
 
 ## Notes
@@ -68,3 +68,12 @@ for this item, but the sibling piece of the same telemetry pass), `XC-029`
 (the collector this item's events actually need a home in), and `CLI-004`
 (the `telemetry_enabled` setting this item's off switch reads). Blocked on
 the latter two existing before this item can send anything by default.
+
+**Backlog audit (2026-11-12), closed as completed:** The emitter
+(lore/usage.py), the relay's /events route to PostHog (#428), the failure-
+safe sending tests (#431) and the Settings off switch are all on main, and
+tests/test_usage.py passes. Events are arriving: the 2026-10-28 metrics
+audit read installs from PostHog, so the PostHog project, secret and relay
+deploy are done. XC-029's collector was bypassed by the PostHog route, so it
+is removed from blockers. Install undercounting from the disclosure gate is
+APP-250's concern, not this one's.

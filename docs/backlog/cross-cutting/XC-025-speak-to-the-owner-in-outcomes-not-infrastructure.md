@@ -1,8 +1,8 @@
 ---
 id: XC-025
 title: Speak to the owner in outcomes, not infrastructure
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: cross-cutting
 status: in-review
 related: [APP-055, XC-024, XC-015]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -46,3 +46,8 @@ inline notices like the Claude and OpenAI consoles.
 Reviewed 2026-09-04: a rule in two skills plus a test would drift; the system prompt already owns owner-facing voice.
 
 **Review 2026-10-19:** not completed. Partial. Shipped in 8f4b62e (agent prompt bans infra words; payments wallet step reworded). The contract-test criterion was deliberately dropped (0cbf4ac note). The no-infra-words-in-a-deploy-thread check needs a manual desktop run.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: One manual desktop deploy-thread
+run confirming none of the banned words appear (the rule is in agent.mjs),
+then close. Prioritization flag (not acted on): done (code).

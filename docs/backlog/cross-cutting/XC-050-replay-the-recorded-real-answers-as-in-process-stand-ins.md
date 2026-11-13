@@ -1,7 +1,7 @@
 ---
 id: XC-050
 title: Replay the recorded real answers as in-process feed and hosted stand-ins
-priority: P1
+priority: P2
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -111,3 +111,7 @@ Flakiness/safety: pure file I/O and in-process MCP; the HTTP mode binds
 Sequencing: blocked by `XC-048` (needs the explicit `jsonschema` dev
 dependency and the level names for the docs). `CAP-015` is not blocked on
 this: it fixes `granola.py` directly and this module may later reuse it.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 must complete; change the `unittest
+discover` criterion to the pytest runner.

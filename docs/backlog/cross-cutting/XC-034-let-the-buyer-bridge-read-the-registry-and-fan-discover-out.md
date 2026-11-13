@@ -1,7 +1,7 @@
 ---
 id: XC-034
 title: Let the buyer bridge read the registry and fan discover out
-priority: P2
+priority: P3
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-033]
 dependencies: []
 github_issue: null
 created: 2026-09-15
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,3 +49,9 @@ hosted MCP over the registry is the later step, not this one.
 network field without re-checking it first.
 
 **Review 2026-10-19:** not completed. Not done. The bridge still takes a required single `--node`; no registry flag, fan-out, other-network exclusion or spend cap. The lore-buy skill reads the registry with curl. All 4 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Decide whether the bridge fan-out is still wanted
+once XC-117's hosted marketplace MCP exists; if so, keep it as the
+x402-native path only. Prioritization flag (not acted on): largely duplicate
+of XC-117.

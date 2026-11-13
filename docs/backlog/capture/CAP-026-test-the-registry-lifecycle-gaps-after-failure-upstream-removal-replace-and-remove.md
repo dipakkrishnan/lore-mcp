@@ -1,16 +1,16 @@
 ---
 id: CAP-026
 title: Test the registry lifecycle gaps (state after a failed read, upstream removal, feed replace, reads record cleanup)
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [STO-003, CAP-023, CLI-011, APP-128]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -84,3 +84,6 @@ an export), C-01, C-19, C-25.
 
 Flakiness/safety: temp dirs, `serving()` stubs; permission changes are
 restored in `addCleanup`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

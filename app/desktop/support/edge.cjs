@@ -795,6 +795,19 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         await js(`window.lore.setAppearance("dark")`);
         check("switched to dark, Inventory turns at once", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
         await shot("inventory-rows-dark");
+        // APP-293: a two-digit day ("Nov 10") draws on one line, at 1440 and 900 wide, the row keeps its height, and the
+        // price column stays put. The walk's own dates vary, so each row is shown that day for the measure, then restored.
+        const dated = `(() => { const rows = [...document.querySelectorAll("#content .invrow")]; const was = rows.map((r) => r.querySelector(".age").textContent); const before = rows.map((r) => r.querySelector(".cost").getBoundingClientRect().right); rows.forEach((r) => { r.querySelector(".age").textContent = "Nov 10"; }); const seen = rows.map((r, at) => { const age = r.querySelector(".age"); return { lines: Math.round(age.getBoundingClientRect().height / parseFloat(getComputedStyle(age).lineHeight)), height: r.getBoundingClientRect().height, moved: r.querySelector(".cost").getBoundingClientRect().right - before[at] }; }); rows.forEach((r, at) => { r.querySelector(".age").textContent = was[at]; }); return seen; })()`;
+        const oneLine = (seen) => seen.length > 0 && seen.every((row) => row.lines === 1 && row.height >= 32 && row.height <= 40 && row.moved === 0);
+        const wide = await js(`innerWidth`);
+        for (const width of [1440, NARROW_WIDTH]) {
+          await window.webContents.debugger.sendCommand("Emulation.setDeviceMetricsOverride", { width, height: window.getContentSize()[1], deviceScaleFactor: 0, mobile: false });
+          await until(() => js(`innerWidth === ${width}`));
+          const seen = await js(dated);
+          check(`at ${width}px an Inventory row dated "Nov 10" draws its date on one line, 32-40px tall, its price unmoved`, oneLine(seen), JSON.stringify(seen.slice(0, 3)));
+        }
+        await window.webContents.debugger.sendCommand("Emulation.clearDeviceMetricsOverride");
+        await until(() => js(`innerWidth === ${wide}`));
         await js(`window.lore.setAppearance("light")`);
         check("…and back to light", await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`), await js(BG));
         // APP-271: no shot here: Inventory is as store-sales scanned it, light again after the dark one.
@@ -2379,6 +2392,17 @@ app.on("browser-window-created", (/** @type {unknown} */ _event, /** @type {impo
         check("focus moved to the content field", movedOn, await js(`document.activeElement?.tagName`));
         check("nothing was kept", !(await js(`document.querySelector("#log").textContent.includes("Keep")`)));
         await js(`window.__lore.event({ type: "dismiss", id: "preview-1" })`);
+
+        // CAP-002: a proposed memory names what it grows out of, each link with its reason and the owner's Remove.
+        await js(`window.__lore.preview({ type: "memories", id: "preview-links", task: null, entries: [{ title: "Price the first tier low", content: "A low first price got the first ten buyers; we raised it once there were receipts.", project: "pricing", related: [{ id: 4, title: "Failed launch at Actively", reason: "Learned from the launch that priced too high." }, { id: 7, title: "First ten buyers", reason: "The buyers this price brought in." }] }] })`);
+        check("a proposed memory shows its links, each with its reason and a Remove", await waitFor(`document.querySelectorAll("#request .memory-links .read-line").length === 2 && document.querySelector("#request .memory-links").textContent.includes("Learned from the launch that priced too high.")`));
+        await shot("memory-links");
+        await js(`window.lore.setAppearance("dark")`);
+        check("…and drawn dark", await waitFor(`${BG} === ${JSON.stringify(DARK_BG)}`), await js(BG));
+        await shot("memory-links-dark");
+        await js(`window.lore.setAppearance("light")`);
+        await waitFor(`${BG} === ${JSON.stringify(LIGHT_BG)}`);
+        await js(`window.__lore.event({ type: "dismiss", id: "preview-links" })`);
 
         // open_url: one card, two stages, same size; the page opens through the window-open handler.
         await js(`window.open = (url) => { window.__opened = url; return null; }; true`);

@@ -1,8 +1,8 @@
 ---
 id: CAP-033
 title: Read Google Maps saved lists and starred places from a Takeout export
-priority: P2
-effort: S
+priority: P3
+effort: XS
 component: capture
 status: in-review
 related: [CAP-006, CAP-032]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -69,3 +69,9 @@ one, as with ChatGPT/Claude exports.
 Beli has no API or export and is phone-only. For now, the owner can drag
 screenshots of their ranked list into capture, since multimodal capture
 already reads images.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was S).
+Stays in-review. Before it can be ready: The reader shipped in #455; a
+person records and anonymizes a real Takeout export for the contract test
+(the current fixture was built from documented field names, not recorded).
+Prioritization flag (not acted on): done (code).

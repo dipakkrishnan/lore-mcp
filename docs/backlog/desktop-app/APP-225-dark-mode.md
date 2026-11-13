@@ -1,8 +1,8 @@
 ---
 id: APP-225
 title: Dark mode that follows the Mac
-priority: P2
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-220, APP-222, APP-247]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-27
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -44,7 +44,7 @@ one bright window, and the owner could not choose otherwise.
 
 - [x] Appearance: Match Mac / Light / Dark in Settings, kept across launches, switching live
 - [x] A Dark mode switch in the account menu flips the window live and keeps the choice
-- [x] Dark tokens from the marketplace palette, text at WCAG AA
+- [ ] Dark tokens from the marketplace palette, text at WCAG AA
 - [x] No literal colour outside the token blocks (unit test)
 - [x] Dark marks readable on dark without recolouring
 - [x] Edge walks run dark with `LORE_EDGE_APPEARANCE=dark`. Each walk checks
@@ -52,3 +52,19 @@ one bright window, and the owner could not choose otherwise.
   launches `faq` dark for the boot-time check, and the connectors walk re-shoots
   its list and a Manage sheet in dark from inside its light run (APP-247; until
   2026-10-27 CI walked connectors a second time, launched dark).
+
+## Notes
+
+**Backlog audit (2026-11-12), left in-review:** Everything APP-225 built is
+on main and covered by tests and walks. Criterion 3 no longer holds: APP-281
+(#638) swapped in a Linear dark palette, and its tertiary text `--text-3`
+(#76777e) measures 4.27:1 on the canvas and 3.78:1 on raised surfaces, under
+AA for body text. Reword criterion 3 to defer the palette to APP-281, and
+file or fold the --text-3 contrast fix (into APP-281, which is in-review);
+then this item can close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was M).
+Stays in-review. Before it can be ready: Reword criterion 3 to defer the
+palette to APP-281, file the --text-3 contrast fix as its own small item
+(APP-281 already shipped), then close. Prioritization flag (not acted on):
+done except the AA criterion.

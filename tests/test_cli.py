@@ -8,6 +8,7 @@ so with an exit code and a message rather than a traceback.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -16,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager, redirect_stderr
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
@@ -30,7 +31,14 @@ from lore import capture as capture_module
 from lore import deploy as deploy_module
 from lore import sources as sources_module
 from lore.cloudflare import Account
-from lore.store import JobKind, JobStatus, PublicationKind, Status, Store
+from lore.store import (
+    AnswerSettings,
+    JobKind,
+    JobStatus,
+    PublicationKind,
+    Status,
+    Store,
+)
 
 
 def write_launch_key(path: Path, text: str) -> None:
@@ -202,6 +210,23 @@ class MainDispatchTest(LoreTestCase):
         self.assertIn("2026-09-02    free  A", output.getvalue())
         self.assertNotIn("refund owed", output.getvalue())
 
+    def test_node_sales_shows_prices_below_a_cent(self) -> None:
+        row = {
+            "kind": "publication",
+            "item_id": "0000000000000000fcdb4b42",
+            "title": "A",
+            "price_usd": 0.001,
+            "network": "eip155:84532",
+            "payer": "0xpayer",
+            "tx": "0xtx",
+            "sold_at": "2026-09-02T18:00:00Z",
+        }
+        rows = [deploy_module.Sale(**row | {"tx": f"0xtx{n}"}) for n in range(3)]
+        with patch("lore.deploy.sales", return_value=rows), captured() as output:
+            self.assertEqual(cli.main(["node", "sales"]), 0)
+        self.assertIn("3 sales · $0.003", output.getvalue())
+        self.assertIn("2026-09-02  $0.001  A", output.getvalue())
+
     def test_node_views_prints_counts_as_json(self) -> None:
         rows = [deploy_module.PageViews(item_id="0000000000000000fcdb4b42", views=7)]
         with patch("lore.deploy.views", return_value=rows), captured() as output:
@@ -292,6 +317,34 @@ class MainDispatchTest(LoreTestCase):
             self.assertEqual(cli.main(["node", "secret", "CDP_API_KEY_ID"]), 1)
         self.assertIn("attended terminal or the Lore desktop app", stderr.getvalue())
         secret.assert_not_called()
+
+    def test_node_secret_hides_a_typed_value_in_a_terminal(self) -> None:
+        """MON-006: provider API keys are typed here, so they are never echoed."""
+        with (
+            patch("lore.deploy.secret", return_value=0) as secret,
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(sys.stdin, "isatty", return_value=True),
+            patch("getpass.getpass", return_value=" sk-ant \n") as hidden,
+        ):
+            self.assertEqual(cli.main(["node", "secret", "ANTHROPIC_API_KEY"]), 0)
+        hidden.assert_called_once()
+        self.assertEqual(secret.call_args.args, ("ANTHROPIC_API_KEY", "sk-ant"))
+
+    def test_node_secrets_lists_names_without_owner_gate(self) -> None:
+        names = ["ANTHROPIC_API_KEY", "LORE_WALLET"]
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            patch.object(cli, "_interactive", return_value=False),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets"]), 0)
+        self.assertEqual(output.getvalue().split(), names)
+        with (
+            patch("lore.deploy.secret_names", return_value=names),
+            captured() as output,
+        ):
+            self.assertEqual(cli.main(["node", "secrets", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), names)
 
     def test_no_command_falls_back_to_status_when_not_interactive(self) -> None:
         with (
@@ -550,6 +603,121 @@ class SourcesCommandTest(LoreTestCase):
                 self.assertEqual(refused.exception.code, 2)
                 # An empty locator means the current folder to a folder reader.
                 connect.assert_not_called()
+
+
+APPROVAL_LINE = (Path(__file__).parent / "fixtures" / "approval-line.txt").read_text()
+
+
+class ApprovalLineTest(LoreTestCase):
+    """XC-057: the line the desktop opens the approval page from, emitted as the CLI
+    prints it. app/desktop/test/unit/app.test.cjs parses the same fixture."""
+
+    url = APPROVAL_LINE.split(": ", 1)[1]
+
+    def connect(self, sign_in) -> tuple[int, str, str]:  # type: ignore[no-untyped-def]
+        from fixtures.granola import Granola
+        from test_hosted import serving
+
+        out, err = StringIO(), StringIO()
+        with (
+            serving(Granola().server),
+            patch.object(sources_module.HostedReader, "sign_in", sign_in),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            code = cli.main(["sources", "connect", "granola", "--json"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_connecting_a_hosted_app_prints_the_approval_line_on_stderr_and_json_on_stdout(
+        self,
+    ) -> None:
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            show(self.url)
+            return True
+
+        code, out, err = self.connect(sign_in)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(err, APPROVAL_LINE + "\n")
+        (line,) = out.splitlines()
+        self.assertEqual(json.loads(line)["connector"], "granola")
+        self.assertNotIn("Approve", out)
+        self.assertNotIn("{", err)
+
+    def test_the_approval_line_is_flushed_before_the_wait(self) -> None:
+        raw = io.BytesIO()
+        # Buffered like a pipe to the desktop: nothing reaches `raw` until a flush.
+        stream = io.TextIOWrapper(raw, encoding="utf-8", write_through=False)
+        seen: list[bytes] = []
+
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            show(self.url)
+            seen.append(raw.getvalue())  # the CLI now blocks on the loopback
+            return True
+
+        from fixtures.granola import Granola
+        from test_hosted import serving
+
+        with (
+            serving(Granola().server),
+            patch.object(sources_module.HostedReader, "sign_in", sign_in),
+            captured(),
+            patch.object(sys, "stderr", stream),
+        ):
+            self.assertEqual(cli.main(["sources", "connect", "granola", "--json"]), 0)
+        self.assertEqual(seen, [(APPROVAL_LINE + "\n").encode()])
+
+    def test_a_refused_sign_in_leaves_one_lore_line_and_exit_2(self) -> None:
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            raise sources_module.SourceError("Granola didn't let Lore in. Try again.")
+
+        code, out, err = self.connect(sign_in)
+        self.assertEqual(code, 2)
+        self.assertEqual(
+            err.splitlines()[-1], "lore: Granola didn't let Lore in. Try again."
+        )
+        self.assertEqual(out, "")
+
+
+class ChoicesTest(LoreTestCase):
+    """CAP-022, F-obs-01: what `lore sources choices obsidian` prints."""
+
+    def choices(self, *flags: str) -> tuple[int, str]:
+        with captured() as out:
+            code = cli.main(["sources", "choices", "obsidian", *flags])
+        return code, out.getvalue()
+
+    def test_choices_prints_the_vaults_or_an_empty_list(self) -> None:
+        home = Path(self.tmp.name) / "obsidian"
+        with patch.dict(os.environ, {"OBSIDIAN_HOME": str(home)}):
+            self.assertEqual(self.choices("--json"), (0, "[]\n"))
+            home.mkdir()
+            work, notes = Path(self.tmp.name) / "Work", Path(self.tmp.name) / "Notes"
+            work.mkdir()
+            notes.mkdir()
+            (home / "obsidian.json").write_text(
+                json.dumps(
+                    {
+                        "vaults": {
+                            "a": {"path": str(work)},
+                            "b": {"path": str(notes), "open": True},
+                        }
+                    }
+                )
+            )
+            code, out = self.choices("--json")
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                json.loads(out),
+                [
+                    {"label": "Notes", "locator": str(notes.resolve()), "open": True},
+                    {"label": "Work", "locator": str(work.resolve()), "open": False},
+                ],
+            )
+            code, out = self.choices()
+        self.assertEqual(
+            out.splitlines(),
+            [f"  {'Notes':<20} {notes.resolve()}", f"  {'Work':<20} {work.resolve()}"],
+        )
 
 
 class SupportedPythonTest(unittest.TestCase):
@@ -1125,12 +1293,33 @@ class StatusTest(LoreTestCase):
         with captured() as output:
             cli.status()
         text = output.getvalue()
-        self.assertIn("1 active publication (externally usable)", text)
+        self.assertIn(
+            "1 active publication (approved on this Mac; "
+            "`lore desktop-state` shows what is live)",
+            text,
+        )
+        self.assertNotIn("externally usable", text)
         self.assertIn("Publication price: $1.00", text)
         self.assertIn("Node (last deploy): https://lore.example.workers.dev/mcp", text)
         self.assertNotIn("nothing is for sale", text)
         self.assertIn("● Codex", text)
         self.assertIn("○ Claude Code", text)
+
+    def test_status_shows_prices_below_a_cent(self) -> None:
+        with Store() as store:
+            store.set_setting("price_usd", 0.001)
+            store.set_answer_settings(
+                AnswerSettings(
+                    answer_price_usd=0.001,
+                    answer_enabled=True,
+                    proxy_preamble="Act as Ada's concise, evidence-first proxy.",
+                )
+            )
+        with captured() as output:
+            cli.status()
+        text = output.getvalue()
+        self.assertIn("Publication price: $0.001", text)
+        self.assertIn("enabled ($0.001 per answer)", text)
 
     def test_status_keeps_reminding_while_a_revocation_has_not_reached_the_node(
         self,
@@ -1187,17 +1376,49 @@ class PriceTest(LoreTestCase):
 
         with captured() as output:
             self.assertEqual(cli.price(1.239), 0)
-        self.assertIn("$1.24", output.getvalue())
+        self.assertIn("$1.239", output.getvalue())
         with Store() as store:
             self.assertEqual(store.setting("price_usd"), 1.239)
 
         with captured() as output:
             cli.price(None)
-        self.assertIn("$1.24 per publication", output.getvalue())
+        self.assertIn("$1.239 per publication", output.getvalue())
 
         with captured() as output:
             self.assertEqual(cli.price(0), 0)
         self.assertIn("Publications are free", output.getvalue())
+
+    def test_price_below_a_cent_is_shown_whole(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.price(0.001), 0)
+        self.assertIn("Publication price set to $0.001", output.getvalue())
+        with captured() as output:
+            cli.price(None)
+        self.assertIn("$0.001 per publication", output.getvalue())
+
+    def test_price_that_rounds_to_zero_is_free(self) -> None:
+        with captured() as output:
+            self.assertEqual(cli.price(0.0000004), 0)
+        self.assertIn("Publications are free", output.getvalue())
+        self.assertNotIn("$0.00", output.getvalue())
+        with Store() as store:
+            self.assertEqual(store.setting("price_usd"), 0.0)
+
+    def test_usd_keeps_two_to_six_decimals(self) -> None:
+        cases = {
+            0.001: "$0.001",
+            1.239: "$1.239",
+            0.5: "$0.50",
+            1: "$1.00",
+            0.01: "$0.01",
+            0: "$0.00",
+            0.0000004: "$0.00",
+            0.1234567: "$0.123457",
+            0.0030000000000000005: "$0.003",
+        }
+        for amount, expected in cases.items():
+            with self.subTest(amount=amount):
+                self.assertEqual(cli._usd(amount), expected)
 
     def test_free_copies_default_to_three_and_zero_turns_them_off(self) -> None:
         with captured() as output:
@@ -1406,6 +1627,15 @@ class AnswerCommandTest(LoreTestCase):
         )
         self.assertEqual(settings.answer_price_usd, 0.5)
         self.assertTrue(settings.answer_enabled)
+
+    def test_enabling_below_a_cent_shows_the_whole_price(self) -> None:
+        with (
+            patch.object(cli, "_interactive", return_value=True),
+            patch.object(cli, "confirm", return_value=True),
+            captured() as output,
+        ):
+            self.assertEqual(cli.answer_enable(self.proxy_file(), 0.001), 0)
+        self.assertIn("$0.001 per answer", output.getvalue())
 
     def test_invalid_price_or_empty_proxy_is_refused(self) -> None:
         for amount in (0.0, -1.0, float("nan"), float("inf")):
@@ -2508,6 +2738,33 @@ class PublicationCommandTest(LoreTestCase):
         self.assertIn("-Pricing lesson about deployment", text)
         self.assertIn("+a changed body", text)
 
+    def test_list_shows_changed_lines_that_start_with_dashes_or_pluses(self) -> None:
+        def write(content: str, fingerprint: str) -> None:
+            with Store() as store:
+                store.put(
+                    source="test",
+                    origin="native",
+                    source_path="Pricing lesson",
+                    source_key="Pricing lesson",
+                    fingerprint=fingerprint,
+                    title="Pricing lesson",
+                    content=content,
+                )
+
+        # The snapshot taken at publish holds the approved text.
+        write("title\n---\nbody\n--flag", "approved")
+        self.publish()
+        write("title\nbody\n++x", "changed")
+        with captured() as out:
+            cli.publication_list()
+        lines = out.getvalue().splitlines()
+        for expected in ("      ----", "      ---flag", "      +++x"):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, lines)
+        text = out.getvalue()
+        self.assertNotIn("--- approved", text)
+        self.assertNotIn("+++ current", text)
+
     def test_list_groups_publications_flagged_by_the_same_change(self) -> None:
         first = self.publish("First claim")
         second = self.publish("Second claim")
@@ -2829,8 +3086,13 @@ class PushTest(LoreTestCase):
             store.set_setting("answer_price_usd", 0.5)
             store.set_setting("answer_enabled", True)
         sql = self.push_sql([])
-        self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
-        self.assertIn("CREATE TABLE node_settings", sql)
+        # CAP-039: every setting but the store's inbox key is replaced.
+        self.assertIn("CREATE TABLE IF NOT EXISTS node_settings", sql)
+        self.assertIn(
+            "DELETE FROM node_settings WHERE key NOT IN "
+            "('inbox_salt', 'inbox_public_key');",
+            sql,
+        )
         q = chr(39)
         self.assertIn(f"{q}Ada{q}{q}s public proxy charter{q}", sql)
         self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)

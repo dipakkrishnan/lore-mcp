@@ -36,7 +36,7 @@ from . import usage
 from .agents import Agents
 from .collection import Collections, Drop
 from .hosted import Hosted
-from .inbox import AgentApp, Inbox, InboxError
+from .inbox import INBOX_SETTINGS, AgentApp, Inbox, InboxError
 from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
@@ -81,6 +81,14 @@ STRIPE_ACCOUNT_SETTING = "stripe_account"
 STRIPE_PENDING_SETTING = "stripe_account_pending"
 STRIPE_TOKEN_SETTING = "stripe_account_token"
 CARD_MINIMUM_USD = 0.5
+
+
+def _usd(amount: float) -> str:
+    """Format dollars as the desktop does (CLI-018): two to six decimals, zeros trimmed."""
+    whole, _, cents = f"{amount:.6f}".partition(".")
+    return f"${whole}.{cents.rstrip('0').ljust(2, '0')}"
+
+
 # Reads the app repeats every minute (CLI-016): one failing says the store is out of
 # reach, not that a command the owner ran broke, so it is never a `cli.failed`.
 POLLED_READS = {("node", "sales"), ("node", "views")}
@@ -530,9 +538,14 @@ def parser() -> argparse.ArgumentParser:
     node_views.add_argument("--json", action="store_true")
     node_secret = node_commands.add_parser(
         "secret",
-        help="vault a Coinbase credential on the node; the value is read from stdin",
+        help="vault a node credential (Coinbase or answer-provider); the value is "
+        "asked for without echo in a terminal, else read from stdin",
     )
     node_secret.add_argument("name", choices=deploy_module.SECRETS)
+    node_secrets = node_commands.add_parser(
+        "secrets", help="the names of the secrets vaulted on the node, never values"
+    )
+    node_secrets.add_argument("--json", action="store_true")
     node_accounts = node_commands.add_parser(
         "accounts", help="the Cloudflare accounts your sign-in can put the store on"
     )
@@ -844,7 +857,9 @@ def main(argv: list[str] | None = None) -> int:
                 return deployed
             if args.node_command == "secret":
                 _owner_action("storing a node secret")
-                return deploy_module.secret(args.name, sys.stdin.read().strip())
+                return deploy_module.secret(args.name, _secret_value(args.name))
+            if args.node_command == "secrets":
+                return secret_names(args.json)
             if args.node_command == "host":
                 return host_store()
             if args.node_command == "login":
@@ -1622,12 +1637,12 @@ def sales(as_json: bool) -> int:
     given = len(rows) - len(paid)
     total = sum(row.price_usd for row in paid)
     free = f" · {given} free {'copy' if given == 1 else 'copies'}" if given else ""
-    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · ${total:.2f}{free}")
+    heading(f"{len(paid)} sale{'s' if len(paid) != 1 else ''} · {_usd(total)}{free}")
     for row in rows:
         to = f" to {row.payer}" if row.payer else ""
         owed = f"  (refund owed{to})" if row.refund_owed else ""
         free_copy = row.network == deploy_module.FREE_NETWORK
-        amount = "  free" if free_copy else f"${row.price_usd:.2f}"
+        amount = "  free" if free_copy else _usd(row.price_usd)
         print(f"  {row.sold_at[:10]}  {amount}  {row.title}{owed}")
     return 0
 
@@ -1643,6 +1658,27 @@ def views(as_json: bool) -> int:
         print(f"  {row.views:>6}  {titles.get(row.item_id, row.item_id)}")
     if not rows:
         muted("No page views yet.")
+    return 0
+
+
+def _secret_value(name: str) -> str:
+    """A typed secret is never echoed; a piped or desktop one is read as given."""
+    if sys.stdin.isatty():
+        import getpass
+
+        return getpass.getpass(f"{name}: ").strip()
+    return sys.stdin.read().strip()
+
+
+def secret_names(as_json: bool) -> int:
+    names = deploy_module.secret_names()
+    if as_json:
+        print(json.dumps(names))
+        return 0
+    for name in names:
+        print(f"  {name}")
+    if not names:
+        muted("No secrets on the node yet.")
     return 0
 
 
@@ -1678,8 +1714,14 @@ def status() -> int:
     print(
         f"  {counts['private']} private · {counts['discarded']} discarded · "
         f"{published} active publication{'' if published == 1 else 's'}"
-        # Approved is not usable outside this Mac until the store sells (XC-069).
-        + ("" if node_url and not node_selling else " (externally usable)")
+        # Approved is not usable outside this Mac until the store sells (XC-069),
+        # and a local count never says what the node holds (MON-022): only
+        # `desktop-state` asks the node, so this label must not claim liveness.
+        + (
+            ""
+            if node_url and not node_selling
+            else " (approved on this Mac; `lore desktop-state` shows what is live)"
+        )
     )
     if stale:
         muted(
@@ -1695,13 +1737,13 @@ def status() -> int:
         print(f"  {marker} {source.label:<14} {sources.get(source.name, 0)} imported")
     print(f"\nDatabase: {database_path}")
     print(
-        f"Publication price: {'not set' if publication_price is None else f'${publication_price:.2f}'}"
+        f"Publication price: {_usd(publication_price) if isinstance(publication_price, (int, float)) else 'not set'}"
     )
     print(f"Free copies: {free} per piece")
     print(
         "Answer tier: "
         + (
-            f"enabled (${answer_settings.answer_price_usd:.2f} per answer)"
+            f"enabled ({_usd(answer_settings.answer_price_usd)} per answer)"
             if answer_settings.answer_enabled
             else "disabled"
         )
@@ -1734,7 +1776,11 @@ def price(amount: float | None) -> int:
     with Store() as store:
         if amount is None:
             current = store.setting("price_usd", None)
-            print("not set" if current is None else f"${current:.2f} per publication")
+            print(
+                f"{_usd(current)} per publication"
+                if isinstance(current, (int, float))
+                else "not set"
+            )
             return 0
         if not math.isfinite(amount) or amount < 0:
             raise ValueError("price must be a finite, non-negative number")
@@ -1743,12 +1789,13 @@ def price(amount: float | None) -> int:
                 f"Cards can't be charged less than ${CARD_MINIMUM_USD:.2f}. "
                 "Keep the price there, or stop taking cards first: lore cards off"
             )
-        store.set_setting("price_usd", round(amount, 6))
+        stored = round(amount, 6)
+        store.set_setting("price_usd", stored)
         on_sale = deploy_module.selling(store)
     success(
         "Publications are free"
-        if amount == 0
-        else f"Publication price set to ${amount:.2f}"
+        if stored == 0
+        else f"Publication price set to {_usd(stored)}"
     )
     if on_sale:
         # The deployed Worker charges the price baked in at deploy time; a
@@ -1832,7 +1879,7 @@ def answer_enable(path: str, price: float) -> int:
                 answer_enabled=True,
             )
         )
-    success(f"Answer tier enabled at ${price:.2f} per answer")
+    success(f"Answer tier enabled at {_usd(round(price, 6))} per answer")
     muted("Ship it with `lore push`.")
     return 0
 
@@ -2607,19 +2654,30 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
-        # Every push, since it replaces this table: without them agents can't save.
-        **(inbox or {}),
         # XC-069: the owner's choice, when there is one. A store from before it
         # sends no key, and its node sells as it always did.
         **({} if selling is None else {"selling": "true" if selling else "false"}),
     }
+    # CAP-039: every setting is replaced except the store's inbox key, which belongs
+    # to the Mac holding its private half. This Mac's key goes in only when the store
+    # has none yet, so a push from a Mac with no key, or another one, keeps the key
+    # every waiting save is sealed to.
+    inbox_keys = ", ".join(quote(key) for key in INBOX_SETTINGS)
     statements.extend(
         [
-            "DROP TABLE IF EXISTS node_settings;",
-            "CREATE TABLE node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            "CREATE TABLE IF NOT EXISTS node_settings "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            f"DELETE FROM node_settings WHERE key NOT IN ({inbox_keys});",
             *(
                 f"INSERT INTO node_settings(key,value) VALUES ({quote(key)},{quote(value)});"
                 for key, value in settings.items()
+            ),
+            *(
+                "INSERT OR REPLACE INTO node_settings(key,value) "
+                f"SELECT {quote(key)},{quote(inbox[key])} WHERE NOT EXISTS (SELECT 1 "
+                "FROM node_settings WHERE key = 'inbox_public_key');"
+                for key in INBOX_SETTINGS
+                if inbox and key in inbox
             ),
         ]
     )

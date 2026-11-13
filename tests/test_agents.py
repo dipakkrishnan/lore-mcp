@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sqlite3
 import subprocess
 from contextlib import redirect_stderr
@@ -17,7 +18,7 @@ from helpers import NodeCase, captured
 
 from lore import automation, cli
 from lore.agents import EXPIRED, Agents
-from lore.inbox import Inbox, InboxError
+from lore.inbox import Credentials, Inbox, InboxError, Keys, _encode
 from lore.snapshot import build
 from lore.sources import Connector, Registry
 from lore.store import Store
@@ -388,6 +389,67 @@ class ReadTest(AgentCase):
         self.assertEqual((read["errors"], read["added"]), (1, 0))
         self.assertEqual(self.json("agents", "waiting")["waiting"], 1)
 
+    def seed(self, count: int, *, opens: bool, at: str, start: int = 0) -> None:
+        """Waiting saves put straight into the node's D1, past the stand-in's per-call
+        and per-hour limits: sealed to this Mac's key, or to one it doesn't hold."""
+        import secrets as secrets_module
+
+        from fixtures.inbox import decode, seal
+
+        public = (
+            decode(Inbox().settings()["inbox_public_key"])
+            if opens
+            else secrets_module.token_bytes(32)
+        )
+        agent = self.source.removeprefix("agent-")
+        with sqlite3.connect(self.d1.path) as db:
+            for n in range(start, start + count):
+                item = f"seed-{n:05d}"
+                payload = json.dumps(
+                    {"title": f"Seed {n}", "content": f"Seeded save {n}.", "key": item}
+                )
+                db.execute(
+                    "INSERT INTO inbox(id,agent,key_hash,state,sealed,saved_at) "
+                    "VALUES (?,?,?,'waiting',?,?)",
+                    (
+                        item,
+                        agent,
+                        f"hash-{n}",
+                        seal(public, item, payload.encode()),
+                        at,
+                    ),
+                )
+
+    def kept(self) -> int:
+        with Store() as store:
+            return len(
+                store.search("", status="private", limit=10_000, source=self.source)
+            )
+
+    def test_saves_that_will_not_open_never_hide_a_newer_one(self) -> None:
+        """CAP-038: 200 stuck saves, all older and sharing one saved_at, don't jam the
+        collect."""
+        self.seed(200, opens=False, at="2026-01-01T00:00:00.000Z")
+        self.seed(1, opens=True, at="2026-01-02T00:00:00.000Z", start=200)
+        read = self.read()
+        self.assertEqual((read["errors"], read["added"]), (200, 1))
+        self.assertEqual(set(self.memories(self.source)), {"Seed 200"})
+
+    def test_one_read_brings_in_every_waiting_save(self) -> None:
+        self.seed(450, opens=True, at="2026-01-01T00:00:00.000Z")
+        self.wrangler.reset_mock()
+        read = self.read()
+        self.assertEqual((read["added"], read["errors"]), (450, 0))
+        self.assertEqual(self.kept(), 450)
+        self.assertEqual(self.json("agents", "waiting")["waiting"], 0)
+
+    def test_keeping_a_disconnected_agents_memories_keeps_every_waiting_save(
+        self,
+    ) -> None:
+        self.seed(250, opens=True, at="2026-01-01T00:00:00.000Z")
+        self.json("agents", "revoke", self.source, "--keep")
+        self.assertEqual(self.kept(), 250)
+
     def test_a_new_key_hands_over_the_count_that_only_its_own_saves_raise(
         self,
     ) -> None:
@@ -642,12 +704,152 @@ class PushTest(AgentCase):
             len(self.save(handed["key"], {"title": "B", "content": "b"})["saved"]), 1
         )
 
+    def push(self) -> dict[str, str]:
+        """Push from this Mac, then what the store's node_settings say."""
+        worker = self.store
+        (worker / "wrangler.jsonc").write_text("{}\n")
+        with captured():
+            self.assertEqual(cli.push_job(worker, False), 0)
+        db = sqlite3.connect(self.d1.path)
+        return dict(db.execute("SELECT key, value FROM node_settings").fetchall())
+
     def test_a_push_before_any_agent_carries_no_keys(self) -> None:
+        """CAP-039: a Mac with no inbox keys leaves the store's key as it was."""
         with Store() as store:
             answer = store.answer_settings()
+        script = cli._push_sql([], answer, "", inbox=Inbox().settings())
         self.assertNotIn(
-            "inbox_", cli._push_sql([], answer, "", inbox=Inbox().settings())
+            "INSERT OR REPLACE INTO node_settings(key,value) SELECT", script
         )
+        self.assertNotIn("DROP TABLE IF EXISTS node_settings", script)
+        self.connect()
+        before = self.push()
+        self.keyring.saved.clear()
+        after = self.push()
+        self.assertEqual(
+            {k: after[k] for k in ("inbox_public_key", "inbox_salt")},
+            {k: before[k] for k in ("inbox_public_key", "inbox_salt")},
+        )
+
+    def test_a_push_from_a_mac_with_another_key_keeps_the_stores_key(self) -> None:
+        self.connect()
+        before = self.push()
+        other = Keys(private_key=_encode(os.urandom(32)), salt=_encode(os.urandom(32)))
+        Credentials().save(other)
+        after = self.push()
+        self.assertEqual(after["inbox_public_key"], before["inbox_public_key"])
+        self.assertEqual(after["inbox_salt"], before["inbox_salt"])
+        self.assertNotEqual(after["inbox_public_key"], other.public_key)
+
+    def test_a_push_to_a_store_with_no_key_yet_writes_this_macs(self) -> None:
+        self.connect()
+        with sqlite3.connect(self.d1.path) as db:
+            db.execute("DELETE FROM node_settings WHERE key LIKE 'inbox_%'")
+            db.execute("INSERT INTO node_settings VALUES ('inbox_salt', 'stale')")
+        after = self.push()
+        self.assertEqual(
+            {k: after[k] for k in ("inbox_public_key", "inbox_salt")},
+            Inbox().settings(),
+        )
+
+    def test_a_push_still_replaces_every_other_setting(self) -> None:
+        self.connect()
+        with sqlite3.connect(self.d1.path) as db:
+            db.execute("INSERT INTO node_settings VALUES ('left_behind', 'x')")
+        after = self.push()
+        self.assertNotIn("left_behind", after)
+        self.assertIn("listed_name", after)
+
+
+class StoreKeyTest(AgentCase):
+    """CAP-039: a Mac that doesn't hold the store's inbox key never changes it."""
+
+    def settings(self) -> dict[str, str]:
+        db = sqlite3.connect(self.d1.path)
+        return dict(db.execute("SELECT key, value FROM node_settings").fetchall())
+
+    def refused(self, *argv: str) -> str:
+        with captured(), patch("sys.stderr") as err:
+            self.assertEqual(cli.main([*argv, "--json"]), 2)
+        return "".join(call.args[0] for call in err.write.call_args_list)
+
+    def held_elsewhere(self, other_key: bool) -> dict[str, str]:
+        """A store whose key another Mac made; this Mac holds none, or its own."""
+        self.connect()
+        self.keyring.saved.clear()
+        if other_key:
+            Credentials().save(
+                Keys(private_key=_encode(os.urandom(32)), salt=_encode(os.urandom(32)))
+            )
+        return self.settings()
+
+    def connect_is_refused(self, other_key: bool) -> None:
+        before = self.held_elsewhere(other_key)
+        keychain = dict(self.keyring.saved)
+        said = self.refused("agents", "connect", "Claude", "--app", "claude")
+        self.assertIn("sealed to another Mac's key", said)
+        self.assertEqual(self.settings(), before)
+        self.assertEqual(self.keyring.saved, keychain, "no key made here")
+        db = sqlite3.connect(self.d1.path)
+        self.assertEqual(db.execute("SELECT count(*) FROM agents").fetchone()[0], 1)
+
+    def test_connect_from_a_mac_with_no_key_is_refused(self) -> None:
+        self.connect_is_refused(other_key=False)
+
+    def test_connect_from_a_mac_with_another_key_is_refused(self) -> None:
+        self.connect_is_refused(other_key=True)
+
+    def allow_is_refused(self, other_key: bool) -> None:
+        before = self.held_elsewhere(other_key)
+        keychain = dict(self.keyring.saved)
+        self.json("agents", "address")
+        sign_in, _ = self.d1.ask("Claude")
+        said = self.refused("agents", "allow", sign_in)
+        self.assertIn("sealed to another Mac's key", said)
+        self.assertEqual(self.settings(), before)
+        self.assertEqual(self.keyring.saved, keychain, "no key made here")
+        self.assertEqual(self.d1.sign_in(sign_in)["state"], "pending")
+
+    def test_allowing_a_sign_in_from_a_mac_with_no_key_is_refused(self) -> None:
+        self.allow_is_refused(other_key=False)
+
+    def test_allowing_a_sign_in_from_a_mac_with_another_key_is_refused(self) -> None:
+        self.allow_is_refused(other_key=True)
+
+    def test_the_first_connect_gives_the_store_a_key_and_a_match_connects(
+        self,
+    ) -> None:
+        self.connect()  # a fresh node: no node_settings at all yet
+        first = self.settings()
+        self.assertEqual(
+            {k: first[k] for k in ("inbox_public_key", "inbox_salt")},
+            Inbox().settings(),
+        )
+        self.connect("Claude", "claude")
+        self.assertEqual(self.settings(), first)
+        self.assertEqual(len(self.json("agents", "list")["agents"]), 2)
+
+    def test_a_store_written_with_the_key_after_the_check_is_not_replaced(
+        self,
+    ) -> None:
+        """The write is guarded too, in case another Mac connects in between."""
+        original = Inbox._results
+
+        def racing(query: str, fail: str):  # type: ignore[no-untyped-def]
+            if "INSERT OR REPLACE INTO node_settings" in query:
+                with sqlite3.connect(self.d1.path) as db:
+                    db.execute(
+                        "INSERT OR REPLACE INTO node_settings VALUES "
+                        "('inbox_public_key', 'theirs')"
+                    )
+            return original(query, fail)
+
+        with patch.object(Inbox, "_results", side_effect=racing):
+            code, _ = self.lore("agents", "connect", "Grok", "--app", "grok", "--json")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.settings()["inbox_public_key"], "theirs")
+        db = sqlite3.connect(self.d1.path)
+        self.assertEqual(db.execute("SELECT count(*) FROM agents").fetchone()[0], 0)
 
 
 class SignInTest(AgentCase):

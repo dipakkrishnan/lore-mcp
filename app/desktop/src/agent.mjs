@@ -436,7 +436,16 @@ export function validEntries(value) {
     && typeof item.title === "string" && item.title.trim() !== "" && item.title.length <= 200
     && typeof item.content === "string" && item.content.trim() !== "" && item.content.length <= 20_000
     && (item.project === undefined || (typeof item.project === "string" && item.project.length <= 200))
-    && (item.source_path === undefined || (typeof item.source_path === "string" && item.source_path.length <= 1_000)));
+    && (item.source_path === undefined || (typeof item.source_path === "string" && item.source_path.length <= 1_000))
+    && (item.related === undefined || (Array.isArray(item.related) && item.related.length <= 20 && item.related.every(validLink))));
+}
+
+/** A link a memory card keeps (CAP-002): an earlier memory's id, its title for the card, and the one-sentence reason. @param {unknown} link */
+function validLink(link) {
+  if (!link || typeof link !== "object") return false;
+  const { id, title, reason } = /** @type {Record<string, unknown>} */ (link);
+  return Number.isInteger(id) && typeof reason === "string" && reason.trim() !== "" && reason.length <= 300
+    && (title === undefined || (typeof title === "string" && title.length <= 200));
 }
 
 /** The parsed JSON of a finished tool result, or null for an error, a non-text result, or an old malformed one. @param {import("@earendil-works/pi-ai").ToolResultMessage} message @returns {Record<string, any> | null} */
@@ -1107,13 +1116,19 @@ export class LoreAgent {
       title: Type.String({ minLength: 1, maxLength: 200 }),
       content: Type.String({ minLength: 1, maxLength: 20_000 }),
       project: Type.Optional(Type.String({ maxLength: 200 })),
-      source_path: Type.Optional(Type.String({ maxLength: 1_000 }))
+      source_path: Type.Optional(Type.String({ maxLength: 1_000 })),
+      // CAP-002: the earlier memories this one grows out of, which the owner can strike on the card.
+      related: Type.Optional(Type.Array(Type.Object({
+        id: Type.Integer(),
+        title: Type.Optional(Type.String({ maxLength: 200 })),
+        reason: Type.String({ minLength: 1, maxLength: 300 })
+      }), { maxItems: 20 }))
     });
     return defineTool({
       name: "propose_memories",
       executionMode: "sequential",
       label: "Propose memories",
-      description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
+      description: "Show one to five exact memory drafts for the owner to edit, keep, or drop. An entry may name earlier memories it grows out of in `related`, each with the memory's id and title as you read them and one sentence saying how they connect; the owner can strike a link. Keeping saves them privately and returns the saved memories; a correction returns the owner's words for you to revise and propose again.",
       parameters: Type.Object({ entries: Type.Array(entry, { minItems: 1, maxItems: 5 }) }),
       execute: async (_id, { entries }) => {
         const outcome = await this.#attended("Review the capture", () => this.options.proposeMemories(entries));

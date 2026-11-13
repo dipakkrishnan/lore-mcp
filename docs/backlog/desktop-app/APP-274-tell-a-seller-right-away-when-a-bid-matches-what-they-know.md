@@ -1,16 +1,16 @@
 ---
 id: APP-274
 title: Tell a seller right away when a bid matches what they know
-priority: P0
+priority: P1
 effort: L
 component: desktop-app
-status: in-progress
+status: in-review
 related: [MON-051, CAP-036, XC-114, MON-056]
 blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-11-01
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -43,3 +43,15 @@ against the kept memories on the Mac (contracts/bids.md, "Matching on the seller
 snapshot carries `bidMatches`, and `bids:draft` drafts the answer, with no tools and only the matched
 memories, as a piece tied to the bid.
 The Inbox (a later PR) shows them. Sending without the admin token is MON-056.
+
+**Backlog audit (2026-11-12), moved to in-review:** Local matching, the
+notification and drafting landed in PRs #633 and #642 and are tested.
+Sending the answer to the bid is MON-056's work, which has not started, and
+nothing has moved here since 2026-11-02. Back to in-review to move criterion
+3 to MON-056, and to decide whether "drafted reply" means drafted on request
+(as built) or ahead of time; then close.
+
+**Prioritization (2026-11-12):** Priority P1 (was P0). Stays in-review.
+Before it can be ready: Move criterion 3 to MON-056, record that "drafted
+reply" means drafted when the owner asks, then close. Prioritization flag
+(not acted on): done except criterion 3.

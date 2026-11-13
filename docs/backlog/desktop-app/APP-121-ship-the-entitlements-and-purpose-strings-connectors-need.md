@@ -1,16 +1,16 @@
 ---
 id: APP-121
 title: Ship the entitlements and purpose strings connectors need
-priority: P1
-effort: S
+priority: P2
+effort: XS
 component: desktop-app
-status: in-progress
+status: in-review
 related: [CAP-004, CAP-007, APP-005, APP-120]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-17
-updated: 2026-09-17
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -60,3 +60,18 @@ nothing in Lore asks for them) wired through `osxSign.optionsForFile`, and
 the four purpose strings in `extendInfo`. The README carries the two
 post-build checks. The first three criteria need the next signed build,
 which is Dipak's step, so the item stays in progress until he runs it.
+
+**Backlog audit (2026-11-12), moved to in-review:** Release v0.1.25 is
+notarized and ships the Apple Events entitlement and all four purpose
+strings, so the signed-build step this item waited on has happened; criteria
+1, 2 and 4 are met. The one open box is watching macOS show "Lore wants to
+control Notes" from the notarized app, a manual check, which in practice
+will happen when CAP-007's Notes read first runs. Unrelated stale text:
+app/desktop/README.md still says "Signing is wired but inert", though
+releases are signed.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Close it and fold the manual "Lore
+wants to control Notes" check into CAP-007's first run (this unblocks
+CAP-007). Fix the stale "Signing is wired but inert" line in
+app/desktop/README.md. Prioritization flag (not acted on): done.

@@ -1,16 +1,16 @@
 ---
 id: CAP-002
 title: Store links between memories at capture time
-priority: P2
+priority: P3
 effort: M
 component: capture
-status: in-review
+status: completed
 related: [CAP-001, APP-108, APP-042, APP-001]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -48,11 +48,11 @@ items once the stored shape exists.
 
 ## Acceptance criteria
 
-- [ ] A capture entry with a valid `related` list writes the memory and its links atomically; an invalid id, a discarded target, or a self-link rejects the whole entry with a message that names the bad link.
-- [ ] `lore capture apply` without `related` behaves exactly as today.
-- [ ] Discarding a memory removes its links in both directions.
-- [ ] The snapshot lists each memory's links with reasons in both directions.
-- [ ] The capture skill's proposal card shows candidate links and lets the owner strike one before approving.
+- [x] A capture entry with a valid `related` list writes the memory and its links atomically; an invalid id, a discarded target, or a self-link rejects the whole entry with a message that names the bad link.
+- [x] `lore capture apply` without `related` behaves exactly as today.
+- [x] Discarding a memory removes its links in both directions.
+- [x] The snapshot lists each memory's links with reasons in both directions.
+- [x] The capture skill's proposal card shows candidate links and lets the owner strike one before approving.
 
 ## Notes
 
@@ -63,3 +63,34 @@ not readable, and the sentence is what the agent already has when it
 proposes the link.
 
 **Review 2026-10-19:** not completed. Not done. No `related` field, link table or snapshot links exist in lore/capture.py, store.py, snapshot.py or the lore-capture skill. All 5 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):**
+
+- **Store** (`lore/store.py`): a `memory_links` table (`from_id`, `to_id`,
+  `reason`, `created_at`; one direction stored). Two triggers drop a
+  memory's links in both directions when it is deleted or discarded, on every
+  path that does either. `Store.links()` and `links_of()` read both
+  directions with the other memory's title. `memory_inventory` carries
+  `links`, so `desktop-state` lists them per memory (`MemoryItem.links` in
+  `types.d.ts`).
+- **Capture** (`lore/capture.py`): an entry takes an optional
+  `related: [{id, reason, title?}]`. `title` is only what the card showed;
+  the link reads the memory's own title. Before writing anything, `save`
+  checks every link in the batch: the target must exist and be private, and
+  must not be the memory the entry would update. A bad link refuses the whole
+  batch and names it.
+  - Each memory's links are written right after it. `put` commits on its
+    own, so atomicity rests on checking every link first.
+- **Desktop**: `propose_memories` takes `related`, and `validEntries` checks
+  it. The memory card lists each link ("Grows out of <title> · <reason>")
+  with a quiet Remove, and saves only the links the owner left. Tests are in
+  `test/unit/renderer-memory-links.test.cjs` and `agent.test.cjs`.
+- **Skill**: the `lore-capture` skill proposes links on the same card and
+  documents `related`.
+- **Design review**: the `seller` walk shoots `memory-links` and
+  `memory-links-dark`. Each link is one line with right-aligned meta and a
+  quiet action, using tokens only. Remove is always shown, not on hover,
+  matching the card's existing Drop.

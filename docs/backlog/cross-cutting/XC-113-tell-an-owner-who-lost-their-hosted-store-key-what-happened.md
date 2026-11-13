@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -80,3 +80,8 @@ contract says a Mac with a `node_url` never uses the hosted store; `Hosted.of` a
 
 A claim gets 409 from another key; every other signed call gets the 401 above, per
 `verify` in `lore/node/src/hosted/owner.ts`.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Decide the node_url-plus-lost-key outcome (code and
+contracts/hosted-inbox.md disagree), and name the Connectors next-step UI in
+post-redesign terms.

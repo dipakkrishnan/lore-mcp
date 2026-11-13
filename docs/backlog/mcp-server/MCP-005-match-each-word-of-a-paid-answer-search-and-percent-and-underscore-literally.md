@@ -4,13 +4,13 @@ title: Match each word of a paid-answer search, and % and _ literally
 priority: P2
 effort: S
 component: mcp-server
-status: in-review
+status: completed
 related: [MCP-003, MCP-004, EVAL-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-16
-updated: 2026-10-16
+updated: 2026-11-11
 ---
 
 ## Problem
@@ -47,20 +47,20 @@ splitting answers `[]` without querying the database.
 
 ## Acceptance criteria
 
-- [ ] `tiers pricing` and `pricing plan` both find a piece whose content is
+- [x] `tiers pricing` and `pricing plan` both find a piece whose content is
       "pricing tiers for a 100% café plan". Both miss today.
-- [ ] `100%` finds a piece containing `100%`, and does not find one containing
+- [x] `100%` finds a piece containing `100%`, and does not find one containing
       only `100 x`.
-- [ ] `a_b` finds a piece containing `a_b`, and does not find one containing
+- [x] `a_b` finds a piece containing `a_b`, and does not find one containing
       only `axb`.
-- [ ] A query containing a backslash, including a trailing one, finds a piece
+- [x] A query containing a backslash, including a trailing one, finds a piece
       containing that literal text and does not throw.
-- [ ] A piece missing one of the terms from every field is not returned (AND
+- [x] A piece missing one of the terms from every field is not returned (AND
       across terms), even when it matches the others.
-- [ ] Terms beyond the term cap, and characters beyond the term-length cap,
+- [x] Terms beyond the term cap, and characters beyond the term-length cap,
       are ignored. Each cap has a test.
-- [ ] A whitespace-only query answers `[]`.
-- [ ] The existing Worker suite (`npm test` in `lore/node/`) passes, including
+- [x] A whitespace-only query answers `[]`.
+- [x] The existing Worker suite (`npm test` in `lore/node/`) passes, including
       the `memory_search` tests PR #468 adds if that PR has merged.
 
 ## Notes
@@ -79,3 +79,23 @@ splitting answers `[]` without querying the database.
   buyer.
 - Without an `ORDER BY`, which 8 rows come back from a large match is
   arbitrary. Ranking results is out of scope here.
+
+**Prioritization pass 2026-11-11:** Promoted `in-review` → `ready`: no blockers, every criterion is a concrete query/result pair. The non-ASCII case-folding question is explicitly out of scope.
+
+**Implemented 2026-11-11:**
+- The term-length cap is D1's LIKE pattern limit, not a character count.
+  D1 rejects a pattern over 50 bytes with "LIKE or GLOB pattern too
+  complex", so a 64-character cap threw. `searchTerms` keeps the longest
+  prefix of each word, cut at whole code points, whose escaped `%…%`
+  pattern fits in `MAX_PATTERN_BYTES = 50`. That is 48 ASCII letters, 24
+  `%`/`_`/`\` characters, or 12 four-byte emoji. Before this change a
+  query over 48 bytes made `memory_search` throw. Now it never throws.
+- The term cap is `MAX_SEARCH_TERMS = 8`. Words after the eighth are
+  dropped.
+- The test "treats % and _ in the query as plain spaces, not wildcards"
+  is renamed to "matches % and _ literally". Its assertions are unchanged.
+- The tool description now says "Every word must appear; word order does
+  not matter." This tells the agent to retry with fewer words when a
+  search finds nothing.
+- `insertPublication` in the test takes a teaser, which defaults to a
+  non-empty one, so these fixtures already have one when MCP-004 lands.

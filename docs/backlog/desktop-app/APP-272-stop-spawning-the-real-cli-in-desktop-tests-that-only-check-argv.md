@@ -1,16 +1,16 @@
 ---
 id: APP-272
 title: Stop spawning the real CLI in desktop tests that only check argv
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-248, STO-006, XC-097]
 blockers: [XC-097]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -116,3 +116,16 @@ sandbox tests as component tests, darwin-gated as today.
   XC-107), locally: unit 342 tests (main's new ones included) in 2.4 s,
   component 54 tests in 21.3 s; `npm run check` clean. `ipc.cjs` takes its
   CLI bridge as a parameter and needed no change here.
+
+**Backlog audit (2026-11-12), moved to in-review:** PR #676 did everything
+this item's approach covers. The 30 s `npm test` target is still missed
+(unit about 14-28 s plus component about 35-71 s on today's runs), because
+the darwin-gated sandbox tests dominate the component tier, and those are
+out of this item's scope by its own approach. Back to in-review to decide
+whether to drop the target (XC-107 now reports each tier's time) or file a
+separate item to split sandbox.test.cjs, then close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Drop the 30 s target (XC-107 reports tier times) or
+file a separate item to split sandbox.test.cjs, then close. Prioritization
+flag (not acted on): done: #676.

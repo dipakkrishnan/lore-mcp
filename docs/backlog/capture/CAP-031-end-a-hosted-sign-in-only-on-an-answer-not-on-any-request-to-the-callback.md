@@ -4,13 +4,13 @@ title: End a hosted sign-in only on an answer, not on any request to the callbac
 priority: P2
 effort: XS
 component: capture
-status: in-review
+status: completed
 related: [CAP-009, CAP-030, APP-120]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-12
-updated: 2026-10-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -38,14 +38,14 @@ either landing sentence, and keep waiting.
 
 All in tests on loopback only, with `Loopback.wait` patched short.
 
-- [ ] `GET /callback` with no query, with a query that has neither `code`
+- [x] `GET /callback` with no query, with a query that has neither `code`
       nor `error`, and with `code=` or `error=` left blank, each get a 400
       whose body contains neither landing sentence, and none ends the wait.
-- [ ] A `/callback?code=…&state=…` request sent after one of those gets the
+- [x] A `/callback?code=…&state=…` request sent after one of those gets the
       "Lore is connected" page, and `callback()` returns that code and state.
-- [ ] `/callback?error=access_denied` still ends the wait at once with the
+- [x] `/callback?error=access_denied` still ends the wait at once with the
       "Lore was not let in" page and `OAuthFlowError("access_denied")`.
-- [ ] With only such empty requests and no answer, `callback()` raises
+- [x] With only such empty requests and no answer, `callback()` raises
       `OAuthFlowError("no answer from the browser")` when the wait ends.
 
 ## Notes
@@ -91,3 +91,20 @@ sign-in its own sentence by matching the message "no answer from the
 browser". Today an empty callback request raises that same message at once,
 so it would be reported as a timeout; with this item done that message
 again means only that the time ran out.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `_Landing.do_GET` (`lore/signin.py`) takes
+a `/callback` request as the answer only when its query has a non-empty `code`
+or `error`. Any other `/callback` request gets a 400, with neither landing
+sentence, and the wait goes on. CAP-030 (merged first) keeps such requests
+from restarting the clock. Two new tests in `LoopbackDeadlineTest`
+(`tests/test_hosted.py`):
+
+- seven empty spellings each get a 400, then a real callback lands;
+- only empty callbacks end, when the time runs out, as "no answer from the
+  browser".
+
+The refusal test from CAP-030 still covers `error=access_denied`. Still open,
+as the Notes above say: a made-up code with the wrong `state` ends the wait.

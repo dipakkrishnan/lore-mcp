@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -59,3 +59,7 @@ already has `source`, `origin`, `project`, `status`, `created_at`, and
 `updated_at`; this is a rendering item until `APP-108` adds connections.
 
 **Review 2026-10-19:** not completed. Not done. The memory sheet has no labelled property rows, project row, status row or in-place project edit. All 4 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: Re-check against the APP-281/282 memory page, which already shows
+a marks, source and date line; restate which properties are still missing.

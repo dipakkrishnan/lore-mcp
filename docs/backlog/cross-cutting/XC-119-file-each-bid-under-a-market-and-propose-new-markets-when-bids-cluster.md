@@ -2,7 +2,7 @@
 id: XC-119
 title: File each bid under a market, and propose new markets when bids cluster
 priority: P2
-effort: S
+effort: M
 component: cross-cutting
 status: in-review
 related: [XC-074, MON-051, XC-114]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -32,3 +32,11 @@ market to open next.
 
 - [ ] Every bid has a market or "Unsorted" within a minute of being placed.
 - [ ] Three similar Unsorted bids produce one proposed-market PR naming the bids behind it.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P2, effort M (was S). Stays in-
+review. Before it can be ready: Specify where the classifier runs, which
+model and credentials, who opens the proposed-market PR on lore-marketplace
+and with which token, and square "Unsorted" with the board's current show-
+none choice.

@@ -1,7 +1,7 @@
 ---
 id: APP-108
 title: Show which memories a memory connects to
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: [CAP-002]
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -69,3 +69,7 @@ produced from a selection is a natural place to write links from the result
 back to its sources.
 
 **Review 2026-10-19:** not completed. Not done. No links field or Related section exists, and `lore/store.py` has no link column (a CAP-002 prerequisite). All 4 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Add CAP-002 to blockers, and point the render half
+at the redesigned memory page, not the memory sheet.

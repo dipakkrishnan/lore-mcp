@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -70,3 +70,10 @@ that item shipped and merged (#160), but closing its last two acceptance
 criteria needs exactly the credentials this item provisions, which is
 inherently a by-hand, off-repository action rather than something
 `implementation` can do. `MON-008` stays `in-review` until this closes.
+
+**Backlog audit (2026-11-12), left ready:** The qa Environment exists but
+holds neither CLOUDFLARE_API_TOKEN nor QA_PAYOUT_ADDRESS, every Deploy QA
+run on main skips, and node-url.txt was never written. All the remaining
+work is a repository-admin and Cloudflare-account step plus a funded Base
+Sepolia buyer wallet, which no agent can do. It is still the gate for
+MON-008, XC-008 and EVAL-002.

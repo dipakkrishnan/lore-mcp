@@ -1,7 +1,7 @@
 ---
 id: APP-117
 title: Show what people like the owner sell when there is nothing to sell yet
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,3 +49,9 @@ Zane's "67% quality" rating is `XC-032`; this item is the reference picture,
 that one is the per-draft check.
 
 **Review 2026-10-19:** not completed. Not done. The empty For Sale shelf is still a plain empty state; no persona-matched or general examples.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Name the target view (Inventory's sale shelf), who
+writes the 6-9 curated examples and where they live, and whether this is
+still wanted alongside the bids board. Prioritization flag (not acted on):
+possibly obsolete (bids board).

@@ -4,13 +4,13 @@ title: Confirm store changes before they go out
 priority: P1
 effort: M
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-227, APP-130, XC-069]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -43,3 +43,10 @@ asks it to, so every update goes through the card.
 
 The card is a sheet, so it works from any tab, including from the assistant's
 thread.
+
+**Backlog audit (2026-11-12), closed as completed:** Verified on main: every
+store update that puts pieces out or changes price, network, payout or
+address goes through the Outgoing gate in state.cjs, and the owner's card
+lists each change; only take-downs and empty updates skip it. The unit tests
+(store.test.cjs, 26 passing) and the edge-walk checks are in place, so the
+item closes as completed via #499.

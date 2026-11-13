@@ -1,16 +1,16 @@
 ---
 id: APP-036
 title: Guide Cloudflare and wallet setup inside Desktop
-priority: P1
-effort: M
+priority: P3
+effort: L
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-004, APP-005, APP-006, APP-030, MON-006, XC-005]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-25
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -65,3 +65,14 @@ this ticket owns the deeper first-time deployment guidance. Implement the first
 real dogfood break, not every possible Cloudflare or wallet workflow.
 
 **Prioritization pass 2026-08-26:** No blockers, scope explicitly excludes a general browser/shell bridge. Promoted `in-review` → `ready`.
+
+**Prioritization pass 2026-11-11:** Effort M → L: six criteria spanning new typed runtime actions, a Cloudflare and Coinbase conversation harness with resume and failure branches, and checkpointed cancellation is more than two days of work.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Moved back from ready
+to in-review. Before it can be ready: Criterion 1 walks the owner through
+funding a Base Sepolia buyer wallet, which MON-025's real-money store
+contradicts, and most of the hand-holding shipped elsewhere (APP-056,
+APP-057, in-app Cloudflare sign-in, bundled Node, card payout). Mark
+obsolete, or narrow to a named remaining break from a real-money first
+deploy; APP-180 and XC-059 own the form-based open-store flow.
+Prioritization flag (not acted on): obsolete (likely).

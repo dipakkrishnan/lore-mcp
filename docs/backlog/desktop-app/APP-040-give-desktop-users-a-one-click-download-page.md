@@ -1,8 +1,8 @@
 ---
 id: APP-040
 title: Give desktop users a one-click download page
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-005]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/175
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -42,3 +42,9 @@ The zip is far over Cloudflare's 25 MiB asset cap, so the binary stays on
 GitHub Releases; the Worker hosts only the page.
 
 **Review 2026-10-19:** not completed. Download link and releases fallback ship (a3b5308). Unmet: the link serving the current notarized zip; uploading that asset is a manual release step, check with `gh release`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Close it: release v0.1.25 carries
+Lore-macOS-arm64.zip and .dmg under stable names and the site links
+releases/latest. File automating the upload separately if wanted.
+Prioritization flag (not acted on): done.

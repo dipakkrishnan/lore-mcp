@@ -1,7 +1,7 @@
 ---
 id: XC-118
 title: Let sellers sell under a handle without their name leaking
-priority: P2
+priority: P3
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -37,3 +37,11 @@ $140 earned"). Close every place the real name can leak:
 
 - [ ] A test seller with a handle completes a card sale, and their real name appears nowhere on the store, the piece page, Checkout, the bid page or the receipt.
 - [ ] Whether Stripe lets the statement descriptor be a handle is recorded, and if it doesn't, the seller is told what the buyer's statement will show.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Record Stripe's answer on whether an individual
+account can use a handle as display name and statement descriptor, then
+restate the store and registry bullets against hosted-store handles
+(XC-071).

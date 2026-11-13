@@ -1,16 +1,16 @@
 ---
 id: XC-101
 title: Boot the Worker in at most seven test files
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [XC-099, XC-100]
 blockers: [XC-099]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -117,3 +117,16 @@ spy if they are what breaks; revert if cold starts time out as MCP-003 saw.
 - Layout scan: the diff is confined to `lore/node` (tests, the two vitest
   configs, comments in two scripts), this file and `INDEX.md`; no desktop walk
   or view is touched.
+
+**Backlog audit (2026-11-12), moved to in-review:** PR #677 did the work,
+and four of five criteria are met on main. The remaining one, a job under 60
+s, cannot be met by this item: green main runs on 2026-11-12 took 105-128 s,
+of which the test step was only 29-39 s, and the rest is setup this item
+cannot change. Moved back to in-review to restate that criterion against the
+test step (for example under 40 s), which current runs already meet, and
+then close it.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Restate AC3 against the
+test:coverage step (under 40 s, which current runs meet) and close.
+Prioritization flag (not acted on): done (pending restatement).

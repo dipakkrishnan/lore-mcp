@@ -1,7 +1,7 @@
 ---
 id: APP-041
 title: Guide a new desktop user through an onboarding flow
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/176
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,3 +49,8 @@ concrete acceptance criterion could be written without inventing one that
 isn't actually in the issue.
 
 **Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Criteria are TBD and APP-215's first-run chat has
+shipped; nothing to build unless the reporter of #176 names a gap in the
+current first run. Prioritization flag (not acted on): obsolete.

@@ -1,16 +1,16 @@
 ---
 id: CAP-022
 title: Fill the folder reader gaps the vault corpus showed (quoted dates, odd titles, symlinks, path spellings, choices)
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: completed
 related: [CAP-004, APP-124, XC-051, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -73,11 +73,11 @@ under `support/seed/corpus/obsidian-vault/Tidewell` is the fixture
 
 ## Acceptance criteria
 
-- [ ] Tests 1-7 exist and pass; each names its manifest item id in its
+- [x] Tests 1-7 exist and pass; each names its manifest item id in its
       docstring.
-- [ ] The symlink test is skipped, not failed, where symlinks cannot be
+- [x] The symlink test is skipped, not failed, where symlinks cannot be
       created.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -90,3 +90,22 @@ Flakiness/safety: mtime-dated cases assert "today" via
 `date.today().isoformat()` computed in the test right before the read;
 run within one process so midnight cannot split it (accept either today
 or yesterday if it does).
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** Tests only; nothing under `lore/` changed.
+Tests 1-6 are `FolderGapsTest` in `tests/test_sources.py`, and test 7 is
+`ChoicesTest` in `tests/test_cli.py`. Each docstring names its manifest item
+or finding (obs-04/05/08/09/16, F-obs-01, F-obs-03).
+
+- The corpus test reads the seed vault in place. Its
+  `lessons/alias-sms-timing.md` is a symlink checked into the repo, so the
+  vault isn't copied.
+- The symlink test calls `skipTest` where links can't be made.
+- An unreadable front-matter date falls back to the file's mtime, which the
+  test sets.
+- The bare `suds-and-buds.md` title-casing was already asserted elsewhere; it
+  is pinned here as well.
+
+All seven passed on the first run, because they pin current behaviour.

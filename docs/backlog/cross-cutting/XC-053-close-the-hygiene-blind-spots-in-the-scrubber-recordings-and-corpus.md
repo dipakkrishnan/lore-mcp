@@ -1,16 +1,16 @@
 ---
 id: XC-053
 title: Close the hygiene blind spots in the scrubber, the recordings and the corpus
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-049, XC-056, XC-048, CAP-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -105,3 +105,8 @@ C-29, C-32; R-12; F-tool-01.
 Flakiness/safety: file-only; the canary walk reads the corpus, never a
 recording's content for equality (recordings are scrubbed, corpus is
 not, so compare canaries, not bodies).
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.
+Implementer note: Run the Python checks with tests/gate.py, not `unittest
+discover`.

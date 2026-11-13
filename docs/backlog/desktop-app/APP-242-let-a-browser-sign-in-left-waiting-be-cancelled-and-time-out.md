@@ -1,7 +1,7 @@
 ---
 id: APP-242
 title: Let a browser sign-in left waiting be cancelled, time out, and give way to the next
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -47,3 +47,7 @@ the port; with it, it ends and frees the port. Not explained yet: why the
 tabs opened only when she quit Lore. Lore opens none on quit, so the likely
 cause is that the browser held the URLs it was sent (no window open, or a
 profile picker showing). Which browser she uses is still unknown.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #544.
