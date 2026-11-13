@@ -4,13 +4,13 @@ title: Fold the remaining overlapping walks down to seven
 priority: P1
 effort: L
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-266, APP-267, APP-268, APP-269, APP-271, XC-084, XC-108]
 blockers: [APP-269]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -365,3 +365,10 @@ were left to CI.
   so the six shared walks would have to finish in under 8 s. The rest is
   APP-271 (making the kept walks cheaper, `agents` first) or a re-scope of
   this criterion. Status stays `in-progress` until then.
+
+**Backlog audit (2026-11-12), moved to in-review:** The fold to seven walks
+landed in PR #679, and every structural criterion holds on main. The 200 s
+walks-step target is not met: main runs 191-375 s, and the solo `agents`
+walk alone takes 110-170 s. APP-271's 150 s target covers the same ground.
+Back to in-review so the time criterion can move to APP-271 (or XC-084) and
+this item can close.

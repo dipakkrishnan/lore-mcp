@@ -4,13 +4,13 @@ title: Resume a stopped thread with one press, and make Start over begin the flo
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: obsolete
 related: [APP-053, APP-030, APP-097]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,13 @@ publish thread still waits for the owner's first word.
 - [x] Resume continues the cut-off session, not a new one.
 
 **Review 2026-10-19:** Not completed. Criteria 1 and 3 (the Resume button and Resume continuing the cut-off session) shipped in 886d427 (#242) but were removed by d81405a (APP-194, #409). Only criterion 2 (Start over begins the flow) still holds. Needs the criteria rewritten to match APP-194, or the item marked obsolete in part.
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as obsolete:** APP-194 (#409)
+superseded this item by removing Resume on purpose, because it only repeated
+what replying already does, so criteria 1 and 3 are now intentionally false.
+The surviving piece, Start over on setup or the store beginning the flow
+again, shipped in #242 and is still on main (`startOver` in renderer.js).
+Nothing remains to do, so the item is closed as obsolete rather than
+reworded.

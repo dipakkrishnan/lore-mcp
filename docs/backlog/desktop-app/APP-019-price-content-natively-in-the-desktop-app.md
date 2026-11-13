@@ -4,13 +4,13 @@ title: Set the global publication price in Desktop
 priority: P1
 effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [MON-009, MON-013, APP-006, APP-035, XC-020]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-09-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -97,3 +97,12 @@ row, the same shape as an unpushed publication (APP-091, APP-093). One
 `priceField` and one `parsePrice` serve the editor and the agent's card.
 `support/edge.sh store` now walks the editor: Settings lands on it, zero is
 refused inline, $0.75 saves, and both surfaces name the stale live price.
+
+**Backlog audit (2026-11-12), moved to in-review:** The global price editor
+from #210 is on main and works through the confirm card. After APP-139
+(#408) a push carries the price, so the premise that the Worker bakes the
+price in at deploy, and criterion 5's redeploy-only wording, are out of
+date. The one open box, a live-node walk, still needs the owner's node, and
+since MON-025 it runs on real money rather than Sepolia. Rewrite criteria 5
+and 6 against the push-carries-price model, then either do the walk as an
+owner step or fold it into a shared live-proof item.

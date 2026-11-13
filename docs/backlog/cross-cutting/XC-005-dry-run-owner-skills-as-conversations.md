@@ -4,13 +4,13 @@ title: Dry-run every owner skill as a conversation, not just a document
 priority: P1
 effort: M
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [XC-004, MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -69,3 +69,12 @@ agent with a live conversational partner) to actually walk both skills
 end-to-end on both agent paths and file what they find — not something this
 pass can honestly claim from a solo read-through. Left `in-progress` rather
 than `completed`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The checklist (first
+criterion) is done in docs/skill-dry-run-protocol.md. The second criterion
+needs a person with a live conversation to walk lore-onboard and lore-
+enable-payments on both the Claude and Codex paths, with a forced resume and
+a crossed skill boundary, and nothing on main shows that has happened. Both
+skills have changed substantially since August (most recently MON-006 on
+2026-11-12), so earlier partial dry-runs no longer count. Moved out of in-
+progress: this waits on a human run, not on code.

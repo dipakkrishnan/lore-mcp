@@ -4,13 +4,13 @@ title: Package and prove the macOS desktop happy path
 priority: P1
 effort: L
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-004, APP-006, APP-007, EVAL-002, XC-008]
 blockers: [APP-004, APP-006, APP-007]
 dependencies: ["Apple Developer signing credentials for public distribution", "A testnet-funded buyer wallet for the live paid-path proof"]
 github_issue: null
 created: 2026-08-21
-updated: 2026-08-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -73,3 +73,14 @@ waits on the store deployment flow (APP-006 follow-up). The zip maker is used
 instead of dmg because `appdmg`'s native modules do not build on current
 Node. Bundle id `com.lore.desktop` needs owner confirmation before the first
 signed build.
+
+**Backlog audit (2026-11-12), moved to in-review:** Packaging, self-
+provisioning and signing are delivered: release v0.1.25 is Developer ID
+signed, notarized and stapled (spctl accepted), bundles uv, node and a
+wheelhouse, and ships the bundle id com.lore.desktop. What remains is a
+recorded clean-account install, one automated temp-home test from first run
+through push, and a live paid-path proof. MON-025 moved the desktop store to
+real money, so the testnet proof needs rescoping, ideally into one live-
+proof item shared with APP-019 and APP-030. The item has also been doing
+double duty as the tag for version-bump PRs (#399-#662), which should get
+their own home.

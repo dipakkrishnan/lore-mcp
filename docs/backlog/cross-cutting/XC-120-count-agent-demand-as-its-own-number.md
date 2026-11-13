@@ -4,13 +4,13 @@ title: Count agent demand as its own number
 priority: P1
 effort: S
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [XC-116, XC-117, XC-091, XC-092]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -78,3 +78,11 @@ FROM events
 WHERE timestamp > now() - INTERVAL 12 WEEK
 GROUP BY week ORDER BY week
 ```
+
+**Backlog audit (2026-11-12), moved to in-review:** The sender, the relay
+entrypoint and the contract shipped in #624 and were checked locally against
+a stand-in capture server, and the relay and site appear deployed. Both
+criteria need someone with PostHog access to confirm that known-User-Agent
+requests to the live site arrive with the right agent family and no IP, and
+to build the "Agent demand, weekly" insight. Moved out of in-progress: what
+remains is owner work in PostHog, not code.

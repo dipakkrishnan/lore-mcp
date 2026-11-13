@@ -4,13 +4,13 @@ title: Sell a collection made in three steps
 priority: P1
 effort: L
 component: monetization
-status: in-progress
+status: in-review
 related: [MON-040, XC-039, XC-036]
 blockers: []
 dependencies: []
 github_issue: 421
 created: 2026-10-09
-updated: 2026-10-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -54,3 +54,12 @@ deployed `sales` table's CHECK can't take a new kind without a rebuild.
 Supersedes the scope in issue #421. Out of scope: cross-seller bundles,
 ordering pieces by hand, updates after purchase (a buyer gets the collection
 as it stood).
+
+**Backlog audit (2026-11-12), moved to in-review:** The first four criteria
+shipped in PR #425: the three-step creation, `collection_<id>` with discover
+listing, the /p/<id> page with card checkout, and marketplace display
+(site/src/markets.js). The last criterion, "a real buyer purchases a
+collection," is a market event. It cannot happen until an owner puts a
+collection on sale, and no live store has one today. A human should either
+list a collection and wait for a sale, or move that criterion to a launch-
+validation item and close this one.

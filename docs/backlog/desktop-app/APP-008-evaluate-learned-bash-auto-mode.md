@@ -4,13 +4,13 @@ title: Replace the bash regex boundary with an OS sandbox; cards stay UX
 priority: P2
 effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -78,3 +78,13 @@ security mechanism; drop the exact-regex table as the boundary. Evaluate
 `pi-sandbox` as the drop-in before hand-rolling.
 
 **Prioritization pass 2026-08-26:** The dependency ("evidence from real owner command and approval usage") is satisfied — its own Problem section names the 2026-08-23 stall that supplied it — and the 2026-08-23 Research section already picked a direction (sandbox-first, evaluate `pi-sandbox` first). Promoted `in-review` → `ready`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The sandbox-first
+boundary shipped in #167 and was hardened by APP-048 (#281) and APP-227
+(#499): bash, read, write and edit all run under Seatbelt with no network,
+and the regex table is gone. Criterion 5 (a prompt-count comparison against
+the classifier) no longer has anything to compare against and should be
+dropped. The one real hole is the todo test in sandbox.test.cjs ("the
+agent's shell cannot change Lore's database": lore.db is still writable from
+the agent's shell), which no backlog item tracks yet and should become its
+own item before this one closes.

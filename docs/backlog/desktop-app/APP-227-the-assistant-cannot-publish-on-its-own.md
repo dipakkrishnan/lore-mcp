@@ -4,13 +4,13 @@ title: The assistant can't publish on its own
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-226, APP-130]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-18
-updated: 2026-10-18
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,11 @@ read as material rather than as requests from the owner.
 - [x] Write and edit refuse the app's own folders
 - [x] The assistant's prompt and readings label saved material as material
 - [x] Tests for each
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as completed:** Verified on main: the
+assistant's shell refuses store push, deploy and secret commands and
+wrangler before they start, its write and edit tools refuse the app's own
+folders, and saved memories reach it labelled as material. The targeted
+tests for each pass on macOS, so the item closes as completed via #499.
