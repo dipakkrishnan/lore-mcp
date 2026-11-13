@@ -432,6 +432,19 @@ def _clip(text: str) -> str:
     )
 
 
+def text_lines(text: str) -> list[str]:
+    """`text` split only where a line really ends: at `\n`, `\r\n` or a lone `\r`.
+    `str.splitlines` also breaks on form feeds, `\x1c`-`\x1e`, NEL and the Unicode
+    separators; a card and a flag diff print those as nothing, never as a new line
+    (CLI-015). A trailing line end adds no empty line, as with `splitlines`."""
+    if not text:
+        return []
+    lines = re.split(r"\r\n|\r|\n", text)
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+
 class Store:
     """Small SQLite repository for memories and Lore settings."""
 
@@ -1486,8 +1499,8 @@ class Store:
                 # here means no reader has to guess which lines are headers.
                 diff = list(
                     difflib.unified_diff(
-                        snapshot["content"].splitlines(),
-                        memory["content"].splitlines(),
+                        text_lines(snapshot["content"]),
+                        text_lines(memory["content"]),
                         lineterm="",
                     )
                 )[2:]

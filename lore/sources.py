@@ -1378,9 +1378,21 @@ class HostedReader(Reader):
             try:
                 listed = self._run(auth, lambda client: client.list_tools())
             except Exception as error:
+                # CAP-025: a wait nobody answered is not a refusal, and when the app
+                # gave a reason the owner sees it, not "try again".
+                if _says(error, "no answer from the browser"):
+                    raise SourceError(
+                        f"{name} didn't hear back from your browser. "
+                        "Try again and approve Lore on the page it opens."
+                    ) from None
                 if _refused(error):
                     raise SourceError(
                         f"{name} didn't let Lore in. Try again."
+                    ) from None
+                reason = _vendor_reason(error)
+                if reason:
+                    raise SourceError(
+                        f"Lore couldn't reach {name}. {name} says: {reason}"
                     ) from None
                 raise SourceError(f"Lore couldn't reach {name}. Try again.") from None
         offered = {tool.name for tool in listed.tools}
@@ -1529,6 +1541,35 @@ def _says(error: BaseException, phrase: str) -> bool:
     if phrase and phrase in str(error):
         return True
     return any(_says(inner, phrase) for inner in getattr(error, "exceptions", ()))
+
+
+def _vendor_reason(error: BaseException) -> str:
+    """The first line of an app's own refusal, however deep in the SDK's task groups or
+    causes, trimmed to 120 characters with anything like an address or a token taken
+    out (CAP-025); empty when the app said nothing in words."""
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, httpx2.HTTPStatusError):
+            try:
+                text = current.response.text
+            except Exception:  # an unread streamed body says nothing
+                text = ""
+            line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+            line = re.sub(r"\S+@\S+", "", line)
+            line = re.sub(r"\b[\w-]*\d[\w-]{15,}|\b[\w-]{20,}\b", "", line)
+            line = re.sub(r"\s+", " ", line).strip()[:120].strip()
+            if line:
+                return line
+        pending += list(getattr(current, "exceptions", ()))
+        pending += [
+            e for e in (current.__cause__, current.__context__) if e is not None
+        ]
+    return ""
 
 
 def _refused(error: BaseException) -> bool:

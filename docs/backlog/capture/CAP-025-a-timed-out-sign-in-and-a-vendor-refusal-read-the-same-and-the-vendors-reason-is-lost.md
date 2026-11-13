@@ -4,13 +4,13 @@ title: "Bug: a timed-out sign-in and a refusal read the same, and the vendor's r
 priority: P2
 effort: S
 component: capture
-status: ready
+status: completed
 related: [CAP-009, CAP-024, XC-057, APP-178, XC-025]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -74,12 +74,12 @@ in `HostedReader.sign_in`.
 
 ## Acceptance criteria
 
-- [ ] Tests 1-3 fail before the change (test 1 on the text, test 2 on the
+- [x] Tests 1-3 fail before the change (test 1 on the text, test 2 on the
       missing suffix) and pass after.
-- [ ] The three owner-facing texts are listed in `docs/connectors.md` and
+- [x] The three owner-facing texts are listed in `docs/connectors.md` and
       contain no vendor jargon beyond the quoted reason.
-- [ ] `support/edge.sh connectors` still passes locally.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `support/edge.sh connectors` still passes locally.
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -94,3 +94,21 @@ account id.
 
 **Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `HostedReader.sign_in` (`lore/sources.py`)
+tells three cases apart:
+
+- An `OAuthFlowError("no answer from the browser")` gets "<App> didn't hear
+  back from your browser. Try again and approve Lore on the page it opens."
+- Any other `OAuthFlowError` still gets "didn't let Lore in".
+- Anything else appends the app's reason when there is one. A new
+  `_vendor_reason()` walks exception groups, `__cause__` and `__context__` for
+  an `httpx2.HTTPStatusError`. It takes the first non-empty line of the body,
+  removes email-shaped and token-shaped strings, and trims to 120 characters.
+
+`docs/connectors.md` lists the three texts. Tests are in `tests/test_hosted.py`.
+They drive the failure through the existing `failing()` seam rather than a
+short `Loopback.wait`. The loopback's own timeout raises the same
+`OAuthFlowError`, which `LoopbackDeadlineTest` covers. `support/walks.cjs
+connectors` passes locally. The "no Granola account" case was
+already worded on reads (`unregistered`); this item covers the sign-in path.

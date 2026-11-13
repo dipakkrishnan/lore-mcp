@@ -71,6 +71,16 @@ for the desktop to open, and a loopback page on `127.0.0.1` catches the answer.
 The tokens go to the macOS Keychain (`lore/signin.py`, one entry per server),
 never to disk. Every later read is unattended: an expired sign-in or a missing
 tool fails the read, and the row says "<App> didn't answer. Sign in again."
+A sign-in that fails says which of three things happened (CAP-025):
+
+- nobody answered the approval page in time: "<App> didn't hear back from your
+  browser. Try again and approve Lore on the page it opens."
+- the owner, or the app, said no: "<App> didn't let Lore in. Try again."
+- anything else: "Lore couldn't reach <App>. Try again.", or, when the app
+  gave a reason, "Lore couldn't reach <App>. <App> says: <its first line>",
+  cut to 120 characters, with anything like an email address or a token
+  taken out.
+
 A sync reads only items it has not already kept. `LORE_<APP>_SERVER` points an
 app at a stand-in server, which the edge scenario uses.
 
