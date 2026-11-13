@@ -158,6 +158,42 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: npm ci
       - run: npm run check
+      # XC-126: on 2026-11-09 github.com answered release downloads with 504s
+      # for three hours and this job failed on downloads, not code. Three
+      # things came from GitHub releases on every run: Electron's binary, the
+      # wheelhouse's uv, and its managed CPython. Each is now cached under a
+      # key holding the pinned version, so a bump misses and downloads once.
+      # XC-082's rules hold: no restore-keys, saved only by a green job.
+      - name: Pinned download versions
+        id: pins
+        run: |
+          echo "electron=$(node -p "require('./node_modules/electron/package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "uv=$(sed -n 's/^UV_VERSION=//p' packaging/wheelhouse.sh)" >> "$GITHUB_OUTPUT"
+          echo "python=$(sed -n 's/^PYTHON_VERSION=//p' packaging/wheelhouse.sh)" >> "$GITHUB_OUTPUT"
+      # Electron 44 downloads its binary on the first require("electron"),
+      # inside the unit tier; electron-forge fetches the same zip to package.
+      # Both read this cache (forge.config.js gives the packager the shipped
+      # checksums, so neither fetches SHASUMS256.txt). Unpacking here keeps the
+      # download out of the tests. The step says which way it went: a miss
+      # names the releases/download URL, a hit says the zip came from cache.
+      - uses: actions/cache@v6
+        id: electron-cache
+        with:
+          path: ~/Library/Caches/electron
+          key: electron-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.electron }}
+      - name: Unpack Electron
+        env:
+          HIT: ${{ steps.electron-cache.outputs.cache-hit }}
+          VERSION: ${{ steps.pins.outputs.electron }}
+        run: |
+          zip="electron-v$VERSION-darwin-arm64.zip"
+          if [ "$HIT" = "true" ]; then
+            find ~/Library/Caches/electron -name "$zip" | grep -q . || { echo "::error title=electron cache::The cache hit holds no $zip."; exit 1; }
+            echo "Electron $VERSION unpacked from the cache"
+          else
+            echo "Electron $VERSION not cached: fetching https://github.com/electron/electron/releases/download/v$VERSION/$zip"
+          fi
+          node node_modules/electron/install.js
       # XC-097: the desktop suite runs as two tiers, unit first (test/unit
       # starts no process, tiers.test.cjs holds that) then component (the tests
       # that spawn `uv run lore`). Each runs under node's own coverage
@@ -230,7 +266,22 @@ jobs:
             app/desktop/packaging/out/whisper
             app/desktop/packaging/out/node
           key: packaging-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/desktop/packaging/whisper.sh', 'app/desktop/packaging/node.sh') }}
+      # XC-126: wheelhouse.sh skips its uv download when out/uv is already the
+      # pinned version, and uv skips CPython when it is already installed in
+      # UV_PYTHON_INSTALL_DIR. Keyed on UV_VERSION and PYTHON_VERSION. A miss
+      # shows in the log as uv's "Downloading cpython-..." line and the uv URL wheelhouse.sh prints.
+      - uses: actions/cache@v6
+        id: wheelhouse-cache
+        with:
+          path: |
+            app/desktop/packaging/out/uv
+            ${{ runner.temp }}/uv-python
+          key: wheelhouse-${{ runner.os }}-${{ runner.arch }}-uv${{ steps.pins.outputs.uv }}-py${{ steps.pins.outputs.python }}
       - run: npm run package
+        env:
+          UV_PYTHON_INSTALL_DIR: ${{ runner.temp }}/uv-python
+          # On a hit, CPython is already there: a download would be a bug, so refuse it.
+          UV_PYTHON_DOWNLOADS: ${{ steps.wheelhouse-cache.outputs.cache-hit == 'true' && 'never' || 'automatic' }}
       # The packaged app carries whisper-cli at the tag whisper.sh pins, on a
       # cache hit as on a miss.
       - name: Packaged whisper is the pinned tag
