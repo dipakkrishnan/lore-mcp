@@ -9,7 +9,9 @@ from __future__ import annotations
 import io
 import json
 import logging
+import socket
 import threading
+import time
 import unittest
 import urllib.request
 from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout
@@ -570,6 +572,112 @@ class SecretsTest(LoreTestCase):
         self.assertEqual(self.keyring.saved, {})
         Keychain(SERVER).forget()
         self.assertEqual(self.keyring.saved, {})
+
+
+class LoopbackDeadlineTest(unittest.TestCase):
+    """CAP-030: the sign-in wait ends at its limit, plus at most one connection's
+    timeout, whatever connects to the loopback meanwhile."""
+
+    WAIT, CONNECTION = 1.0, 0.3
+    # Thread start-up and the OS's scheduling, never near a second limit's worth.
+    SLACK = 0.3
+
+    def wait_with(self, *events, wait: float | None = None):  # type: ignore[no-untyped-def]
+        """Run `callback()` while each `(at, act)` in `events` runs `act(port)` `at`
+        seconds in. Return how the wait ended and how long it took."""
+        ended: list[object] = []
+        wait = wait or self.WAIT
+        with (
+            patch.object(Loopback, "wait", wait),
+            patch.object(Loopback, "connection_timeout", self.CONNECTION),
+            Loopback() as landing,
+        ):
+            port = landing.server_port
+
+            def listen() -> None:
+                try:
+                    ended.append(anyio.run(landing.callback))
+                except OAuthFlowError as error:
+                    ended.append(error)
+
+            timers = [threading.Timer(at, act, args=(port,)) for at, act in events]
+            for timer in timers:
+                timer.daemon = True
+                timer.start()
+            began = time.monotonic()
+            thread = threading.Thread(target=listen, daemon=True)
+            thread.start()
+            thread.join(wait * 4 + 5)
+            took = time.monotonic() - began
+            self.assertFalse(thread.is_alive(), "the wait never ended")
+            for timer in timers:
+                timer.join(10)
+        return ended[0], took
+
+    @staticmethod
+    def get(path: str, pages: list[tuple[int, str]]):  # type: ignore[no-untyped-def]
+        def act(port: int) -> None:
+            link = HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                link.request("GET", path)
+                got = link.getresponse()
+                pages.append((got.status, got.read().decode()))
+            except OSError as error:
+                pages.append((0, str(error)))
+            finally:
+                link.close()
+
+        return act
+
+    @staticmethod
+    def silent(hold: float):  # type: ignore[no-untyped-def]
+        """Open a connection, send nothing, and let it go after `hold` seconds."""
+
+        def act(port: int) -> None:
+            link = socket.create_connection(("127.0.0.1", port), timeout=5)
+            try:
+                time.sleep(hold)
+            finally:
+                link.close()
+
+        return act
+
+    def test_a_stray_request_late_in_the_wait_does_not_restart_the_clock(
+        self,
+    ) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with((0.9, self.get("/favicon.ico", pages)))
+        self.assertIsInstance(ended, OAuthFlowError)
+        self.assertEqual(pages[0][0], 404)
+        self.assertLess(took, self.WAIT + self.CONNECTION + self.SLACK)
+
+    def test_a_connection_that_sends_nothing_does_not_hold_the_wait(self) -> None:
+        ended, took = self.wait_with((0.1, self.silent(2.0)))
+        self.assertIsInstance(ended, OAuthFlowError)
+        self.assertLess(took, self.WAIT + self.CONNECTION + self.SLACK)
+
+    def test_the_callback_lands_behind_a_silent_connection(self) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.silent(2.0)),
+            (0.15, self.get("/callback?code=abc&state=xyz", pages)),
+            wait=2.0,
+        )
+        self.assertEqual((ended.code, ended.state), ("abc", "xyz"))  # type: ignore[attr-defined]
+        self.assertEqual(pages[0][0], 200)
+        self.assertIn("Lore is connected", pages[0][1])
+        self.assertLess(took, 2.0)
+
+    def test_another_path_waits_on_and_a_refusal_ends_it_at_once(self) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.get("/favicon.ico", pages)),
+            (0.2, self.get("/callback?error=access_denied", pages)),
+            wait=5.0,
+        )
+        self.assertEqual(str(ended), "access_denied")
+        self.assertEqual([status for status, _ in pages], [404, 200])
+        self.assertLess(took, 1.0)
 
 
 if __name__ == "__main__":
