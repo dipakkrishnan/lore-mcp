@@ -34,14 +34,49 @@ class BlueprintPathTest(LoreTestCase):
     def test_loading_before_capture_returns_none(self) -> None:
         self.assertIsNone(blueprint.load_blueprint())
 
-    def test_a_saved_blueprint_that_is_not_an_object_is_refused(self) -> None:
+    def saved(self, raw: bytes) -> Path:
         path = blueprint.blueprint_path()
-        path.parent.mkdir(parents=True)
-        path.write_text('["Ada", "professor"]\n', encoding="utf-8")
-        with self.assertRaisesRegex(
-            ValueError, "saved blueprint must be a JSON object"
-        ):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        return path
+
+    def test_a_saved_blueprint_that_is_not_an_object_is_refused(self) -> None:
+        path = self.saved(b'["Ada", "professor"]\n')
+        with self.assertRaises(ValueError) as refused:
             blueprint.load_blueprint()
+        self.assertIn(str(path), str(refused.exception))
+        self.assertIn("lore blueprint apply", str(refused.exception))
+
+    def test_a_damaged_saved_blueprint_is_named_with_what_to_do(self) -> None:
+        """BP-003: the owner sees the file and the way out, not the parser."""
+        for label, raw in (
+            ("cut short", b'{"name": "Ada", "pers'),
+            ("empty", b""),
+            ("not utf-8", b'{"name": "\xff\xfe"}'),
+        ):
+            with self.subTest(label=label):
+                path = self.saved(raw)
+                with self.assertRaises(ValueError) as refused:
+                    blueprint.load_blueprint()
+                said = str(refused.exception)
+                self.assertIn(str(path), said)
+                self.assertIn("lore blueprint apply", said)
+                for raw_text in ("Expecting", "codec", "line 1"):
+                    self.assertNotIn(raw_text, said)
+
+    def test_blueprint_show_says_so_in_one_line(self) -> None:
+        from contextlib import redirect_stderr, redirect_stdout
+
+        from lore import cli
+
+        path = self.saved(b"{not json")
+        err = StringIO()
+        with redirect_stdout(StringIO()), redirect_stderr(err):
+            self.assertEqual(cli.main(["blueprint", "show"]), 1)
+        (line,) = err.getvalue().splitlines()
+        self.assertTrue(line.startswith("lore: "), line)
+        self.assertIn(str(path), line)
+        self.assertIn("lore blueprint apply", line)
 
 
 class NormalizeTest(unittest.TestCase):
@@ -466,6 +501,62 @@ class ApplyTest(LoreTestCase):
                     ],
                     kept,
                 )
+
+    def test_an_unreadable_file_is_named_in_one_plain_line(self) -> None:
+        """BP-003: not UTF-8, a folder, or a file the owner can't open."""
+        from contextlib import redirect_stderr, redirect_stdout
+
+        from lore import cli
+
+        latin = self.lore_home / "latin.json"
+        latin.parent.mkdir(parents=True, exist_ok=True)
+        latin.write_bytes(b'{"name": "\xe9"}')
+        folder = self.lore_home / "folder.json"
+        folder.mkdir()
+        locked = self.lore_home / "locked.json"
+        locked.write_text(json.dumps(blueprint_input()), encoding="utf-8")
+        locked.chmod(0)
+        self.addCleanup(locked.chmod, stat.S_IRUSR | stat.S_IWUSR)
+        cases = [latin, folder]
+        if os.geteuid() != 0:  # root opens anything
+            cases.append(locked)
+
+        def refuse_each() -> None:
+            for source in cases:
+                with self.subTest(source=source.name):
+                    err = StringIO()
+                    with redirect_stdout(StringIO()), redirect_stderr(err):
+                        self.assertEqual(
+                            cli.main(["blueprint", "apply", str(source)]), 1
+                        )
+                    (line,) = err.getvalue().splitlines()
+                    self.assertTrue(line.startswith("lore: blueprint file"), line)
+                    self.assertIn(str(source), line)
+                    self.assertNotIn("codec", line)
+                    self.assertNotIn("[Errno", line)
+
+        refuse_each()
+        self.assertFalse(blueprint.blueprint_path().parent.exists())
+        good = self.lore_home / "good.json"
+        good.write_text(json.dumps(blueprint_input(name="Grace")), encoding="utf-8")
+        blueprint.apply(good)
+        kept = [
+            p.read_bytes()
+            for p in (blueprint.blueprint_path(), blueprint.lore_map_path())
+        ]
+        refuse_each()
+        self.assertEqual(
+            [
+                p.read_bytes()
+                for p in (blueprint.blueprint_path(), blueprint.lore_map_path())
+            ],
+            kept,
+        )
+
+    def test_a_missing_file_still_says_not_found(self) -> None:
+        absent = self.lore_home / "absent.json"
+        with self.assertRaisesRegex(OSError, f"blueprint file not found: {absent}"):
+            blueprint.apply(absent)
 
     def test_a_dash_reads_the_blueprint_from_stdin(self) -> None:
         with patch.object(sys, "stdin", StringIO(json.dumps(blueprint_input()))):

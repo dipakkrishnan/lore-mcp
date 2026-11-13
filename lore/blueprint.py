@@ -161,9 +161,17 @@ def load_blueprint() -> dict | None:
     path = blueprint_path()
     if not path.exists():
         return None
-    blueprint = json.loads(path.read_text(encoding="utf-8"))
+    # BP-003: a damaged file names itself and the way out, not the parser's complaint.
+    damaged = (
+        f"Lore can't read your saved blueprint at {path}. "
+        "Capture it again with `lore blueprint apply`."
+    )
+    try:
+        blueprint = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):  # UnicodeDecodeError and JSONDecodeError are both
+        raise ValueError(damaged) from None
     if not isinstance(blueprint, dict):
-        raise ValueError("saved blueprint must be a JSON object")
+        raise ValueError(damaged)
     return blueprint
 
 
@@ -257,6 +265,14 @@ def apply(file: Path) -> dict:
         raw = json.loads(text)
     except FileNotFoundError as error:
         raise OSError(f"blueprint file not found: {file}") from error
+    except IsADirectoryError:
+        raise OSError(f"blueprint file is a folder, not a file: {file}") from None
+    except PermissionError:
+        raise OSError(
+            f"blueprint file can't be opened, check its permissions: {file}"
+        ) from None
+    except UnicodeDecodeError:
+        raise ValueError(f"blueprint file isn't UTF-8 text: {file}") from None
     except json.JSONDecodeError as error:
         raise ValueError(f"blueprint file is not valid JSON: {error}") from error
     blueprint = normalize(raw)
