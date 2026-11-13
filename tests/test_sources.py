@@ -249,6 +249,27 @@ class OwnerFolderTest(LoreTestCase):
             path.write_text(text)
         return root
 
+    def test_sec_a_folder_note_with_a_fake_key_is_imported_verbatim(self) -> None:
+        """XC-052: Lore has no secret detector. A note holding a key or a phone number
+        is kept as written, private like every import, and found by it. This pins the
+        absence of a filter, so adding one changes this test on purpose; what Lore keeps
+        or drops belongs to the retention decisions of STO-002."""
+        key = "tw_live_sk_4f3c9a1e7b2d4e5f6a7b8c9d0e1f2a3b"
+        phone = "+1 (555) 013-4477"
+        root = self.vault(
+            keys_md=f"# Twilio\n\nThe test account uses TWILIO_KEY={key} for now.",
+            phone_md=f"# Priya\n\nCall Priya on {phone} about the vendor renewal.",
+        )
+        with Store() as store:
+            entry = sources_module.Registry(store).add(str(root))
+            self.assertEqual(entry["imported"], 2)
+            (found,) = store.search(key)
+            self.assertIn(f"TWILIO_KEY={key}", found.content)
+            self.assertIs(found.status, Status.PRIVATE)
+            (called,) = store.search("vendor renewal")
+            self.assertIn(phone, called.content)
+            self.assertIs(called.status, Status.PRIVATE)
+
     def test_a_folder_is_read_as_private_memories_the_moment_it_is_added(self) -> None:
         root = self.vault(
             dated_md="---\ndate: 2024-03-02\n---\n\n# Dated\n\n"

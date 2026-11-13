@@ -4,7 +4,7 @@ title: Prove sign-in tokens never leave the Keychain, and pin what Lore imports 
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [CAP-009, CAP-024, XC-051, APP-001, STO-002, XC-048]
 blockers: []
 dependencies: []
@@ -86,13 +86,13 @@ Add `test_sec_*` tests to the files that own the code; no new modules.
 
 ## Acceptance criteria
 
-- [ ] Tests 1-5 exist under the `test_sec_` prefix and pass.
-- [ ] Test 1 fails if a `print(tokens)` is added to
+- [x] Tests 1-5 exist under the `test_sec_` prefix and pass.
+- [x] Test 1 fails if a `print(tokens)` is added to
       `HostedReader.sign_in` or the token is written to any file under
       `LORE_HOME` (verified once by hand while writing the test).
-- [ ] No test touches the real Keychain (`FakeKeyring` installed via
+- [x] No test touches the real Keychain (`FakeKeyring` installed via
       `keyring.set_keyring`, as `HostedTest.setUp` does) or the network.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -111,3 +111,23 @@ criteria checkable, and the premise checked against the code. Implementer
 note: Run the Python checks with `uv run python tests/gate.py --python-only`
 (CI's runner, which loads conftest's hermetic guard), not `unittest
 discover`.
+
+**Implementation (2026-11-12):** Five `test_sec_` tests: three in
+`tests/test_hosted.py` (`SecretsTest`), one in `tests/test_sources.py`
+(`OwnerFolderTest`) and one in `tests/test_snapshot.py`
+(`SnapshotSecretsTest`). Two departures from the design above:
+
+- Test 1 doesn't seed the keyring before `connect(..., show=...)`. A sign-in
+  calls `sign_out()` first, so a seeded token is gone before anything could
+  leak it, and the test would pass vacuously. Instead `signing_in()` stores a
+  token and a client registration through the provider's own storage on
+  every connection, as the SDK does when an approval completes. The test
+  first asserts the token really is in the fake Keychain, then that it's in
+  no file under `LORE_HOME`, no `connect`/`entries`/`desktop-state`/`sources
+  list --json` output, no stdout or stderr, and no log record.
+- Checked by hand: adding a `print` of the stored tokens to
+  `HostedReader.sign_in` fails test 1 (`where='stdout'`), and so does writing
+  them to `LORE_HOME/leak.txt` (`path='leak.txt'`).
+
+Test 5 reads `desktop-state`'s `library.sources` rows (that's where the
+sources are). No production code changed.
