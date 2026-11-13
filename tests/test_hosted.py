@@ -723,6 +723,43 @@ class LoopbackDeadlineTest(unittest.TestCase):
         self.assertIn("Lore is connected", pages[0][1])
         self.assertLess(took, 2.0)
 
+    def test_a_callback_that_says_nothing_does_not_end_the_wait(self) -> None:
+        """CAP-031: only a code or an error is an answer."""
+        empty = [
+            "/callback",
+            "/callback?",
+            "/callback?state=xyz",
+            "/callback?foo=bar",
+            "/callback?code=",
+            "/callback?error=",
+            "/callback?code=&error=",
+        ]
+        pages: list[tuple[int, str]] = []
+        ended, _ = self.wait_with(
+            *[(0.05 + 0.05 * n, self.get(path, pages)) for n, path in enumerate(empty)],
+            (0.6, self.get("/callback?code=abc&state=xyz", pages)),
+            wait=3.0,
+        )
+        self.assertEqual((ended.code, ended.state), ("abc", "xyz"))  # type: ignore[attr-defined]
+        for status, page in pages[:-1]:
+            self.assertEqual(status, 400)
+            self.assertNotIn("Lore is connected", page)
+            self.assertNotIn("Lore was not let in", page)
+        self.assertEqual(pages[-1][0], 200)
+        self.assertIn("Lore is connected", pages[-1][1])
+
+    def test_only_empty_callbacks_end_as_no_answer_when_the_time_runs_out(
+        self,
+    ) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.get("/callback", pages)),
+            (0.1, self.get("/callback?code=", pages)),
+        )
+        self.assertEqual(str(ended), "no answer from the browser")
+        self.assertEqual([status for status, _ in pages], [400, 400])
+        self.assertGreater(took, self.WAIT - 0.05)
+
     def test_another_path_waits_on_and_a_refusal_ends_it_at_once(self) -> None:
         pages: list[tuple[int, str]] = []
         ended, took = self.wait_with(

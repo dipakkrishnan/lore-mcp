@@ -5,9 +5,12 @@ import sys
 import textwrap
 from typing import Mapping, TextIO
 
-from .store import Memory, Publication
+from .store import Memory, Publication, text_lines
 
 CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
+# What a card prints as nothing: the controls, and the Unicode line and paragraph
+# separators, which would otherwise start a new line in the terminal (CLI-015).
+CARD_HIDDEN = CONTROL_CHARACTERS | dict.fromkeys((0x2028, 0x2029))
 
 
 def clean(text: object) -> str:
@@ -16,8 +19,9 @@ def clean(text: object) -> str:
     Everything remote that reaches the terminal goes through here: card
     titles and bodies, a flag's actor and its diff lines (CLI-013). It is the
     one place to change when tabs are kept rather than deleted (CLI-015).
+    A tab is spacing, so it becomes spaces (CLI-015).
     """
-    return str(text).translate(CONTROL_CHARACTERS)
+    return str(text).expandtabs(4).translate(CARD_HIDDEN)
 
 
 def COLOR(
@@ -95,7 +99,7 @@ def memory_card(
     body = memory.content
     if len(body) > 1800:
         body = body[:1800].rstrip() + "\n…"
-    for paragraph in body.splitlines():
+    for paragraph in text_lines(body):
         paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
 
@@ -170,6 +174,6 @@ def publication_card(
         if text:
             print(paint("2", clean(f"{label}: {text}")))
     print()
-    for paragraph in publication.content.splitlines():
+    for paragraph in text_lines(publication.content):
         paragraph = clean(paragraph)
         print(textwrap.fill(paragraph, width=78) if paragraph else "")
