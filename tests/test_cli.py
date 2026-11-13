@@ -678,6 +678,48 @@ class ApprovalLineTest(LoreTestCase):
         self.assertEqual(out, "")
 
 
+class ChoicesTest(LoreTestCase):
+    """CAP-022, F-obs-01: what `lore sources choices obsidian` prints."""
+
+    def choices(self, *flags: str) -> tuple[int, str]:
+        with captured() as out:
+            code = cli.main(["sources", "choices", "obsidian", *flags])
+        return code, out.getvalue()
+
+    def test_choices_prints_the_vaults_or_an_empty_list(self) -> None:
+        home = Path(self.tmp.name) / "obsidian"
+        with patch.dict(os.environ, {"OBSIDIAN_HOME": str(home)}):
+            self.assertEqual(self.choices("--json"), (0, "[]\n"))
+            home.mkdir()
+            work, notes = Path(self.tmp.name) / "Work", Path(self.tmp.name) / "Notes"
+            work.mkdir()
+            notes.mkdir()
+            (home / "obsidian.json").write_text(
+                json.dumps(
+                    {
+                        "vaults": {
+                            "a": {"path": str(work)},
+                            "b": {"path": str(notes), "open": True},
+                        }
+                    }
+                )
+            )
+            code, out = self.choices("--json")
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                json.loads(out),
+                [
+                    {"label": "Notes", "locator": str(notes.resolve()), "open": True},
+                    {"label": "Work", "locator": str(work.resolve()), "open": False},
+                ],
+            )
+            code, out = self.choices()
+        self.assertEqual(
+            out.splitlines(),
+            [f"  {'Notes':<20} {notes.resolve()}", f"  {'Work':<20} {work.resolve()}"],
+        )
+
+
 class SupportedPythonTest(unittest.TestCase):
     def test_ci_runs_this_file_on_the_lowest_python_the_package_allows(self) -> None:
         # `python-floor.yml` is what makes the cases above mean "every supported
