@@ -4,13 +4,13 @@ title: Collect every save waiting for an agent, not only the oldest 200
 priority: P2
 effort: S
 component: capture
-status: ready
+status: completed
 related: [CAP-036, CAP-039, XC-067, APP-207]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -51,18 +51,18 @@ Update the Collect query in `contracts/inbox.md`, which spells out
 
 ## Acceptance criteria
 
-- [ ] With 200 saves this Mac can't open waiting, all older than one it can,
+- [x] With 200 saves this Mac can't open waiting, all older than one it can,
       one read brings in the openable save and reports 200 errors. In the test,
       seed the rows straight into the fixture's D1: the `/agent` stand-in takes
       20 per call and 100 per hour.
-- [ ] With more than 200 openable saves waiting, one `lore sources read
+- [x] With more than 200 openable saves waiting, one `lore sources read
       agent-<id>` brings in all of them, and `lore agents waiting` then reports
       0 for that agent.
-- [ ] `lore agents revoke <source> --keep` with more than 200 saves waiting
+- [x] `lore agents revoke <source> --keep` with more than 200 saves waiting
       keeps every one of them as memories.
-- [ ] A save that can't be opened is still left waiting; the existing test
+- [x] A save that can't be opened is still left waiting; the existing test
       keeps passing.
-- [ ] `contracts/inbox.md` describes the paged Collect.
+- [x] `contracts/inbox.md` describes the paged Collect.
 
 ## Notes
 
@@ -79,3 +79,18 @@ Update the Collect query in `contracts/inbox.md`, which spells out
 
 **Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `Inbox.items` (`lore/inbox.py`) collects in
+pages of 200 on a `(saved_at, id)` cursor, one wrangler or hosted call per
+page, until a page comes back short. It reads at most 12 pages: the node's
+2,000 cap, plus one spare. What was collected is still confirmed once, after
+the import (`settle`), as before. `contracts/inbox.md` describes the paged
+Collect. Tests in `tests/test_agents.py` seed rows straight into the stand-in
+D1:
+
+- 200 saves that won't open, then one that will: the read reports 200 errors
+  and brings in 1;
+- 450 waiting saves come in with one read, and `agents waiting` then reports 0;
+- `agents revoke --keep` keeps all 250 waiting saves.
+
+The test that a save which won't open stays waiting still passes.

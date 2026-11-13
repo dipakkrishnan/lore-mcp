@@ -134,6 +134,11 @@ class _Landing(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         answer = {key: values[0] for key, values in parse_qs(url.query).items()}
+        # CAP-031: only a code or an error is the browser's answer. A reload or a probe
+        # of the address says nothing, so it gets a 400 and the wait goes on.
+        if not (answer.get("code") or answer.get("error")):
+            self.send_error(400)
+            return
         self.server.answer = answer
         said = (
             "Lore is connected. You can close this tab."
