@@ -21,6 +21,9 @@ from .store import Collection, Store
 TEXT = {".md", ".markdown", ".txt", ".text", ".csv", ".json", ".org", ".rst"}
 # Formats macOS's textutil turns into plain text.
 CONVERTIBLE = {".docx", ".doc", ".rtf", ".rtfd", ".html", ".htm", ".odt", ".webarchive"}
+# Pages whose images and styles textutil would fetch: a request a page's host can see, and
+# the likeliest reason a conversion hangs (MON-050).
+WEB = {".html", ".htm", ".webarchive"}
 MAX_FILES = 200
 
 
@@ -145,12 +148,24 @@ class Collections:
     def _read(path: Path) -> tuple[str, str]:
         suffix = path.suffix.lower()
         if suffix in CONVERTIBLE:
-            result = subprocess.run(
-                ["textutil", "-convert", "txt", "-stdout", str(path.resolve())],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
+            noload = ["-noload"] if suffix in WEB else []
+            try:
+                result = subprocess.run(
+                    ["textutil", "-convert", "txt", *noload, "-stdout"]
+                    + [str(path.resolve())],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+            except subprocess.TimeoutExpired:
+                raise ValueError(
+                    f"Lore took too long converting {path.name}; paste its text instead"
+                ) from None
+            except FileNotFoundError:
+                raise ValueError(
+                    f"Lore can't convert {path.name} on this computer; "
+                    "paste its text instead"
+                ) from None
             if result.returncode != 0:
                 raise ValueError(f"Lore couldn't read {path.name}")
             return path.stem, result.stdout

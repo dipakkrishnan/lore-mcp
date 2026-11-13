@@ -240,6 +240,26 @@ class CollectionDropTest(LoreTestCase):
             self.pieces(collection.id), [("Pricing memo", "The memo, as text.")]
         )
 
+    def test_a_web_page_is_converted_without_loading_its_remote_resources(
+        self,
+    ) -> None:
+        """MON-050: textutil loads an HTML page's images unless told not to, which
+        tells the image's host the owner opened it."""
+        converted = subprocess.CompletedProcess([], 0, stdout="The page, as text.")
+        collection = self.collections.new("Pages")
+        for name in ("page.html", "page.htm", "page.webarchive", "memo.docx"):
+            with self.subTest(name=name):
+                path = self.drops / name
+                path.write_bytes(b"<p>x</p>")
+                with patch.object(
+                    collection_module.subprocess, "run", return_value=converted
+                ) as run:
+                    self.drop_files(collection.id, path)
+                argv = run.call_args.args[0]
+                self.assertEqual(argv[:3], ["textutil", "-convert", "txt"])
+                self.assertEqual(argv[-1], str(path.resolve()))
+                self.assertEqual("-noload" in argv, not name.endswith(".docx"))
+
     def test_a_document_textutil_cannot_read_is_named_in_the_refusal(self) -> None:
         path = self.drops / "broken.rtf"
         path.write_text("{\\rtf1 broken", encoding="utf-8")
