@@ -1,8 +1,8 @@
 ---
 id: APP-024
 title: Start recording from the dictation button
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-003, APP-005, APP-009, APP-010, APP-020]
@@ -96,3 +96,10 @@ was not kept; the facts about the code stand on their own.
   to finish (for example `document.activeElement ===
   document.querySelector('#capture-input')`, which cancelDictation sets
   last, or the existing `idle()`).
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: The feature is on main (whisper.cpp
+dictation, src/dictation.cjs, August). Tick the criteria against it, decide
+whether to strike "fall back to macOS Dictation" and "say whether
+recognition is on-device", then close. Prioritization flag (not acted on):
+done (criteria never ticked).

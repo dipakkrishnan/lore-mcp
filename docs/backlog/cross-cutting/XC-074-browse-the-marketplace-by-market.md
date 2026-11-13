@@ -1,7 +1,7 @@
 ---
 id: XC-074
 title: Browse the marketplace by market, with sellers' pieces listed underneath
-priority: P1
+priority: P2
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -59,3 +59,9 @@ labelled "Updated".
 Out of scope here: a purchases feed (it needs an opt-in public route on the
 store), market creation without curation (it needs a stake and a reward for
 the creator), and Lore's fee.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Close the shipped part (#554, #561-563) and move AC5
+and AC6 into their own items or into XC-119 and MON-051, restated against
+the Inbox approval flow. Prioritization flag (not acted on): done (shipped
+scope).

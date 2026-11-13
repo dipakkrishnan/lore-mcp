@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-10
-updated: 2026-10-10
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -62,3 +62,7 @@ through the CLI's error handler, exits 1 and sends `cli.failed` with
 Filed apart from `APP-058` because it is a small defect with its own fix
 and test, and apart from `XC-062` because the two have different fix sites
 and different reach.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: Already fixed in lore/usage.py record() (XC-105). Confirm with a
+test, then close. Prioritization flag (not acted on): done.

@@ -1,8 +1,8 @@
 ---
 id: XC-114
 title: Show live bids on a trading-screen board at /bids
-priority: P0
-effort: M
+priority: P3
+effort: XS
 component: cross-cutting
 status: in-review
 related: [MON-051, XC-115, XC-119, XC-093, XC-074]
@@ -59,3 +59,8 @@ card first (MON-054, #637). The home-page criterion was dropped by the
 2026-11-04 decision that the home page ends on How it works with no bid
 list. Moved back to in-review to restate the criteria to the board as built
 and drop the home-page one; it can close after that.
+
+**Prioritization (2026-11-12):** Priority P3 (was P0), effort XS (was M).
+Stays in-review. Before it can be ready: Restate the criteria to the board
+as built, drop the home-page criterion, and close. Prioritization flag (not
+acted on): done.

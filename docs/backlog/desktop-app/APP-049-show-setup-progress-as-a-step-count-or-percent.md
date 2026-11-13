@@ -1,7 +1,7 @@
 ---
 id: APP-049
 title: Show setup progress as a step count or percent, not just "Setting up"
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -52,3 +52,7 @@ the sidebar chip reading "Claude · Setting up" for the whole setup task with
 no further progress indication.
 
 **Review 2026-10-19:** not completed. Superseded, not built: the sidebar chip this targets is gone (`renderAccount()` now shows Signed in, provider, store) and no commit ships a progress indicator. Candidate for `obsolete`; owner to confirm.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: The owner confirms obsolete: the sidebar "Setting
+up" chip no longer exists. Prioritization flag (not acted on): obsolete.

@@ -1,7 +1,7 @@
 ---
 id: MON-036
 title: Link listed stores to the marketplace and list them on request
-priority: P1
+priority: P3
 effort: S
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 367
 created: 2026-10-04
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -46,3 +46,8 @@ The badge follows the node's own switch, not `marketplace.json`, so it shows
 while a request is pending and disappears on the push that delists.
 
 **Review 2026-10-19:** not completed. Listing badge and README shipped (3d8175d). Unverifiable here: a listing request starting a refresh run, which lives in the external lore-marketplace repo.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Nothing to build: a person confirms the lore-
+marketplace refresh workflow runs on a listing-labelled issue, then closes
+the item. Prioritization flag (not acted on): done.

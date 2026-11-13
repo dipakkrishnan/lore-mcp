@@ -4,13 +4,13 @@ title: End a hosted sign-in only on an answer, not on any request to the callbac
 priority: P2
 effort: XS
 component: capture
-status: in-review
+status: ready
 related: [CAP-009, CAP-030, APP-120]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-12
-updated: 2026-10-12
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -91,3 +91,6 @@ sign-in its own sentence by matching the message "no answer from the
 browser". Today an empty callback request raises that same message at once,
 so it would be reported as a timeout; with this item done that message
 again means only that the time ran out.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

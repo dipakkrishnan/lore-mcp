@@ -2,7 +2,7 @@
 id: MON-007
 title: Let a Claude MCP client complete a paid x402 purchase with its own wallet
 priority: P2
-effort: M
+effort: S
 component: monetization
 status: in-review
 related: [MON-002, MON-005]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A worked example: an owner with a live node and a friend willing to test buy-side"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -77,3 +77,9 @@ Stay on Base Sepolia / test facilitator for any prototyping here — this item
 does not touch the mainnet cutover in `MON-005`.
 
 **Review 2026-10-19:** not completed. Bridge code complete (b0f9e24 and follow-ups). Unverified: a live discover -> get -> paid retrieval against a node end to end.
+
+**Prioritization (2026-11-12):** Priority P2, effort S (was M). Stays in-
+review. Before it can be ready: Code is complete. A person runs Claude
+Desktop or Code with the bridge against a live node (discover, then a paid
+get) and confirms the receipt shows in the conversation and the private key
+never enters the context. Prioritization flag (not acted on): done (code).

@@ -10,7 +10,7 @@ blockers: [XC-049]
 dependencies: ["The four fictional seed accounts stay published (see support/seed/manifest.json accounts)"]
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -111,3 +111,7 @@ only, no credentials of any kind. Bluesky's public API rate limit was
 not hit during seeding (ASSUMED); if a 429 appears, the test must report
 it as "rate limited", not as a regression (see `CAP-023` for the 429
 mapping).
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: Blocker XC-049 is in-review; restate the runner and opt-in
+criteria for pytest.

@@ -1,7 +1,7 @@
 ---
 id: APP-179
 title: Serve the recorded Bluesky and Notion answers to the connectors edge scenario and assert the seed counts and odd titles
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-050]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -89,3 +89,7 @@ keyring backend as today. The recording's DID is redacted; the reader
 never uses it.
 
 Sequencing: blocked by `XC-050` (`replay.py` and `serve_hosted`).
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Blocker XC-050 must reach completed; refresh the
+moved edge.cjs and renderer.js references.

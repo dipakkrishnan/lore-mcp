@@ -1,7 +1,7 @@
 ---
 id: MON-054
 title: Mark a bid filled only from the payment rail, as a shared record
-priority: P1
+priority: P2
 effort: S
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -65,3 +65,10 @@ seller's account at charge time, so Lore still holds no money.
 - Open risks: cloning a platform PaymentMethod onto a connected account needs Stripe's
   sign-off for the platform; an off-session charge can still ask for bank confirmation (SCA),
   which v1 treats as a decline the buyer fixes by saving the card again.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Split the two open criteria into their own items, or
+close with them handed off: checking x402 fills against Base belongs with
+MON-046's rail check; reversing a fill needs a charge.refunded and
+charge.dispute.created handler, which nothing has. Prioritization flag (not
+acted on): done (card path, #637).

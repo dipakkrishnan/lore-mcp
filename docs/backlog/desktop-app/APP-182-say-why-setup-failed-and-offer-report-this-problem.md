@@ -10,7 +10,7 @@ blockers: [APP-273]
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -44,3 +44,8 @@ APP-273, because `lore report-feedback` isn't usable at that point. Failures aft
 `useRuntime` can report through it today.
 
 **Prioritization pass 2026-11-11:** Moved `ready` → `in-review` and recorded APP-273 as a blocker: the 2026-10-30 note says sending the error for a failure before `useRuntime` waits on APP-273's decision, so criterion 2 can't be met as written until it lands.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Blocked by APP-273 (in-review, waiting on a decision). Criterion 1
+also needs uv's output captured, since boot() only gets "uv exited with N";
+APP-273 covers that too.

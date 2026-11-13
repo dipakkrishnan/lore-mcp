@@ -4,13 +4,13 @@ title: Name the blueprint file Lore cannot read and say how to replace it
 priority: P2
 effort: S
 component: blueprint
-status: in-review
+status: ready
 related: [BP-002, APP-181, APP-085, APP-119]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -123,3 +123,6 @@ Not asked for:
 Also seen and left alone: `"version": true` and `"version": 1.0` are accepted
 as version 1 (`"1"` and `2` are refused). The saved file always says `1`, so
 nothing downstream sees the difference.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

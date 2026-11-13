@@ -4,13 +4,13 @@ title: End the hosted sign-in wait at its limit, whatever connects to the loopba
 priority: P2
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-009, CAP-031, APP-120]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-12
-updated: 2026-10-12
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -109,3 +109,6 @@ Open PR #355 proposes two neighbouring items that are not on `main` yet:
 one testing the loopback's edges, including the plain timeout, and one
 giving a timed-out sign-in its own sentence instead of "didn't let Lore in".
 Neither covers a wait that outlasts its limit.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

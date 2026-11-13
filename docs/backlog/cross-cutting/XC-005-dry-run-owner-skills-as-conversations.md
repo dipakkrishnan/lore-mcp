@@ -78,3 +78,8 @@ a crossed skill boundary, and nothing on main shows that has happened. Both
 skills have changed substantially since August (most recently MON-006 on
 2026-11-12), so earlier partial dry-runs no longer count. Moved out of in-
 progress: this waits on a human run, not on code.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: A person walks lore-onboard and lore-enable-payments on both the
+Claude and Codex paths, with a forced resume and a crossed skill boundary,
+and files what they find. No code is needed.

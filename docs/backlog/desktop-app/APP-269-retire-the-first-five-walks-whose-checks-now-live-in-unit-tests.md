@@ -1,7 +1,7 @@
 ---
 id: APP-269
 title: Retire the first five walks whose checks now live in unit tests
-priority: P1
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -281,3 +281,8 @@ targets; main now runs 191-375 s, under 300 s on 10 of the last 12 green
 runs. Back to in-review so the time criterion can be dropped as superseded
 by APP-271 and the item closed, rather than staying in-progress with nobody
 working on it.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Drop the time criterion as superseded by APP-271 or
+XC-084, then close; APP-270 waits on this. Prioritization flag (not acted
+on): done: #678.

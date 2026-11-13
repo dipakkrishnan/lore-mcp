@@ -2,7 +2,7 @@
 id: APP-110
 title: Preview a memory on hover without leaving the list
 priority: P3
-effort: S
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-092, APP-096, APP-108, APP-023]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -67,3 +67,9 @@ after 450 ms on hover or focus; Escape, leaving, scrolling, or any re-render
 hides it. Verified by the seller persona in `support/edge.cjs`.
 
 **Review 2026-10-19:** not completed. Hover preview shipped (2cf8fc2); 5 of 7 criteria ticked and backed by code. Unmet: the For Sale preview (needs a `publication show --json` command that does not exist) and the Related-row preview (needs APP-108). Consider splitting those two out.
+
+**Prioritization (2026-11-12):** Priority P3, effort XS (was S). Stays in-
+review. Before it can be ready: Close for the shipped scope (hover preview,
+2cf8fc2) and file the For Sale preview as its own item; the Related half
+rides on APP-108. Prioritization flag (not acted on): done (shippable
+scope).

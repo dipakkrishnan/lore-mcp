@@ -1,7 +1,7 @@
 ---
 id: APP-236
 title: The evening check-in asks a few follow-ups before saving, and drafts for sale in its own thread
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -28,3 +28,7 @@ On Oct 21 the evening check-in asked the owner what GEPA's coding agent fixed th
 - [ ] Asking to sell in a capture or check-in thread stages a draft there. The thread shows its approval cards, and every turn says whether drafts are waiting.
 
 ## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #530.

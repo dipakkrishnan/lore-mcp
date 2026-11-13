@@ -1,7 +1,7 @@
 ---
 id: APP-235
 title: Offer Draft for sale only where it makes sense, say why before asking, and fit the approval cards
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -34,3 +34,9 @@ On Oct 21 the owner chose Draft for sale on a memory of their travel preferences
 - [ ] Deleting a memory removes what was judged of it. A later reading replaces the old judgement.
 - [ ] The lore-publish skill says why before it asks about a weak memory, and drafts when the owner asks for it anyway.
 - [ ] Approve what to sell shows each draft as one card, with Approve and Skip in its top row. A long topic stays inside the card.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #529.

@@ -1,7 +1,7 @@
 ---
 id: APP-230
 title: Connect ChatGPT in one message, and end the first run on the next AI and its schedule
-priority: P1
+priority: P3
 effort: XS
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -31,3 +31,10 @@ The owner's first-run walk on Oct 19 turned up three problems:
 
 - [ ] ChatGPT's sheet and first-run card lead with the message, its key masked, with the steps folded.
 - [ ] The connect step shows one message that saves now and sets up the evening schedule. After the first save, the first run ends on Connect another AI and Go to Today.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed after checking the criteria; the
+end-of-first-run "Go to Today" button is now the Inbox. Prioritization flag
+(not acted on): done: #507.

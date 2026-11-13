@@ -1,7 +1,7 @@
 ---
 id: APP-229
 title: Oct 19 walkthrough fixes, from Today's new memories to chat that can't push the store
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -46,3 +46,9 @@ The owner walked the app before 0.1.17 and found these problems:
 - [ ] `lore search --source X --limit N` returns the N newest.
 - [ ] "Push my store" in a drafting thread can't call `open_store`. A test proves it.
 - [ ] No green focus or selection rim remains, in light or dark.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Confirm the criteria on main (they say Today, now
+the Inbox) and close. Prioritization flag (not acted on): done: #505.

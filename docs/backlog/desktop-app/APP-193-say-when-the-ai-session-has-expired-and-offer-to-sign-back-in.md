@@ -1,7 +1,7 @@
 ---
 id: APP-193
 title: Say when the AI session has expired and offer to sign back in
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,3 +49,9 @@ a `signed-out` event reading "Your ... sign-in expired. Sign in again to keep go
 (`renderer.js:2994`) show the expired state outside a running turn, and whether
 signing back in needs a sign-out first. Trace those two paths, then rewrite the
 criteria to the real gap.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: The only gap is noticing expiry outside a running
+turn (the workspace menu says "Signed in" until a job fails). Re-scope to
+that or close. Prioritization flag (not acted on): mostly duplicate of
+APP-199.

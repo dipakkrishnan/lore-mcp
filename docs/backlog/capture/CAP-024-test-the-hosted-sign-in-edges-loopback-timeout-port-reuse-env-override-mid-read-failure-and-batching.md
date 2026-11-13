@@ -1,8 +1,8 @@
 ---
 id: CAP-024
 title: Test the hosted sign-in edges (loopback timeout, 404, port reuse, env override, mid-read failure, batching, pacing)
-priority: P1
-effort: M
+priority: P2
+effort: S
 component: capture
 status: in-review
 related: [CAP-009, CAP-015, CAP-025, XC-057, XC-052, CAP-016]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -99,3 +99,12 @@ C-22; F-gr-02, F-gr-03, R-05.
 
 Flakiness/safety: loopback binds port 0; `wait` is patched short; all
 servers are in-process.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort S (was M).
+Stays in-review. Before it can be ready: Rewrite tests 1-9 against the
+current tests/test_hosted.py and drop what is already covered (the timeout,
+the landing texts, possibly the 404; CAP-030 covers loopback timing). Keep
+port reuse, the LORE_<APP>_SERVER override, a failure partway through a
+read, get_meetings batching and Notion pacing. Refresh the line references.
+Prioritization flag (not acted on): partial duplicate of existing loopback
+tests (#435) and CAP-030.

@@ -1,16 +1,16 @@
 ---
 id: XC-059
 title: Open a store without Cloudflare or a wallet for card-only sellers
-priority: P1
-effort: L
+priority: P2
+effort: M
 component: cross-cutting
-status: ready
+status: in-review
 related: [XC-039, MON-025, APP-136]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -39,3 +39,10 @@ new-seller audit found this was where a new seller was most likely to give up.
 
 Filed from the 2026-10-06 new-seller audit. Builds on the go-live-on-its-own
 PR (APP-139), so price and payment changes reach a hosted store without a push.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort M (was L).
+Moved back from ready to in-review. Before it can be ready: The hosting half
+is now XC-071 (hosted store). Restate against the hosted store, scoped to
+making the wallet optional when cards are on plus the Settings copy, and
+list XC-071 as related or a blocker. Prioritization flag (not acted on):
+partly duplicate of XC-071.

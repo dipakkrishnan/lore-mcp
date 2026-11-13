@@ -4,13 +4,13 @@ title: Fill the feed reader gaps (discovery, Medium spellings, user agent, redir
 priority: P2
 effort: M
 component: capture
-status: in-review
+status: ready
 related: [CAP-005, CAP-008, CAP-018, CAP-020, CAP-026, XC-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -110,3 +110,6 @@ F-bl-02, R-03.
 
 Flakiness/safety: the timeout test uses a sub-second patched timeout;
 the redirect server is local. No test reaches a real site.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

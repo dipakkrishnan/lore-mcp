@@ -1,7 +1,7 @@
 ---
 id: APP-281
 title: Linear foundation: tokens, sans type, one canvas, workspace menu
-priority: P1
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -45,3 +45,7 @@ Audit ship-order step 3, one small diff every screen inherits:
 
 Nov 2: built against the approved mock's `:root`. Supersedes APP-256's six-step scale. Later steps: APP-282 (lists
 to rows), APP-283 (Inbox), APP-284 (object pages), APP-285 (⌘K commands and Settings rows), APP-286 (page header bar).
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed; the --text-3 contrast gap needs
+its own item. Prioritization flag (not acted on): done: #638.

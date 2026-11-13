@@ -1,7 +1,7 @@
 ---
 id: APP-035
 title: Enable optional paid answers through a Desktop owner gate
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: [MON-017]
 dependencies: ["Publication-only desktop dogfood shows paid answers are worth surfacing"]
 github_issue: null
 created: 2026-08-25
-updated: 2026-08-28
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -61,3 +61,8 @@ was not an authorization boundary. Do not restore that implementation unchanged.
 `MON-017` must first ensure a node cannot advertise or charge for answers when
 its configured model provider is unavailable. User validation may justify this
 seller control; it does not justify widening Desktop into a buyer client.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: An owner decision that the paid-answer tier is still
+wanted now that the bids board exists, plus the evidence of demand the
+approach section requires.

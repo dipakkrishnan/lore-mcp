@@ -1,7 +1,7 @@
 ---
 id: CAP-016
 title: Contract-test the Notion reader against its recorded tool list, list page and fetch answers
-priority: P1
+priority: P2
 effort: M
 component: capture
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -120,3 +120,10 @@ recording stays the single source.
 Sequencing: blocked by `XC-048` (file prefix, `jsonschema` dev
 dependency). `CAP-017` (the fix) updates tests 4, 5 and 6; write them so
 that flip is a small diff.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. Tests 5-7 are
+stale: STO-005 (#415) strips the preamble and the properties and ancestor-
+path blocks, and Notion.text() returns "" for databases, so as written they
+would pin the opposite of the current code; rewrite them to the current
+output.

@@ -1,7 +1,7 @@
 ---
 id: APP-274
 title: Tell a seller right away when a bid matches what they know
-priority: P0
+priority: P1
 effort: L
 component: desktop-app
 status: in-review
@@ -50,3 +50,8 @@ Sending the answer to the bid is MON-056's work, which has not started, and
 nothing has moved here since 2026-11-02. Back to in-review to move criterion
 3 to MON-056, and to decide whether "drafted reply" means drafted on request
 (as built) or ahead of time; then close.
+
+**Prioritization (2026-11-12):** Priority P1 (was P0). Stays in-review.
+Before it can be ready: Move criterion 3 to MON-056, record that "drafted
+reply" means drafted when the owner asks, then close. Prioritization flag
+(not acted on): done except criterion 3.

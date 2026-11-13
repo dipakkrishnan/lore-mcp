@@ -1,8 +1,8 @@
 ---
 id: APP-121
 title: Ship the entitlements and purpose strings connectors need
-priority: P1
-effort: S
+priority: P2
+effort: XS
 component: desktop-app
 status: in-review
 related: [CAP-004, CAP-007, APP-005, APP-120]
@@ -69,3 +69,9 @@ control Notes" from the notarized app, a manual check, which in practice
 will happen when CAP-007's Notes read first runs. Unrelated stale text:
 app/desktop/README.md still says "Signing is wired but inert", though
 releases are signed.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Close it and fold the manual "Lore
+wants to control Notes" check into CAP-007's first run (this unblocks
+CAP-007). Fix the stale "Signing is wired but inert" line in
+app/desktop/README.md. Prioritization flag (not acted on): done.

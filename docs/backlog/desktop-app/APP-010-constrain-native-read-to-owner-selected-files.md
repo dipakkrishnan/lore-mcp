@@ -1,7 +1,7 @@
 ---
 id: APP-010
 title: Constrain native read to owner-selected files
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
 status: in-review
@@ -83,3 +83,11 @@ was not kept; the facts about the code stand on their own.
   path-based sandbox bypass of the same kind. Either refuse nlink > 1 in
   every root the agent can write (lore included) and add a unit test for a
   hard link inside lore, or explain in the plan why lore is exempt.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Rewrite the Problem against sandboxPolicy and
+createSandboxedReadOperations (reads already blocked under $HOME). State
+whether paths outside home, like /etc/hosts, are in scope. Add the hard-
+link-inside-lore case as an explicit criterion, and name an fd-identity
+check that works on macOS. Prioritization flag (not acted on): mostly
+superseded by the APP-048/APP-227 Seatbelt read policy.

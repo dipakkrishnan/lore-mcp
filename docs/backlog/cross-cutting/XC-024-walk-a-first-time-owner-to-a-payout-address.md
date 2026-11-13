@@ -1,8 +1,8 @@
 ---
 id: XC-024
 title: Walk a first-time owner to a payout address
-priority: P1
-effort: S
+priority: P2
+effort: XS
 component: cross-cutting
 status: in-review
 related: [APP-056, APP-071, APP-036, XC-025]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -46,3 +46,8 @@ trap sentences on the wallet card.
 Reviewed 2026-09-04: a steps array and a per-tool heading duplicated what markdown and one copy change already give.
 
 **Review 2026-10-19:** not completed. Shortened in 408ba80, then superseded by MON-025's in-app payout card, which covers criteria 1 and 2. The wallet-app-versus-exchange-app warning is no longer on the card. Rewrite criteria against MON-025 or fold into it.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Fold the "the exchange app is not
+the wallet" sentence into MON-025's payout card, or rewrite the criterion
+against that card. Prioritization flag (not acted on): duplicate of MON-025.

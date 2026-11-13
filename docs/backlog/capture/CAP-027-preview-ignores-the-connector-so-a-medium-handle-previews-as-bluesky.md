@@ -1,16 +1,16 @@
 ---
 id: CAP-027
 title: "Bug: preview ignores the connector, so a Medium handle previews as Bluesky and hosted apps have no preview"
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [STO-003, CAP-008, CAP-009, CLI-011, APP-125]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -82,3 +82,6 @@ C-20 `preview`, C-23; R-07.
 
 Flakiness/safety: `serving()` stub only. The desktop does not call
 `preview` today (`state.cjs` has no such function), so no Node change.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

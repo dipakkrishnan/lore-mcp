@@ -4,13 +4,13 @@ title: Prove sign-in tokens never leave the Keychain, and pin what Lore imports 
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [CAP-009, CAP-024, XC-051, APP-001, STO-002, XC-048]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -105,3 +105,9 @@ C-25; manifest items obs-06, obs-07 (`private_data`).
 Flakiness/safety: the fake token is a fixed string built in the test;
 never copy a real token shape from a recording (recordings are scrubbed
 to `JWT.REDACTED`, which is fine to grep for as a negative).
+
+**Prioritization (2026-11-12):** Priority P1. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code. Implementer
+note: Run the Python checks with `uv run python tests/gate.py --python-only`
+(CI's runner, which loads conftest's hermetic guard), not `unittest
+discover`.

@@ -1,16 +1,16 @@
 ---
 id: MON-050
 title: Say plainly when a dropped document can't be converted, and never fetch its remote images
-priority: P3
+priority: P2
 effort: XS
 component: monetization
-status: in-review
+status: ready
 related: [MON-044, MON-048, MON-049, MON-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -61,3 +61,6 @@ of this item. If one file in a dropped folder fails, the whole drop is
 refused. Reads finish before any store write, so nothing is half-added.
 That is a deliberate choice and is left alone here. Open PR #427 reuses
 `_read` for `sell()`.
+
+**Prioritization (2026-11-12):** Priority P2 (was P3). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

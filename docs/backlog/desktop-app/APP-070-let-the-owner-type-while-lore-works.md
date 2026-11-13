@@ -1,16 +1,16 @@
 ---
 id: APP-070
 title: Let the owner type while Lore works
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-069, APP-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-04
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -43,3 +43,11 @@ Post-launch unless dogfooding shows owners repeatedly trying to type during
 turns. Pi: `@earendil-works/pi-coding-agent` 0.84.4 `agent-session.d.ts:380`.
 
 **Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: APP-100 covers the same problem with
+the opposite design (this says "use steer"; APP-100 says no steering, an Up
+next queue). Pick one: rewrite this as APP-100's first slice or mark
+obsolete. Refresh stale references (agent.mjs line, Pi version).
+Prioritization flag (not acted on): duplicate of APP-100 (conflicting
+design).

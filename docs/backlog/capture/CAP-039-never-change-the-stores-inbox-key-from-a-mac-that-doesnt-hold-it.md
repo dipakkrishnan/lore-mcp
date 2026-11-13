@@ -4,13 +4,13 @@ title: Never change the store's inbox key from a Mac that doesn't hold it
 priority: P1
 effort: M
 component: capture
-status: in-review
+status: ready
 related: [CAP-036, CAP-038, XC-067, APP-224]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -73,3 +73,6 @@ match.
   path and should carry the key over.
 - P1 is a first guess: the failure is silent and stops every agent at once.
   `prioritization` decides.
+
+**Prioritization (2026-11-12):** Priority P1. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

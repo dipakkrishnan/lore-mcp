@@ -1,7 +1,7 @@
 ---
 id: APP-043
 title: Batch captured memories by date in the Memories tab
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/171
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -58,3 +58,9 @@ their own "future iterations" note — resolving scope here would be
 inventing an answer, not reading one off the issue.
 
 **Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Criteria are TBD and the Memories list became
+Inventory. Split off a date-bucketing slice with criteria against the
+Inventory list, and park the search and metadata asks. Prioritization flag
+(not acted on): obsolete (premise).

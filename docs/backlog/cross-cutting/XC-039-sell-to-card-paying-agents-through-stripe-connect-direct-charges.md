@@ -168,3 +168,9 @@ a browsing agent with a Link card. The nonzero-fee test-mode check and
 confirming a card sale in the desktop Sales list are small follow-ups once
 those exist. Nothing has moved since 2026-10-06, so it leaves in-progress
 and waits on the owner.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Stripe platform preapproval, a seller finishing Stripe onboarding
+in test mode, the live Connect webhook and its secret, a Link-card purchase
+by a browsing agent, the nonzero-fee test-mode check, and a card sale
+visible in the desktop Sales list.

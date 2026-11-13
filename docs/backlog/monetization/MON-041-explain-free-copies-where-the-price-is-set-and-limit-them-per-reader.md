@@ -2,7 +2,7 @@
 id: MON-041
 title: Explain free copies where the price is set and limit them per reader
 priority: P1
-effort: S
+effort: M
 component: monetization
 status: in-review
 related: [MON-040, APP-136, MON-035]
@@ -67,3 +67,10 @@ was not kept; the facts about the code stand on their own.
   AC3 gap. Either keep reader rows for an exhausted or switched-off piece
   until the piece is taken down (the cost is longer retention), or record it
   as a known limit next to the TTL. Today the plan lists neither.
+
+**Prioritization (2026-11-12):** Priority P1, effort M (was S). Stays in-
+review. Before it can be ready: Decide AC3's retention model (no expiry, or
+an expiry with AC3 narrowed) and what happens to recorded readers when the
+seller raises the cap or turns free copies back on. Consider splitting into
+three items: explaining free copies (S), previewing as a buyer (S) and the
+per-reader limit (M).

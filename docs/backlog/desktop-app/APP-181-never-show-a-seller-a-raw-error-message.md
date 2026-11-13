@@ -2,7 +2,7 @@
 id: APP-181
 title: Never show a seller a raw error message
 priority: P1
-effort: S
+effort: M
 component: desktop-app
 status: in-review
 related: [APP-085, APP-109, APP-014, STO-004]
@@ -91,3 +91,10 @@ was not kept; the facts about the code stand on their own.
   across the detail text (paths appear mid-string, e.g. "[Errno 13]
   Permission denied: '/Users/x/.lore/lore.db'"), and have the sheet-path
   test check the redaction.
+
+**Prioritization (2026-11-12):** Priority P1, effort M (was S). Stays in-
+review. Before it can be ready: Add criteria for: case-insensitive ^error:,
+(os error N) and Caused by: patterns; detail set whenever shown text differs
+from the raw message; Sales group stays before Taken down; the four
+tell(reason(...)) sites; home-path redaction using the existing
+/^\/Users\/[^/]+/ convention, applied globally.

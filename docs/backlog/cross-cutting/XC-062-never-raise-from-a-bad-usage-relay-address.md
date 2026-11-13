@@ -4,13 +4,13 @@ title: Never raise from a bad usage relay address
 priority: P3
 effort: XS
 component: cross-cutting
-status: in-review
+status: ready
 related: [APP-058, CLI-004, XC-060, XC-061]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-10
-updated: 2026-10-10
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -65,3 +65,6 @@ address should also leave the milestone unmarked.
 
 Filed apart from `APP-058` because it is a small defect with its own fix
 and test.
+
+**Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

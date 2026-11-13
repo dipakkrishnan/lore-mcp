@@ -1,8 +1,8 @@
 ---
 id: APP-019
 title: Set the global publication price in Desktop
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [MON-009, MON-013, APP-006, APP-035, XC-020]
@@ -106,3 +106,8 @@ date. The one open box, a live-node walk, still needs the owner's node, and
 since MON-025 it runs on real money rather than Sepolia. Rewrite criteria 5
 and 6 against the push-carries-price model, then either do the walk as an
 owner step or fold it into a shared live-proof item.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: Rewrite criteria 5 and 6 for push-
+carries-price (APP-139, #408), move the live walk into APP-005, and close.
+Prioritization flag (not acted on): done except the live walk.

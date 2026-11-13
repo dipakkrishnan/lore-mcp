@@ -1,8 +1,8 @@
 ---
 id: XC-101
 title: Boot the Worker in at most seven test files
-priority: P1
-effort: S
+priority: P3
+effort: XS
 component: cross-cutting
 status: in-review
 related: [XC-099, XC-100]
@@ -125,3 +125,8 @@ of which the test step was only 29-39 s, and the rest is setup this item
 cannot change. Moved back to in-review to restate that criterion against the
 test step (for example under 40 s), which current runs already meet, and
 then close it.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was S).
+Stays in-review. Before it can be ready: Restate AC3 against the
+test:coverage step (under 40 s, which current runs meet) and close.
+Prioritization flag (not acted on): done (pending restatement).

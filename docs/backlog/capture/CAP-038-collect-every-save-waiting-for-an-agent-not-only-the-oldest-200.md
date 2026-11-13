@@ -4,13 +4,13 @@ title: Collect every save waiting for an agent, not only the oldest 200
 priority: P2
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-036, CAP-039, XC-067, APP-207]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -76,3 +76,6 @@ Update the Collect query in `contracts/inbox.md`, which spells out
   needs only the store to answer the revoke, not the read.
 - Saves that won't open usually mean the store's key changed under this Mac.
   CAP-039 covers how that happens.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

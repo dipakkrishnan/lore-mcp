@@ -1,8 +1,8 @@
 ---
 id: APP-137
 title: Give Today one next step instead of five equal ones
-priority: P2
-effort: M
+priority: P3
+effort: S
 component: desktop-app
 status: in-review
 related: [APP-136, APP-138, APP-139]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -40,3 +40,9 @@ setup guide, Linear onboarding.
 ## Notes
 
 **Prioritization pass 2026-11-11:** Moved `ready` → `in-review` and P1 → P2: APP-283 (#641) replaced Today with an Inbox, so these criteria name a page that no longer exists. Rewrite them against the Inbox, or mark this `obsolete` if the Inbox already gives one next step.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort S (was M).
+Stays in-review. Before it can be ready: The owner confirms obsolete (the
+Inbox gives one next step), or rewrite the setup checklist and the "Draft
+something to sell" merge against the Inbox. Prioritization flag (not acted
+on): obsolete (likely).

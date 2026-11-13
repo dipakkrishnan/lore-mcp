@@ -4,13 +4,13 @@ title: Emit and parse the "Approve Lore in your browser" line under test on both
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [CAP-009, CAP-024, APP-060, APP-178, XC-055, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -103,3 +103,10 @@ Flakiness/safety: no OAuth server is stood up; `sign_in` is patched at
 the seam that already exists. A real stub with dynamic client
 registration would test the SDK, not Lore, and is deliberately out of
 scope; `CAP-024` covers the loopback itself.
+
+**Prioritization (2026-11-12):** Priority P1. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code. Implementer
+note: Line numbers have moved (lore/cli.py ~1260 prints the string,
+app/desktop/src/state.cjs ~880 parses it). The Node test belongs under
+app/desktop/test/unit or test/component, and the Python check uses
+tests/gate.py.

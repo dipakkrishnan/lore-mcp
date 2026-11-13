@@ -1,8 +1,8 @@
 ---
 id: APP-225
 title: Dark mode that follows the Mac
-priority: P2
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-220, APP-222, APP-247]
@@ -62,3 +62,9 @@ on main and covered by tests and walks. Criterion 3 no longer holds: APP-281
 AA for body text. Reword criterion 3 to defer the palette to APP-281, and
 file or fold the --text-3 contrast fix (into APP-281, which is in-review);
 then this item can close.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was M).
+Stays in-review. Before it can be ready: Reword criterion 3 to defer the
+palette to APP-281, file the --text-3 contrast fix as its own small item
+(APP-281 already shipped), then close. Prioritization flag (not acted on):
+done except the AA criterion.

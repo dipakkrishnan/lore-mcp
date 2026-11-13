@@ -1,7 +1,7 @@
 ---
 id: CAP-003
 title: Seed a new owner's library from their public posts
-priority: P1
+priority: P2
 effort: M
 component: capture
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -86,3 +86,11 @@ met by the connectors (`STO-003`, `APP-124`); LinkedIn and X archives are
 still open, so this stays in review.
 
 **Review 2026-10-19:** not completed. Connect-to-publish nudge shipped (1be4431). Unmet: LinkedIn and X archive import. The Substack criterion is met by the connector in lore/sources.py but unticked.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Tick the Substack criterion, which is already met.
+Narrow the item to the LinkedIn and X archive import: name the files to
+parse (LinkedIn Shares.csv, X tweets.js), say whether it is an export reader
+in sources.py or a step in a capture skill, and define what counts as a
+repost or a reply in each archive. Prioritization flag (not acted on):
+mostly done: 3 of 4 criteria met.

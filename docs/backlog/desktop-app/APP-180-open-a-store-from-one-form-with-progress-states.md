@@ -2,7 +2,7 @@
 id: APP-180
 title: Open a store from one form with progress states, not an agent chat
 priority: P1
-effort: M
+effort: L
 component: desktop-app
 status: in-review
 related: [APP-136, APP-057, APP-056]
@@ -99,3 +99,12 @@ was not kept; the facts about the code stand on their own.
   its expectations move. It also lists tests/test_skill_contract.py as
   touched although the plan changes nothing in it. Make the two lists agree
   so the PR updates the right tests.
+
+**Prioritization (2026-11-12):** Priority P1, effort L (was M). Stays in-
+review. Before it can be ready: Fold the plan-review findings into criteria:
+map openStore's string returns (cancel, cards not on, bad address, bad
+network) to form versus failed step; route every resume('deploy') (Fix it,
+Update store) to the card while a run is active; show non-sign-in preflight
+failures as a failed Preparing step; reuse cardsFirst and payoutField (there
+is no byCardFlow); route stale deploy records; make the test-file lists
+agree.

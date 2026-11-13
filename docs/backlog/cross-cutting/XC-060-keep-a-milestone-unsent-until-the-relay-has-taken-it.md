@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-10
-updated: 2026-10-10
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -104,3 +104,8 @@ merges.
 
 The fix must keep privacy rule 5 in `docs/telemetry.md`: a retry repeats the
 same milestone, it never says how many times something happened.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Settle the open questions (whether accepted: 0 counts as taken,
+retry cadence, 400/413 handling, duplicate policy), and update for XC-105's
+send= parameter and the once/first/daily/always frequencies.

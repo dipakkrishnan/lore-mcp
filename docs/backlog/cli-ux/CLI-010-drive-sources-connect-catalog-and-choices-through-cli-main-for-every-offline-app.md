@@ -1,7 +1,7 @@
 ---
 id: CLI-010
 title: Drive `sources connect`, `catalog` and `choices` through `cli.main` for every app provable offline
-priority: P1
+priority: P2
 effort: M
 component: cli-ux
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -108,3 +108,9 @@ Flakiness/safety: in-process; every network is a `serving()` patch;
 `FakeKeyring` installed for the Granola case. Keep this file separate
 from `XC-051` (which asserts what lands in the store) so a shape change
 and a content change fail in different places.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. The test design
+is stale: Connector.catalog() now returns 14 apps, not 10; test 1's expected
+list and the "eight offline apps" set need redoing, with stand-ins or
+explicit exclusions for google-maps, letterboxd, goodreads and agent.

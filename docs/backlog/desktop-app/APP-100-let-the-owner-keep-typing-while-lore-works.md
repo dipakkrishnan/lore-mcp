@@ -1,8 +1,8 @@
 ---
 id: APP-100
 title: Let the owner keep typing while Lore works
-priority: P1
-effort: M
+priority: P2
+effort: L
 component: desktop-app
 status: in-review
 related: [APP-069, APP-053, APP-099]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-07
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -86,3 +86,9 @@ screen, automatic retries, and automatic execution after relaunch. Do not
 broaden sandbox permissions to make concurrency appear to work.
 
 **Review 2026-10-19:** not completed. Not done. Only f36d86b (scoping docs) names it; no task queue, cancel-while-pending or queued state exists. All 7 criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1), effort L (was M).
+Stays in-review. Before it can be ready: Split it: a same-task follow-up
+queue with Up next / Remove (absorbing APP-070); cross-task queuing and
+Stop; persistence across relaunch. Point the criteria at the Inbox rather
+than Today rows.

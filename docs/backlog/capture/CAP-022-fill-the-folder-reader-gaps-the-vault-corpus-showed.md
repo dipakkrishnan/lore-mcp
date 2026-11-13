@@ -1,16 +1,16 @@
 ---
 id: CAP-022
 title: Fill the folder reader gaps the vault corpus showed (quoted dates, odd titles, symlinks, path spellings, choices)
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-004, APP-124, XC-051, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -90,3 +90,6 @@ Flakiness/safety: mtime-dated cases assert "today" via
 `date.today().isoformat()` computed in the test right before the read;
 run within one process so midnight cannot split it (accept either today
 or yesterday if it does).
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

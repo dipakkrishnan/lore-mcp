@@ -1,16 +1,16 @@
 ---
 id: MON-027
 title: Walk the Tempo credits buyer path end to end before building MPP
-priority: P2
+priority: P3
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [MON-026, XC-037, XC-022]
 blockers: []
 dependencies: ["v0.1.3 shipped", "First stranger buy on x402"]
 github_issue: null
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -52,3 +52,10 @@ priced items around $2 and up (answers, bundles), not one-cent reads,
 since each Link payment is a card charge ($0.50 minimum, 2.9% + 30¢) and
 today needs the person's approval per request. Post-v0.1.3; the first buy
 happens on x402.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: An owner confirms the Tempo spike is
+still wanted now that card buying goes through Stripe. If yes, restate the
+problem against the Stripe path and confirm the first stranger buy over x402
+happened; if no, close it as obsolete with MON-026. Prioritization flag (not
+acted on): obsolete (likely).
