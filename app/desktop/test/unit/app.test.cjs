@@ -355,6 +355,14 @@ test("APP-281: type, radii and timing come from tokens, and the app has no serif
   assert.doesNotMatch(css, /serif\b(?<!sans-serif\b)|Georgia/);
 });
 
+test("APP-293: Inventory's date column is as wide as a token says and never wraps", async () => {
+  const css = await readFile(join(__dirname, "../../src/styles.css"), "utf8");
+  assert.match(css.match(/:root \{[^}]*\}/)?.[0] ?? "", /--col-date: \d+px;/);
+  const rule = css.match(/\n\.invrow \.age \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(rule, /width: var\(--col-date\);/);
+  assert.match(rule, /white-space: nowrap;/);
+});
+
 test("the first-run chat asks the onboarding skill to shape the library only after the first save", async () => {
   const skill = await readFile(join(__dirname, "../../../../plugins/lore/skills/lore-onboard/SKILL.md"), "utf8");
   assert.match(skill, /## Connect first, shape after the first save/);
