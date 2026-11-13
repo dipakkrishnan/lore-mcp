@@ -28,11 +28,42 @@ const TOO_LARGE: Refusal = { status: 413, error: "request body too large" };
 
 /**
  * The cheap first half of the body cap: a Content-Length over the limit is refused before the body
- * is read. A missing or unreadable header passes, since the second half (`refuseBody`) counts the
- * bytes actually read.
+ * is read. A missing header, or one that isn't a number (XC-066: `Number("abc")` is NaN), passes:
+ * the second half (`readCapped`) holds the bytes actually read to the cap.
  */
 export function refuseDeclaredLength(header: string | null, limit: number = LIMITS.bodyBytes): Refusal | null {
   return Number(header ?? "0") > limit ? TOO_LARGE : null;
+}
+
+/**
+ * The body as text, read a chunk at a time and given up as soon as it passes `limit` bytes, so a
+ * chunked or lying request is held to the cap without buffering more than one chunk past it (XC-066).
+ */
+export async function readCapped(
+  body: ReadableStream<Uint8Array> | null,
+  limit: number = LIMITS.bodyBytes
+): Promise<{ raw: string } | Refusal> {
+  if (!body) return { raw: "" };
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      return TOO_LARGE;
+    }
+    chunks.push(value);
+  }
+  const whole = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return { raw: new TextDecoder().decode(whole) };
 }
 
 /** The real body cap, in UTF-8 bytes of what was read, so a chunked or lying request is still held to it. */

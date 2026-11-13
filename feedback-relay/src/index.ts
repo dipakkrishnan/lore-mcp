@@ -1,15 +1,16 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { forward, siteBatch } from "./events.js";
 import { createIssue } from "./issue.js";
-import { allow } from "./limit.js";
+import { allowSender, allowSpend } from "./limit.js";
 import { ReportError, parseReport } from "./report.js";
 import {
   RATE_LIMITED,
   type Refusal,
   failure,
+  EVENTS_BODY_BYTES,
   parseJson,
+  readCapped,
   readEvents,
-  refuseBody,
   refuseContentType,
   refuseDeclaredLength,
   refuseMethod
@@ -51,7 +52,12 @@ async function events(request: Request, env: Env, ctx: ExecutionContext): Promis
     const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
     if (!(await env.EVENTS_RATE_LIMIT.limit({ key: ip })).success) return refuse(RATE_LIMITED);
   }
-  const read = readEvents(await request.text());
+  // XC-066: the declared length first, then a read that stops one chunk past the cap.
+  const declaredTooLarge = refuseDeclaredLength(request.headers.get("content-length"), EVENTS_BODY_BYTES);
+  if (declaredTooLarge) return refuse(declaredTooLarge);
+  const body = await readCapped(request.body, EVENTS_BODY_BYTES);
+  if ("status" in body) return refuse(body);
+  const read = readEvents(body.raw);
   if ("status" in read) return refuse(read);
   ctx.waitUntil(forward(env, read.batch).catch(() => undefined));
   return json({ accepted: read.batch.events.length }, 202);
@@ -92,17 +98,19 @@ export default {
     const declaredTooLarge = refuseDeclaredLength(request.headers.get("content-length"));
     if (declaredTooLarge) return refuse(declaredTooLarge);
 
-    if (!(await allow(env, request))) return refuse(RATE_LIMITED);
+    // XC-066: the per-IP limiter costs only this sender, so it stays ahead of the read. The shared
+    // layers (the global limiter, then the quota) are spent only on a report about to be filed.
+    if (!(await allowSender(env, request))) return refuse(RATE_LIMITED);
 
-    const raw = await request.text();
-    const tooLarge = refuseBody(raw);
-    if (tooLarge) return refuse(tooLarge);
+    const body = await readCapped(request.body);
+    if ("status" in body) return refuse(body);
 
-    const parsed = parseJson(raw);
+    const parsed = parseJson(body.raw);
     if ("status" in parsed) return refuse(parsed);
 
     try {
       const report = parseReport(parsed.value);
+      if (!(await allowSpend(env))) return refuse(RATE_LIMITED);
       const issue = await createIssue(env, report);
       return json(
         { ok: true, issue_url: issue.html_url, issue_number: issue.number },

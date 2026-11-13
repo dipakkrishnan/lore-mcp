@@ -37,9 +37,10 @@
     }
   ],
   // Both keyed in src/limit.ts, both ahead of FEEDBACK_QUOTA as cheap
-  // pre-filters: FEEDBACK_RATE_LIMIT per client IP, GLOBAL_RATE_LIMIT on a
-  // constant key. Neither is an aggregate bound (see above); they exist to
-  // absorb ordinary abuse without a Durable Object round trip.
+  // pre-filters: FEEDBACK_RATE_LIMIT per client IP, checked before the body is
+  // read; GLOBAL_RATE_LIMIT on a constant key, spent like the quota only on a
+  // report about to be filed (XC-066). Neither is an aggregate bound (see
+  // above); they exist to absorb ordinary abuse without a Durable Object round trip.
   // `period` accepts only 10 or 60 seconds.
   "ratelimits": [
     {
