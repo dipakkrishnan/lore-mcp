@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en-US">
+  <title type="text">Field Notes</title>
+  <updated>2026-10-20T09:00:00Z</updated>
+  <entry>
+    <author><name>writer</name></author>
+    <title type="html">What the first hire taught me</title>
+    <link rel="alternate" type="text/html" href="https://fieldnotes.example.com/2023/04/first-hire/"/>
+    <id>https://fieldnotes.example.com/?p=101</id>
+    <updated>2026-10-20T08:00:00Z</updated>
+    <published>2023-04-02T10:00:00Z</published>
+    <content type="html">&lt;p&gt;Hire for the job you will have in a year, not the one you have now.&lt;/p&gt;</content>
+  </entry>
+  <entry>
+    <title type="html">An undated-but-updated note</title>
+    <link rel="alternate" type="text/html" href="https://fieldnotes.example.com/2026/09/note/"/>
+    <id>https://fieldnotes.example.com/?p=102</id>
+    <updated>2026-09-05T08:00:00Z</updated>
+    <content type="html">&lt;p&gt;Only the update date is on this one, so it is dated by it.&lt;/p&gt;</content>
+  </entry>
+</feed>

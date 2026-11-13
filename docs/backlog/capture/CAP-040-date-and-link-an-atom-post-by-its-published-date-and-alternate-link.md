@@ -4,13 +4,13 @@ title: Date and link an Atom post by its published date and alternate link, what
 priority: P2
 effort: S
 component: capture
-status: ready
+status: completed
 related: [CAP-005, CAP-008, CAP-018, CAP-020, CAP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-27
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -60,19 +60,19 @@ WordPress-order and a Blogger-order entry.
 
 ## Acceptance criteria
 
-- [ ] An Atom entry with `<updated>` before `<published>` is dated by
+- [x] An Atom entry with `<updated>` before `<published>` is dated by
       `<published>`. An entry with only `<updated>` is still dated by it. An
       RSS item with `atom:updated` before `pubDate` is dated by `pubDate`. The
       existing feed tests are unchanged.
-- [ ] An Atom entry whose `rel="alternate"` link follows `replies`, `edit` and
+- [x] An Atom entry whose `rel="alternate"` link follows `replies`, `edit` and
       `self` links gets the alternate href as `source_path`. A link without
       `rel` is treated as `alternate`.
-- [ ] A Blogger-order feed that was imported before the fix and is read again
+- [x] A Blogger-order feed that was imported before the fix and is read again
       after it adds no duplicate memory. Whatever key strategy is chosen is
       stated in the PR.
-- [ ] A source with `since` set skips an old post that was edited recently.
+- [x] A source with `since` set skips an old post that was edited recently.
       Today the edit date gets it past the `since` filter.
-- [ ] Tests in `tests/test_feed.py` use a WordPress-order fixture and a
+- [x] Tests in `tests/test_feed.py` use a WordPress-order fixture and a
       Blogger-order fixture.
 
 ## Notes
@@ -102,3 +102,20 @@ unaffected too.
 
 **Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):**
+
+- `FeedReader._item` (`lore/sources.py`) dates an entry with a new `_first()`
+  helper, in the order `published`, `pubDate`, `date`, `updated`, whatever
+  order the document uses.
+- It links an entry with a new `_alternate()` helper: the first link whose
+  `rel` is `alternate` or missing, else the first link.
+- Key strategy (b): the key stays the entry's first link, as before. A feed
+  imported before this change reads again with no new or updated memory,
+  which a test pins.
+- A memory imported before keeps its old `source_path` and date until its
+  content changes, because `Store.put` uses `dated` only on insert.
+- New fixtures: `tests/fixtures/feeds/wordpress-atom.xml` and
+  `blogger-atom.xml`.
+- Tests are in `FeedOrderTest` (`tests/test_feed.py`). No existing feed test
+  changed.
