@@ -4,13 +4,13 @@ title: Serve store pages from Cloudflare's edge cache without running the Worker
 priority: P1
 effort: S
 component: monetization
-status: in-progress
+status: completed
 related: [XC-040, MON-018, MON-034]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -38,7 +38,7 @@ also caches heuristically when that header is missing.
       `no-store` or `no-cache` (tested in `test/pages.test.ts`).
 - [x] 404s are cached for at most the same 60 seconds, so a newly pushed
       piece appears within that time.
-- [ ] After a deploy, a second request for `/` or `/p/<id>` within 60 seconds
+- [x] After a deploy, a second request for `/` or `/p/<id>` within 60 seconds
       returns `cf-cache-status: HIT`, which means the Worker and D1 were
       skipped. Workers Cache can't run in the vitest pool, so this is checked
       live.
@@ -58,3 +58,9 @@ Implementation, 2026-09-29: the item's premise was half wrong.
 - The cache key includes the Worker version, so a deploy clears it. A
   `lore push` doesn't redeploy the Worker, so pages can stay up to 60 seconds
   stale after a push.
+
+**Backlog audit (2026-11-12), closed as completed:** Workers Cache has been
+on since PR #348. The last criterion was the live check, which now passes:
+repeat requests to `/` and `/p/<id>` on both marketplace stores return cf-
+cache-status HIT, and /mcp is still no-store. Protecting the request limit
+was split off to MON-034, so this moves to completed.

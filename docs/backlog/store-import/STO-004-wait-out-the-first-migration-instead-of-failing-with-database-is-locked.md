@@ -4,13 +4,13 @@ title: Wait out the first migration instead of failing with database is locked
 priority: P1
 effort: XS
 component: store-import
-status: in-progress
+status: in-review
 related: [APP-181]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-07
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -63,3 +63,11 @@ Filed from the 2026-10-06 new-seller audit.
   seeds the database before the app starts.
 - Every open now waits up to 15s on a held write lock where it used to wait 5s,
   including the MCP server's.
+
+**Backlog audit (2026-11-12), moved to in-review:** The WAL retry and the
+concurrent-process test merged in PR #419, which meets the first criterion.
+The second criterion needs someone to watch a real first launch on an empty
+LORE_HOME and confirm Memories shows no database error. CI's empty-home
+walks never check for that message, and the "unable to open database file"
+error was never reproduced. One attended first launch either closes this or
+turns it into a new bug.

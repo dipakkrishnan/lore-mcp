@@ -4,13 +4,13 @@ title: Replace Today with an Inbox
 priority: P1
 effort: L
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-281, APP-214, APP-219, APP-274, APP-284, MON-056]
 blockers: []
 dependencies: [APP-281, APP-274]
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -42,3 +42,12 @@ The owner named the sidebar places on Nov 2: Inbox, Inventory, Bids, Connectors.
 - [x] A bid notification opens that bid (several open the Inbox).
 - [x] The first-run chat opens with "Hi, I'm Lore. I keep what you teach your AIs here on this Mac, so every one of
       them can use it."
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as completed:** PR #641 merged on
+2026-11-03 and every criterion holds on main: inbox.js has the row and bid-
+state logic (test/unit/inbox.test.cjs passes), the sidebar Inbox has a
+count, a single-bid notification opens that bid in main.cjs, and the first-
+run line is in renderer.js. It sat at in-review only because the PR was
+opened as a draft for owner review, so it moves to completed.

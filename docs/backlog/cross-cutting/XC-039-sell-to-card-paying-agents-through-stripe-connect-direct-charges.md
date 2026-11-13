@@ -4,13 +4,13 @@ title: Sell to card-paying agents through Stripe Connect direct charges
 priority: P1
 effort: L
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [MON-009, MON-025, MON-026, MON-027, MON-028, MON-035, APP-019, XC-031, XC-034]
 blockers: []
 dependencies: ["Stripe preapproval for Lore as a content-creation platform"]
 github_issue: null
 created: 2026-09-29
-updated: 2026-10-04
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -158,3 +158,13 @@ revenue.
   connected accounts. That is MON-026 cut 3's territory.
 - **Out of scope.** One checkout across several sellers, and prepaid Lore
   credits. Both need model 2 and a separate decision.
+
+**Backlog audit (2026-11-12), moved to in-review:** Card checkout, receipts,
+webhooks and the "Get paid to your bank" flow shipped in early October
+(#373-#397). What remains mostly needs accounts and people: Stripe's
+platform preapproval, a seller completing Stripe's onboarding in test mode,
+registering the live Connect webhook and its secret, and a real purchase by
+a browsing agent with a Link card. The nonzero-fee test-mode check and
+confirming a card sale in the desktop Sales list are small follow-ups once
+those exist. Nothing has moved since 2026-10-06, so it leaves in-progress
+and waits on the owner.

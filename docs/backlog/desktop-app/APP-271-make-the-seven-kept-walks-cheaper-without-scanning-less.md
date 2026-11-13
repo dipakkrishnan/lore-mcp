@@ -4,13 +4,13 @@ title: Make the seven kept walks cheaper without scanning less
 priority: P1
 effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-266, APP-270, XC-072, XC-084, XC-108, STO-006]
 blockers: [APP-270]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -204,3 +204,11 @@ The two time criteria need three green main runs after merge. On the PR,
 `agents` is at about 80 s and the walks step at 160-177 s on a quiet runner,
 and both at 128 and 271 s on a loaded one; over 150 s either way, because `agents` still runs alone (XC-084) before the other six,
 which take about 80 s two at a time. Status stays `in-progress`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The sleep and wait work
+landed in PR #683 (sleeps cut from 139 to 14). The PR's quiet-runner numbers
+did not hold on main: the latest three green runs show `agents` at 111-166 s
+and the walks step at 248-375 s. The remaining targets depend on runner load
+and on XC-084's solo `agents` walk, not on more of this item's approach.
+Back to in-review to re-scope the time targets, for example to a median over
+N runs, or to tie them to XC-084.

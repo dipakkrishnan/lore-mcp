@@ -4,13 +4,13 @@ title: Have lore-buy place a bid when nothing fits, and pick it up later
 priority: P1
 effort: S
 component: monetization
-status: in-progress
+status: in-review
 related: [MON-051, XC-117, MON-054]
 blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -49,3 +49,10 @@ back to an answer later.
 - The callback criterion is the site's: `contracts/bids.md` stores `callback_url` but does
   not yet say when Lore POSTs to it. It stays open until MON-051 delivers callbacks, and the
   email fallback likewise rides on MON-051.
+
+**Backlog audit (2026-11-12), moved to in-review:** Only the bridge's bid
+and check_bid tools merged (PR #620). The lore-buy skill change that was
+held back until /bids went live never landed, even though those routes have
+been live since early November. MON-054's card-on-accept model changed how
+an agent's answer gets bought and filled, so criterion 2 and the fill
+callback need re-scoping before the skill work resumes.

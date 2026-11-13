@@ -4,13 +4,13 @@ title: Evaluate paid value from the buyer's side of the MCP surface
 priority: P1
 effort: M
 component: evals
-status: in-progress
+status: in-review
 related: [EVAL-001, MCP-001, MCP-003, MON-009, MON-017, XC-008]
 blockers: [MON-008, MON-017]
 dependencies: ["A QA-only answer-model API key with a bounded spend budget"]
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-28
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -66,3 +66,11 @@ surface. The node answer eval covers the real Pi path and cost/citation capture
 without payment. What remains is the combined buyer, Worker, model, and testnet
 settlement proof against QA; do not seed the owner's production catalog with
 fixtures.
+
+**Backlog audit (2026-11-12), moved to in-review:** The local buyer harness
+(evals/buyer.py, PRs #103 and #107) covers the first criterion. Every other
+criterion needs a deployed Base Sepolia QA node and a QA-only answer-model
+key. No QA node has ever deployed, because the qa environment has no secrets
+(MON-016), and no work has happened since 2026-08-21. It should leave in-
+progress. It can go back to ready once MON-016 is done and a bounded answer-
+model key exists.

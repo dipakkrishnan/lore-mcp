@@ -4,13 +4,13 @@ title: Let buyers bid for a piece nobody sells yet
 priority: P0
 effort: M
 component: monetization
-status: in-progress
+status: in-review
 related: [XC-114, XC-115, XC-116, XC-117, MON-053, MON-054, MON-055, XC-093, XC-074, MON-046]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -66,3 +66,11 @@ https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi (v2, Oct 31).
   Stripe's fraud checks.
 - Not in v1: pooled bids, rising bids, market-wide (collection-offer) bids, sealed bids for
   labs, USDC holds.
+
+**Backlog audit (2026-11-12), moved to in-review:** Placing bids, expiry and
+the walked-away count shipped in PR #623. MON-054 (#637) then changed the
+fill model to card-on-bid with charge-on-accept, which is the step this item
+called conditional, so criterion 3 no longer describes how a bid is filled.
+Criterion 2 waits on MON-056. Back to in-review so the remaining criteria
+can be rewritten around the accept flow, or the item closed with them handed
+to MON-054 and MON-056.
