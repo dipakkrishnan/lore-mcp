@@ -549,6 +549,14 @@ function openable(url, hosts = OPENABLE) {
   }
 }
 
+/** The approval page in the CLI's "Approve Lore in your browser: <url>" line (lore/cli.py
+ * `_approve`), when it is on a sign-in host; null for any other line (XC-057).
+ * @param {string} line @returns {string | null} */
+function approvalUrl(line) {
+  const url = line.match(/^Approve Lore in your browser: (\S+)$/)?.[1];
+  return url && openable(url, SIGN_IN) ? url : null;
+}
+
 /** @param {string} loreHome */
 async function readState(loreHome) {
   const value = JSON.parse(await lore(loreHome, ["desktop-state"]));
@@ -877,8 +885,8 @@ async function signIn(loreHome, app, open, signal) {
       // stderr interleaves with stdout, so the result is the JSON line, not the last one.
       if (line.startsWith("{")) result = line;
       else last = line;
-      const url = line.match(/^Approve Lore in your browser: (\S+)$/)?.[1];
-      if (url && openable(url, SIGN_IN)) open(url);
+      const url = approvalUrl(line);
+      if (url) open(url);
     }, signal);
   } catch (error) {
     if (signal.aborted) throw new Error("Signing in was cancelled");
@@ -1023,6 +1031,8 @@ module.exports = {
   loreStream,
   stream,
   openable,
+  approvalUrl,
+  SIGN_IN,
   readState,
   readSales,
   readViews,

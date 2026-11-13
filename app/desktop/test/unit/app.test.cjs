@@ -89,6 +89,24 @@ test("an update downloads quietly, shows only when ready, and a copy outside App
   assert.equal(moved.boxes[0].message, "Move Lore to Applications so it can update itself");
 });
 
+// XC-057: the CLI prints this line (lore/cli.py _approve) and the desktop opens the page it
+// names; tests/test_cli.py emits the same fixture, so a change to either side fails a test.
+test("the desktop opens the approval page only from the CLI's exact line, on a sign-in host", () => {
+  const { approvalUrl } = require("../../src/state.cjs");
+  const line = require("node:fs").readFileSync(require("node:path").join(__dirname, "../../../../tests/fixtures/approval-line.txt"), "utf8");
+  assert.equal(approvalUrl(line), "https://mcp-auth.granola.ai/oauth/authorize?client_id=lore-test");
+  assert.equal(approvalUrl(line.replace("https://mcp-auth.granola.ai/", "https://evil.example/")), null);
+  assert.equal(approvalUrl(line.replace("https://", "http://")), null);
+  assert.equal(approvalUrl("lore: Granola didn't let Lore in. Try again."), null);
+  assert.equal(approvalUrl(`${line} `), null);
+  assert.equal(approvalUrl(`Approve Lore in a browser: ${line.split(": ")[1]}`), null);
+});
+
+test("sign-in pages open only on Granola's, Notion's and Readwise's approval hosts", () => {
+  const { SIGN_IN } = require("../../src/state.cjs");
+  assert.deepEqual([...SIGN_IN].sort(), ["mcp-auth.granola.ai", "mcp.notion.com", "readwise.io"]);
+});
+
 test("the agent may open only the pages the payments skill sends an owner to", () => {
   const { openable } = require("../../src/state.cjs");
   assert.ok(openable("https://www.coinbase.com/"));
