@@ -7,8 +7,10 @@ from typing import Mapping, TextIO
 
 from .store import Memory, Publication, text_lines
 
-# C0 and C1 controls, and the Unicode line and paragraph separators (CLI-015).
-CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160), 0x2028, 0x2029))
+CONTROL_CHARACTERS = dict.fromkeys((*range(32), *range(127, 160)))
+# What a card prints as nothing: the controls, and the Unicode line and paragraph
+# separators, which would otherwise start a new line in the terminal (CLI-015).
+CARD_HIDDEN = CONTROL_CHARACTERS | dict.fromkeys((0x2028, 0x2029))
 
 
 def clean(text: object) -> str:
@@ -19,7 +21,7 @@ def clean(text: object) -> str:
     one place to change when tabs are kept rather than deleted (CLI-015).
     A tab is spacing, so it becomes spaces (CLI-015).
     """
-    return str(text).expandtabs(4).translate(CONTROL_CHARACTERS)
+    return str(text).expandtabs(4).translate(CARD_HIDDEN)
 
 
 def COLOR(

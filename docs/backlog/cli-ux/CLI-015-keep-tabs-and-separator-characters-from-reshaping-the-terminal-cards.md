@@ -86,8 +86,9 @@ The zero-width/direction-character question in the Notes stays out of scope.
 **Implementation (2026-11-13):**
 
 - `ui.clean` (`lore/ui.py`) expands tabs to spaces (`expandtabs(4)`) before
-  removing control characters. `CONTROL_CHARACTERS` also covers U+2028 and
-  U+2029. Every card field and every diff line goes through `clean`, so all of
+  removing control characters, and also removes U+2028 and U+2029 (a new
+  `CARD_HIDDEN` table). `CONTROL_CHARACTERS`, which other modules share, is
+  unchanged. Every card field and every diff line goes through `clean`, so all of
   them follow the same tab rule.
 - A new `store.text_lines()` splits only at `\n`, `\r\n` and a lone `\r`.
   Both card bodies and `Store.flag_detail`'s diff use it, so the card and the
