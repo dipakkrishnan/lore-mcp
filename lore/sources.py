@@ -893,6 +893,9 @@ class FeedReader(Reader):
         self.reached = False
         # The address answered, whether or not a feed was found there.
         self.answered = False
+        # It answered 429: too many requests (CAP-023).
+        self.busy = False
+        self.landed = ""
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -919,8 +922,9 @@ class FeedReader(Reader):
         # are two questions about the same answer.
         try:
             found = self._read()
-        except HTTPError:
+        except HTTPError as error:
             self.answered = True
+            self.busy = error.code == 429
             return []
         except (OSError, ValueError, ParseError, LookupError, TypeError, HTTPException):
             return []
@@ -938,6 +942,8 @@ class FeedReader(Reader):
 
     @property
     def trouble(self) -> str:
+        if self.busy:
+            return f"{self.source.label or self.source.locator} is busy. Try again in a few minutes."
         if not self.answered:
             return super().trouble
         connector = self.source.connector
@@ -947,6 +953,9 @@ class FeedReader(Reader):
     def fetch(self, url: str) -> bytes:
         request = urllib.request.Request(url, headers={"User-Agent": self.agent})
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            # Where a redirect landed, so a relative link on the page resolves
+            # against the page and not the address typed (CAP-023).
+            self.landed = str(response.geturl() or url)
             return bytes(response.read())
 
     @classmethod
@@ -966,13 +975,15 @@ class FeedReader(Reader):
         return self._site(self.source.locator)
 
     def _site(self, url: str) -> list[Item]:
+        self.landed = url
         body = self.fetch(url)
         self.answered = True
         posts = self._feed(body)
         if posts is not None:
             return posts
+        page = self.landed
         for candidate in [
-            urljoin(url, link)
+            urljoin(page, link)
             for link in _Html(body.decode("utf-8", "replace")).links
             if link
         ] + [urljoin(url, guess) for guess in self.guesses]:
