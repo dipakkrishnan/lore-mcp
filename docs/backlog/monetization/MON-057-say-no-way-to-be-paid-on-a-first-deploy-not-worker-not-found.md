@@ -4,13 +4,13 @@ title: Say "no way to be paid" on a first deploy, not "Worker not found"
 priority: P2
 effort: S
 component: monetization
-status: ready
+status: completed
 related: [MON-047, XC-069, XC-085, MON-024]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-11
-updated: 2026-11-11
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -39,13 +39,13 @@ missing. That would let a store with no wallet and no cards deploy and open for 
 
 ## Acceptance criteria
 
-- [ ] The fake wrangler in `tests/test_deploy.py` answers `secret list` with wrangler's not-found error until
+- [x] The fake wrangler in `tests/test_deploy.py` answers `secret list` with wrangler's not-found error until
       a `deploy` has run (today it answers `[]`, tests/test_deploy.py:140-144).
-- [ ] With that fake, `lore node deploy` with no wallet and no cards raises `StoreFailed` with reason
+- [x] With that fake, `lore node deploy` with no wallet and no cards raises `StoreFailed` with reason
       `no_payout` and the "no way to be paid" sentence, and runs neither `d1 create` nor `deploy`.
-- [ ] A listing refused for another reason (auth 10000) still stops with the settings-read error
+- [x] A listing refused for another reason (auth 10000) still stops with the settings-read error
       (existing test around tests/test_deploy.py:1151-1159 still passes).
-- [ ] A first deploy with `--wallet`, or with card payments on, is unchanged.
+- [x] A first deploy with `--wallet`, or with card payments on, is unchanged.
 
 ## Notes
 
@@ -54,3 +54,21 @@ reading wrangler 4.147's `secret list` handler; the repo pins 4.151.1 (lore/node
 wording there when implementing.
 
 **Prioritization pass 2026-11-11:** Promoted `in-review` → `ready` and P3 → P2: no blockers, concrete criteria against the fake wrangler, and it is the first message a new seller without a payout sees (XC-085 is P0 on the same theme).
+
+**Implementation (2026-11-13):**
+
+- `_deploy` (`lore/deploy.py`) runs `secret list` without `fail=`. It reads
+  wrangler's not-found answer (both "not found" and "wrangler deploy" in the
+  output) as no `LORE_WALLET`, so the `no_payout` refusal follows, and runs
+  neither `d1 create` nor `deploy`. Any other non-zero listing still raises
+  "reading your store's settings from Cloudflare failed".
+- The fake wrangler in `tests/test_deploy.py` now answers `secret list` with
+  wrangler 4.151.1's not-found error (`refusals.WORKER_NOT_FOUND`) until a
+  `deploy` has run, unless the Worker has a wallet secret. The existing payout
+  tests, including the one that counts `store.failed` with reason `no_payout`,
+  therefore run the not-found path, and they failed before the fix.
+- `refusals.SOURCES` pins the wording against wrangler's own source.
+- One deviation: the refusal surfaces as the existing plain `ValueError` with
+  the "no way to be paid" sentence, which the store-failure path counts as
+  `no_payout` (`StoreFailed.of`). That matches the existing tests, rather than
+  a `StoreFailed` raised directly.

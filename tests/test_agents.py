@@ -387,6 +387,67 @@ class ReadTest(AgentCase):
         self.assertEqual((read["errors"], read["added"]), (1, 0))
         self.assertEqual(self.json("agents", "waiting")["waiting"], 1)
 
+    def seed(self, count: int, *, opens: bool, at: str, start: int = 0) -> None:
+        """Waiting saves put straight into the node's D1, past the stand-in's per-call
+        and per-hour limits: sealed to this Mac's key, or to one it doesn't hold."""
+        import secrets as secrets_module
+
+        from fixtures.inbox import decode, seal
+
+        public = (
+            decode(Inbox().settings()["inbox_public_key"])
+            if opens
+            else secrets_module.token_bytes(32)
+        )
+        agent = self.source.removeprefix("agent-")
+        with sqlite3.connect(self.d1.path) as db:
+            for n in range(start, start + count):
+                item = f"seed-{n:05d}"
+                payload = json.dumps(
+                    {"title": f"Seed {n}", "content": f"Seeded save {n}.", "key": item}
+                )
+                db.execute(
+                    "INSERT INTO inbox(id,agent,key_hash,state,sealed,saved_at) "
+                    "VALUES (?,?,?,'waiting',?,?)",
+                    (
+                        item,
+                        agent,
+                        f"hash-{n}",
+                        seal(public, item, payload.encode()),
+                        at,
+                    ),
+                )
+
+    def kept(self) -> int:
+        with Store() as store:
+            return len(
+                store.search("", status="private", limit=10_000, source=self.source)
+            )
+
+    def test_saves_that_will_not_open_never_hide_a_newer_one(self) -> None:
+        """CAP-038: 200 stuck saves, all older and sharing one saved_at, don't jam the
+        collect."""
+        self.seed(200, opens=False, at="2026-01-01T00:00:00.000Z")
+        self.seed(1, opens=True, at="2026-01-02T00:00:00.000Z", start=200)
+        read = self.read()
+        self.assertEqual((read["errors"], read["added"]), (200, 1))
+        self.assertEqual(set(self.memories(self.source)), {"Seed 200"})
+
+    def test_one_read_brings_in_every_waiting_save(self) -> None:
+        self.seed(450, opens=True, at="2026-01-01T00:00:00.000Z")
+        self.wrangler.reset_mock()
+        read = self.read()
+        self.assertEqual((read["added"], read["errors"]), (450, 0))
+        self.assertEqual(self.kept(), 450)
+        self.assertEqual(self.json("agents", "waiting")["waiting"], 0)
+
+    def test_keeping_a_disconnected_agents_memories_keeps_every_waiting_save(
+        self,
+    ) -> None:
+        self.seed(250, opens=True, at="2026-01-01T00:00:00.000Z")
+        self.json("agents", "revoke", self.source, "--keep")
+        self.assertEqual(self.kept(), 250)
+
     def test_a_new_key_hands_over_the_count_that_only_its_own_saves_raise(
         self,
     ) -> None:
