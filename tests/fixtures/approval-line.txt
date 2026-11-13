@@ -1,0 +1,1 @@
+Approve Lore in your browser: https://mcp-auth.granola.ai/oauth/authorize?client_id=lore-test
