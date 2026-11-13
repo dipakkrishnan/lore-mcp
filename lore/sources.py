@@ -31,7 +31,7 @@ from typing import (
     get_args,
 )
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree.ElementTree import Element, ParseError
 
 import anyio
@@ -901,10 +901,17 @@ class FeedReader(Reader):
             return f"@{handle}", f"@{handle}"
         typed = locator.strip()
         url = typed if "://" in typed else f"https://{typed}"
-        host = urlsplit(url).hostname or ""
+        parts = urlsplit(url)
+        host = parts.hostname or ""
         if not re.fullmatch(r"[\w-]+(\.[\w-]+)+|localhost", host):
             raise SourceError("That doesn't look like a web address.")
-        return url, urlsplit(url).netloc
+        # CAP-020: one place, one spelling. The host is lower-case, the scheme's
+        # own port and a trailing slash are dropped; a path or query still counts.
+        scheme = parts.scheme.lower()
+        default = {"https": 443, "http": 80}.get(scheme)
+        netloc = host if parts.port in (None, default) else f"{host}:{parts.port}"
+        path = parts.path.rstrip("/")
+        return urlunsplit((scheme, netloc, path, parts.query, "")), netloc
 
     @cached_property
     def posts(self) -> list[Item]:
@@ -1133,7 +1140,8 @@ class BlueskyFeed(FeedReader):
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
         typed = re.sub(r"^(https?://)?bsky\.app/profile/", "", locator.strip())
-        handle = typed.strip("/@")
+        # A handle is a domain name, so its case is not part of it (CAP-020).
+        handle = typed.strip("/@").lower()
         if not handle or any(c in handle for c in "/:@ "):
             raise SourceError("Enter your Bluesky handle, like you.bsky.social")
         if "." not in handle:
