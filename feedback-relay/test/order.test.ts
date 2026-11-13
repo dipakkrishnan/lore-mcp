@@ -97,8 +97,8 @@ describe("POST /report checks a request before it spends shared limits", () => {
     for (const [body, status, error] of cases) {
       const response = await send("/report", body, relay);
       expect(response.status).toBe(status);
-      const said = (await response.json());
-      if (error) expect(said.error).toBe(error);
+      const said: unknown = await response.json();
+      if (error) expect(said).toMatchObject({ error });
     }
     expect(global.calls()).toBe(0);
     expect(await windowsUsed()).toEqual([]);
