@@ -38,6 +38,10 @@ module.exports = {
       NSDownloadsFolderUsageDescription: "Lore reads the folder or export you picked; nothing leaves this Mac."
     },
     ignore: (path) => ignored.some((pattern) => pattern.test(path)),
+    // XC-126: check Electron's zip against the checksums the electron package
+    // ships, as its own install does, so a cached zip needs no SHASUMS256.txt
+    // from GitHub releases.
+    download: { checksums: require("electron/checksums.json") },
     extraResource: [
       join(out, "uv"),
       join(out, "node"),

@@ -4,7 +4,7 @@ title: Fail CI when the backlog index drifts from its items or holds conflict ma
 priority: P1
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-010, XC-078]
 blockers: []
 dependencies: []
@@ -38,16 +38,16 @@ as a pre-commit hint, is an open choice.
 
 ## Acceptance criteria
 
-- [ ] `regenerate_index.py --check` exits 0 on a clean tree and non-zero when
+- [x] `regenerate_index.py --check` exits 0 on a clean tree and non-zero when
       one item's status is changed without regenerating, naming that item.
-- [ ] `--check` exits non-zero when `INDEX.md` contains a conflict-marker line,
+- [x] `--check` exits non-zero when `INDEX.md` contains a conflict-marker line,
       even if every item row is otherwise present.
-- [ ] `--check` never writes to `INDEX.md`.
-- [ ] CI runs `--check` on every pull request and on pushes to `main`, as a
+- [x] `--check` never writes to `INDEX.md`.
+- [x] CI runs `--check` on every pull request and on pushes to `main`, as a
       step in an existing job (no new required check, no `paths` filter).
-- [ ] Unit tests cover the three cases above, with temporary backlog folders,
+- [x] Unit tests cover the three cases above, with temporary backlog folders,
       under the existing coverage gate.
-- [ ] `docs/backlog/agents/audit.md` mentions `--check` as the way to confirm the
+- [x] `docs/backlog/agents/audit.md` mentions `--check` as the way to confirm the
       index is current.
 
 ## Notes
@@ -59,3 +59,15 @@ be unstable. Check this before choosing an exact-match comparison.
 
 **Prioritization (2026-11-12):** Priority P1 (was P2). Promoted to ready:
 unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-12):** `regenerate_index.py --check` renders the
+table as `--write` would and compares it exactly with the file. Exact match is
+stable because the in-bucket tie-break reads the file's own row order, so a
+current file always renders back to itself. It names up to ten items whose
+rows differ (changed, missing, or not an item), reports duplicate or reordered
+rows, and fails on any line starting with a conflict marker. `--check
+--write` together is refused. CI runs it as a step in the `Python lint` job.
+It was not added to `pr-title.yml`: one place is enough. Tests are in
+`tests/test_regenerate_index.py`. The coverage gate measures `lore/` only, so
+these tests run under the gate's suite but the script's coverage isn't
+counted.
