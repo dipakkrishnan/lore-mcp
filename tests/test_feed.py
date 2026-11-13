@@ -82,6 +82,84 @@ class FeedLocatorTest(unittest.TestCase):
         self.assertEqual(bare.kind, "feed")
 
 
+class FeedOrderTest(LoreTestCase):
+    """CAP-040: a post is dated when it was published and linked to the post itself,
+    whatever order the feed writes its fields in."""
+
+    def posts(self, fixture: str, locator: str) -> list:  # type: ignore[type-arg]
+        with serving({"": fixture}):
+            return list(reader(locator).items())
+
+    def test_a_wordpress_entry_is_dated_by_published_not_its_last_edit(self) -> None:
+        edited, updated_only = self.posts(
+            "wordpress-atom.xml", "https://fieldnotes.example.com/feed/atom/"
+        )
+        self.assertEqual(edited.dated, "2023-04-02")
+        self.assertEqual(updated_only.dated, "2026-09-05")
+
+    def test_an_rss_item_is_dated_by_pubdate_before_atom_updated(self) -> None:
+        rss = (FIXTURES / "rss.xml").read_text(encoding="utf-8")
+        rss = rss.replace(
+            "<pubDate>",
+            "<atom:updated xmlns:atom='http://www.w3.org/2005/Atom'>"
+            "2026-10-20T00:00:00Z</atom:updated><pubDate>",
+            1,
+        )
+        with patch.object(FeedReader, "fetch", lambda self, url: rss.encode()):
+            post = list(reader("https://notes.example.com/feed").items())[0]
+        self.assertEqual(post.dated, "2026-09-02")
+
+    def test_a_blogger_entry_links_to_its_alternate_not_its_comments(self) -> None:
+        (post,) = self.posts(
+            "blogger-atom.xml", "https://shopfloor.blogspot.com/feeds/posts/default"
+        )
+        self.assertEqual(
+            post.source_path, "https://shopfloor.blogspot.com/2025/06/estimating.html"
+        )
+        self.assertEqual(post.dated, "2025-06-01")
+
+    def test_a_link_without_rel_is_the_alternate(self) -> None:
+        atom = (FIXTURES / "blogger-atom.xml").read_text(encoding="utf-8")
+        atom = atom.replace(
+            '<link rel="alternate" type="text/html"', '<link type="text/html"'
+        )
+        with patch.object(FeedReader, "fetch", lambda self, url: atom.encode()):
+            (post,) = list(
+                reader("https://shopfloor.blogspot.com/feeds/posts/default").items()
+            )
+        self.assertEqual(
+            post.source_path, "https://shopfloor.blogspot.com/2025/06/estimating.html"
+        )
+
+    def test_a_blogger_feed_read_before_the_fix_adds_no_duplicate(self) -> None:
+        """Key strategy (b): an entry keeps the key it had (its first link), so a feed
+        imported before this change reads again as the same memories."""
+        locator = "https://shopfloor.blogspot.com/feeds/posts/default"
+        (post,) = self.posts("blogger-atom.xml", locator)
+        self.assertEqual(
+            post.key, "https://shopfloor.blogspot.com/feeds/2/comments/default"
+        )
+        with serving({"": "blogger-atom.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            first = registry.add(locator, kind="feed")
+            again = registry.read([str(first["name"])])
+            self.assertEqual(first["imported"], 1)
+            self.assertEqual((again[0]["added"], again[0]["updated"]), (0, 0))
+            self.assertEqual(len(store.search("")), 1)
+
+    def test_since_skips_an_old_post_edited_recently(self) -> None:
+        with serving({"": "wordpress-atom.xml"}), Store() as store:
+            entry = sources_module.Registry(store).add(
+                "https://fieldnotes.example.com/feed/atom/",
+                kind="feed",
+                since="2025-01-01",
+            )
+            self.assertEqual(entry["imported"], 1)
+            self.assertEqual(
+                [m.title for m in store.search("")], ["An undated-but-updated note"]
+            )
+
+
 class FeedReadTest(unittest.TestCase):
     def test_an_rss_feed_imports_its_full_text_not_its_summary(self) -> None:
         with serving({"": "rss.xml"}):
