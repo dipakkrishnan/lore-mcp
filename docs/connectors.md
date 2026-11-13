@@ -44,7 +44,9 @@ read again on schedule (`refresh`; an export is read once). `locate` turns what
 the owner typed into the locator Lore saves plus a default label; `probe` says
 whether the place is connected, empty, unreachable, or needs permission;
 `items` yields what it found, counting what it could not read. `name` is the
-source's identity: every spelling of one place is one source, and an export is
+source's identity: every spelling of one place is one source (for a site, the
+host's case, a trailing slash and the scheme's default port are not a different
+place; a path or a query is), and an export is
 named by its product rather than its file, so a newer download replaces the
 old one instead of importing it twice. A reader that fails partway records the
 failure, and that failure, not the probe, is the state the owner sees.

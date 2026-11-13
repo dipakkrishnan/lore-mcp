@@ -160,6 +160,80 @@ class FeedOrderTest(LoreTestCase):
             )
 
 
+class FeedSpellingTest(LoreTestCase):
+    """CAP-020: every spelling of one place is one source, sites included."""
+
+    @staticmethod
+    def name(typed: str, connector: str) -> str:
+        return Source.owner(typed, kind="feed", connector=connector).reader().name()
+
+    def test_a_trailing_slash_and_case_do_not_make_a_second_source(self) -> None:
+        spellings = {
+            "blog": (
+                "https://notes.example.com",
+                "https://notes.example.com/",
+                "NOTES.example.com",
+                "https://notes.example.com:443/",
+                "HTTPS://Notes.Example.com//",
+            ),
+            "substack": ("writer.substack.com", "https://writer.substack.com/"),
+            "medium": (
+                "writer.medium.com",
+                "https://writer.medium.com/",
+                "https://Writer.medium.com/feed/",
+            ),
+            "bluesky": (
+                "writer.bsky.social",
+                "@writer.bsky.social",
+                "@Writer.bsky.social",
+                "https://bsky.app/profile/writer.bsky.social/",
+            ),
+        }
+        for connector, typed in spellings.items():
+            with self.subTest(connector=connector):
+                self.assertEqual(
+                    len({self.name(t, connector) for t in typed}), 1, typed
+                )
+        self.assertEqual(
+            Source.owner("https://notes.example.com/", kind="feed").locator,
+            "https://notes.example.com",
+        )
+
+    def test_a_path_a_query_and_another_port_are_still_part_of_the_place(
+        self,
+    ) -> None:
+        self.assertNotEqual(
+            self.name("https://ghost.example.com/writing", "blog"),
+            self.name("https://ghost.example.com", "blog"),
+        )
+        self.assertEqual(
+            self.name("https://ghost.example.com/writing/", "blog"),
+            self.name("https://ghost.example.com/writing", "blog"),
+        )
+        self.assertEqual(
+            FeedReader.locate("https://ghost.example.com/feed?format=rss")[0],
+            "https://ghost.example.com/feed?format=rss",
+        )
+        self.assertEqual(
+            FeedReader.locate("http://localhost:8080/")[0], "http://localhost:8080"
+        )
+        self.assertEqual(
+            FeedReader.locate("http://notes.example.com:80/")[0],
+            "http://notes.example.com",
+        )
+
+    def test_connecting_the_slash_spelling_after_the_bare_one_is_a_re_read(
+        self,
+    ) -> None:
+        with serving({"": "rss.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            first = registry.add("https://notes.example.com", kind="feed")
+            again = registry.add("https://notes.example.com/", kind="feed")
+            self.assertEqual(again["name"], first["name"])
+            self.assertEqual(len([e for e in registry.entries() if e["owned"]]), 1)
+            self.assertEqual(len(store.search("")), first["imported"])
+
+
 class FeedReadTest(unittest.TestCase):
     def test_an_rss_feed_imports_its_full_text_not_its_summary(self) -> None:
         with serving({"": "rss.xml"}):
