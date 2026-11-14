@@ -4,13 +4,13 @@ title: Give desktop users a one-click download page
 priority: P3
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-005]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/175
 created: 2026-09-01
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -33,7 +33,7 @@ a versioned `Lore-darwin-arm64-<version>.zip`, renamed at upload — see
 
 - [x] yourlore.dev serves a page whose primary action downloads the macOS app.
 - [x] The page works without JavaScript and offers a GitHub-releases fallback.
-- [ ] The download URL serves the current notarized zip (asset uploaded under
+- [x] The download URL serves the current notarized zip (asset uploaded under
       the stable name after each release).
 
 ## Notes
@@ -48,3 +48,14 @@ Stays in-review. Before it can be ready: Close it: release v0.1.25 carries
 Lore-macOS-arm64.zip and .dmg under stable names and the site links
 releases/latest. File automating the upload separately if wanted.
 Prioritization flag (not acted on): done.
+
+**Close-out (2026-11-13):** Completed. Release v0.1.25 is Latest and matches `app/desktop/package.json`
+0.1.25. It carries `Lore-macOS-arm64.zip` and `Lore-macOS-arm64.dmg` under
+the stable names. `releases/latest/download/Lore-macOS-arm64.zip` was
+downloaded and unpacked on 2026-11-13. `spctl -a -vv -t exec` printed
+"accepted, source=Notarized Developer ID", and `stapler validate` passed.
+The site's primary action now goes through `/download` (XC-125, #670) to
+the dmg; the zip stays at its stable URL for updates (`src/updates.cjs`).
+Leftover, not filed: uploading the assets under stable names is still a
+manual release step (`site/README.md`). Automating it would be its own
+small item if wanted.

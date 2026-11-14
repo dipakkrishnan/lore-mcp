@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/173
 created: 2026-09-01
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -56,3 +56,12 @@ Before it can be ready: The output shape (new memory, edit, or draft) and an
 engine answer from the reporter or owner; check whether collections already
 cover picking memories to combine. Prioritization flag (not acted on):
 possible duplicate of collections.
+
+**Close-out (2026-11-13):** Stays in-review, not a clean duplicate. Collections (MON-044, in-review)
+let the owner tick memories (`collectionPicks` in
+`app/desktop/src/renderer.js`) and group them into a bundle to sell. They
+don't synthesize anything new from the selection, and nothing in the app
+drafts a piece or memory from an owner-picked set. What remains is the
+same open question: the reporter (#173, still open) or the owner names the
+output (new memory, edit, or draft). If "group them to sell" was all #173
+meant, mark this obsolete as a duplicate of MON-044.

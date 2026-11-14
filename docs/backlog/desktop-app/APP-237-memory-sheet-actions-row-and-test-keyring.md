@@ -4,13 +4,13 @@ title: The memory sheet's header is one Draft for sale pill, an Edit icon and a 
 priority: P3
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-234, APP-235]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-22
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -27,11 +27,21 @@ When `npm test` ran in `app/desktop`, the "listing switches the store on" test r
 
 ## Acceptance
 
-- A long title wraps to two lines beside a compact action cluster, in every state: default, rename, edit and delete-confirm.
-- `npm test` never touches the login keychain.
+- [ ] ~~A long title wraps to two lines beside a compact action cluster, in every state: default, rename, edit and delete-confirm.~~ Moot: the memory sheet is gone. APP-282 (bf2e5ee0, #657) replaced it with `MemoryPage`, whose title is its own heading and whose actions sit in an icon row with a More menu.
+- [x] `npm test` never touches the login keychain.
 
 ## Notes
 
 **Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
 Before it can be ready: Close as completed; the sheet half is moot.
 Prioritization flag (not acted on): done: #534.
+
+**Close-out (2026-11-13):** completed. Both halves shipped in #534 (merged). The
+keychain half still holds after the test split. `test/unit/tiers.test.cjs`
+forbids unit tests from requiring `support/scratch.cjs`, spawning
+`child_process` or running uv, so they never run the CLI. The component tests
+that do run it load `support/scratch.cjs`, which sets
+`PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring` (line 8). The edge
+walks set a null or file keyring in `support/edge.sh` (~139, ~158). The sheet
+criterion is struck as moot: `openMemory()` now opens `MemoryPage`
+(`renderer.js` ~384-402, More menu ~628).

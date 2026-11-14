@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-24
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -109,3 +109,21 @@ reviewer's open points in Notes (day: null treated as missing, codex_day
 never raises, a malformed-TOML take_over test, tests never run the real
 windup install). Prioritization flag (not acted on): partly obsolete
 (AUT-010).
+
+**Close-out (2026-11-13):** Stays in-review. The app path is fixed, but the
+terminal path this item describes is not.
+- Done for the app: `AutomationProfile.day` (0-6, Monday is 0) is validated by
+  `lore profile`. Lore's own scheduler (`Routines`, `next_run(cadence, hour,
+  after, day)`) honours it. The lore-onboard skill asks for the day on Lore
+  desktop (SKILL.md, "for weekly, also ask the day and save it as `day`").
+  `codex_day()` reads a BYDAY the owner moved and falls back to Monday. There is
+  no `_rrule()` in this repo any more.
+- Still open for terminal hosts (Claude or Codex executor):
+  - `task_for()` never passes `day` to windup's `Task`, so an installed weekly
+    task is still windup's Monday (C2).
+  - The terminal checkpoint JSON in `lore-onboard/SKILL.md` (around line 93)
+    has no `"day"` field (C3).
+  - No test covers a weekly Sunday profile through `install()` (C4).
+  - The reviewer points in the Notes above (`day: null` treated as missing, a
+    malformed-TOML `take_over`, never running the real windup install) still
+    apply to that work.

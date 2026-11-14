@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/87
 created: 2026-08-07
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -121,3 +121,11 @@ Before it can be ready: Re-scope against the hosted store (XC-071,
 docs/hosted-store.md), which changes what an "environment" is, then make the
 standing-vs-on-demand decision. Prioritization flag (not acted on): partly
 obsolete.
+
+**Close-out (2026-11-13):** Stays in-review; not obsolete. The thing meant to
+replace it, XC-071 (the hosted store), is still `ideation`, so nothing has taken
+over the premise. No criterion is met. `lore/deploy.py` and the CLI have no
+`test | beta | production` dimension. The only split today is the store's
+play-money and real-money network, one store at a time. Still needs a person: a
+re-scope against XC-071 / `docs/hosted-store.md`, and the standing-vs-on-demand
+decision.

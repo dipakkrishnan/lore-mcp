@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -49,7 +49,7 @@ synthesis INDEX gives.
 
 ## Acceptance criteria
 
-- [ ] An owner with no agent history and a Substack URL reaches Memories
+- [x] An owner with no agent history and a Substack URL reaches Memories
       with their posts kept as private memories, each linking to its post.
 - [ ] A dropped LinkedIn or X archive imports the owner's own posts and skips
       reposts, likes, and messages.
@@ -94,3 +94,13 @@ parse (LinkedIn Shares.csv, X tweets.js), say whether it is an export reader
 in sources.py or a step in a capture skill, and define what counts as a
 repost or a reply in each archive. Prioritization flag (not acted on):
 mostly done: 3 of 4 criteria met.
+
+**Close-out (2026-11-13):** Stays in-review. Ticked the Substack criterion.
+`lore/sources.py` `Substack(Connector)` reads the public feed through `SiteFeed`.
+Each post's `link` is its key and its link (STO-003, APP-124). What remains is
+only criterion 2. There is no LinkedIn or X archive reader anywhere in `lore/`,
+`plugins/` or `tests/`: no match for `Shares.csv`, `tweets.js` or "linkedin". To
+be ready, the item still needs the narrowing the 2026-11-12 prioritization asked
+for. That means naming the files to parse, choosing between an `ExportReader`
+in `sources.py` and a capture-skill step, and saying what counts as a repost or
+a reply in each archive.

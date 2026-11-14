@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -118,3 +118,11 @@ is no longer how anyone tests sign-in.
 Stays in-review. Before it can be ready: One person runs the provider sign-
 in in `npm run dogfood:new`, or close because dogfood:new is no longer the
 sign-in test path. Prioritization flag (not acted on): done.
+
+**Close-out (2026-11-13):** Stays in-review. Criteria 1, 2 and 4 are confirmed on main.
+`app/desktop/support/dogfood.sh` `new` keeps the real `$HOME` and sets
+`LORE_HOME`, `LORE_SKIP_SCHEDULE=1` and `XDG_CONFIG_HOME`. `npm run
+dogfood:new` is still in `app/desktop/package.json`, so the premise stands.
+What remains is criterion 3, a human step: one person clicks through
+provider sign-in in `npm run dogfood:new` and it completes. An agent can't
+close it.

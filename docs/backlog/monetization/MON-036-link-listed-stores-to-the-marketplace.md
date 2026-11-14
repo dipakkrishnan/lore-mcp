@@ -4,13 +4,13 @@ title: Link listed stores to the marketplace and list them on request
 priority: P3
 effort: S
 component: monetization
-status: in-review
+status: completed
 related: [XC-036]
 blockers: []
 dependencies: []
 github_issue: 367
 created: 2026-10-04
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -36,9 +36,9 @@ The README documents the flow: list, submit the prefilled form, get a reply.
 
 ## Acceptance criteria
 
-- [ ] A listed node's store and piece pages link to the marketplace; an unlisted node's pages do not
-- [ ] Submitting a listing request starts a refresh run without manual action
-- [ ] The README's listing steps match `lore marketplace` and the registry workflow
+- [x] A listed node's store and piece pages link to the marketplace; an unlisted node's pages do not
+- [x] Submitting a listing request starts a refresh run without manual action
+- [x] The README's listing steps match `lore marketplace` and the registry workflow
 
 ## Notes
 
@@ -51,3 +51,18 @@ while a request is pending and disappears on the push that delists.
 Before it can be ready: Nothing to build: a person confirms the lore-
 marketplace refresh workflow runs on a listing-labelled issue, then closes
 the item. Prioritization flag (not acted on): done.
+
+**Close-out (2026-11-13):** Completed. Evidence:
+- Badge: `listed()` in `lore/node/src/storefront.ts` adds "Listed on Lore
+  marketplace" to the store and piece pages only while the listed name is
+  set. `lore/node/test/unit/storefront.test.ts` pins both pages, listed and
+  unlisted. Shipped in #370 (3d8175d0).
+- Refresh on request: the lore-marketplace repo's
+  `.github/workflows/refresh.yml` runs on `issues: [opened, labeled]` when the
+  issue carries `listing`. A real request, lore-marketplace issue #4
+  (2026-10-07), started two `issues`-event refresh runs, both successful. The
+  bot replied "Listed. …" and closed the issue as completed, with no manual
+  action.
+- README: the "Listing" section in `README.md` matches `lore marketplace
+  list/status/delist` and that workflow (prefilled List my store form, reply
+  on the request, delisted entries dropped at the daily refresh).

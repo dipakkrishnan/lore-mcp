@@ -4,13 +4,13 @@ title: Fold the remaining overlapping walks down to seven
 priority: P3
 effort: L
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-266, APP-267, APP-268, APP-269, APP-271, XC-084, XC-108]
 blockers: [APP-269]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -47,11 +47,12 @@ seven-walk set; that version is the input XC-108's guard reads.
 - [x] Notes list, per folded walk, every assertion and where it lives now;
       all replacing tests exist and pass before the walk is removed. (Unit
       tier 409/409, from 372; component 53 pass and the known-gap todo.)
-- [ ] The walks step on the PR's macOS run is under 200 s, and the kept
-      walks' `seconds` estimates in walks.cjs are refreshed from that run.
-      (Not met: 344 s on PR #679's run 42582425386, from 436 s on main at
-      c66af783; `agents` alone is 192 s of it. The `seconds` are refreshed
-      from that run. See "What remains".)
+- [ ] ~~The walks step on the PR's macOS run is under 200 s, and the kept
+      walks' `seconds` estimates in walks.cjs are refreshed from that run.~~
+      Moved to APP-271, whose "walks step 150 s or less over three green main
+      runs, seven walks" target is strictly stronger; the `seconds` were
+      refreshed (by #679, then again by APP-271's #683). (Was: 344 s on PR
+      #679's run 42582425386, from 436 s on main at c66af783.)
 - [x] APP-266's table is rewritten for seven walks and its staleness test
       passes.
 - [x] Layout scan: named transfers in Notes, from APP-266's table: update to
@@ -377,3 +378,15 @@ this item can close.
 Before it can be ready: Move the time criterion to APP-271 or XC-084 and
 close; its blocker APP-269 must close too. APP-271 waits on this.
 Prioritization flag (not acted on): done: #679.
+
+**Close-out (2026-11-13):** Completed. The fold landed in PR #679:
+`app/desktop/support/walks.cjs` lists exactly the seven walks (`agents` solo,
+`routines`, `store`, `connectors`, `seller`, `checkin` dark, `settings`), the
+replacing unit tests are under `app/desktop/test/unit/`, and the layout-scan
+transfers are recorded above. The one open criterion, the walks-step time, is
+struck and moved to APP-271, which already carries a stricter 150 s target
+over three main runs. For the record, main's last three green CI runs
+(43400916244, 43400510839, 43400048013 on 2026-11-13) took 311, 287 and 351 s
+in the walks step, with `agents` alone at 149, 135 and 138 s. The listed
+blocker APP-269 is still in-review, but its five walks are already gone from
+walks.cjs, so it no longer gates anything here.

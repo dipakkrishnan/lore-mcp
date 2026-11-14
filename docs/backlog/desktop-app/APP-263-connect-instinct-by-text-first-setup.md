@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 597
 created: 2026-10-29
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -52,3 +52,12 @@ From issue #597. The copy is a proposal to validate while dogfooding. It is not 
 Before it can be ready: A person runs the Instinct dogfood (secure key
 handoff, one save, receipt on the Mac, disconnect revokes), then close.
 Prioritization flag (not acted on): done except the human dogfood criterion.
+
+**Close-out (2026-11-13):** Stays in-review. The code criteria hold on this
+branch: PR #601 (b86f7e1d) added Instinct as its own agent app
+(`app/desktop/src/assets/instinct.svg`, `state.cjs`, `renderer.js`), and the
+`agents` walk in `app/desktop/support/edge.cjs` drives its steps, message,
+key exclusion, save, receipt, recurring offer and re-key. What remains is only
+the last criterion: a person runs the live Instinct dogfood (secure key
+handoff, one approved save, receipt on the Mac, private item inspected,
+disconnect revokes) and ticks it. Nothing to build.

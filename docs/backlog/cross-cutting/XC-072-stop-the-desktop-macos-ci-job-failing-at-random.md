@@ -4,13 +4,13 @@ title: Stop the Desktop macOS CI job failing at random
 priority: P3
 effort: M
 component: cross-cutting
-status: in-review
+status: obsolete
 related: [APP-066, XC-003, XC-080, XC-083]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-20
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -125,3 +125,16 @@ for the Electron walks.
 Before it can be ready: Close it: superseded by XC-080/XC-083 (completed),
 XC-124 and XC-130. Uploading walk roots as an artifact on failure could move
 to XC-130 if still wanted. Prioritization flag (not acted on): obsolete.
+
+**Close-out (2026-11-13):** Obsolete, superseded. Each criterion's work now
+lives elsewhere:
+- Retries and per-retry reporting: XC-080 (completed), in `support/walks.cjs`.
+- Measurement: XC-083 (completed).
+- C2, the fixed-delay reads: `app/desktop/support/edge.cjs` now waits on
+  conditions (`until` / `waitFor(code, tries = 40)`) instead of fixed delays.
+- C3, the `lore-sandbox-*` `ENOTEMPTY` teardown race: XC-124.
+- C4, the failure-rate target: XC-130 (under 3% over 50 main-push runs).
+Not carried by any successor: C1, uploading each walk's `$root` (`walk.log`,
+`hang.txt`, `agent.log`, screenshots) as an artifact on failure.
+`.github/workflows/tests.yml` still has no `upload-artifact` step. If it is still
+wanted, add it under XC-130.

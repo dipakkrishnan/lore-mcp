@@ -4,13 +4,13 @@ title: Boot the Worker in at most seven test files
 priority: P3
 effort: XS
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-099, XC-100]
 blockers: [XC-099]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -42,8 +42,11 @@ spy if they are what breaks; revert if cold starts time out as MCP-003 saw.
       `hosted/`) call `exports.default.fetch` or open an MCP session.
 - [x] Every assertion from the merged files is present in its new home, test
       count unchanged.
-- [ ] The `Node component tests` job is under 60 s over three consecutive
-      green main runs (today 90 s).
+- ~~The `Node component tests` job is under 60 s over three consecutive
+      green main runs (today 90 s).~~ Struck: about 70 s of the job is
+      checkout, setup-node and `npm ci`, which this item cannot move; restated below.
+- [x] The `test:coverage` step of `Node component tests` is under 40 s over
+      three consecutive green main runs.
 - [x] If `fileParallelism` is flipped, the reason it is now safe is recorded
       in the config comment; if not, the blocker met is recorded in Notes.
 - [x] Layout scan: this item touches no walk; no view scanned by the desktop
@@ -130,3 +133,17 @@ then close it.
 Stays in-review. Before it can be ready: Restate AC3 against the
 test:coverage step (under 40 s, which current runs meet) and close.
 Prioritization flag (not acted on): done (pending restatement).
+
+**Close-out (2026-11-13):** Completed. PR #677 did the work. The seven files that boot the Worker are
+checked on main: only `paid-path`, `answer`, `agent`, `card`, `free`,
+`collections` and `empty-store` under `lore/node/test/` call `workerFetch` /
+`exports.default.fetch`. `answer-state`, `answer-tools`, `refund` and
+`telemetry` use `env` only. `fileParallelism: true` keeps its reason in
+`lore/node/vitest.workerd.config.ts`. Criterion 3 is restated against the
+test step, as the 2026-11-12 audit and prioritization asked. In main CI
+runs 43400048013, 43400510839 and 43400916244 (2026-11-13, all green), the
+"Run the mocked-facilitator test suite" step (`npm run test:coverage`,
+`.github/workflows/tests.yml:352`) took 37 s, 31 s and 37 s. The whole job
+took about 2 min, about 70 s of it `npm ci`. The stale
+`mcp-contract.test.ts` docstring in `tests/test_mcp_contract.py` is gone
+(`git grep` finds no reference).

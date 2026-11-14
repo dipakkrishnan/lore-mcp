@@ -10,7 +10,7 @@ blockers: [XC-033]
 dependencies: []
 github_issue: null
 created: 2026-09-15
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -55,3 +55,12 @@ Before it can be ready: Decide whether the bridge fan-out is still wanted
 once XC-117's hosted marketplace MCP exists; if so, keep it as the
 x402-native path only. Prioritization flag (not acted on): largely duplicate
 of XC-117.
+
+**Close-out (2026-11-13):** Stays in-review. It is not a duplicate yet, because
+XC-117 (the hosted marketplace MCP) is still `in-review` with none of its
+criteria met. None of this item's criteria are met either. `bridge/src/policy.ts`'s
+usage line is still `x402-mcp-bridge --node https://<host>/mcp [--network ...]
+[--max-usd 1] [--bids ...]`: no `--registry`, no fan-out, no other-network
+exclusion, no cross-seller cap. The open question is the same as before: once
+XC-117 ships, is an x402-native fan-out in the bridge still wanted? If not, mark
+this obsolete in favour of XC-117.

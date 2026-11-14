@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -33,9 +33,9 @@ install ground truth that GitHub's download_count (which includes auto-updates) 
 
 - [ ] A fresh LORE_HOME, launched and signed in, logs `app.installed`, `signin.completed`, and
       `app.opened` in `~/.lore/usage.log` before the first-run chat ends.
-- [ ] The welcome screen shows the disclosure, matching PRIVACY.md.
-- [ ] `app.installed` is in contracts/usage_events.json, and the relay test accepts it.
-- [ ] Telemetry off still sends nothing.
+- [x] The welcome screen shows the disclosure, matching PRIVACY.md.
+- [x] `app.installed` is in contracts/usage_events.json, and the relay test accepts it.
+- [x] Telemetry off still sends nothing.
 
 ## Notes
 
@@ -47,3 +47,21 @@ From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
 **Prioritization (2026-11-12):** Priority P3 (was P0). Stays in-review.
 Before it can be ready: Run criterion 1 once on a fresh LORE_HOME, then
 close. Prioritization flag (not acted on): done: #634.
+
+**Close-out (2026-11-13):** stays in-review. Shipped in 6611fc01 (#634). Criteria
+2-4 are on main:
+- **Disclosure.** `USAGE_NOTICE` and `noticed()` (`app/desktop/src/renderer.js`
+  ~6604-6609) send `usage("noticed")` and then `usage("app.installed")` from the
+  welcome screen. `PRIVACY.md:27` says the notice is on the welcome screen.
+- **Contract.** `contracts/usage_events.json:4` lists `app.installed`.
+  `feedback-relay/test/events.test.ts` imports that contract, and
+  `tests/test_usage_rules.py:22` covers it. `ipc.cjs:19` allows it.
+- **Telemetry off.** `tests/test_usage.py::test_nothing_is_sent_with_telemetry_off`.
+- **Ordering.** The renderer unit tests (`renderer-harness.test.cjs:47`,
+  `renderer-notices.test.cjs:69`) assert noticed, app.installed, app.opened.
+
+What remains is criterion 1 only, a manual run. Launch on a fresh `LORE_HOME`,
+sign in, and confirm that `~/.lore/usage.log` has `app.installed`,
+`signin.completed` (recorded at `ipc.cjs:142`) and `app.opened` before the
+first-run chat ends. No walk or test reads `usage.log` end to end. Record the
+run here and close.

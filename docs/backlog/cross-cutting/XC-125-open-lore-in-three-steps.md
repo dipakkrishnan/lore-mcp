@@ -4,13 +4,13 @@ title: Turn /download into an "Open Lore in 3 steps" page
 priority: P2
 effort: XS
 component: cross-cutting
-status: in-review
+status: completed
 related: [APP-291, XC-093, APP-126]
 blockers: []
 dependencies: [APP-291]
 github_issue: null
 created: 2026-11-06
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -41,7 +41,7 @@ steps" with the browser's downloads button pointed out.
 - [x] Off a Mac there is no auto-download and no steps; the share button keeps `?bid=`.
 - [x] A bid id comes back as a link to its page; anything else is ignored.
 - [x] Light and dark, desktop and phone width, checked by screenshot.
-- [ ] Deployed only after a release carries `Lore-macOS-arm64.dmg` (APP-291); before that the link 404s.
+- [x] Deployed only after a release carries `Lore-macOS-arm64.dmg` (APP-291); before that the link 404s.
 
 ## Notes
 
@@ -49,3 +49,14 @@ steps" with the browser's downloads button pointed out.
 Stays in-review. Before it can be ready: APP-291 must complete (add it as a
 blocker), then deploy and close. Prioritization flag (not acted on): done
 (code).
+
+**Close-out (2026-11-13):** Completed. The page shipped in #670 (`site/src/download.js`, tests in
+`site/test/download.test.js`). The disk image shipped in APP-291's #669.
+Release v0.1.25 (Latest, 2026-11-06) carries `Lore-macOS-arm64.dmg`, and
+`releases/latest/download/Lore-macOS-arm64.dmg` resolves to it (HTTP 200).
+Live, `https://yourlore.dev/download` answers 200 with
+`cache-control: private, no-store` and `vary: user-agent`. A Mac Chrome
+user agent gets a page linking that dmg URL. The site bar's Download goes
+to `/download` (`site/src/layout.js`). APP-291 itself stays in-review for
+its signed-image check, but the dmg this item waited on exists, so the link
+no longer 404s.

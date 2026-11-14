@@ -4,13 +4,13 @@ title: Synthesize net-new claims from recent sessions, named by the claim
 priority: P3
 effort: XS
 component: automation-synthesis
-status: in-review
+status: completed
 related: [AUT-001, XC-016, APP-004]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -36,11 +36,15 @@ the word synthesis. No schema or scheduler changes.
 
 ## Acceptance criteria
 
-- [ ] The generated prompt names the recency window that matches the profile's
+- [x] The generated prompt names the recency window that matches the profile's
       cadence and tells the executor to search the library before writing.
-- [ ] The generated prompt forbids date- or run-named files and gives a
+- [x] The generated prompt forbids date- or run-named files and gives a
       concrete example of a claim-named file and title.
-- [ ] `tests/test_automation.py` pins both.
+- [x] `tests/test_automation.py` pins the cadence window
+      (`PromptTest.test_each_cadence_reads_back_its_own_window`).
+      ~~...and the search-before-write and claim-naming rules.~~ Struck: XC-043's
+      prune (#359, fc98b2bc) deliberately removed tests that pin prompt prose, and
+      that merged decision stands.
 
 ## Notes
 
@@ -66,3 +70,15 @@ close.
 Stays in-review. Before it can be ready: An owner decision: drop criterion 3
 so the item can close, or bring the pin back in tests/test_automation.py.
 Prioritization flag (not acted on): done apart from criterion 3.
+
+**Close-out (2026-11-13):** Completed. `lore/automation.py` `build_prompt()` names
+the window from the profile's cadence ("the last day" / "the last week") and tells
+the executor to list Claude and Codex session files modified in it. The shared
+`RULES` block says "Before writing any claim, search the library for it (`lore
+search <terms> --json`)" and "Name each file and its title by the claim it holds
+... `deep-review-wedge.md` titled 'Conference-specific review beats generic
+review' — never by date, run, or the word synthesis". `tests/test_automation.py`
+`test_each_cadence_reads_back_its_own_window` pins the window. The prose pin for
+the other two rules is struck, not restored, because XC-043 (#359) pruned exactly
+that kind of copy-pinning test on purpose. If an owner wants it back, it is a
+two-line `assertIn` in `PromptTest`, not a reason to keep this item open.

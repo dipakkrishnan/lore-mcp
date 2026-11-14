@@ -10,7 +10,7 @@ blockers: []
 dependencies: [APP-281]
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -71,3 +71,14 @@ Stays in-review. Before it can be ready: Re-scope to Connectors (and
 Settings > Automations if wanted) as one-line rows, or close and file
 Connectors rows as a new item. Prioritization flag (not acted on): done for
 Inventory: #657.
+
+**Close-out (2026-11-13):** Stays in-review; the flag is right only for
+Inventory. Inventory's rows shipped in PR #657 (merged 2026-11-04). Connectors
+are still a tile grid on this branch: `tiles()` in `app/desktop/src/renderer.js`
+("Rows as a grid of tiles") draws both "Your agents" and "Your apps", styled by
+`.tiles .row.tile` in `app/desktop/src/styles.css`. Automations now live in
+Settings (APP-289, itself in-review), so criterion 2's Automations half points
+at a screen that has moved. What remains: re-scope criteria 2 and 3 to
+Connectors (and Settings › Automations if wanted) and build them, or close this
+item for Inventory and file Connectors rows as a new item. That choice is the
+owner's, so the criteria are left as written.
