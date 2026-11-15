@@ -33,7 +33,7 @@ export, which is `<connector>-export`.
 - **Connect:** `lore sources connect bluesky @<handle>`; no sign-in, Lore reads public data.
 - **Endpoint read:** `https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor=<handle>&filter=posts_no_replies&limit=40`.
 - **Kept / dropped:** replies never arrive (server-side filter); reposts and posts under 40 characters are dropped.
-- **Recorded:** `bluesky/01-app-bsky-feed.json` (the account DID is redacted to `did:plc:REDACTED`).
+- **Recorded:** `bluesky/01-feed.json` (the account DID is redacted to `did:plc:REDACTED`).
 
 ## Notion (hosted MCP) — connected, 23 pages read
 - **Setup:** free workspace. Seeding used an internal-integration token (Keychain service `lore-seed-notion`) with the REST API

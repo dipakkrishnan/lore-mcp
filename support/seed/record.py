@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import urlsplit
 
 import anyio
 from scrub import Rule, load_rules, scrub
@@ -65,6 +64,10 @@ class Recording:
         (self.raw / name).write_bytes(body)
         cleaned, hits = scrub(body.decode("utf-8", errors="replace"), self.rules)
         (self.out / name).write_text(cleaned, encoding="utf-8")
+        if arguments is not None:
+            arguments, argument_hits = self.scrubbed(arguments)
+            for rule, count in argument_hits.items():
+                hits[rule] = hits.get(rule, 0) + count
         self.requests.append(
             {
                 "n": len(self.requests) + 1,
@@ -77,17 +80,35 @@ class Recording:
             }
         )
 
+    def scrubbed(self, arguments: object) -> tuple[object, dict[str, int]]:
+        """The arguments with the same rules applied as to a URL, and the hits."""
+        text, hits = scrub(json.dumps(arguments, ensure_ascii=False), self.rules)
+        try:
+            return json.loads(text), hits
+        except ValueError:
+            # A rule rewrote an unquoted number or word; keep the scrubbed text.
+            return text, hits
+
     def finish(self) -> Path:
+        # The hit counts are scrubbed again with everything else, and a rule keyed on
+        # a field name (the email rule) would rewrite a count into something that is not
+        # JSON; they hold rule names and numbers only, so they are set aside meanwhile.
+        counts = [request["scrub_hits"] for request in self.requests]
+        requests = [
+            {key: value for key, value in request.items() if key != "scrub_hits"}
+            for request in self.requests
+        ]
         meta = {
             "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "lore_version": __version__,
             "locator": scrub(self.locator, self.rules)[0],
-            "requests": self.requests,
+            "requests": requests,
         }
+        document = json.loads(scrub(json.dumps(meta, indent=2), self.rules)[0])
+        for request, hits in zip(document["requests"], counts, strict=True):
+            request["scrub_hits"] = hits
         path = self.out / "meta.json"
-        path.write_text(
-            scrub(json.dumps(meta, indent=2), self.rules)[0] + "\n", encoding="utf-8"
-        )
+        path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
         return path
 
 
@@ -100,10 +121,10 @@ def extension(body: bytes) -> str:
     return "html"
 
 
-def slug(url: str) -> str:
-    last = urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1]
-    stem = last.rsplit(".", 1)[0] if "." in last else last
-    return re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-") or "index"
+def stem(kind: str) -> str:
+    """A recorded page is named by fetch order and type, never by its URL: a URL can
+    carry the handle or host (F-md-03). Any HTML page is `index`, any feed `feed`."""
+    return "index" if kind == "html" else "feed"
 
 
 def record_feed(
@@ -119,7 +140,8 @@ def record_feed(
     def tee(self: FeedReader, url: str) -> bytes:
         body = fetch(self, url)
         number = len(recording.requests) + 1
-        recording.keep(f"{number:02d}-{slug(url)}.{extension(body)}", body, url)
+        kind = extension(body)
+        recording.keep(f"{number:02d}-{stem(kind)}.{kind}", body, url)
         return body
 
     with patch.object(FeedReader, "fetch", tee):

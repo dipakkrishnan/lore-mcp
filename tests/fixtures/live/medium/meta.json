@@ -7,7 +7,7 @@
       "n": 1,
       "url_or_tool": "https://medium.com/feed/@owner",
       "arguments": null,
-      "file": "01-owner.xml",
+      "file": "01-feed.xml",
       "sha256_raw": "e3be214d2fa194bbfdfb9409e8b526330a18e66fae6409a1b37b20137a3cae2e",
       "bytes_raw": 5992,
       "scrub_hits": {

@@ -32,7 +32,7 @@ or a "N pages kept" count taken from a recording. The recordings and
 - change `app/desktop/support/edge.sh` (connectors branch): start
   `uv run python tests/fixtures/replay.py notion PORT` and export
   `LORE_NOTION_SERVER=http://127.0.0.1:PORT/mcp`; serve
-  `tests/fixtures/live/bluesky/01-app-bsky-feed.json` from the existing
+  `tests/fixtures/live/bluesky/01-feed.json` from the existing
   newsletter HTTP server under `/xrpc/app.bsky.feed.getAuthorFeed` and
   point the reader at it (needs a `LORE_BLUESKY_API` override, or the
   scenario patches `FeedReader.fetch` through an env-selected sitecustomize;
