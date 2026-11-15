@@ -4,6 +4,7 @@ it keeps the account id and a token proving the account is the owner's."""
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import urllib.error
@@ -16,6 +17,9 @@ from . import feedback
 CHECKOUT_ENV = "LORE_CHECKOUT_URL"
 CHECKOUT_URL = "https://checkout.yourlore.dev"
 TIMEOUT_SECONDS = 20
+# A 200 whose body is not a whole JSON object (or, for a new account, lacks the
+# account and its token) is read as a failure of the checkout, like a refusal.
+UNREADABLE = "Lore's card checkout sent an answer Lore can't read; try again later"
 
 
 def checkout_url() -> str:
@@ -33,22 +37,36 @@ def _call(
     )
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            found: dict[str, object] = json.loads(response.read().decode())
-            return found
+            body = response.read()
     except urllib.error.HTTPError as error:
         raise OSError(
             f"Lore's card checkout refused that ({error.code}); try again later"
         ) from error
-    except (urllib.error.URLError, TimeoutError) as error:
+    # A connection closed before any answer (RemoteDisconnected is also an
+    # HTTPException) is the checkout not answering, not an unreadable answer.
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as error:
         raise OSError(
             "could not reach Lore's card checkout; check your connection"
         ) from error
+    except http.client.HTTPException as error:
+        # A body cut short of its Content-Length (IncompleteRead).
+        raise OSError(UNREADABLE) from error
+    try:
+        found = json.loads(body.decode())
+    except ValueError as error:  # not JSON, or not UTF-8
+        raise OSError(UNREADABLE) from error
+    if not isinstance(found, dict):
+        raise OSError(UNREADABLE)
+    return found
 
 
 def open_account() -> tuple[str, str]:
     """A new Stripe account for this seller, and the token that proves it's theirs."""
     found = _call("/accounts", "POST")
-    return str(found["account"]), str(found["token"])
+    account, token = found.get("account"), found.get("token")
+    if not (isinstance(account, str) and account and isinstance(token, str) and token):
+        raise OSError(UNREADABLE)
+    return account, token
 
 
 def onboarding_url(account: str, token: str) -> str:

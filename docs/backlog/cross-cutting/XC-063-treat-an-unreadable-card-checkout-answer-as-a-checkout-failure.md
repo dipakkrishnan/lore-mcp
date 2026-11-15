@@ -4,13 +4,13 @@ title: Treat an unreadable card checkout answer as a checkout failure
 priority: P3
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-039, MON-004, MON-013, APP-089, APP-181]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-11
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -68,22 +68,22 @@ strings. The callers then need no change, because they already handle
 HTML body, an empty body, bytes that are not UTF-8, JSON that is not an
 object (`[]`, `null`, `"ok"`), or a body shorter than its `Content-Length`.
 
-- [ ] For each unreadable answer, `open_account`, `status` and `bind` raise
+- [x] For each unreadable answer, `open_account`, `status` and `bind` raise
       an `OSError` with one fixed message that names Lore's card checkout.
-- [ ] `open_account` raises that error when `account` or `token` is missing,
+- [x] `open_account` raises that error when `account` or `token` is missing,
       null, or an empty string.
-- [ ] After any of those, `lore cards connect` prints one `lore:` line,
+- [x] After any of those, `lore cards connect` prints one `lore:` line,
       exits 1, prints nothing on stdout with `--json`, and stores no pending
       account or token.
-- [ ] With a pending account, `lore cards --json` prints its usual JSON with
+- [x] With a pending account, `lore cards --json` prints its usual JSON with
       `"ready": null` and exits 0 for each unreadable answer, as it does
       today when the checkout is unreachable.
-- [ ] A remote push whose bind gets an unreadable answer exits 0, warns that
+- [x] A remote push whose bind gets an unreadable answer exits 0, warns that
       buyers can't pay by card until the next push, records the run as
       succeeded, and leaves `revocation_pending` and `publish_pending` false.
-- [ ] `lore marketplace list --name X`, when its push's bind gets an
+- [x] `lore marketplace list --name X`, when its push's bind gets an
       unreadable answer, keeps `X` as the listed name.
-- [ ] Each line above is covered by a test that serves the answer from a
+- [x] Each line above is covered by a test that serves the answer from a
       local stub HTTP server, or patches `urlopen` for the cut-short body.
 
 ## Notes
@@ -117,3 +117,22 @@ item's failures look like in the app.
 
 **Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
 unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-15):** `lore/cards.py` only. `_call` reads the whole
+body inside the request, then requires UTF-8 JSON that is an object; a body
+that is not (or is cut short, `http.client.IncompleteRead`) raises
+`OSError("Lore's card checkout sent an answer Lore can't read; try again
+later")`. `open_account` raises the same error unless `account` and `token`
+are both non-empty strings. A connection that closes before any answer
+(`RemoteDisconnected`, which is also an `HTTPException`, or a reset) is
+reported as the existing "could not reach" message instead, since no answer
+came. `lore/cli.py` and `lore/marketplace.py` are unchanged: every caller
+already handles `OSError`, which the tests confirm end to end.
+
+The tests are all in `tests/test_cards.py`, including the ones that drive
+`lore cards connect`, `lore cards --json`, `lore push` and `lore marketplace
+list`. They would normally sit in `test_cli.py` and `test_marketplace.py`, but
+open PRs (#626, #746) were changing those files at the time. The stub checkout
+serves each unreadable answer over a real socket; the cut-short body is a
+declared `Content-Length` longer than what the HTTP/1.0 stub sends before
+closing, plus one patched-`urlopen` `IncompleteRead`.
