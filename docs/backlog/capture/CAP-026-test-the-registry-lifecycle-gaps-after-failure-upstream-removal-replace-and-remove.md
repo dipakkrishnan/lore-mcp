@@ -4,13 +4,13 @@ title: Test the registry lifecycle gaps (state after a failed read, upstream rem
 priority: P3
 effort: S
 component: capture
-status: ready
+status: completed
 related: [STO-003, CAP-023, CLI-011, APP-128]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -69,11 +69,11 @@ against existing stubs.
 
 ## Acceptance criteria
 
-- [ ] Tests 1-6 exist and pass; test 1 is skipped when the process can
+- [x] Tests 1-6 exist and pass; test 1 is skipped when the process can
       read a `chmod 000` directory (root).
-- [ ] The docstrings of tests 2 and 6 state the pinned behaviour and name
+- [x] The docstrings of tests 2 and 6 state the pinned behaviour and name
       this item.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -87,3 +87,22 @@ restored in `addCleanup`.
 
 **Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
 unblocked, criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-15):** Tests only; `lore/` is unchanged.
+
+- Tests 1-4 are `RegistryLifecycleTest` in `tests/test_sources.py`. The two
+  feed tests (2, 3) live there rather than in `tests/test_feed.py`, to stay
+  clear of the open CAP-041 change to that file; they stub `FeedReader.fetch`
+  with inline RSS whose items carry distinct guids.
+- Test 2's premise had drifted: since CAP-036 every read reports a `removed`
+  stat, which counts only what an agent asked to forget. So the test pins
+  `removed == 0` for a post that vanished upstream, not the key's absence.
+- Test 5 extends `test_signing_in_again_to_the_same_account_reads_it_again`
+  (now `tests/test_hosted.py:207`); test 6 is in `tests/test_export.py` and
+  reads the export through `cli.sync()`.
+- Test 1 also skips when the `chmod 000` folder is still listable, not only
+  as root.
+- Mutation check: dropping `self.reads.pop` in `Registry.remove`, or making
+  `entries()` re-probe, turns tests 1, 3 and 4 red.
+- The CLI's `--replace NAME` path is covered at `Registry.connect`, as test 3
+  specifies; no `cli.py`/`test_cli.py` test was added.

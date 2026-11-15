@@ -20,7 +20,16 @@ from helpers import LoreTestCase
 from lore import capture as capture_module
 from lore import sources as sources_module
 from lore.snapshot import build
-from lore.sources import Connector, Obsidian, Registry, Source, State, available_sources
+from lore.sources import (
+    Connector,
+    FeedReader,
+    Obsidian,
+    Registry,
+    Source,
+    SourceError,
+    State,
+    available_sources,
+)
 from lore.store import Status, Store
 
 
@@ -982,6 +991,124 @@ class FolderGapsTest(LoreTestCase):
             Path(item.source_path).name for item in items if not reader.keeps(item)
         }
         self.assertEqual(dropped, {"00-index.md", "stub-todo.md", "empty.md"})
+
+
+def rss(*guids: str) -> bytes:
+    """An RSS feed with one post per guid, each long enough to be kept."""
+    items = "".join(
+        f"<item><guid>{guid}</guid><title>{guid}</title><description>"
+        f"The {guid} lesson, written out at more than enough length to keep."
+        "</description></item>"
+        for guid in guids
+    )
+    return f"<rss><channel><title>Notes</title>{items}</channel></rss>".encode()
+
+
+class RegistryLifecycleTest(LoreTestCase):
+    """CAP-026: what the registry promises across a source's life, after the add."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # What each feed URL answers; a URL with no body is not there.
+        self.feeds: dict[str, bytes] = {}
+
+        def fetch(reader: FeedReader, url: str) -> bytes:
+            for prefix, body in self.feeds.items():
+                if url.startswith(prefix):
+                    return body
+            raise OSError(f"nothing at {url}")
+
+        fetching = patch.object(FeedReader, "fetch", fetch)
+        fetching.start()
+        self.addCleanup(fetching.stop)
+
+    def folder(self) -> Path:
+        root = Path(self.tmp.name) / "notes"
+        root.mkdir()
+        (root / "note.md").write_text(
+            "# Note\n\nA note long enough to be kept as a memory here."
+        )
+        return root
+
+    def entry(self, store: Store, name: str) -> dict[str, object]:
+        return next(e for e in Registry(store).entries() if e["name"] == name)
+
+    def test_entries_report_the_last_read_not_a_fresh_probe(self) -> None:
+        geteuid = getattr(os, "geteuid", None)
+        if geteuid is None or geteuid() == 0:
+            self.skipTest("needs a process that a chmod 000 folder keeps out")
+        root = self.folder()
+        with Store() as store:
+            name = str(Registry(store).add(str(root))["name"])
+            self.addCleanup(os.chmod, root, 0o700)
+            os.chmod(root, 0o000)
+            try:
+                list(root.iterdir())
+            except PermissionError:
+                pass
+            else:
+                self.skipTest("this process can read a chmod 000 folder")
+            (failed,) = Registry(store).read([name])
+            self.assertEqual(failed["state"], "needs_permission")
+            at = self.entry(store, name)["last_read_at"]
+            os.chmod(root, 0o700)
+            # Readable again, but nothing has read it: the entry is the last read's.
+            stale = self.entry(store, name)
+            self.assertEqual(stale["state"], "needs_permission")
+            self.assertEqual(stale["last_read_at"], at)
+            (again,) = Registry(store).read([name])
+            self.assertEqual(again["state"], "connected")
+            self.assertEqual(self.entry(store, name)["state"], "connected")
+
+    def test_an_item_gone_upstream_stays_in_the_library(self) -> None:
+        """CAP-026 pins this: a post that drops out of a feed (its window rolled, or
+        it was deleted) is not removed from the library, and the read counts it
+        nowhere. `removed` is reported (CAP-036) but counts only what an agent asked
+        to forget, so it stays 0. Removing what vanished upstream, or counting it, is
+        a product decision; making one changes this test on purpose."""
+        url = "https://notes.example.com/feed"
+        self.feeds[url] = rss("first", "second", "third")
+        with Store() as store:
+            name = str(Registry(store).add(url, kind="feed")["name"])
+            self.assertEqual(store.source_counts()[name], 3)
+            self.feeds[url] = rss("first", "third")
+            (report,) = Registry(store).read([name])
+            self.assertEqual(
+                {k: report[k] for k in ("added", "updated", "unchanged", "removed")},
+                {"added": 0, "updated": 0, "unchanged": 2, "removed": 0},
+            )
+            self.assertEqual(store.source_counts()[name], 3)
+            self.assertEqual(len(store.search("second lesson")), 1)
+
+    def test_replacing_a_feed_reads_the_new_place_first(self) -> None:
+        a, b = "https://a.example.com/feed", "https://b.example.com/feed"
+        self.feeds[a] = rss("a1", "a2", "a3")
+        with Store() as store:
+            old = str(Registry(store).connect("blog", a)["name"])
+            # The new place can't be read: nothing about the old one changes.
+            with self.assertRaises(SourceError):
+                Registry(store).connect("blog", b, replacing=old)
+            self.assertEqual([e["name"] for e in owned(store)], [old])
+            self.assertEqual(set(store.setting("source_reads", {})), {old})
+            self.assertEqual(store.source_counts()[old], 3)
+            self.feeds[b] = rss("b1", "b2")
+            new = Registry(store).connect("blog", b, replacing=old)
+            self.assertEqual(new["imported"], 2)
+            self.assertEqual([e["name"] for e in owned(store)], [new["name"]])
+            self.assertEqual(set(store.setting("source_reads", {})), {new["name"]})
+            # Replacing keeps what the old feed brought in.
+            self.assertEqual(store.counts()["private"], 5)
+            self.assertEqual(store.source_counts()[old], 3)
+
+    def test_removing_a_source_drops_its_read_record(self) -> None:
+        with Store() as store:
+            name = str(Registry(store).add(str(self.folder()))["name"])
+            self.assertIn(name, store.setting("source_reads", {}))
+            Registry(store).remove(name, delete=False)
+            self.assertNotIn(name, store.setting("source_reads", {}))
+            self.assertNotIn(name, [e["name"] for e in Registry(store).entries()])
+            with self.assertRaisesRegex(SourceError, "unknown source"):
+                Registry(store).read([name])
 
 
 if __name__ == "__main__":

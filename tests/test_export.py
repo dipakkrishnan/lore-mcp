@@ -17,6 +17,7 @@ from helpers import LoreTestCase, captured
 
 from lore import cli
 from lore import sources as sources_module
+from lore.sources import Connector
 from lore.store import Store
 
 EXPORTS = Path(__file__).parent / "fixtures/exports"
@@ -166,6 +167,32 @@ class ExportTest(LoreTestCase):
             read = sources_module.Registry(store).read([str(first["name"])])
         self.assertEqual(read[0]["added"], 0)
         self.assertEqual(read[0]["unchanged"], 2)
+
+    def test_an_export_read_by_sync_is_unchanged_and_never_refreshed(self) -> None:
+        """CAP-026 pins this: an export is a file read once. `lore sync` reads it
+        with every other source the owner connected, and finds it all unchanged; it
+        is never offered as something that refreshes on its own."""
+        with Store() as store:
+            name = str(
+                sources_module.Registry(store).connect(
+                    "chatgpt", self.unpacked("chatgpt")
+                )["name"]
+            )
+        with captured() as out:
+            self.assertEqual(cli.sync(), 0)
+        (line,) = [
+            line for line in out.getvalue().splitlines() if line.startswith(name)
+        ]
+        self.assertTrue(line.endswith("0 added, 0 updated, 2 unchanged"), line)
+        with Store() as store:
+            self.assertIn(name, store.setting("source_reads", {}))
+            registry = sources_module.Registry(store)
+            (read,) = registry.read([name])
+            entry = next(e for e in registry.entries() if e["name"] == name)
+        self.assertEqual((read["added"], read["updated"], read["unchanged"]), (0, 0, 2))
+        self.assertIs(entry["refresh"], False)
+        app = next(a for a in Connector.catalog() if a.id == "chatgpt")
+        self.assertIs(app.refresh, False)
 
     def test_what_is_not_an_export_is_unreachable_rather_than_empty(self) -> None:
         empty = Path(self.tmp.name) / "empty.zip"
