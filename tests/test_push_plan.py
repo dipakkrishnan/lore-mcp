@@ -93,8 +93,9 @@ class PlanPushTest(unittest.TestCase):
         for text in ("First", "Second", "Bundle", "what First says"):
             self.assertNotIn(text, plan.script, "piece text left the Mac")
         self.assertIn("VALUES ('selling','false');", plan.script)
-        self.assertIn("VALUES ('inbox_public_key','pk');", plan.script)
-        self.assertIn("VALUES ('inbox_salt','salt');", plan.script)
+        # CAP-039: written only when the store has no inbox key yet.
+        self.assertIn("SELECT 'inbox_public_key','pk' WHERE NOT EXISTS", plan.script)
+        self.assertIn("SELECT 'inbox_salt','salt' WHERE NOT EXISTS", plan.script)
         self.assertEqual(plan.said, "Pushed 0 active publications to the deployed node")
 
     def test_a_chosen_store_says_so(self) -> None:

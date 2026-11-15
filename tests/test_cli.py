@@ -8,6 +8,7 @@ so with an exit code and a message rather than a traceback.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import os
 import re
@@ -16,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager, redirect_stderr
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
@@ -602,6 +603,121 @@ class SourcesCommandTest(LoreTestCase):
                 self.assertEqual(refused.exception.code, 2)
                 # An empty locator means the current folder to a folder reader.
                 connect.assert_not_called()
+
+
+APPROVAL_LINE = (Path(__file__).parent / "fixtures" / "approval-line.txt").read_text()
+
+
+class ApprovalLineTest(LoreTestCase):
+    """XC-057: the line the desktop opens the approval page from, emitted as the CLI
+    prints it. app/desktop/test/unit/app.test.cjs parses the same fixture."""
+
+    url = APPROVAL_LINE.split(": ", 1)[1]
+
+    def connect(self, sign_in) -> tuple[int, str, str]:  # type: ignore[no-untyped-def]
+        from fixtures.granola import Granola
+        from test_hosted import serving
+
+        out, err = StringIO(), StringIO()
+        with (
+            serving(Granola().server),
+            patch.object(sources_module.HostedReader, "sign_in", sign_in),
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            code = cli.main(["sources", "connect", "granola", "--json"])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_connecting_a_hosted_app_prints_the_approval_line_on_stderr_and_json_on_stdout(
+        self,
+    ) -> None:
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            show(self.url)
+            return True
+
+        code, out, err = self.connect(sign_in)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(err, APPROVAL_LINE + "\n")
+        (line,) = out.splitlines()
+        self.assertEqual(json.loads(line)["connector"], "granola")
+        self.assertNotIn("Approve", out)
+        self.assertNotIn("{", err)
+
+    def test_the_approval_line_is_flushed_before_the_wait(self) -> None:
+        raw = io.BytesIO()
+        # Buffered like a pipe to the desktop: nothing reaches `raw` until a flush.
+        stream = io.TextIOWrapper(raw, encoding="utf-8", write_through=False)
+        seen: list[bytes] = []
+
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            show(self.url)
+            seen.append(raw.getvalue())  # the CLI now blocks on the loopback
+            return True
+
+        from fixtures.granola import Granola
+        from test_hosted import serving
+
+        with (
+            serving(Granola().server),
+            patch.object(sources_module.HostedReader, "sign_in", sign_in),
+            captured(),
+            patch.object(sys, "stderr", stream),
+        ):
+            self.assertEqual(cli.main(["sources", "connect", "granola", "--json"]), 0)
+        self.assertEqual(seen, [(APPROVAL_LINE + "\n").encode()])
+
+    def test_a_refused_sign_in_leaves_one_lore_line_and_exit_2(self) -> None:
+        def sign_in(reader: object, show) -> bool:  # type: ignore[no-untyped-def]
+            raise sources_module.SourceError("Granola didn't let Lore in. Try again.")
+
+        code, out, err = self.connect(sign_in)
+        self.assertEqual(code, 2)
+        self.assertEqual(
+            err.splitlines()[-1], "lore: Granola didn't let Lore in. Try again."
+        )
+        self.assertEqual(out, "")
+
+
+class ChoicesTest(LoreTestCase):
+    """CAP-022, F-obs-01: what `lore sources choices obsidian` prints."""
+
+    def choices(self, *flags: str) -> tuple[int, str]:
+        with captured() as out:
+            code = cli.main(["sources", "choices", "obsidian", *flags])
+        return code, out.getvalue()
+
+    def test_choices_prints_the_vaults_or_an_empty_list(self) -> None:
+        home = Path(self.tmp.name) / "obsidian"
+        with patch.dict(os.environ, {"OBSIDIAN_HOME": str(home)}):
+            self.assertEqual(self.choices("--json"), (0, "[]\n"))
+            home.mkdir()
+            work, notes = Path(self.tmp.name) / "Work", Path(self.tmp.name) / "Notes"
+            work.mkdir()
+            notes.mkdir()
+            (home / "obsidian.json").write_text(
+                json.dumps(
+                    {
+                        "vaults": {
+                            "a": {"path": str(work)},
+                            "b": {"path": str(notes), "open": True},
+                        }
+                    }
+                )
+            )
+            code, out = self.choices("--json")
+            self.assertEqual(code, 0)
+            self.assertEqual(
+                json.loads(out),
+                [
+                    {"label": "Notes", "locator": str(notes.resolve()), "open": True},
+                    {"label": "Work", "locator": str(work.resolve()), "open": False},
+                ],
+            )
+            code, out = self.choices()
+        self.assertEqual(
+            out.splitlines(),
+            [f"  {'Notes':<20} {notes.resolve()}", f"  {'Work':<20} {work.resolve()}"],
+        )
 
 
 class SupportedPythonTest(unittest.TestCase):
@@ -2970,8 +3086,13 @@ class PushTest(LoreTestCase):
             store.set_setting("answer_price_usd", 0.5)
             store.set_setting("answer_enabled", True)
         sql = self.push_sql([])
-        self.assertIn("DROP TABLE IF EXISTS node_settings;", sql)
-        self.assertIn("CREATE TABLE node_settings", sql)
+        # CAP-039: every setting but the store's inbox key is replaced.
+        self.assertIn("CREATE TABLE IF NOT EXISTS node_settings", sql)
+        self.assertIn(
+            "DELETE FROM node_settings WHERE key NOT IN "
+            "('inbox_salt', 'inbox_public_key');",
+            sql,
+        )
         q = chr(39)
         self.assertIn(f"{q}Ada{q}{q}s public proxy charter{q}", sql)
         self.assertIn(f"{q}answer_price_usd{q},{q}0.500000{q}", sql)

@@ -1,16 +1,16 @@
 ---
 id: APP-008
 title: Replace the bash regex boundary with an OS sandbox; cards stay UX
-priority: P2
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
-status: in-progress
+status: completed
 related: [APP-003, APP-004]
 blockers: []
 dependencies: ["Evidence from real owner command and approval usage"]
 github_issue: null
 created: 2026-08-22
-updated: 2026-08-26
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -40,21 +40,45 @@ the sandbox is the floor.
 
 ## Acceptance criteria
 
-- [ ] Agent bash runs inside an OS sandbox limited to `$LORE_HOME` (rw),
+- [x] Agent bash runs inside an OS sandbox limited to `$LORE_HOME` (rw),
       `~/.claude` and `~/.codex` (ro), no network.
-- [ ] The read-only classifier and exact-command table stop being the
+- [x] The read-only classifier and exact-command table stop being the
       security boundary; cards still gate capture/profile/publish drafts.
-- [ ] The app refuses to start an agent session if its required sandbox is
+- [x] The app refuses to start an agent session if its required sandbox is
       unavailable.
-- [ ] A command that escapes the sandbox scope fails with a reason the
+- [x] A command that escapes the sandbox scope fails with a reason the
       model can act on, without ending the turn.
-- [ ] A bounded comparison shows fewer unnecessary prompts without increasing
-      the set of commands eligible to bypass deterministic hard-denies.
+- ~~A bounded comparison shows fewer unnecessary prompts without increasing
+      the set of commands eligible to bypass deterministic hard-denies.~~
+      Struck: the classifier and regex table are gone, so there is nothing left to compare against.
 
 ## Notes
 
 Do not log private capture payloads or send credentials to collect the evidence
 for this decision.
+
+**Close-out (2026-11-13):** Completed. Built in #167 and hardened by APP-048 (#281) and APP-226
+(#499). In `app/desktop/src/agent.mjs`, `sandboxPolicy` runs every tool
+(bash, read, write, edit) under `@anthropic-ai/sandbox-runtime` Seatbelt.
+It allows no network and makes the account home unreadable. Lore's home is
+writable except its app-only folders. The agents' history is readable, and
+only for setup: `~/.claude/projects` and `~/.codex/memories`, narrower
+than the `~/.claude`/`~/.codex` this item asked for. There is no
+classifier or command table. `createSandboxedBashOperations` keeps only a
+store-command refusal and a hidden-folder check. Owner-meaning writes stay
+on cards (`propose_memories`, `propose_blueprint`/`save_profile`,
+`propose_price`, `open_store`). `LoreAgent.create` awaits
+`initializeSandbox`, and `SandboxManager.initialize` throws "Sandbox
+dependencies not available" when the sandbox can't run, so no session
+starts without it. No dedicated test covers that refusal. A blocked
+command is annotated through `annotateStderrWithSandboxFailures`, and
+read/write refusals are returned as tool errors ("Lore can't read that
+file"), so the turn goes on. Tests are in
+`app/desktop/test/component/sandbox.test.cjs`. Leftover, not covered here:
+that file's `todo` test "the agent's shell cannot change Lore's database"
+(lore.db is writable inside the sandbox). No item tracks it yet. It is
+listed for a new item in the 2026-11-13 close-out report rather than filed
+here.
 
 ## Research (2026-08-23)
 
@@ -78,3 +102,19 @@ security mechanism; drop the exact-regex table as the boundary. Evaluate
 `pi-sandbox` as the drop-in before hand-rolling.
 
 **Prioritization pass 2026-08-26:** The dependency ("evidence from real owner command and approval usage") is satisfied — its own Problem section names the 2026-08-23 stall that supplied it — and the 2026-08-23 Research section already picked a direction (sandbox-first, evaluate `pi-sandbox` first). Promoted `in-review` → `ready`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The sandbox-first
+boundary shipped in #167 and was hardened by APP-048 (#281) and APP-227
+(#499): bash, read, write and edit all run under Seatbelt with no network,
+and the regex table is gone. Criterion 5 (a prompt-count comparison against
+the classifier) no longer has anything to compare against and should be
+dropped. The one real hole is the todo test in sandbox.test.cjs ("the
+agent's shell cannot change Lore's database": lore.db is still writable from
+the agent's shell), which no backlog item tracks yet and should become its
+own item before this one closes.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was M).
+Stays in-review. Before it can be ready: Drop criterion 5 (no classifier
+left to compare against). File a new item for the todo test in
+test/component/sandbox.test.cjs (lore.db still writable from the agent's
+shell), then close. Prioritization flag (not acted on): done.

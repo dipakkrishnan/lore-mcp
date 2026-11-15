@@ -49,6 +49,13 @@ CREATE TABLE IF NOT EXISTS sign_ins (id TEXT PRIMARY KEY, code TEXT NOT NULL,
 client TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('pending','allowed','denied')),
 agent TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
 """
+# The store's inbox key in `node_settings`, salt first: the public key is what says the
+# store has a key, so it is written last (CAP-039).
+INBOX_SETTINGS = ("inbox_salt", "inbox_public_key")
+# A collect reads this many saves per call; the node keeps at most 2,000 waiting, so
+# the pages it takes are bounded, with one to spare for a save made meanwhile.
+PAGE = 200
+PAGES = 2000 // PAGE + 2
 # A received forget keeps its state, so what is still owed is what still has a payload.
 OWED = "state IN ('waiting','forgotten') AND sealed IS NOT NULL"
 AGENTS = (
@@ -184,6 +191,9 @@ class Inbox:
         # keep listing, re-keying and disconnecting; only a new one is refused.
         if app == "muse":
             raise InboxError("Muse can't connect yet.")
+        # CAP-039: the store's key belongs to the Mac that holds its private half.
+        # Read it before making any key here, and refuse when it isn't this Mac's.
+        self._held_here(self._store_key())
         if not self.keys:
             private = X25519PrivateKey.generate()
             keys = Keys(
@@ -193,33 +203,60 @@ class Inbox:
             self.credentials.save(keys)
             self.keys = keys
         agent, token, hashed = self._token()
+        # Guarded as well, in case another Mac gave the store its key since the read.
+        mine = _quote(self.keys.public_key)
+        held = (
+            "NOT EXISTS (SELECT 1 FROM node_settings WHERE key = 'inbox_public_key' "
+            f"AND value <> {mine})"
+        )
         settings = "".join(
             "INSERT OR REPLACE INTO node_settings(key,value) "
-            f"VALUES ({_quote(key)},{_quote(value)});\n"
+            f"SELECT {_quote(key)},{_quote(value)} WHERE {held};\n"
             for key, value in self.settings().items()
         )
         now = _quote(_now())
-        row = f"({_quote(agent)},{_quote(name)},{_quote(app)},{_quote(hashed)},{now})"
+        row = f"{_quote(agent)},{_quote(name)},{_quote(app)},{_quote(hashed)},{now}"
         if sign_in is None:
             insert = (
-                f"INSERT INTO agents(id,name,app,token_hash,created_at) VALUES {row};\n"
+                "INSERT INTO agents(id,name,app,token_hash,created_at) "
+                f"SELECT {row} WHERE {held};\n"
             )
         else:
             waiting = f"WHERE id = {_quote(sign_in)} AND state = 'pending' AND expires_at > {now}"
             insert = (
                 "INSERT INTO agents(id,name,app,token_hash,created_at) "
-                f"SELECT {row[1:-1]} WHERE EXISTS (SELECT 1 FROM sign_ins {waiting});\n"
-                f"UPDATE sign_ins SET state = 'allowed', agent = {_quote(agent)} {waiting};\n"
+                f"SELECT {row} WHERE {held} AND EXISTS (SELECT 1 FROM sign_ins {waiting});\n"
+                f"UPDATE sign_ins SET state = 'allowed', agent = {_quote(agent)} "
+                f"{waiting} AND {held};\n"
             )
         rows = self._run(
             f"{SCHEMA}{settings}{insert}{AGENTS} WHERE a.id = {_quote(agent)};",
             "connecting the agent failed",
         )
         if not rows:
+            self._held_here(self._store_key())
             raise InboxError(
                 "That sign-in has expired. Start again from the app you're connecting."
             )
         return Minted(agent=Agent.model_validate(rows[0]), token=token)
+
+    def _store_key(self) -> str | None:
+        """The inbox public key the store seals to, if it has one yet."""
+        rows = self._run(
+            f"{SCHEMA}SELECT value FROM node_settings WHERE key = 'inbox_public_key';",
+            "reading your store's inbox key failed",
+        )
+        return str(rows[0]["value"]) if rows else None
+
+    def _held_here(self, store_key: str | None) -> None:
+        if store_key is not None and (
+            not self.keys or self.keys.public_key != store_key
+        ):
+            raise InboxError(
+                "Your store's saves are sealed to another Mac's key, and this Mac "
+                "doesn't hold it, so connecting here would leave them unreadable. "
+                "Connect agents from the Mac that first connected one."
+            )
 
     def deny(self, sign_in: str) -> None:
         self._run(
@@ -270,15 +307,28 @@ class Inbox:
         )
 
     def items(self, agent: str) -> list[Sealed]:
-        return [
-            Sealed.model_validate(row)
-            for row in self._run(
-                "SELECT id, agent, state, sealed, saved_at FROM inbox "
-                f"WHERE agent = {_quote(agent)} AND {OWED} "
-                "ORDER BY saved_at LIMIT 200;",
-                "collecting saves failed",
-            )
-        ]
+        """Every save the agent has waiting, a page per call (CAP-038). The pages
+        follow a `(saved_at, id)` cursor, since one `/agent` call saves many items at
+        one moment, so saves this Mac can't open never hide the ones after them."""
+        found: list[Sealed] = []
+        after = ""
+        for _ in range(PAGES):
+            page = [
+                Sealed.model_validate(row)
+                for row in self._run(
+                    "SELECT id, agent, state, sealed, saved_at FROM inbox "
+                    f"WHERE agent = {_quote(agent)} AND {OWED}{after} "
+                    f"ORDER BY saved_at, id LIMIT {PAGE};",
+                    "collecting saves failed",
+                )
+            ]
+            found += page
+            if len(page) < PAGE:
+                break
+            last = page[-1]
+            at, item = _quote(last.saved_at), _quote(last.id)
+            after = f" AND (saved_at > {at} OR (saved_at = {at} AND id > {item}))"
+        return found
 
     def open(self, item: Sealed) -> Opened:
         if not self.keys:

@@ -1,7 +1,7 @@
 ---
 id: XC-051
 title: Replay the manifest's canary searches through the Python CLI in a throwaway home
-priority: P1
+priority: P2
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -115,3 +115,7 @@ excluded case silently becomes a duplicate kept note.
 Sequencing: blocked by `XC-048` (file prefix). `CLI-010` covers the
 JSON/text shapes of the same commands; this item covers what lands in the
 store.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker XC-048 must complete; change the `unittest
+discover` criterion to the pytest runner.

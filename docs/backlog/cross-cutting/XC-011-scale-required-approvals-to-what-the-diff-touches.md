@@ -1,16 +1,16 @@
 ---
 id: XC-011
 title: Scale required approvals to what the diff touches
-priority: P2
+priority: P3
 effort: M
 component: cross-cutting
-status: ready
+status: in-review
 related: [XC-004, XC-012, XC-009, XC-010, XC-014]
 blockers: []
 dependencies: ["Repository admin access to configure branch protection or a ruleset — the current backlog author has push but not admin"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-08-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -110,3 +110,11 @@ merge — separately from this item's path-scaled approval mechanism. Same
 admin dependency; worth executing together if picked up in the same pass.
 
 **Prioritization pass 2026-08-26:** Admin-access dependency is real but not a hard blocker — `XC-014` (same admin gap, same author) already completed 2026-08-10, so an admin is reachable when needed. The mechanism trade-off (CODEOWNERS vs. a status-check job) stays open in the approach, but the AC are shape-agnostic and testable either way, unlike `MCP-002`'s pre-decision blocker. Recommend the status-check-job direction during implementation: version-controlled/extensible per the AC's own bar, and it avoids CODEOWNERS' self-approval deadlock risk. Promoted `in-review` → `ready`.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: The Problem says main has no
+protection, but .github/rulesets/protect-main.json now requires a PR and the
+status checks, so AC7 is met. Rewrite the Problem against the ruleset and
+drop AC7. A person decides the self-approval question (second reviewer, or
+which admin bypass is allowed); without it the status-check job deadlocks or
+does nothing.

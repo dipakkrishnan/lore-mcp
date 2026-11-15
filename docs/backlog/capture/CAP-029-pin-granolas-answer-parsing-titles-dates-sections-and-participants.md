@@ -1,16 +1,16 @@
 ---
 id: CAP-029
 title: Pin Granola's answer parsing (attribute quoting, escaped titles, dates, sections, participants)
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-009, CAP-015, CAP-024, XC-055]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -84,3 +84,6 @@ these tests from the recording, never the other way around).
 
 Flakiness/safety: inline strings; the only address is the stub's
 `example.com` one.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

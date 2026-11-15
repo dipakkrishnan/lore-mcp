@@ -1,8 +1,8 @@
 ---
 id: XC-006
 title: Ship the owner skill pack as agent plugins with a marketplace entry
-priority: P3
-effort: M
+priority: P2
+effort: S
 component: cross-cutting
 status: in-review
 related: [XC-005, ONB-001]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-07-30
-updated: 2026-10-10
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -117,3 +117,10 @@ it twice (stubbed `uv`, real `uv`) and checks both `~/.agents/skills` and
 
 Also fixed: the README said the plugin packages "four owner workflows"; five
 ship. It now names the set instead of counting it.
+
+**Prioritization (2026-11-12):** Priority P2 (was P3), effort S (was M).
+Stays in-review. Before it can be ready: A maintainer picks a release
+policy: drop `version`, or bump it per release pinned to
+app/desktop/package.json (plugin.json and marketplace.json are still 0.1.0
+while the app is 0.1.25). Also decide whether install.sh's
+LORE_VERSION=v0.1.0 default is in scope.

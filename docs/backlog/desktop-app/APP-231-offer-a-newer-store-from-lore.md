@@ -4,13 +4,13 @@ title: A store running older code than the app offers a quiet, optional Update
 priority: P2
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-226, MON-047, XC-069]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -41,3 +41,12 @@ The store's code ships inside the Lore app. The store only picks up new code whe
 - [x] Nothing about it appears on Today.
 - [x] Settings and the store card offer a quiet Update. It asks first, and Cancel puts nothing out.
 - [x] Confirm redeploys as the store was last opened, whether for sale or for agents only.
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as completed:** Everything shipped in
+PR #511, and its tests (test_deploy.py, store.test.cjs, renderer-store-
+update.test.cjs) pass on main. The "store card" in criterion 4 was later
+removed by APP-282, so Settings › Your store › Address is now the only place
+the quiet Update appears; that is the evolved form of the same behaviour,
+not a gap. Closed as completed.

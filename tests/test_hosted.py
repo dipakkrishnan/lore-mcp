@@ -8,15 +8,19 @@ from __future__ import annotations
 
 import io
 import json
+import logging
+import socket
 import threading
+import time
 import unittest
 import urllib.request
-from contextlib import asynccontextmanager, redirect_stderr
+from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout
 from http.client import HTTPConnection
 from typing import AsyncIterator
 from unittest.mock import patch
 
 import anyio
+import httpx2
 from fixtures.granola import Granola
 from helpers import LoreTestCase
 from mcp import Client
@@ -129,6 +133,60 @@ class HostedTest(LoreTestCase):
         with failing(OSError("offline")), Store() as store:
             read = Registry(store).read([str(added["name"])])
         self.assertEqual(read[0]["state"], "unreachable")
+
+    def sign_in_fails(self, error: Exception) -> str:
+        with failing(error), Store() as store:
+            with self.assertRaises(SourceError) as failed:
+                Registry(store).connect("granola", "", show=print)
+        said = str(failed.exception)
+        self.assertNotIn("\n", said, "the desktop shows the last stderr line")
+        return said
+
+    def test_a_timed_out_sign_in_says_the_browser_never_answered(self) -> None:
+        """CAP-025: a sign-in nobody answered is not a refusal."""
+        self.assertEqual(
+            self.sign_in_fails(OAuthFlowError("no answer from the browser")),
+            "Granola didn't hear back from your browser. "
+            "Try again and approve Lore on the page it opens.",
+        )
+        self.assertEqual(
+            self.sign_in_fails(OAuthFlowError("access_denied")),
+            "Granola didn't let Lore in. Try again.",
+        )
+
+    def test_the_vendors_reason_is_shown_when_it_has_one(self) -> None:
+        def status(code: int, text: str) -> httpx2.HTTPStatusError:
+            request = httpx2.Request("POST", "https://mcp.granola.ai/mcp")
+            response = httpx2.Response(code, text=text, request=request)
+            return httpx2.HTTPStatusError("refused", request=request, response=response)
+
+        said = self.sign_in_fails(
+            status(
+                401, "Unauthorized: user has not created a Granola account yet\nmore"
+            )
+        )
+        self.assertEqual(
+            said,
+            "Lore couldn't reach Granola. Granola says: "
+            "Unauthorized: user has not created a Granola account yet",
+        )
+        self.assertEqual(
+            self.sign_in_fails(status(502, "")),
+            "Lore couldn't reach Granola. Try again.",
+        )
+        leaky = self.sign_in_fails(
+            status(
+                400,
+                "bad request for owner@example.com token=abcdefghijklmnopqrstuvwxyz0123",
+            )
+        )
+        self.assertNotIn("owner@example.com", leaky)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz0123", leaky)
+        self.assertTrue(
+            leaky.startswith("Lore couldn't reach Granola. Granola says: bad request")
+        )
+        long = self.sign_in_fails(status(500, "x " * 200))
+        self.assertLessEqual(len(long.split("Granola says: ")[1]), 120)
 
     def test_signing_in_starts_clean_and_then_reads(self) -> None:
         server = "https://mcp.granola.ai/mcp"
@@ -475,6 +533,243 @@ class SignInTest(LoreTestCase):
         self.assertEqual(answer.code, "s3cret-code")  # type: ignore[attr-defined]
         self.assertNotIn("s3cret-code", printed.getvalue())
         self.assertNotIn("GET /", printed.getvalue())
+
+
+TOKEN = "tok-" + "0123456789abcdef" * 2 + "01234567"
+SERVER = "https://mcp.granola.ai/mcp"
+
+
+def signing_in(stub: MCPServer):  # type: ignore[no-untyped-def]
+    """`serving`, but every connection first keeps a token and a registration the way
+    the SDK does when the owner finishes an approval: through Lore's own storage."""
+
+    @asynccontextmanager
+    async def connect(self: HostedReader, auth: object) -> AsyncIterator[Client]:
+        storage = auth.context.storage  # type: ignore[attr-defined]
+        await storage.set_client_info(
+            OAuthClientInformationFull(client_id="lore-sec", client_name="Lore")
+        )
+        await storage.set_tokens(
+            OAuthToken(
+                access_token=TOKEN, token_type="Bearer", refresh_token=TOKEN[::-1]
+            )
+        )
+        async with Client(stub) as client:
+            yield client
+
+    return patch.object(HostedReader, "connect", connect)
+
+
+class SecretsTest(LoreTestCase):
+    """XC-052: a sign-in's tokens live in the Keychain and nowhere else."""
+
+    def test_sec_a_sign_in_leaves_nothing_but_keychain_entries(self) -> None:
+        from lore import cli, snapshot
+
+        out, err = io.StringIO(), io.StringIO()
+        with (
+            signing_in(Granola().server),
+            self.assertLogs(level="DEBUG") as logs,
+            redirect_stdout(out),
+            redirect_stderr(err),
+        ):
+            logging.getLogger("lore.test").debug("listening")
+            with Store() as store:
+                added = Registry(store).connect("granola", "", show=print)
+            with Store() as store:
+                registry = Registry(store)
+                registry.read([str(added["name"])])
+                entries = registry.entries()
+            state = snapshot.build()
+            self.assertEqual(cli.main(["sources", "list", "--json"]), 0)
+        # The sign-in really kept a token, in the Keychain alone.
+        kept = self.keyring.saved[("Lore", f"{SERVER} tokens")]
+        self.assertIn(TOKEN, kept)
+        self.assertIn(("Lore", f"{SERVER} client"), self.keyring.saved)
+        said = {
+            "added": json.dumps(added),
+            "entries": json.dumps(entries),
+            "desktop-state": json.dumps(state, default=str),
+            "stdout": out.getvalue(),
+            "stderr": err.getvalue(),
+            "logs": "\n".join(logs.output),
+        }
+        for secret in (TOKEN, TOKEN[::-1]):
+            for where, text in said.items():
+                with self.subTest(where=where):
+                    self.assertNotIn(secret, text)
+            for path in self.lore_home.rglob("*"):
+                if path.is_file():
+                    with self.subTest(path=str(path.relative_to(self.lore_home))):
+                        self.assertNotIn(secret.encode(), path.read_bytes())
+
+    def test_sec_signing_in_refreshes_both_keychain_entries(self) -> None:
+        self.keyring.set_password("Lore", f"{SERVER} tokens", "stale tokens")
+        self.keyring.set_password("Lore", f"{SERVER} client", "stale client")
+        with serving(Granola().server):
+            with Store() as store:
+                Registry(store).connect("granola", "", show=print)
+        # The stand-in registers nothing, so a refreshed sign-in leaves neither.
+        self.assertNotIn(("Lore", f"{SERVER} tokens"), self.keyring.saved)
+        self.assertNotIn(("Lore", f"{SERVER} client"), self.keyring.saved)
+
+    def test_sec_disconnect_forgets_both_entries_and_forgetting_twice_is_quiet(
+        self,
+    ) -> None:
+        with signing_in(Granola().server), Store() as store:
+            added = Registry(store).connect("granola", "")
+        self.assertEqual(
+            set(self.keyring.saved),
+            {("Lore", f"{SERVER} tokens"), ("Lore", f"{SERVER} client")},
+        )
+        with Store() as store:
+            Registry(store).remove(str(added["name"]), delete=False)
+        self.assertEqual(self.keyring.saved, {})
+        Keychain(SERVER).forget()
+        self.assertEqual(self.keyring.saved, {})
+
+
+class LoopbackDeadlineTest(unittest.TestCase):
+    """CAP-030: the sign-in wait ends at its limit, plus at most one connection's
+    timeout, whatever connects to the loopback meanwhile."""
+
+    WAIT, CONNECTION = 1.0, 0.3
+    # Thread start-up and the OS's scheduling, never near a second limit's worth.
+    SLACK = 0.3
+
+    def wait_with(self, *events, wait: float | None = None):  # type: ignore[no-untyped-def]
+        """Run `callback()` while each `(at, act)` in `events` runs `act(port)` `at`
+        seconds in. Return how the wait ended and how long it took."""
+        ended: list[object] = []
+        wait = wait or self.WAIT
+        with (
+            patch.object(Loopback, "wait", wait),
+            patch.object(Loopback, "connection_timeout", self.CONNECTION),
+            Loopback() as landing,
+        ):
+            port = landing.server_port
+
+            def listen() -> None:
+                try:
+                    ended.append(anyio.run(landing.callback))
+                except OAuthFlowError as error:
+                    ended.append(error)
+
+            timers = [threading.Timer(at, act, args=(port,)) for at, act in events]
+            for timer in timers:
+                timer.daemon = True
+                timer.start()
+            began = time.monotonic()
+            thread = threading.Thread(target=listen, daemon=True)
+            thread.start()
+            thread.join(wait * 4 + 5)
+            took = time.monotonic() - began
+            self.assertFalse(thread.is_alive(), "the wait never ended")
+            for timer in timers:
+                timer.join(10)
+        return ended[0], took
+
+    @staticmethod
+    def get(path: str, pages: list[tuple[int, str]]):  # type: ignore[no-untyped-def]
+        def act(port: int) -> None:
+            link = HTTPConnection("127.0.0.1", port, timeout=5)
+            try:
+                link.request("GET", path)
+                got = link.getresponse()
+                pages.append((got.status, got.read().decode()))
+            except OSError as error:
+                pages.append((0, str(error)))
+            finally:
+                link.close()
+
+        return act
+
+    @staticmethod
+    def silent(hold: float):  # type: ignore[no-untyped-def]
+        """Open a connection, send nothing, and let it go after `hold` seconds."""
+
+        def act(port: int) -> None:
+            link = socket.create_connection(("127.0.0.1", port), timeout=5)
+            try:
+                time.sleep(hold)
+            finally:
+                link.close()
+
+        return act
+
+    def test_a_stray_request_late_in_the_wait_does_not_restart_the_clock(
+        self,
+    ) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with((0.9, self.get("/favicon.ico", pages)))
+        self.assertIsInstance(ended, OAuthFlowError)
+        self.assertEqual(pages[0][0], 404)
+        self.assertLess(took, self.WAIT + self.CONNECTION + self.SLACK)
+
+    def test_a_connection_that_sends_nothing_does_not_hold_the_wait(self) -> None:
+        ended, took = self.wait_with((0.1, self.silent(2.0)))
+        self.assertIsInstance(ended, OAuthFlowError)
+        self.assertLess(took, self.WAIT + self.CONNECTION + self.SLACK)
+
+    def test_the_callback_lands_behind_a_silent_connection(self) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.silent(2.0)),
+            (0.15, self.get("/callback?code=abc&state=xyz", pages)),
+            wait=2.0,
+        )
+        self.assertEqual((ended.code, ended.state), ("abc", "xyz"))  # type: ignore[attr-defined]
+        self.assertEqual(pages[0][0], 200)
+        self.assertIn("Lore is connected", pages[0][1])
+        self.assertLess(took, 2.0)
+
+    def test_a_callback_that_says_nothing_does_not_end_the_wait(self) -> None:
+        """CAP-031: only a code or an error is an answer."""
+        empty = [
+            "/callback",
+            "/callback?",
+            "/callback?state=xyz",
+            "/callback?foo=bar",
+            "/callback?code=",
+            "/callback?error=",
+            "/callback?code=&error=",
+        ]
+        pages: list[tuple[int, str]] = []
+        ended, _ = self.wait_with(
+            *[(0.05 + 0.05 * n, self.get(path, pages)) for n, path in enumerate(empty)],
+            (0.6, self.get("/callback?code=abc&state=xyz", pages)),
+            wait=3.0,
+        )
+        self.assertEqual((ended.code, ended.state), ("abc", "xyz"))  # type: ignore[attr-defined]
+        for status, page in pages[:-1]:
+            self.assertEqual(status, 400)
+            self.assertNotIn("Lore is connected", page)
+            self.assertNotIn("Lore was not let in", page)
+        self.assertEqual(pages[-1][0], 200)
+        self.assertIn("Lore is connected", pages[-1][1])
+
+    def test_only_empty_callbacks_end_as_no_answer_when_the_time_runs_out(
+        self,
+    ) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.get("/callback", pages)),
+            (0.1, self.get("/callback?code=", pages)),
+        )
+        self.assertEqual(str(ended), "no answer from the browser")
+        self.assertEqual([status for status, _ in pages], [400, 400])
+        self.assertGreater(took, self.WAIT - 0.05)
+
+    def test_another_path_waits_on_and_a_refusal_ends_it_at_once(self) -> None:
+        pages: list[tuple[int, str]] = []
+        ended, took = self.wait_with(
+            (0.05, self.get("/favicon.ico", pages)),
+            (0.2, self.get("/callback?error=access_denied", pages)),
+            wait=5.0,
+        )
+        self.assertEqual(str(ended), "access_denied")
+        self.assertEqual([status for status, _ in pages], [404, 200])
+        self.assertLess(took, 1.0)
 
 
 if __name__ == "__main__":

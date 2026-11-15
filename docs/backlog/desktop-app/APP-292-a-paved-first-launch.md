@@ -1,7 +1,7 @@
 ---
 id: APP-292
 title: A paved first launch, from the move prompt to the first AI connected
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-06
-updated: 2026-11-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -43,3 +43,9 @@ A Nov 6 walk of v0.1.24 as a new user, from yourlore.dev to the Inbox, found the
 - [ ] Claude, not installed: Open Claude copies the link and opens claude.ai's connector settings; Do this later lands
       on the Inbox like Skip for now.
 - [ ] Desktop tests and the agents/fresh walks pass.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #671.

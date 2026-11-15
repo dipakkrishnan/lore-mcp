@@ -1,7 +1,7 @@
 ---
 id: APP-117
 title: Show what people like the owner sell when there is nothing to sell yet
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -49,3 +49,20 @@ Zane's "67% quality" rating is `XC-032`; this item is the reference picture,
 that one is the per-draft check.
 
 **Review 2026-10-19:** not completed. Not done. The empty For Sale shelf is still a plain empty state; no persona-matched or general examples.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Name the target view (Inventory's sale shelf), who
+writes the 6-9 curated examples and where they live, and whether this is
+still wanted alongside the bids board. Prioritization flag (not acted on):
+possibly obsolete (bids board).
+
+**Close-out (2026-11-13):** stays in-review. Nothing is built. Inventory's sale
+shelf, empty, reads only "Nothing on sale yet." with "See what's private"
+(`app/desktop/src/renderer.js` ~2527). No curated examples exist in the repo,
+and nothing reads the blueprint persona for this. The bids board (`BidsView`,
+APP-288) shows what buyers ask for, not what a good publication looks like, so
+it does not clearly supersede this. Whether it makes the item moot is a product
+decision, not something the code settles. What remains is the prioritization
+note's three questions: confirm the target is Inventory's "sale" shelf empty
+state, say who writes the 6-9 examples and where they live, and decide whether
+this is still wanted beside Bids. If not, mark it obsolete.

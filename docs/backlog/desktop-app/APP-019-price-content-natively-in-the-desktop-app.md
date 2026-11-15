@@ -1,16 +1,16 @@
 ---
 id: APP-019
 title: Set the global publication price in Desktop
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: desktop-app
-status: in-progress
+status: in-review
 related: [MON-009, MON-013, APP-006, APP-035, XC-020]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-09-06
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -46,8 +46,10 @@ automatic pricing. `MON-009` owns evidence for finer publication pricing;
 - [x] First approval with no price set leads the owner to set one.
 - [x] Pricing is not silently applied by the agent: the owner confirms the
       exact amount through the typed Desktop action.
-- [x] Changing the price of a live node offers redeploy, never claims `push`
-      changed it, and `discover` shows the new amount after redeploy.
+- [x] Changing the price of a live node says the store still charges the old
+      price and offers Update store, and `discover` shows the new amount after
+      that update (since APP-139 a push carries the price; only a store from
+      before pushed prices needs a redeploy).
 - [ ] The flow is walked end to end on a real node before the item closes.
 
 ## Notes
@@ -97,3 +99,29 @@ row, the same shape as an unpushed publication (APP-091, APP-093). One
 `priceField` and one `parsePrice` serve the editor and the agent's card.
 `support/edge.sh store` now walks the editor: Settings lands on it, zero is
 refused inline, $0.75 saves, and both surfaces name the stale live price.
+
+**Backlog audit (2026-11-12), moved to in-review:** The global price editor
+from #210 is on main and works through the confirm card. After APP-139
+(#408) a push carries the price, so the premise that the Worker bakes the
+price in at deploy, and criterion 5's redeploy-only wording, are out of
+date. The one open box, a live-node walk, still needs the owner's node, and
+since MON-025 it runs on real money rather than Sepolia. Rewrite criteria 5
+and 6 against the push-carries-price model, then either do the walk as an
+owner step or fold it into a shared live-proof item.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: Rewrite criteria 5 and 6 for push-
+carries-price (APP-139, #408), move the live walk into APP-005, and close.
+Prioritization flag (not acted on): done except the live walk.
+
+**Close-out (2026-11-13):** Stays in-review. Criterion 5 is restated for push-carries-price (APP-139,
+#408). The code matches it: `stalePrice` in `app/desktop/src/renderer.js`
+compares `node.live.price_usd` with the saved price, and `nextStep` and
+the For Sale note show "Your store still charges $X" with Update store.
+`lore/cli.py` notes that a new price reaches the store on its next push.
+Criterion 6, the live-node walk, is still open. It is owner work on a
+real-money node. APP-005's live test (criterion 3) covers a first deploy,
+not a price change, so the walk can't be struck as moved there unless
+APP-005 gains that step. To close: the owner changes the price on a live
+store, presses Update store and sees `discover` report the new amount; or
+add that step to APP-005 and strike criterion 6 here naming it.

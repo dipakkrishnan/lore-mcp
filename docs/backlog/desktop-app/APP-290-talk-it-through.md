@@ -1,7 +1,7 @@
 ---
 id: APP-290
 title: Talk it through, one click from Inventory, the Inbox and the check-in
-priority: P1
+priority: P3
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-05
-updated: 2026-11-05
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -41,3 +41,9 @@ know about this to use it").
 - [ ] Esc stops without sending. Typing, a card, leaving or silence each end talking it through.
 - [ ] The check-in row reads "Answer" and opens the evening thread listening.
 - [ ] A walk drives it end to end with a fake microphone (the today walk).
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #666.

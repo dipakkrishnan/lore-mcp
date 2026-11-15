@@ -1,7 +1,7 @@
 ---
 id: APP-239
 title: Approving the last draft always puts it on sale, even while the window reloads
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -26,3 +26,9 @@ On Oct 22 the owner approved a dive piece in its publish thread. It was approved
 ## Acceptance
 
 - Approving the last draft pushes it, even when another reload overtakes the approve's.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #537.

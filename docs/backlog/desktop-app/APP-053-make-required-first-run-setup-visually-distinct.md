@@ -1,7 +1,7 @@
 ---
 id: APP-053
 title: Make required first-run setup visually distinct from optional next steps
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-02
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -55,3 +55,8 @@ Reported by the owner while dogfooding (2026-09-02), last in a series of
 five UI/UX reports from the same session (APP-049 through APP-053).
 
 **Review 2026-10-19:** not completed. Likely superseded. First run is now `firstrun.cjs` (APP-215/219) and Today has a Next step card. Needs a human look at the first-run screen to confirm a new owner can tell setup is required.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: The owner confirms obsolete after one look at the
+first-run screen (needsYou() and the Today list are gone). Prioritization
+flag (not acted on): obsolete.

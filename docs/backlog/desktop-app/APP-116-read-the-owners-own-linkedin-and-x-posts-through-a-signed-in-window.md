@@ -1,7 +1,7 @@
 ---
 id: APP-116
 title: Read the owner's own LinkedIn and X posts through a signed-in window
-priority: P2
+priority: P3
 effort: L
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A decision on the terms-of-service disclosure wording for LinkedIn and X"]
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -93,3 +93,8 @@ Kernel once, and credential saving defaults on. Kept as the option for
 unattended scheduled pulls, not for the first version.
 
 **Review 2026-10-19:** not completed. Not done. Commit 3480b8e only edits this doc. No `read_posts` tool, `persist:lore-connect` partition, "Forget this login" or per-platform selectors exist. All criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Rewrite against the Connectors tab (APP-125), record
+an owner decision on LinkedIn/X automation risk, and run a signed-in
+selector spike before criteria 1 and 2 can be checked.

@@ -1,16 +1,16 @@
 ---
 id: APP-271
 title: Make the seven kept walks cheaper without scanning less
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
-status: in-progress
+status: in-review
 related: [APP-266, APP-270, XC-072, XC-084, XC-108, STO-006]
 blockers: [APP-270]
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-11-09
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -204,3 +204,28 @@ The two time criteria need three green main runs after merge. On the PR,
 `agents` is at about 80 s and the walks step at 160-177 s on a quiet runner,
 and both at 128 and 271 s on a loaded one; over 150 s either way, because `agents` still runs alone (XC-084) before the other six,
 which take about 80 s two at a time. Status stays `in-progress`.
+
+**Backlog audit (2026-11-12), moved to in-review:** The sleep and wait work
+landed in PR #683 (sleeps cut from 139 to 14). The PR's quiet-runner numbers
+did not hold on main: the latest three green runs show `agents` at 111-166 s
+and the walks step at 248-375 s. The remaining targets depend on runner load
+and on XC-084's solo `agents` walk, not on more of this item's approach.
+Back to in-review to re-scope the time targets, for example to a median over
+N runs, or to tie them to XC-084.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Re-scope the time targets (a median over N main
+runs, or tie them to XC-084); blocker APP-270 must close first.
+Prioritization flag (not acted on): done except the time targets: #683.
+
+**Close-out (2026-11-13):** Stays in-review. The two structural criteria hold
+on this branch: `grep -c 'sleep(' app/desktop/support/edge.cjs` is 14, and
+every view still scans (PR #683). Both time criteria are still unmet on main:
+the last three green CI runs (43400916244, 43400510839, 43400048013, all
+2026-11-13) took 311, 287 and 351 s in the walks step (target 150 s), with
+`agents` alone at 149, 135 and 138 s (target 100 s). APP-270 has now closed
+and handed its 200 s walks-step criterion here. What remains is an owner
+decision, not more of this item's approach: re-scope the targets (a median
+over N main runs, or a target that holds with `agents` solo per XC-084), or
+take on the next cut (letting `agents` share the runner once XC-083/XC-084
+allow it).

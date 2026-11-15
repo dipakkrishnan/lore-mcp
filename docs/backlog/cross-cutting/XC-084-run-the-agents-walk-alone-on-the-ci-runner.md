@@ -1,7 +1,7 @@
 ---
 id: XC-084
 title: Run the agents walk alone on the CI runner
-priority: P1
+priority: P3
 effort: XS
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-27
-updated: 2026-11-09
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -109,3 +109,8 @@ stays `in-review`, not `completed`.
 The run ids in the Problem table are the evidence; the per-check timings come
 from the FAIL lines XC-077's `edge.sh` change now prints into the log group.
 - XC-083's reading (2026-11-09): `agents` failed its first attempt on 13 of 294 runs (4.4%) from 2026-10-27 to 2026-11-09, inside the 5% target.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Drop or restate AC2 (single-run timing, superseded;
+XC-083 measured the target as met), then close. Prioritization flag (not
+acted on): done.

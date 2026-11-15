@@ -4,13 +4,13 @@ title: Fill the feed reader gaps (discovery, Medium spellings, user agent, redir
 priority: P2
 effort: M
 component: capture
-status: in-review
+status: completed
 related: [CAP-005, CAP-008, CAP-018, CAP-020, CAP-026, XC-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -92,13 +92,13 @@ locator spellings are tested three at a time.
 
 ## Acceptance criteria
 
-- [ ] Tests 1-5 and 7-10 exist and pass; test 6 fails before the 429
+- [x] Tests 1-5 and 7-10 exist and pass; test 6 fails before the 429
       message change and passes after.
-- [ ] The 429 wording is the only change under `lore/`; `docs/connectors.md`
+- [x] The 429 wording is the only change under `lore/`; `docs/connectors.md`
       lists it with the other states' texts.
-- [ ] Tests 5 and 7 use a `127.0.0.1` server bound to port 0 and finish
+- [x] Tests 5 and 7 use a `127.0.0.1` server bound to port 0 and finish
       in under 5 s each.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -110,3 +110,25 @@ F-bl-02, R-03.
 
 Flakiness/safety: the timeout test uses a sub-second patched timeout;
 the redirect server is local. No test reaches a real site.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** The ten tests are in `FeedGapsTest`
+(`tests/test_feed.py`). Two changes under `lore/`, where the item expected
+one:
+
+- The 429 wording. `FeedReader.posts` records `busy` on an `HTTPError` 429,
+  and `trouble` says "<label> is busy. Try again in a few minutes." A 404
+  still says "Couldn't find posts at that address." `docs/connectors.md`
+  lists the texts.
+- Discovery resolves relative feed links against where the page landed.
+  `FeedReader.fetch` records `response.geturl()`, and `_site` joins page
+  links against it. Without that, CAP-020's normalisation (a saved `/blog/`
+  becomes `/blog`) would resolve `feeds/main.json` to `/feeds/main.json`.
+  Test 1 therefore uses a `127.0.0.1` server that redirects `/blog` to
+  `/blog/`, not a patched fetch.
+
+Pinned for Medium: a bare `user` maps to `https://medium.com/feed/@user`.
+Tests 1, 5 and 7 run local servers on port 0 and take about 0.5 s each.
+`robots.txt` is never fetched; the docstring says why.

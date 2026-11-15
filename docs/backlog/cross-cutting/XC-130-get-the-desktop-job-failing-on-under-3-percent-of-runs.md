@@ -10,7 +10,7 @@ blockers: [XC-124, XC-126]
 dependencies: []
 github_issue: null
 created: 2026-11-09
-updated: 2026-11-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -62,3 +62,7 @@ While the job fails this often, XC-109 keeps it out of the required checks.
   asked again.
 
 **Prioritization pass 2026-11-11:** Moved `ready` → `in-review`: blockers XC-124 (`ideation`) and XC-126 (`ready`) are not `completed`.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Blockers XC-124 (still ideation; needs filling in and promoting)
+and XC-126 (ready) must complete.

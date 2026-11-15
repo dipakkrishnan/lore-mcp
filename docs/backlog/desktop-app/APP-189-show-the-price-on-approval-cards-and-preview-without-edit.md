@@ -1,7 +1,7 @@
 ---
 id: APP-189
 title: Show the price on approval cards and Preview without Edit
-priority: P2
+priority: P3
 effort: XS
 component: desktop-app
 status: ready
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-12
 ---
 
 ## Problem

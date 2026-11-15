@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/261
 created: 2026-09-09
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -89,3 +89,7 @@ live publications for other reasons (a fresh deploy, a bad push, manual
 intervention) and this gate should catch all of them, not just the #257 case.
 
 **Review 2026-10-19:** not completed. Not done. The payments skill (section 7, gate 1) still reads local `lore publication list` plus the node's own discover manifest; nothing blocks a real-money deploy when none is live. `lore status` still says "(externally usable)" with no node.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Nothing to build; mark it completed (#696). Prioritization flag
+(not acted on): done: 8451e0aa (#696).

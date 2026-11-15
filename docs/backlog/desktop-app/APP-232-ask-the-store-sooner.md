@@ -4,13 +4,13 @@ title: Ask the store within seconds while an app waits to sign in or Lore is on 
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-207, XC-068]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -37,3 +37,9 @@ Coming back to Lore still checks at once.
 ## Notes
 
 A follow-up could show "Checking for saves from your agents" with the time of the last check, so a wait is never silent.
+
+**Backlog audit (2026-11-12), closed as completed:** The polling pace
+shipped in PR #523 and is pinned by unit tests in agent.test.cjs. The item
+was never moved off in-review after it merged, so it is now closed as
+completed. The follow-up idea below (showing when the last check ran) was
+never filed and could become its own item.

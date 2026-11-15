@@ -10,7 +10,7 @@ blockers: []
 dependencies: [XC-116, MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -36,3 +36,11 @@ A plain remote MCP server (Streamable HTTP, not WebMCP) on the site Worker at
 - [ ] `search` results match a filter over `/marketplace.jsonl`, and both come from one source.
 - [ ] `bid` never blocks; it returns before any seller sees the bid.
 - [ ] Listed in the official MCP Registry and one third-party directory.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Restate `bid` against MON-054's card-first fill model (how an MCP
+caller supplies or defers payment), say how `buy` routes for hosted stores,
+and mark the two directory listings as owner tasks rather than implementer
+criteria.

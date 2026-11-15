@@ -4,13 +4,13 @@ title: Name the blueprint file Lore cannot read and say how to replace it
 priority: P2
 effort: S
 component: blueprint
-status: in-review
+status: completed
 related: [BP-002, APP-181, APP-085, APP-119]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -41,27 +41,27 @@ same kind of sentence the missing file already has.
 
 ## Acceptance criteria
 
-- [ ] With a saved `blueprint.json` that is cut short, empty, or not UTF-8,
+- [x] With a saved `blueprint.json` that is cut short, empty, or not UTF-8,
       `load_blueprint` raises an error whose message contains the file's full
       path and `lore blueprint apply`, and none of `Expecting`, `codec`,
       `line 1`.
-- [ ] A saved `blueprint.json` that is valid JSON but not an object is
+- [x] A saved `blueprint.json` that is valid JSON but not an object is
       refused with a message that also contains the path and
       `lore blueprint apply`.
-- [ ] `lore blueprint show`, with such a file and no `lore-map.md`, prints
+- [x] `lore blueprint show`, with such a file and no `lore-map.md`, prints
       that message as its one `lore:` line on stderr and exits 1.
-- [ ] `Marketplace.list()` called without a name, with such a file, fails
+- [x] `Marketplace.list()` called without a name, with such a file, fails
       with that same message; the listed-name setting is unchanged and the
       push function is not called. Tested through `Marketplace(push=…)`, as
       `tests/test_marketplace.py` already does.
-- [ ] `Marketplace.list("Ada")` with such a file succeeds as it does today.
-- [ ] `lore blueprint apply <file>` on a file that is not UTF-8, on a
+- [x] `Marketplace.list("Ada")` with such a file succeeds as it does today.
+- [x] `lore blueprint apply <file>` on a file that is not UTF-8, on a
       directory, and on a file the owner cannot read, each exit 1 with one
       stderr line that starts `lore: blueprint file`, contains the path, and
       contains none of `codec`, `[Errno`.
-- [ ] After each of those three, a fresh home still has no `blueprint/`
+- [x] After each of those three, a fresh home still has no `blueprint/`
       directory, and a home with a saved blueprint has both files unchanged.
-- [ ] `lore blueprint apply` on a missing file still says
+- [x] `lore blueprint apply` on a missing file still says
       `blueprint file not found: <path>`.
 
 ## Notes
@@ -123,3 +123,17 @@ Not asked for:
 Also seen and left alone: `"version": true` and `"version": 1.0` are accepted
 as version 1 (`"1"` and `2` are refused). The saved file always says `1`, so
 nothing downstream sees the difference.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `load_blueprint` (`lore/blueprint.py`)
+turns a read or parse failure, and a saved value that isn't an object, into
+"Lore can't read your saved blueprint at <path>. Capture it again with `lore
+blueprint apply`." That covers `lore blueprint show` and a listing that takes
+its name from the blueprint. `apply` gives its own sentence to a file that
+isn't UTF-8, a folder, or a file it can't open. Each starts `blueprint file`
+and names the path. Tests are in `tests/test_blueprint.py` and
+`tests/test_marketplace.py`. The permission case is skipped when running as
+root. Not changed here: the desktop setup row still counts the blueprint as
+set when the file exists, even if it's damaged.

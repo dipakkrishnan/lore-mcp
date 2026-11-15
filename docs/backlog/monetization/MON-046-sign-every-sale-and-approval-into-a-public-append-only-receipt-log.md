@@ -1,7 +1,7 @@
 ---
 id: MON-046
 title: Sign every sale and approval into a public append-only receipt log
-priority: P1
+priority: P2
 effort: XL
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: [public dipakkrishnan/lore-receipts repo with a Contents-write PAT, receipts Worker secrets (Ed25519 signing key, payer HMAC key), a Base RPC endpoint, Sigstore Rekor public instance]
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/467
 created: 2026-10-16
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -151,3 +151,10 @@ same numbers.
   `basket`.
 
 **Review 2026-10-19:** not completed. Not done. No signed receipt log exists (no Rekor, settlement_failed, checkpoint or `lore receipts verify`). `lore/node/src/receipts.ts` is the unrelated XC-039 card receipt store. All 10 criteria unmet; also needs external setup (receipts repo, signing keys).
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Split it into the five PRs its notes list, each its
+own item with criteria. Provision the receipts repo, a PAT, the signing and
+HMAC keys and a Base RPC. Record the founder's custody decision for pooled
+splits, and reconcile the note sending bids to `basket` with MON-054's
+BidRail fill path.

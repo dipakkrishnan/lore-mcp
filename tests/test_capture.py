@@ -135,5 +135,166 @@ class SaveTest(LoreTestCase):
             self.assertEqual(store.counts()["private"], 0)
 
 
+class LinkTest(LoreTestCase):
+    """CAP-002: a captured memory can say which earlier memories it grows out of."""
+
+    def earlier(self, title: str = "Failed launch at Actively") -> int:
+        return int(
+            save([{"title": title, "content": f"{title}: what happened."}])[0]["id"]
+        )
+
+    def test_a_valid_link_is_written_with_the_memory_and_read_both_ways(self) -> None:
+        launch = self.earlier()
+        (saved,) = save(
+            [
+                {
+                    "title": "Pricing lesson",
+                    "content": "Price the first tier low.",
+                    "related": [
+                        {"id": launch, "reason": "Learned from the failed launch."}
+                    ],
+                }
+            ]
+        )
+        with Store() as store:
+            self.assertEqual(
+                store.links_of(int(saved["id"])),
+                [
+                    {
+                        "id": launch,
+                        "title": "Failed launch at Actively",
+                        "reason": "Learned from the failed launch.",
+                        "direction": "to",
+                    }
+                ],
+            )
+            self.assertEqual(
+                store.links_of(launch),
+                [
+                    {
+                        "id": saved["id"],
+                        "title": "Pricing lesson",
+                        "reason": "Learned from the failed launch.",
+                        "direction": "from",
+                    }
+                ],
+            )
+
+    def test_a_bad_link_rejects_the_whole_batch_and_names_it(self) -> None:
+        launch = self.earlier()
+        gone = self.earlier("Old idea")
+        with Store() as store:
+            store.discard(gone)
+        existing = save([{"title": "Kept", "content": "Kept text."}])[0]["id"]
+        for related, named in (
+            ([{"id": 9999, "reason": "r"}], "9999"),
+            ([{"id": gone, "reason": "r"}], str(gone)),
+        ):
+            with self.subTest(named=named):
+                with self.assertRaisesRegex(ValueError, f"memory {named}"):
+                    save(
+                        [
+                            {
+                                "title": "Fine",
+                                "content": "Fine text.",
+                                "related": [{"id": launch, "reason": "ok"}],
+                            },
+                            {
+                                "title": "Bad",
+                                "content": "Bad text.",
+                                "related": related,
+                            },
+                        ]
+                    )
+                with Store() as store:
+                    self.assertEqual(store.search("Fine text"), [])
+                    self.assertEqual(store.links_of(launch), [])
+        with self.assertRaisesRegex(ValueError, f"memory {existing}.*itself"):
+            save(
+                [
+                    {
+                        "title": "Kept",
+                        "content": "Kept text.",
+                        "related": [{"id": existing, "reason": "me"}],
+                    }
+                ]
+            )
+
+    def test_without_related_nothing_changes(self) -> None:
+        (saved,) = save([{"title": "Plain", "content": "Plain text."}])
+        with Store() as store:
+            self.assertEqual(store.links_of(int(saved["id"])), [])
+
+    def test_discarding_or_deleting_a_memory_drops_its_links_both_ways(self) -> None:
+        for drop in ("discard", "delete"):
+            with self.subTest(drop=drop):
+                launch = self.earlier(f"Launch {drop}")
+                middle = int(
+                    save(
+                        [
+                            {
+                                "title": f"Middle {drop}",
+                                "content": f"Middle {drop}.",
+                                "related": [{"id": launch, "reason": "from"}],
+                            }
+                        ]
+                    )[0]["id"]
+                )
+                late = int(
+                    save(
+                        [
+                            {
+                                "title": f"Late {drop}",
+                                "content": f"Late {drop}.",
+                                "related": [{"id": middle, "reason": "grew"}],
+                            }
+                        ]
+                    )[0]["id"]
+                )
+                with Store() as store:
+                    getattr(store, drop)(middle)
+                    self.assertEqual(store.links_of(launch), [])
+                    self.assertEqual(store.links_of(late), [])
+
+    def test_the_snapshot_lists_each_memorys_links_both_ways(self) -> None:
+        from lore.snapshot import build
+
+        launch = self.earlier()
+        lesson = int(
+            save(
+                [
+                    {
+                        "title": "Pricing lesson",
+                        "content": "Low first.",
+                        "related": [{"id": launch, "reason": "Learned there."}],
+                    }
+                ]
+            )[0]["id"]
+        )
+        items = {m["id"]: m for m in build()["library"]["items"]}
+        self.assertEqual(
+            items[lesson]["links"],
+            [
+                {
+                    "id": launch,
+                    "title": "Failed launch at Actively",
+                    "reason": "Learned there.",
+                    "direction": "to",
+                }
+            ],
+        )
+        self.assertEqual(
+            items[launch]["links"],
+            [
+                {
+                    "id": lesson,
+                    "title": "Pricing lesson",
+                    "reason": "Learned there.",
+                    "direction": "from",
+                }
+            ],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

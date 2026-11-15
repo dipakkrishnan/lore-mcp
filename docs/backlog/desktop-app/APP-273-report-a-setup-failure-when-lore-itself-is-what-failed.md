@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -73,3 +73,8 @@ proxy URLs with credentials.
 
 Effort S is for option 1; the others are unsized. XC-085's Send details and APP-181's
 "reachable for a bug report" need the same redaction, so they should share it.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Someone picks one of the four routes (option 1, a pre-filled issue
+link or Copy details, is the S-sized one; option 3 would change XC-028's
+rule), then restate the criteria for that route.

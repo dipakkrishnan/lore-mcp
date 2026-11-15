@@ -4,13 +4,13 @@ title: End the hosted sign-in wait at its limit, whatever connects to the loopba
 priority: P2
 effort: S
 component: capture
-status: in-review
+status: completed
 related: [CAP-009, CAP-031, APP-120]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-12
-updated: 2026-10-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -49,20 +49,20 @@ All in tests on loopback only, with `Loopback.wait` and the per-connection
 timeout both patched short. "The connection timeout" below is that second
 value.
 
-- [ ] With no callback, and one request for another path sent shortly before
+- [x] With no callback, and one request for another path sent shortly before
       the limit, `callback()` raises `OAuthFlowError` no later than the limit
       plus the connection timeout. Today it takes almost twice the limit.
-- [ ] With no callback, and a connection that is opened, sends nothing and
+- [x] With no callback, and a connection that is opened, sends nothing and
       stays open well past the limit, `callback()` raises no later than the
       limit plus the connection timeout. Today it returns only when that
       connection closes.
-- [ ] A `/callback` request carrying a code, sent while a silent connection
+- [x] A `/callback` request carrying a code, sent while a silent connection
       is open and more than one connection timeout before the limit, gets
       the "Lore is connected" page, and its code is what `callback()`
       returns.
-- [ ] A request for another path still does not end the wait, and a refusal
+- [x] A request for another path still does not end the wait, and a refusal
       (`error=access_denied`) still ends it at once.
-- [ ] Each test closes the connections it holds after a bounded time and
+- [x] Each test closes the connections it holds after a bounded time and
       asserts on the time the wait took; none waits anywhere near 300
       seconds.
 
@@ -109,3 +109,23 @@ Open PR #355 proposes two neighbouring items that are not on `main` yet:
 one testing the loopback's edges, including the plain timeout, and one
 giving a timed-out sign-in its own sentence instead of "didn't let Lore in".
 Neither covers a wait that outlasts its limit.
+
+**Prioritization (2026-11-12):** Priority P2. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-13):** `Loopback._listen` (`lore/signin.py`) keeps
+one deadline and gives each `handle_request` only the time left.
+`_Landing.setup` sets the connection's socket timeout to
+`min(Loopback.connection_timeout, time left)`, where `connection_timeout` is
+a new class attribute, 5 s. Tests are in `LoopbackDeadlineTest` (`tests/test_hosted.py`),
+with the wait at 1 s and the connection at 0.3 s:
+
+- a stray request at 0.9 s ends by 1.6 s (it was 1.9 s before);
+- a silent connection held open for 2 s ends the wait by 1.6 s (it was 4.1 s
+  with a 4 s hold);
+- a callback sent behind a silent connection lands, where before it got the
+  error;
+- another path waits on, and a refusal ends the wait at once.
+
+Every test asserts how long the wait took and closes its connections. The
+suite runs in about 7 s. CAP-031 changes the same lines next.

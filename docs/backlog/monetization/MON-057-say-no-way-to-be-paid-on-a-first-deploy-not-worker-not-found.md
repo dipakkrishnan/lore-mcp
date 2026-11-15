@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-11
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -68,3 +68,9 @@ quote lives in `tests/fixtures/wrangler.py` as `WORKER_NOT_FOUND`, so `WranglerW
 "raises `StoreFailed`" contradicted the deliberate plain-`ValueError` payout refusal. Not changed:
 `secret_names()` (`lore node secrets`) on a never-deployed account still says reading the secrets failed —
 a possible follow-up.
+
+**Merged with main 2026-11-15:** main had landed a second, cruder implementation of this same change
+(a `"not found" in said and "wrangler deploy" in said` substring test inside `_deploy`). This branch keeps
+`_never_deployed`, which matches wrangler's `Worker "<name>" … not found` sentence and its deploy-first advice
+after stripping colour codes, and the shared fake in `tests/test_deploy.py` now answers not-found until a deploy
+has run or the Worker has a wallet secret.

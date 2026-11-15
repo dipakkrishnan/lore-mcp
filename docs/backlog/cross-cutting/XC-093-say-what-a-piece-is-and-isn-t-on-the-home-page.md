@@ -4,13 +4,13 @@ title: Say what a piece is, and isn't, on the home page
 priority: P0
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [MON-051, XC-114, MON-052, XC-094, XC-091, XC-070, APP-118, APP-280, XC-122]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-04
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -52,3 +52,10 @@ From the Oct 27 launch feedback; see `docs/launch-feedback-2026-10-27.md`.
   every page (Bids · Markets · Open source · Download), one "For agents" link to `/llms.txt`.
   The board is rows with market tabs; bid pages get "Answer with Lore" (APP-280 for the deep
   link) and Share. FAQ dropped: its answers now live in the never-does list and the steps.
+
+**Backlog audit (2026-11-12), closed as completed:** PR #660 built the
+2026-11-04 layout, and every criterion is pinned in site/test/home.test.js
+and visible on the live page (checked 2026-11-12, including a 375px render
+with no horizontal scroll; dark mode was checked through the CSS media query
+only). Earlier attempts #621 and #643 were closed in its favour. Closed as
+completed.

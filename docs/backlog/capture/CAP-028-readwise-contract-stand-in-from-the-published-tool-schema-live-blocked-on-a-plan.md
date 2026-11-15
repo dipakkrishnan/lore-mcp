@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["Readwise's published MCP tool schema for reader_list_documents and reader_get_document_highlights (docs or a one-off list_tools from a paid account)"]
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -87,3 +87,7 @@ C-17; R-13.
 Flakiness/safety: in-process stub only. The live tier for Readwise is
 explicitly not planned; it needs a paid subscription the project does not
 hold.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: Readwise's published tool schema has to be obtained first;
+criterion 1 forbids inventing one.

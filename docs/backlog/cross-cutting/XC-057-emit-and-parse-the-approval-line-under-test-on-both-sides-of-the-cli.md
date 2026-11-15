@@ -4,13 +4,13 @@ title: Emit and parse the "Approve Lore in your browser" line under test on both
 priority: P1
 effort: S
 component: cross-cutting
-status: in-review
+status: completed
 related: [CAP-009, CAP-024, APP-060, APP-178, XC-055, CLI-010]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -82,14 +82,14 @@ Node (`app/desktop/test/app.test.cjs`)
 
 ## Acceptance criteria
 
-- [ ] `tests/fixtures/approval-line.txt` is read by both a Python test and
+- [x] `tests/fixtures/approval-line.txt` is read by both a Python test and
       a Node test; changing the prefix text in `cli.py` or the regex in
       `state.cjs` fails at least one of them.
-- [ ] Python: stderr carries the line, stdout the JSON, refusal exits 2
+- [x] Python: stderr carries the line, stdout the JSON, refusal exits 2
       with `lore: ` on stderr.
-- [ ] Node: `approvalUrl` is exported and tested for the allow-listed host,
+- [x] Node: `approvalUrl` is exported and tested for the allow-listed host,
       a foreign host, and a malformed line.
-- [ ] `uv run python -m unittest discover -s tests`, ruff check, ruff
+- [x] `uv run python -m unittest discover -s tests`, ruff check, ruff
       format --check, mypy (paths as in `XC-048`) pass; `cd app/desktop &&
       npm test` passes.
 
@@ -103,3 +103,22 @@ Flakiness/safety: no OAuth server is stood up; `sign_in` is patched at
 the seam that already exists. A real stub with dynamic client
 registration would test the SDK, not Lore, and is deliberately out of
 scope; `CAP-024` covers the loopback itself.
+
+**Prioritization (2026-11-12):** Priority P1. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code. Implementer
+note: Line numbers have moved (lore/cli.py ~1260 prints the string,
+app/desktop/src/state.cjs ~880 parses it). The Node test belongs under
+app/desktop/test/unit or test/component, and the Python check uses
+tests/gate.py.
+
+**Implementation (2026-11-12):** `tests/fixtures/approval-line.txt` holds the
+line. `ApprovalLineTest` in `tests/test_cli.py` emits it (stderr only, JSON
+alone on stdout, flushed before the wait, and a refusal exits 2 with
+`lore: ...`). The flush test writes into a buffered `TextIOWrapper`, so it
+fails without `flush=True`. `app/desktop/test/unit/app.test.cjs` parses the
+same file through the new exported `approvalUrl(line)` in `state.cjs`, which
+`signIn` now uses, and pins `SIGN_IN` (also exported). Checked by hand:
+dropping `flush=True` or changing the prefix in `cli.py` fails the Python
+tests, and dropping the regex's `$` fails the Node test. Ran with
+`tests/gate.py --python-only` and `npm run test:unit` / `test:component`.
+The design review needed no screenshots: no screen changed.

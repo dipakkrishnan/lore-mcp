@@ -4,13 +4,13 @@ title: Say what changed behind a flagged publication
 priority: P1
 effort: M
 component: cross-cutting
-status: in-progress
+status: completed
 related: [MON-004, APP-006, APP-011, STO-001, XC-035]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-22
-updated: 2026-09-22
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -47,19 +47,19 @@ flag only when the diff is non-empty.
 Scoped 2026-09-22 to the Python core and CLI surface only; the desktop
 Store/Today equivalents are split off to [[XC-035]] (see Notes).
 
-- [ ] `lore publication list` names the changed memory, its author, and the
+- [x] `lore publication list` names the changed memory, its author, and the
       change date for a flagged publication.
-- [ ] At approval time, the source memories' fingerprint/content is recorded
+- [x] At approval time, the source memories' fingerprint/content is recorded
       (snapshot table or column) so a later flag can compute a diff.
-- [ ] Re-approving a publication and then changing its source memory shows a
+- [x] Re-approving a publication and then changing its source memory shows a
       diff of the source text between approval and now, in the CLI.
-- [ ] Publications flagged by the same memory change are presented together
+- [x] Publications flagged by the same memory change are presented together
       in `lore publication list`, and can be re-approved as one group via
       `lore publication reapprove <id> [id...]`. Take-down stays per-publication
       (revoke pushes to the edge immediately; batching that is a bigger,
       separate risk this item doesn't take on).
-- [ ] Copy no longer implies the owner edited the memory when an agent did.
-- [ ] Existing flags with no snapshot degrade to the first layer (name, author,
+- [x] Copy no longer implies the owner edited the memory when an agent did.
+- [x] Existing flags with no snapshot degrade to the first layer (name, author,
       date) rather than an empty diff.
 
 ## Notes
@@ -95,3 +95,9 @@ back up" job the original scope implied. Split the desktop Store/Today diff
 and narrowed this item's AC to the Python core + CLI surface, which the
 migration/query patterns in `store.py`/`cli.py` make genuinely mechanical.
 Proceeding to implement this item as narrowed.
+
+**Backlog audit (2026-11-12), closed as completed:** PR #316 shipped the
+narrowed core and CLI scope on 2026-09-23, but the item was never closed.
+Every criterion is on main and covered by tests in test_cli.py and
+test_store.py, which pass. The desktop surface is tracked separately in
+XC-035. Closed as completed.

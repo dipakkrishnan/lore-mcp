@@ -2,15 +2,15 @@
 id: APP-110
 title: Preview a memory on hover without leaving the list
 priority: P3
-effort: S
+effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-092, APP-096, APP-108, APP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -43,8 +43,8 @@ A hover card, same mechanism and surface style as the tab notes from
 ## Acceptance criteria
 
 - [x] Hovering or focusing a memory row on Memories shows a preview card after a short delay, and leaving or pressing esc hides it.
-- [ ] Hovering or focusing a row on For Sale shows the same preview card. Blocked on a `publication show --json` CLI command; the snapshot only carries title and topic today.
-- [ ] Hovering or focusing a row on Related shows the same preview card. Waits on `APP-108`, which the Related section itself depends on.
+- [ ] ~~Hovering or focusing a row on For Sale shows the same preview card. Blocked on a `publication show --json` CLI command; the snapshot only carries title and topic today.~~ Split out: it needs new CLI work (`lore publication` still has no `show`), so it is its own follow-up, not part of this item's shipped scope.
+- [ ] ~~Hovering or focusing a row on Related shows the same preview card. Waits on `APP-108`, which the Related section itself depends on.~~ Moved to APP-108: no Related section exists yet; when it is built its rows should call the existing `peekable()`.
 - [x] The card shows title, captured date, and clipped content, and offers no actions.
 - [x] Clicking the card opens that memory's sheet.
 - [x] The card stays inside the window at every row position.
@@ -67,3 +67,19 @@ after 450 ms on hover or focus; Escape, leaving, scrolling, or any re-render
 hides it. Verified by the seller persona in `support/edge.cjs`.
 
 **Review 2026-10-19:** not completed. Hover preview shipped (2cf8fc2); 5 of 7 criteria ticked and backed by code. Unmet: the For Sale preview (needs a `publication show --json` command that does not exist) and the Related-row preview (needs APP-108). Consider splitting those two out.
+
+**Prioritization (2026-11-12):** Priority P3, effort XS (was S). Stays in-
+review. Before it can be ready: Close for the shipped scope (hover preview,
+2cf8fc2) and file the For Sale preview as its own item; the Related half
+rides on APP-108. Prioritization flag (not acted on): done (shippable
+scope).
+
+**Close-out (2026-11-13):** completed for the shipped scope. The hover/focus
+preview is `peekable()` (`app/desktop/src/renderer.js` ~7095-7130, cached in
+`peeked`) and is wired to memory rows (`memoryRow`, ~336), Inventory rows
+(~2629) and the collection picker (~3056), shipped in 2cf8fc2. Two criteria
+are struck, not met. (1) The For Sale/on-sale preview: `lore/cli.py` still has
+no `publication show` (only review, draft, list, revoke, reapprove), so it needs
+its own item. Proposed to the backlog owner, not filed here. (2) The Related-row
+preview: APP-108 is still in-review with no Related section and should carry
+this as a criterion.

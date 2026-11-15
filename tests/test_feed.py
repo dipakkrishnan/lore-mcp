@@ -9,10 +9,15 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 import unittest
+from contextlib import contextmanager
 from email.message import Message
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
+from typing import Iterator
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -80,6 +85,158 @@ class FeedLocatorTest(unittest.TestCase):
         self.assertEqual(bare.reader().name(), at.reader().name())
         self.assertTrue(bare.reader().name().startswith("feed-"))
         self.assertEqual(bare.kind, "feed")
+
+
+class FeedOrderTest(LoreTestCase):
+    """CAP-040: a post is dated when it was published and linked to the post itself,
+    whatever order the feed writes its fields in."""
+
+    def posts(self, fixture: str, locator: str) -> list:  # type: ignore[type-arg]
+        with serving({"": fixture}):
+            return list(reader(locator).items())
+
+    def test_a_wordpress_entry_is_dated_by_published_not_its_last_edit(self) -> None:
+        edited, updated_only = self.posts(
+            "wordpress-atom.xml", "https://fieldnotes.example.com/feed/atom/"
+        )
+        self.assertEqual(edited.dated, "2023-04-02")
+        self.assertEqual(updated_only.dated, "2026-09-05")
+
+    def test_an_rss_item_is_dated_by_pubdate_before_atom_updated(self) -> None:
+        rss = (FIXTURES / "rss.xml").read_text(encoding="utf-8")
+        rss = rss.replace(
+            "<pubDate>",
+            "<atom:updated xmlns:atom='http://www.w3.org/2005/Atom'>"
+            "2026-10-20T00:00:00Z</atom:updated><pubDate>",
+            1,
+        )
+        with patch.object(FeedReader, "fetch", lambda self, url: rss.encode()):
+            post = list(reader("https://notes.example.com/feed").items())[0]
+        self.assertEqual(post.dated, "2026-09-02")
+
+    def test_a_blogger_entry_links_to_its_alternate_not_its_comments(self) -> None:
+        (post,) = self.posts(
+            "blogger-atom.xml", "https://shopfloor.blogspot.com/feeds/posts/default"
+        )
+        self.assertEqual(
+            post.source_path, "https://shopfloor.blogspot.com/2025/06/estimating.html"
+        )
+        self.assertEqual(post.dated, "2025-06-01")
+
+    def test_a_link_without_rel_is_the_alternate(self) -> None:
+        atom = (FIXTURES / "blogger-atom.xml").read_text(encoding="utf-8")
+        atom = atom.replace(
+            '<link rel="alternate" type="text/html"', '<link type="text/html"'
+        )
+        with patch.object(FeedReader, "fetch", lambda self, url: atom.encode()):
+            (post,) = list(
+                reader("https://shopfloor.blogspot.com/feeds/posts/default").items()
+            )
+        self.assertEqual(
+            post.source_path, "https://shopfloor.blogspot.com/2025/06/estimating.html"
+        )
+
+    def test_a_blogger_feed_read_before_the_fix_adds_no_duplicate(self) -> None:
+        """Key strategy (b): an entry keeps the key it had (its first link), so a feed
+        imported before this change reads again as the same memories."""
+        locator = "https://shopfloor.blogspot.com/feeds/posts/default"
+        (post,) = self.posts("blogger-atom.xml", locator)
+        self.assertEqual(
+            post.key, "https://shopfloor.blogspot.com/feeds/2/comments/default"
+        )
+        with serving({"": "blogger-atom.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            first = registry.add(locator, kind="feed")
+            again = registry.read([str(first["name"])])
+            self.assertEqual(first["imported"], 1)
+            self.assertEqual((again[0]["added"], again[0]["updated"]), (0, 0))
+            self.assertEqual(len(store.search("")), 1)
+
+    def test_since_skips_an_old_post_edited_recently(self) -> None:
+        with serving({"": "wordpress-atom.xml"}), Store() as store:
+            entry = sources_module.Registry(store).add(
+                "https://fieldnotes.example.com/feed/atom/",
+                kind="feed",
+                since="2025-01-01",
+            )
+            self.assertEqual(entry["imported"], 1)
+            self.assertEqual(
+                [m.title for m in store.search("")], ["An undated-but-updated note"]
+            )
+
+
+class FeedSpellingTest(LoreTestCase):
+    """CAP-020: every spelling of one place is one source, sites included."""
+
+    @staticmethod
+    def name(typed: str, connector: str) -> str:
+        return Source.owner(typed, kind="feed", connector=connector).reader().name()
+
+    def test_a_trailing_slash_and_case_do_not_make_a_second_source(self) -> None:
+        spellings = {
+            "blog": (
+                "https://notes.example.com",
+                "https://notes.example.com/",
+                "NOTES.example.com",
+                "https://notes.example.com:443/",
+                "HTTPS://Notes.Example.com//",
+            ),
+            "substack": ("writer.substack.com", "https://writer.substack.com/"),
+            "medium": (
+                "writer.medium.com",
+                "https://writer.medium.com/",
+                "https://Writer.medium.com/feed/",
+            ),
+            "bluesky": (
+                "writer.bsky.social",
+                "@writer.bsky.social",
+                "@Writer.bsky.social",
+                "https://bsky.app/profile/writer.bsky.social/",
+            ),
+        }
+        for connector, typed in spellings.items():
+            with self.subTest(connector=connector):
+                self.assertEqual(
+                    len({self.name(t, connector) for t in typed}), 1, typed
+                )
+        self.assertEqual(
+            Source.owner("https://notes.example.com/", kind="feed").locator,
+            "https://notes.example.com",
+        )
+
+    def test_a_path_a_query_and_another_port_are_still_part_of_the_place(
+        self,
+    ) -> None:
+        self.assertNotEqual(
+            self.name("https://ghost.example.com/writing", "blog"),
+            self.name("https://ghost.example.com", "blog"),
+        )
+        self.assertEqual(
+            self.name("https://ghost.example.com/writing/", "blog"),
+            self.name("https://ghost.example.com/writing", "blog"),
+        )
+        self.assertEqual(
+            FeedReader.locate("https://ghost.example.com/feed?format=rss")[0],
+            "https://ghost.example.com/feed?format=rss",
+        )
+        self.assertEqual(
+            FeedReader.locate("http://localhost:8080/")[0], "http://localhost:8080"
+        )
+        self.assertEqual(
+            FeedReader.locate("http://notes.example.com:80/")[0],
+            "http://notes.example.com",
+        )
+
+    def test_connecting_the_slash_spelling_after_the_bare_one_is_a_re_read(
+        self,
+    ) -> None:
+        with serving({"": "rss.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            first = registry.add("https://notes.example.com", kind="feed")
+            again = registry.add("https://notes.example.com/", kind="feed")
+            self.assertEqual(again["name"], first["name"])
+            self.assertEqual(len([e for e in registry.entries() if e["owned"]]), 1)
+            self.assertEqual(len(store.search("")), first["imported"])
 
 
 class FeedReadTest(unittest.TestCase):
@@ -630,6 +787,263 @@ class FeedCommandTest(LoreTestCase):
             self.json_command("sources", "preview", "--folder", str(root))["label"],
             "vault",
         )
+
+
+class FeedGapsTest(LoreTestCase):
+    """CAP-023: the feed reader's edges, pinned."""
+
+    def test_discovery_follows_relative_and_json_feed_links(self) -> None:
+        """A relative feed link resolves against the page the site answered with, so a
+        blog at /blog/ (its address saved as /blog, CAP-020) still finds /blog/feeds/."""
+        page = (
+            (FIXTURES / "site.html")
+            .read_bytes()
+            .replace(
+                b'<link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml">',
+                b'<link rel="alternate" type="application/feed+json" href="feeds/main.json">',
+            )
+        )
+        asked: list[str] = []
+
+        class Site(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                asked.append(self.path)
+                if self.path == "/blog":
+                    self.send_response(301)
+                    self.send_header("Location", "/blog/")
+                    self.end_headers()
+                    return
+                body = {
+                    "/blog/": page,
+                    "/blog/feeds/main.json": (FIXTURES / "feed.json").read_bytes(),
+                }.get(self.path)
+                self.send_response(200 if body else 404)
+                self.end_headers()
+                self.wfile.write(body or b"")
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        with serve(Site) as root:
+            posts = list(reader(f"{root}/blog/").items())
+        self.assertIn("/blog/feeds/main.json", asked)
+        self.assertTrue(posts)
+
+    def test_all_six_medium_spellings_map_to_two_locators(self) -> None:
+        def located(typed: str) -> tuple[str, str]:
+            source = Source.owner(typed, kind="feed", connector="medium")
+            return source.locator, source.reader().name()
+
+        profile = [
+            located(t)
+            for t in ("@user", "medium.com/@user", "https://medium.com/@user/", "user")
+        ]
+        own = [located(t) for t in ("user.medium.com", "https://user.medium.com/feed")]
+        self.assertEqual(
+            {locator for locator, _ in profile}, {"https://medium.com/feed/@user"}
+        )
+        self.assertEqual(
+            {locator for locator, _ in own}, {"https://user.medium.com/feed"}
+        )
+        self.assertEqual(len({name for _, name in profile}), 1)
+        self.assertEqual(len({name for _, name in own}), 1)
+        self.assertNotEqual(profile[0][1], own[0][1])
+        self.assertEqual(
+            sources_module.MediumFeed.locate("user"),
+            ("https://medium.com/feed/@user", "@user"),
+        )
+
+    def test_the_user_agent_names_lore_and_its_site(self) -> None:
+        seen: list[tuple[object, object]] = []
+
+        class Answer:
+            def __enter__(self) -> "Answer":
+                return self
+
+            def __exit__(self, *_: object) -> None:
+                return None
+
+            def read(self) -> bytes:
+                return (FIXTURES / "rss.xml").read_bytes()
+
+            def geturl(self) -> str:
+                return "https://notes.example.com/feed"
+
+        def urlopen(request: object, timeout: object = None) -> Answer:
+            seen.append((request, timeout))
+            return Answer()
+
+        with patch.object(sources_module.urllib.request, "urlopen", urlopen):
+            list(reader("https://notes.example.com/feed").items())
+        request, timeout = seen[0]
+        self.assertEqual(
+            request.get_header("User-agent"),  # type: ignore[attr-defined]
+            f"Lore/{sources_module.__version__} (+https://yourlore.dev)",
+        )
+        self.assertEqual(timeout, 20)
+
+    def test_robots_is_never_fetched(self) -> None:
+        """Lore reads the owner's own site at the owner's request, so robots.txt is
+        not asked; a site that disallows everything still imports."""
+        asked: list[str] = []
+
+        def fetch(self: FeedReader, url: str) -> bytes:
+            asked.append(url)
+            if url.endswith("robots.txt"):
+                return b"User-agent: *\nDisallow: /\n"
+            if url.endswith("rss.xml"):
+                return (FIXTURES / "rss.xml").read_bytes()
+            return (FIXTURES / "site.html").read_bytes()
+
+        with patch.object(FeedReader, "fetch", fetch):
+            posts = list(reader("https://notes.example.com").items())
+        self.assertTrue(posts)
+        self.assertFalse([url for url in asked if "robots" in url])
+
+    def test_a_permanent_redirect_is_followed(self) -> None:
+        pages = {
+            "/index": (FIXTURES / "site.html").read_bytes(),
+            "/rss.xml": (FIXTURES / "rss.xml").read_bytes(),
+        }
+
+        class Site(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                if self.path == "/":
+                    self.send_response(308)
+                    self.send_header("Location", "/index")
+                    self.end_headers()
+                    return
+                body = pages.get(self.path)
+                self.send_response(200 if body else 404)
+                self.end_headers()
+                self.wfile.write(body or b"")
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        began = time.monotonic()
+        with serve(Site) as root, Store() as store:
+            entry = sources_module.Registry(store).add(root, kind="feed")
+        self.assertEqual((entry["state"], entry["imported"]), ("connected", 1))
+        self.assertLess(time.monotonic() - began, 5)
+
+    def test_a_rate_limit_is_reported_as_such(self) -> None:
+        busy = HTTPError(
+            "https://notes.example.com", 429, "Too Many Requests", Message(), None
+        )
+        for typed in ("https://notes.example.com", "@writer.bsky.social"):
+            with self.subTest(typed=typed):
+                found = reader(typed)
+                with patch.object(FeedReader, "fetch", side_effect=busy):
+                    self.assertEqual(found.probe(), sources_module.State.UNREACHABLE)
+                self.assertEqual(
+                    found.trouble,
+                    f"{found.source.label or found.source.locator} is busy. Try again in a few minutes.",
+                )
+        missing = HTTPError(
+            "https://notes.example.com", 404, "Not Found", Message(), None
+        )
+        found = reader("https://notes.example.com")
+        with patch.object(FeedReader, "fetch", side_effect=missing):
+            found.probe()
+        self.assertEqual(found.trouble, "Couldn't find posts at that address.")
+
+    def test_a_slow_site_times_out_without_hanging(self) -> None:
+        class Slow(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                time.sleep(1)
+                try:
+                    self.send_response(200)
+                    self.end_headers()
+                except OSError:
+                    pass
+
+            def log_message(self, *_: object) -> None:
+                return None
+
+        began = time.monotonic()
+        with serve(Slow) as root, patch.object(FeedReader, "timeout", 0.2):
+            state = reader(root).probe()
+        self.assertEqual(state, sources_module.State.UNREACHABLE)
+        self.assertLess(time.monotonic() - began, 2)
+
+    def test_adding_an_empty_feed_is_accepted_as_nothing_found(self) -> None:
+        with serving({"": "empty.xml"}), Store() as store:
+            registry = sources_module.Registry(store)
+            entry = registry.add("https://notes.example.com/feed", kind="feed")
+            self.assertEqual((entry["state"], entry["imported"]), ("nothing_found", 0))
+            self.assertIn(
+                entry["name"], [e["name"] for e in registry.entries() if e["owned"]]
+            )
+
+    def test_a_changed_body_under_the_same_link_is_an_update(self) -> None:
+        locator = "https://notes.example.com/feed"
+        with serving({"": "rss.xml"}), Store() as store:
+            entry = sources_module.Registry(store).add(locator, kind="feed")
+            (memory,) = store.search("Back pressure")
+            publication = store.add_publication(
+                title="Queues",
+                content="a claim",
+                topic="queues",
+                provenance=[memory.id],
+            )
+        changed = (
+            (FIXTURES / "rss.xml")
+            .read_text()
+            .replace(
+                "Back pressure is a product decision",
+                "Back pressure is an owner's decision",
+            )
+        )
+        with (
+            patch.object(FeedReader, "fetch", lambda self, url: changed.encode()),
+            Store() as store,
+        ):
+            (read,) = sources_module.Registry(store).read([str(entry["name"])])
+            self.assertEqual(read["updated"], 1)
+            self.assertIn(
+                "an owner's decision", store.search("Back pressure")[0].content
+            )
+            self.assertEqual([p.id for p in store.stale_publications()], [publication])
+
+    def test_re_reading_a_feed_fetches_once(self) -> None:
+        for locator, routes, fetches in (
+            ("https://notes.example.com/feed", {"": "rss.xml"}, 1),
+            ("https://notes.example.com", {"rss.xml": "rss.xml", "": "site.html"}, 2),
+        ):
+            with self.subTest(locator=locator):
+                asked: list[str] = []
+
+                def fetch(
+                    self: FeedReader, url: str, routes=routes, asked=asked
+                ) -> bytes:  # type: ignore[no-untyped-def]
+                    asked.append(url)
+                    for fragment, name in routes.items():
+                        if fragment in url:
+                            return (FIXTURES / name).read_bytes()
+                    raise OSError(url)
+
+                with patch.object(FeedReader, "fetch", fetch), Store() as store:
+                    registry = sources_module.Registry(store)
+                    entry = registry.add(locator, kind="feed")
+                    first = len(asked)
+                    (read,) = registry.read([str(entry["name"])])
+                self.assertEqual(first, fetches)
+                self.assertEqual(len(asked) - first, fetches)
+                self.assertEqual(read["unchanged"], entry["imported"])
+
+
+@contextmanager
+def serve(handler: type[BaseHTTPRequestHandler]) -> Iterator[str]:
+    """A site on 127.0.0.1, on a port of its own, for as long as the block runs."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}"
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 if __name__ == "__main__":

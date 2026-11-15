@@ -4,13 +4,13 @@ title: Seed the schedule walk so it passes at any hour
 priority: P1
 effort: XS
 component: cross-cutting
-status: in-review
+status: completed
 related: [XC-072, XC-080, XC-116]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -56,3 +56,9 @@ Tuesday 10 AM, which is the app doing the right thing.
   changes (9 AM is 9 AM EST the morning after the clocks go back; a 2 AM
   rhythm runs at 3 AM EDT on the day 2 AM does not exist) and a missed hour is
   owed once however many passed. No product change.
+
+**Backlog audit (2026-11-12), closed as completed:** PR #640 fixed the
+walk's seed and pinned the cause in clock-based tests, which pass on main
+today. The seed changes and both screenshots are still in edge.sh and
+edge.cjs. The standalone schedule walk has since been folded into a larger
+walk by APP-270, which doesn't change this fix. Closed as completed.

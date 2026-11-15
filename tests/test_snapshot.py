@@ -149,6 +149,7 @@ class DesktopSnapshotTest(LoreTestCase):
                 "sources",
                 "arrival",
                 "verdict",
+                "links",
             },
         )
         labels = {
@@ -351,6 +352,25 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+
+
+class SnapshotSecretsTest(LoreTestCase):
+    def test_sec_desktop_state_sources_carry_no_locator_secrets(self) -> None:
+        """XC-052: a signed-in app's row says where it is, never what let Lore in."""
+        from fixtures.granola import Granola
+        from test_hosted import SERVER, TOKEN, signing_in
+
+        with signing_in(Granola().server), Store() as store:
+            sources.Registry(store).connect("granola", "")
+        state = snapshot.build()
+        (row,) = [
+            s for s in state["library"]["sources"] if s.get("connector") == "granola"
+        ]
+        self.assertEqual(row["locator"], SERVER)
+        text = json.dumps(state["library"]["sources"], default=str)
+        self.assertNotRegex(text, r"eyJ[A-Za-z0-9_-]{8,}\.")
+        self.assertNotIn("access_token", text)
+        self.assertNotIn(TOKEN, json.dumps(state, default=str))
 
 
 class UnreadableClaudeCodeTest(LoreTestCase):

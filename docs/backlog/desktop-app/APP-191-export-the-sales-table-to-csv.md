@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,8 @@ already loads, and the file is saved through the main process's save dialog.
 Filed from the 2026-10-06 For Sale review. Low priority.
 
 **Review 2026-10-19:** not completed. Not done. No CSV export code and no Export CSV button in Sales. Both criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: The premise names a Sales section on the For Sale page; Sales is
+now a group in Inventory (salesGroup). Say where Export goes, e.g. the Sales
+group header or its menu.

@@ -54,11 +54,11 @@
     {
       "id": "thread",
       "name": "A thread (capture, publish, Open your store, Evening check-in)",
-      "about": "The task view: #log with owner bubbles, the thinking line, steps (working and folded open), a question card with the payout fieldset, the composer; a capture joined from Today, a publish thread started from an app (one started from pasted writing is test/unit/renderer-sell.test.cjs since APP-270), a check-in thread on its first and second day, a new memory's thread opened listening with its dictation bar (APP-290).",
+      "about": "The task view: #log with owner bubbles, the thinking line, steps (working and folded open), a question card with the payout fieldset, the composer; a capture joined from Today, a publish thread started from an app (one started from pasted writing is test/unit/renderer-sell.test.cjs since APP-270), a check-in thread on its first and second day, a new memory's thread opened listening with its dictation bar (APP-290), a memory card naming the memories it grows out of (CAP-002).",
       "scans": [
         { "walk": "store", "widths": [1040, 900], "shots": ["talk-listening", "root-capture-joined"] },
         { "walk": "connectors", "widths": [1040, 900], "shots": ["publish-from-app"] },
-        { "walk": "seller", "widths": [1040], "shots": ["payout-card-by-card", "payout-card", "conversation-bubble", "thinking-bubble", "working-steps", "steps-open"] },
+        { "walk": "seller", "widths": [1040], "shots": ["payout-card-by-card", "payout-card", "conversation-bubble", "thinking-bubble", "working-steps", "steps-open", "memory-links", "memory-links-dark"] },
         { "walk": "checkin", "widths": [1040], "shots": ["checkin-thread", "checkin-thread-day-two"] }
       ]
     },

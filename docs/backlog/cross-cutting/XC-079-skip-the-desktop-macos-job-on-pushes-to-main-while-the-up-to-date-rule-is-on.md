@@ -1,7 +1,7 @@
 ---
 id: XC-079
 title: Skip the desktop macOS job on pushes to main while the up-to-date rule is on
-priority: P2
+priority: P3
 effort: XS
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["the protect-main ruleset keeps strict_required_status_checks_policy on"]
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -91,3 +91,8 @@ strict-update re-runs are 62 of 162 PR runs (38%) and 1,150.3 macOS minutes
 XC-014 (completed 2026-08-10) is the item that put the `protect-main` ruleset in
 place and checked it into `.github/rulesets/protect-main.json`; it is listed as
 related because this item depends on one line of that file staying as it is.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: The owner's strict / merge-queue decision, and land
+only after XC-130's 50-run reading (skipping main pushes removes XC-130's
+window). Line refs need updating.

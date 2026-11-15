@@ -4,13 +4,13 @@ title: Give browsing agents a store page per piece and a marketplace page
 priority: P1
 effort: M
 component: cross-cutting
-status: in-progress
+status: completed
 related: [XC-031, XC-034, XC-036, XC-037, MON-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -50,9 +50,9 @@ parse for price, and nowhere to start looking.
       no seller, and test stores offer nothing.
 - [x] One malformed or `javascript:` entry in `marketplace.json` can't break
       or hijack the marketplace page. Node tests cover this.
-- [ ] yourlore.dev deployed with `/marketplace` live, and the home page and
+- [x] yourlore.dev deployed with `/marketplace` live, and the home page and
       download link unchanged.
-- [ ] The maintainer's store redeployed and serving the new pages.
+- [x] The maintainer's store redeployed and serving the new pages.
 
 ## Notes
 
@@ -61,3 +61,10 @@ Titles stay private: the Python catalog excludes them by construction, and
 the teasers already read as headlines. Card checkout on `/p/<id>` is XC-039.
 The unlocked response it adds must be `private, no-store`, because the free
 page is `public, max-age=60`.
+
+**Backlog audit (2026-11-12), closed as completed:** The code shipped in PR
+#341, and the two deploy criteria are now met: yourlore.dev/marketplace is
+live and the maintainer's store serves per-piece pages with JSON-LD and its
+own 404 (checked 2026-11-12). The home page has changed since, but by
+XC-093's deliberate rewrite, not as a side effect of this item. Closed as
+completed.

@@ -4,13 +4,13 @@ title: Keep a wrong-shaped public list inside "could not read"
 priority: P3
 effort: XS
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-036, XC-075]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-10-26
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -65,3 +65,6 @@ iterable` and exited 1.
 Filed apart from `XC-075` because the two have different fixes and tests.
 `XC-075` makes `list`/`delist` read the file too, so this guard covers
 those commands once it lands.
+
+**Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.

@@ -31,7 +31,7 @@ from typing import (
     get_args,
 )
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree.ElementTree import Element, ParseError
 
 import anyio
@@ -893,6 +893,9 @@ class FeedReader(Reader):
         self.reached = False
         # The address answered, whether or not a feed was found there.
         self.answered = False
+        # It answered 429: too many requests (CAP-023).
+        self.busy = False
+        self.landed = ""
 
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
@@ -901,10 +904,17 @@ class FeedReader(Reader):
             return f"@{handle}", f"@{handle}"
         typed = locator.strip()
         url = typed if "://" in typed else f"https://{typed}"
-        host = urlsplit(url).hostname or ""
+        parts = urlsplit(url)
+        host = parts.hostname or ""
         if not re.fullmatch(r"[\w-]+(\.[\w-]+)+|localhost", host):
             raise SourceError("That doesn't look like a web address.")
-        return url, urlsplit(url).netloc
+        # CAP-020: one place, one spelling. The host is lower-case, the scheme's
+        # own port and a trailing slash are dropped; a path or query still counts.
+        scheme = parts.scheme.lower()
+        default = {"https": 443, "http": 80}.get(scheme)
+        netloc = host if parts.port in (None, default) else f"{host}:{parts.port}"
+        path = parts.path.rstrip("/")
+        return urlunsplit((scheme, netloc, path, parts.query, "")), netloc
 
     @cached_property
     def posts(self) -> list[Item]:
@@ -912,8 +922,9 @@ class FeedReader(Reader):
         # are two questions about the same answer.
         try:
             found = self._read()
-        except HTTPError:
+        except HTTPError as error:
             self.answered = True
+            self.busy = error.code == 429
             return []
         except (OSError, ValueError, ParseError, LookupError, TypeError, HTTPException):
             return []
@@ -931,6 +942,8 @@ class FeedReader(Reader):
 
     @property
     def trouble(self) -> str:
+        if self.busy:
+            return f"{self.source.label or self.source.locator} is busy. Try again in a few minutes."
         if not self.answered:
             return super().trouble
         connector = self.source.connector
@@ -940,6 +953,9 @@ class FeedReader(Reader):
     def fetch(self, url: str) -> bytes:
         request = urllib.request.Request(url, headers={"User-Agent": self.agent})
         with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            # Where a redirect landed, so a relative link on the page resolves
+            # against the page and not the address typed (CAP-023).
+            self.landed = str(response.geturl() or url)
             return bytes(response.read())
 
     @classmethod
@@ -959,13 +975,15 @@ class FeedReader(Reader):
         return self._site(self.source.locator)
 
     def _site(self, url: str) -> list[Item]:
+        self.landed = url
         body = self.fetch(url)
         self.answered = True
         posts = self._feed(body)
         if posts is not None:
             return posts
+        page = self.landed
         for candidate in [
-            urljoin(url, link)
+            urljoin(page, link)
             for link in _Html(body.decode("utf-8", "replace")).links
             if link
         ] + [urljoin(url, guess) for guess in self.guesses]:
@@ -1024,13 +1042,16 @@ class FeedReader(Reader):
             ),
             "",
         )
+        # CAP-040: the key stays the entry's first link, as it always was, so a feed read
+        # before this keeps its memories; the link the owner follows is the post itself.
         link = _field(entry, "link")
         identity = link or _field(entry, "id", "guid") or f"entry-{index}"
         post = self._post(
             _field(entry, "title"),
             _Html(body).text(),
-            link or f"{self.source.locator}#{identity}",
-            _field(entry, "pubDate", "published", "updated", "date"),
+            _alternate(entry) or f"{self.source.locator}#{identity}",
+            # When it was written, whatever order the feed lists its dates in.
+            _first(entry, "published", "pubDate", "date", "updated"),
         )
         # ponytail: anonymous entries use their position; prefer a publisher ID
         # if one appears, since reordering those entries changes their keys.
@@ -1133,7 +1154,8 @@ class BlueskyFeed(FeedReader):
     @classmethod
     def locate(cls, locator: str) -> tuple[str, str]:
         typed = re.sub(r"^(https?://)?bsky\.app/profile/", "", locator.strip())
-        handle = typed.strip("/@")
+        # A handle is a domain name, so its case is not part of it (CAP-020).
+        handle = typed.strip("/@").lower()
         if not handle or any(c in handle for c in "/:@ "):
             raise SourceError("Enter your Bluesky handle, like you.bsky.social")
         if "." not in handle:
@@ -1356,9 +1378,21 @@ class HostedReader(Reader):
             try:
                 listed = self._run(auth, lambda client: client.list_tools())
             except Exception as error:
+                # CAP-025: a wait nobody answered is not a refusal, and when the app
+                # gave a reason the owner sees it, not "try again".
+                if _says(error, "no answer from the browser"):
+                    raise SourceError(
+                        f"{name} didn't hear back from your browser. "
+                        "Try again and approve Lore on the page it opens."
+                    ) from None
                 if _refused(error):
                     raise SourceError(
                         f"{name} didn't let Lore in. Try again."
+                    ) from None
+                reason = _vendor_reason(error)
+                if reason:
+                    raise SourceError(
+                        f"Lore couldn't reach {name}. {name} says: {reason}"
                     ) from None
                 raise SourceError(f"Lore couldn't reach {name}. Try again.") from None
         offered = {tool.name for tool in listed.tools}
@@ -1507,6 +1541,35 @@ def _says(error: BaseException, phrase: str) -> bool:
     if phrase and phrase in str(error):
         return True
     return any(_says(inner, phrase) for inner in getattr(error, "exceptions", ()))
+
+
+def _vendor_reason(error: BaseException) -> str:
+    """The first line of an app's own refusal, however deep in the SDK's task groups or
+    causes, trimmed to 120 characters with anything like an address or a token taken
+    out (CAP-025); empty when the app said nothing in words."""
+    seen: set[int] = set()
+    pending: list[BaseException] = [error]
+    while pending:
+        current = pending.pop(0)
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, httpx2.HTTPStatusError):
+            try:
+                text = current.response.text
+            except Exception:  # an unread streamed body says nothing
+                text = ""
+            line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+            line = re.sub(r"\S+@\S+", "", line)
+            line = re.sub(r"\b[\w-]*\d[\w-]{15,}|\b[\w-]{20,}\b", "", line)
+            line = re.sub(r"\s+", " ", line).strip()[:120].strip()
+            if line:
+                return line
+        pending += list(getattr(current, "exceptions", ()))
+        pending += [
+            e for e in (current.__cause__, current.__context__) if e is not None
+        ]
+    return ""
 
 
 def _refused(error: BaseException) -> bool:
@@ -2316,6 +2379,23 @@ def _project(source: Source, path: Path) -> str:
     ):
         return "work"
     return "personal"
+
+
+def _first(element: Element, *names: str) -> str:
+    """The first of `names`, in that order of preference, that the element has."""
+    return next((value for name in names if (value := _field(element, name))), "")
+
+
+def _alternate(entry: Element) -> str:
+    """An entry's link to the post itself: Atom's `rel="alternate"`, which a link
+    with no `rel` is (RFC 4287), else its first link (CAP-040)."""
+    for child in entry:
+        if child.tag.rpartition("}")[2] != "link":
+            continue
+        value = "".join(child.itertext()).strip() or child.get("href", "").strip()
+        if value and child.get("rel", "alternate") == "alternate":
+            return value
+    return _field(entry, "link")
 
 
 def _field(element: Element, *names: str) -> str:

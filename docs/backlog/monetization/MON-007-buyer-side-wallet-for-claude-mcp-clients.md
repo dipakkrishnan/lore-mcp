@@ -2,7 +2,7 @@
 id: MON-007
 title: Let a Claude MCP client complete a paid x402 purchase with its own wallet
 priority: P2
-effort: M
+effort: S
 component: monetization
 status: in-review
 related: [MON-002, MON-005]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A worked example: an owner with a live node and a friend willing to test buy-side"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -56,7 +56,7 @@ investigation rather than assuming it belongs in this repo at all.
 
 ## Acceptance criteria
 
-- [ ] A documented way exists for someone using Claude (Desktop or Code) to
+- [x] A documented way exists for someone using Claude (Desktop or Code) to
       plug in a wallet/signer alongside a remote x402 lore-node MCP
       connection, without ever pasting a private key into the conversation
 - [ ] That Claude client completes `discover` -> `get` -> paid retrieval
@@ -77,3 +77,21 @@ Stay on Base Sepolia / test facilitator for any prototyping here — this item
 does not touch the mainnet cutover in `MON-005`.
 
 **Review 2026-10-19:** not completed. Bridge code complete (b0f9e24 and follow-ups). Unverified: a live discover -> get -> paid retrieval against a node end to end.
+
+**Prioritization (2026-11-12):** Priority P2, effort S (was M). Stays in-
+review. Before it can be ready: Code is complete. A person runs Claude
+Desktop or Code with the bridge against a live node (discover, then a paid
+get) and confirms the receipt shows in the conversation and the private key
+never enters the context. Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review. The bridge is built:
+`bridge/src/index.ts` (PR #71, b0f9e24, with later policy tests in #616 and
+bid tools in #620) is a local stdio MCP server that holds the signer
+(`X402_PRIVATE_KEY` or a self-provisioned `~/.x402-bridge/key.env`), pays a
+402 with `withX402Client`, and appends "x402 settlement receipt: …" to the
+tool result. `bridge/README.md` documents `claude mcp add lore-buyer -- …`
+with no key in the conversation, so criterion 1 is ticked. Criteria 2-4 need
+the live run nobody has done yet: a person adds the bridge to Claude Desktop
+or Code, runs `discover` then a paid `get` against a live node, and confirms
+the receipt shows in the conversation and the key never appears in the
+context or transcript. Nothing to build.

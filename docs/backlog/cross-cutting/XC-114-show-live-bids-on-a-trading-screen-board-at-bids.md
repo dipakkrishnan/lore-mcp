@@ -1,16 +1,16 @@
 ---
 id: XC-114
 title: Show live bids on a trading-screen board at /bids
-priority: P0
-effort: M
+priority: P3
+effort: XS
 component: cross-cutting
-status: in-progress
+status: in-review
 related: [MON-051, XC-115, XC-119, XC-093, XC-074]
 blockers: []
 dependencies: [MON-051]
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -51,3 +51,16 @@ A Kalshi-style board at `yourlore.dev/bids`, built from the marketplace's existi
 
 Oct 31 product call: a live trading screen first, with question-and-answers depth on each bid's
 own page (XC-115). Not posting bids on X.
+
+**Backlog audit (2026-11-12), moved to in-review:** The /bids board shipped
+in #625 and is live, but it has since been reshaped: rows with market tabs
+instead of columns and a ticker (XC-093, #632/#660), and a form bid saves a
+card first (MON-054, #637). The home-page criterion was dropped by the
+2026-11-04 decision that the home page ends on How it works with no bid
+list. Moved back to in-review to restate the criteria to the board as built
+and drop the home-page one; it can close after that.
+
+**Prioritization (2026-11-12):** Priority P3 (was P0), effort XS (was M).
+Stays in-review. Before it can be ready: Restate the criteria to the board
+as built, drop the home-page criterion, and close. Prioritization flag (not
+acted on): done.

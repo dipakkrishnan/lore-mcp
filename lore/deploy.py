@@ -1192,7 +1192,7 @@ def _deploy(
                 "reading your store's settings from Cloudflare failed:\n"
                 f"{_detail(listing)}"
             )
-        if "LORE_WALLET" not in (listing.stdout or ""):
+        if listing.returncode or "LORE_WALLET" not in (listing.stdout or ""):
             raise ValueError(
                 "your store has no way to be paid yet; turn on card payments "
                 "(lore cards connect) or rerun with --wallet 0x<your public address>"

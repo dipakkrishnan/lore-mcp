@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -140,3 +140,10 @@ gate), `XC-008` (live tier design: no forks, protected environment),
 "record/replay vs hand-written fakes" question for the Worker; the answer
 for connectors is both, at different levels: fakes at component, recordings
 at contract, and `XC-050` makes the recordings replayable as fakes.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Restate the levels, file layout, opt-in mechanism and CI job
+against the pytest tiers (tests/gate.py, tests/integration/,
+tier_summary.py); runner lines must use pytest so conftest's hermetic guard
+loads. Decide whether "live" is a pytest marker or a directory and how it
+fits the tier tables. It blocks nine items.

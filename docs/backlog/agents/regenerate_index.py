@@ -11,12 +11,15 @@ the same way detect_completion_drift.py answers a narrow question for step 8
 rather than eyeballing ~100 files by hand.
 
 Usage:
-    python3 docs/backlog/agents/regenerate_index.py [--write] [docs/backlog]
+    python3 docs/backlog/agents/regenerate_index.py [--write | --check] [docs/backlog]
 
-Without --write, only prints validation findings and the row count that
-would be written. With --write, rewrites INDEX.md's table in place. Exits
-non-zero (and does not write) if any hard error is found — duplicate ids,
-unresolvable cross-references, or a blocker cycle.
+Without a flag, only prints validation findings and the row count that
+would be written. With --write, rewrites INDEX.md's table in place. With
+--check (XC-131, what CI runs), renders the table exactly as --write would
+and exits non-zero, naming the items whose rows differ, when INDEX.md on disk
+doesn't match it or holds a merge-conflict marker line; it never writes.
+Exits non-zero (and does not write) if any hard error is found — duplicate
+ids, unresolvable cross-references, or a blocker cycle.
 """
 
 from __future__ import annotations
@@ -41,6 +44,8 @@ BACKLOG_ID_RE = re.compile(r"\b[A-Z]+-\d{3}\b")
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n(.*)$", re.DOTALL)
 FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.M)
+CONFLICT_MARKERS = ("<<<<<<<", "=======", ">>>>>>>")
+ROW_ID_RE = re.compile(r"^\|\s*\[([A-Z]+-\d{3})\]")
 TABLE_HEADER = (
     "| ID | Title | Priority | Effort | Component | Status | Related | "
     "Blockers | Dependencies | Issue |\n|---|---|---|---|---|---|---|---|---|---|\n"
@@ -115,7 +120,13 @@ def component_prefix(folder: str, root: Path) -> str | None:
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     write = "--write" in argv
-    positional = [a for a in argv if a != "--write"]
+    check = "--check" in argv
+    if write and check:
+        print(
+            "--write rewrites INDEX.md and --check only compares it: pick one, not both."
+        )
+        return 2
+    positional = [a for a in argv if a not in ("--write", "--check")]
     root = Path(positional[0]) if positional else Path("docs/backlog")
 
     items: dict[str, dict] = {}
@@ -240,7 +251,7 @@ def main(argv: list[str] | None = None) -> int:
     existing_order: dict[str, int] = {}
     if index_path.exists():
         for line in index_path.read_text().splitlines():
-            m = re.match(r"^\|\s*\[([A-Z]+-\d{3})\]", line)
+            m = ROW_ID_RE.match(line)
             if m:
                 existing_order.setdefault(m.group(1), len(existing_order))
 
@@ -294,6 +305,9 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"{len(lines)} rows generated.")
 
+    if check:
+        return check_index(index_path, lines)
+
     if write:
         text = index_path.read_text()
         header_end = text.index(TABLE_HEADER) + len(TABLE_HEADER)
@@ -301,6 +315,71 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote {index_path}")
 
     return 0
+
+
+def check_index(index_path: Path, lines: list[str]) -> int:
+    """Compare INDEX.md on disk with what --write would make of it (XC-131).
+
+    Exact match is safe: the tie-break within a bucket reads the file's own
+    row order, so a current file always renders back to itself. Never writes.
+    """
+    text = index_path.read_text() if index_path.exists() else ""
+    problems: list[str] = []
+    markers = [
+        number
+        for number, line in enumerate(text.splitlines(), 1)
+        if line.startswith(CONFLICT_MARKERS)
+    ]
+    if markers:
+        problems.append(
+            f"{index_path} holds a merge conflict marker on line(s) "
+            f"{', '.join(map(str, markers[:10]))}"
+        )
+    if TABLE_HEADER not in text:
+        problems.append(f"{index_path} has no table header to regenerate under")
+    else:
+        header_end = text.index(TABLE_HEADER) + len(TABLE_HEADER)
+        expected = "\n".join(lines) + "\n"
+        if text[header_end:] != expected:
+            on_disk = _rows(text[header_end:])
+            wanted = _rows(expected)
+            differ = sorted(
+                item_id
+                for item_id in set(on_disk) | set(wanted)
+                if on_disk.get(item_id) != wanted.get(item_id)
+            )
+            for item_id in differ[:10]:
+                if item_id not in wanted:
+                    problems.append(f"{item_id}: in INDEX.md but not an item")
+                elif item_id not in on_disk:
+                    problems.append(f"{item_id}: missing from INDEX.md")
+                else:
+                    problems.append(f"{item_id}: row differs from its item file")
+            if len(differ) > 10:
+                problems.append(f"... and {len(differ) - 10} more")
+            if not differ:
+                problems.append("rows are out of order, or the table holds stray lines")
+    if problems:
+        print(f"{index_path} is not current:")
+        for problem in problems:
+            print(f"  - {problem}")
+        print(
+            "Regenerate it with `python3 docs/backlog/agents/regenerate_index.py "
+            "--write`; never hand-resolve it."
+        )
+        return 1
+    print(f"{index_path} is current.")
+    return 0
+
+
+def _rows(table: str) -> dict[str, str]:
+    """Each row by its item id; a repeated id keeps its first row."""
+    rows: dict[str, str] = {}
+    for line in table.splitlines():
+        m = ROW_ID_RE.match(line)
+        if m:
+            rows.setdefault(m.group(1), line)
+    return rows
 
 
 if __name__ == "__main__":

@@ -1,16 +1,16 @@
 ---
 id: EVAL-002
 title: Evaluate paid value from the buyer's side of the MCP surface
-priority: P1
+priority: P2
 effort: M
 component: evals
-status: in-progress
+status: in-review
 related: [EVAL-001, MCP-001, MCP-003, MON-009, MON-017, XC-008]
 blockers: [MON-008, MON-017]
 dependencies: ["A QA-only answer-model API key with a bounded spend budget"]
 github_issue: null
 created: 2026-07-30
-updated: 2026-08-28
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -66,3 +66,18 @@ surface. The node answer eval covers the real Pi path and cost/citation capture
 without payment. What remains is the combined buyer, Worker, model, and testnet
 settlement proof against QA; do not seed the owner's production catalog with
 fixtures.
+
+**Backlog audit (2026-11-12), moved to in-review:** The local buyer harness
+(evals/buyer.py, PRs #103 and #107) covers the first criterion. Every other
+criterion needs a deployed Base Sepolia QA node and a QA-only answer-model
+key. No QA node has ever deployed, because the qa environment has no secrets
+(MON-016), and no work has happened since 2026-08-21. It should leave in-
+progress. It can go back to ready once MON-016 is done and a bounded answer-
+model key exists.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Blocker MON-008 is still in-review, and MON-016 (qa
+secrets) is the real gate and should probably be listed as a blocker. A
+bounded QA answer-model key is still needed. Re-check whether a Base Sepolia
+settlement receipt is still the right proof now that card-on-bid
+(MON-051/054) and real-money stores (MON-025) shipped.

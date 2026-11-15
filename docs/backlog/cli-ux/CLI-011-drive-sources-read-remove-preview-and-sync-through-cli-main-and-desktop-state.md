@@ -1,7 +1,7 @@
 ---
 id: CLI-011
 title: Drive `sources read`, `remove`, `preview`, `add` and `sync` through `cli.main`, and check `desktop-state` after each
-priority: P2
+priority: P3
 effort: S
 component: cli-ux
 status: in-review
@@ -10,7 +10,7 @@ blockers: [XC-048]
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -82,3 +82,8 @@ subprocess JSON contract, `sources_configured`), C-02, C-19, C-23, C-24.
 Flakiness/safety: in-process; `desktop-state` is invoked through
 `cli.main` too (it is a CLI command), not a subprocess; `CLI-002` remains
 the subprocess precedent.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Blocker XC-048 is still in-review. Re-check the
+desktop-state line references in snapshot.py against current code and the
+14-app catalog before promoting.

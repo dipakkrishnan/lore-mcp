@@ -42,6 +42,21 @@ class MarketplaceTest(LoreTestCase):
         with Store() as store:
             return store.setting(marketplace.NAME_SETTING, "")
 
+    def test_a_damaged_blueprint_names_itself_and_lists_nothing(self) -> None:
+        """BP-003: with no name passed, a damaged blueprint stops the listing with
+        the file's path; a name passed lists as before."""
+        path = blueprint.blueprint_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"name": "Ada", ', encoding="utf-8")
+        with self.assertRaises(ValueError) as refused:
+            self.market().list()
+        self.assertIn(str(path), str(refused.exception))
+        self.assertIn("lore blueprint apply", str(refused.exception))
+        self.assertEqual(self.pushed_name(), "")
+        self.push.assert_not_called()
+        self.market().list("Ada")
+        self.assertEqual(self.pushed_name(), "Ada")
+
     def test_needs_an_open_store(self) -> None:
         with Store() as store:
             store.set_setting("node_url", None)

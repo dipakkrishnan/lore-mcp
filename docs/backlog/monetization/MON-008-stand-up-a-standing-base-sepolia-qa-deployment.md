@@ -2,7 +2,7 @@
 id: MON-008
 title: Stand up a standing Base Sepolia QA deployment of the Worker
 priority: P1
-effort: M
+effort: S
 component: monetization
 status: in-review
 related: [MON-002, MON-003, MON-005, MON-006, MON-010, MON-016, XC-008]
@@ -10,7 +10,7 @@ blockers: [MON-016]
 dependencies: ["A protected GitHub Environment named qa holding CLOUDFLARE_API_TOKEN and QA_PAYOUT_ADDRESS — not repository secrets", "A Cloudflare account authorizing that token, and a Base Sepolia wallet funded from the CDP faucet for QA_PAYOUT_ADDRESS"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -136,3 +136,8 @@ closes," so the blocker relationship existed in practice; the frontmatter
 had just never been updated to say so.
 
 **Review 2026-10-19:** not completed. Code and workflow shipped (0ad6e00, b3d3edd, 7916dcc). Unmet: QA D1 seeded and smoke passing against a deployed QA URL, and distinct funded QA wallets. Provisioning is MON-016.
+
+**Prioritization (2026-11-12):** Priority P1, effort S (was M). Stays in-
+review. Before it can be ready: Blocker MON-016 is ready, not completed.
+After that, check the live QA deploy: fixture data loaded, the smoke test
+passing against the QA URL, and separate funded QA wallets.

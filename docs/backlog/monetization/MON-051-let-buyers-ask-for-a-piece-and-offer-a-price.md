@@ -1,16 +1,16 @@
 ---
 id: MON-051
 title: Let buyers bid for a piece nobody sells yet
-priority: P0
+priority: P2
 effort: M
 component: monetization
-status: in-progress
+status: completed
 related: [XC-114, XC-115, XC-116, XC-117, MON-053, MON-054, MON-055, XC-093, XC-074, MON-046]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-10-31
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -44,8 +44,8 @@ https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi (v2, Oct 31).
 ## Acceptance criteria
 
 - [x] A person or an agent places a bid with one form post or one `POST /bids`, with no account, and gets back an id and a status URL.
-- [ ] A seller's answer to a bid becomes a listed piece at the bid amount in the bid's market.
-- [ ] Buying that piece through the existing checkout moves the bid to `filled` (see MON-054). Nothing else can set `filled`.
+- [ ] ~~A seller's answer to a bid becomes a listed piece at the bid amount in the bid's market.~~ Handed off: answers are added by hand for now (MON-055, `POST /b/:id/answers` with the admin token), and a seller sending an answer from their own store is MON-056 (ready). Under MON-054 the bid amount is charged on accept, so the piece no longer needs to be priced at it.
+- [ ] ~~Buying that piece through the existing checkout moves the bid to `filled` (see MON-054). Nothing else can set `filled`.~~ Superseded by MON-054 (#637): the buyer's saved card is charged on accept and only checkout's Stripe webhook sets `filled`. MON-054 carries and ticks "no route, token or admin action sets `filled`".
 - [x] An unanswered bid expires after 7 days, and no money ever moves through Lore.
 - [x] Walked-away bids (answered, never bought) are counted.
 
@@ -66,3 +66,29 @@ https://claude.ai/artifact/EHfg2NK8ZsggCKohHrXUUi (v2, Oct 31).
   Stripe's fraud checks.
 - Not in v1: pooled bids, rising bids, market-wide (collection-offer) bids, sealed bids for
   labs, USDC holds.
+
+**Backlog audit (2026-11-12), moved to in-review:** Placing bids, expiry and
+the walked-away count shipped in PR #623. MON-054 (#637) then changed the
+fill model to card-on-bid with charge-on-accept, which is the step this item
+called conditional, so criterion 3 no longer describes how a bid is filled.
+Criterion 2 waits on MON-056. Back to in-review so the remaining criteria
+can be rewritten around the accept flow, or the item closed with them handed
+to MON-054 and MON-056.
+
+**Prioritization (2026-11-12):** Priority P2 (was P0). Stays in-review.
+Before it can be ready: Criterion 3 fills a bid through piece checkout,
+which MON-054's card-on-accept fill replaced; criterion 2 is MON-056's work.
+Rewrite both around the accept flow, or close and hand them to MON-054 and
+MON-056. Prioritization flag (not acted on): done / remaining criteria
+belong to MON-054 and MON-056.
+
+**Close-out (2026-11-13):** Completed for what this item still owns. PR #623
+(merged) shipped the bid book: the `BidBook` Durable Object in
+`site/src/bids.js` and the routes in `site/src/bid-routes.js`. `POST /bids`
+needs no account and returns an id and status URL, bids end after 7 days, and
+`/bids.json` carries `walked_away` (contract in `contracts/bids.md`). No route
+in `bid-routes.js` can set `filled`. Criteria 2 and 3 are struck above and
+handed to their owners. Answers that become listed pieces are MON-055 (by
+hand, ready) and MON-056 (from the seller's store, ready). Fill on payment is
+MON-054 (#637, in-review), whose own open criteria are the x402 Base lookup
+and the refund/dispute events.

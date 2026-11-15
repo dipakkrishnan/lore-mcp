@@ -10,7 +10,7 @@ blockers: [MON-008]
 dependencies: ["Base Sepolia buyer wallet with a monitored faucet balance", "A protected GitHub Environment holding the buyer key — not a repository secret"]
 github_issue: null
 created: 2026-08-01
-updated: 2026-08-28
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -101,3 +101,7 @@ leaving it to whoever is on call the first time x402.org is slow.
 `MCP-002`'s contract check is the natural neighbour of this job: if the Python
 surface and the Worker surface disagree, the live suite is the first place a
 buyer-visible difference becomes observable.
+
+**Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
+be ready: Blocker MON-008 is still in-review (it waits on MON-016's
+credentials).

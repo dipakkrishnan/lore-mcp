@@ -1,8 +1,8 @@
 ---
 id: APP-114
 title: Resuming a session cannot re-ask its last unanswered card
-priority: P2
-effort: L
+priority: P3
+effort: S
 component: desktop-app
 status: in-review
 related: [APP-113, APP-018]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/256
 created: 2026-09-12
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -57,7 +57,7 @@ its own explicit closing-out step (e.g. resolve the dangling call with a
 - [ ] Reproduced and root-caused against the actual resume path (real
       session file with a dangling `toolCall`, real `session.prompt()`
       call), not asserted from reading app-side code alone
-- [ ] A regression test covers resuming a session whose last message is an
+- [x] A regression test covers resuming a session whose last message is an
       unresolved `toolCall`
 
 ## Notes
@@ -76,3 +76,25 @@ left off" message, but neither `resumeTask` nor that string exists on main now, 
 the resume path has been reworked since this was filed. The item also says "needs
 investigation" and has no proposed fix. Re-check the current resume path against a
 real session with a dangling `toolCall` and rewrite the Problem before promoting.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort S (was L).
+Stays in-review. Before it can be ready: repairInterrupted (agent.mjs) now
+closes dangling tool calls and offers "Reply to keep going". Decide whether
+that satisfies criterion 1, then rewrite the Problem or close.
+Prioritization flag (not acted on): done (likely).
+
+**Close-out (2026-11-13):** stays in-review. The Problem text is stale:
+`resumeTask()` and the "pick up where we left off" message are gone. Instead,
+`LoreAgent.sessionFor()` calls `repairInterrupted()` (`app/desktop/src/agent.mjs`
+~501-512, first added in 13e4b91b / #136). It answers every dangling `toolCall`
+with an error `toolResult` ("Lore was closed before this finished.") and marks
+the task `stopped` / "Reply to keep going". This is shape (b) of the proposed
+approach. Criterion 3 is met by `app/desktop/test/unit/agent.test.cjs` (~52-76):
+it resumes a setup session ending in an unresolved `call-2` and asserts the
+synthesized `isError` result plus the "Reply to keep going" task. What remains:
+(1) a product call on whether "Reply to keep going" with no re-asked card
+satisfies criterion 1. The card itself is not shown again; the model only
+re-asks after the owner replies. (2) Criterion 2's live run: a real
+`session.prompt()` against the model after the repair, which nothing in the
+repo exercises. If (1) is accepted, (2) is the only remaining step before this
+can close.

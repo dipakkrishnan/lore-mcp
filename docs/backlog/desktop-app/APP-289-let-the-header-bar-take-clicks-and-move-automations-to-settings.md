@@ -1,7 +1,7 @@
 ---
 id: APP-289
 title: Let the header bar take clicks, and move Automations to Settings
-priority: P1
+priority: P3
 effort: S
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-04
-updated: 2026-11-04
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -52,3 +52,9 @@ the window's drag handling, so no test could see this.
 - [ ] Only one Inbox row is ever highlighted; two suggestions from one run open and dismiss separately.
 - [ ] Lore's mark is the same everywhere it shows.
 - [ ] The notice about what Lore does on its own says "Change this in Settings" and opens Settings at Automations.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P3 (was P1). Stays in-review.
+Before it can be ready: Close as completed. Prioritization flag (not acted
+on): done: #664.

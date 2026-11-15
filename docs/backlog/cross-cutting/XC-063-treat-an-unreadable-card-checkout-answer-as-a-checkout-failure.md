@@ -1,16 +1,16 @@
 ---
 id: XC-063
 title: Treat an unreadable card checkout answer as a checkout failure
-priority: P2
+priority: P3
 effort: S
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-039, MON-004, MON-013, APP-089, APP-181]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-11
-updated: 2026-10-11
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -114,3 +114,6 @@ Not asked for here:
 `APP-089` has the desktop say the store was not updated when a push fails,
 and `APP-181` is about raw errors reaching a seller; both show what this
 item's failures look like in the app.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

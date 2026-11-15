@@ -1,16 +1,16 @@
 ---
 id: MON-033
 title: State what a buyer's agent may do with a piece it bought
-priority: P2
+priority: P3
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [XC-040, MON-028]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -42,3 +42,9 @@ Raised 2026-09-29. It can't be enforced technically, but it sets
 expectations. Review the legal wording together with XC-041.
 
 **Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: Name the license text or URL that
+"carry the license" refers to (the notes defer the legal wording to XC-041,
+still in-review), and add the Checkout line from the proposed approach to
+the criteria.

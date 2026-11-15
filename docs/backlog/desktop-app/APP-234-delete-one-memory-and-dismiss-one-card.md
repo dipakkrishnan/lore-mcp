@@ -4,13 +4,13 @@ title: Delete one memory, and dismiss one card on Today
 priority: P1
 effort: S
 component: desktop-app
-status: in-review
+status: completed
 related: [APP-212, APP-213, APP-229]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -62,3 +62,9 @@ can't put away one agent's card and keep the rest.
 
 - A discarded memory can still be brought back with
   `lore review --status discarded`; nothing in the app offers that.
+
+**Backlog audit (2026-11-12), closed as completed:** Everything shipped in
+PR #527, and the CLI tests pass on main. Since then the memory sheet became
+a memory page (APP-282) and Today became the Inbox (APP-283); Delete with an
+inline confirm and dismissing one card survived both changes. Closed as
+completed.

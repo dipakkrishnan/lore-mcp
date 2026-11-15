@@ -1,7 +1,7 @@
 ---
 id: APP-120
 title: Make "Where memories come from" the place to connect a source
-priority: P1
+priority: P2
 effort: M
 component: desktop-app
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["STO-003 for per-source state in the snapshot"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -72,3 +72,9 @@ Granola, Notion, Dust, Perplexity, Plaid, Raycast). Keep the word
 `.pill i` already serves as the Connecting indicator.
 
 **Review 2026-10-19:** not completed. Shipped in acfddbe. Unmet: the preview and keep-a-subset step when connecting a vault, and edge checks for disconnect-and-delete and a named failure state.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Narrow to the preview-and-keep-a-subset step on the
+Connectors tab (the Settings-card premise is gone and keep/delete on
+disconnect exists). Move the edge-check criterion to APP-178. Prioritization
+flag (not acted on): partly done.

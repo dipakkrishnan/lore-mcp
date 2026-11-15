@@ -4,13 +4,13 @@ title: Verify the Worker is actually running newly deployed code, not a warm sta
 priority: P2
 effort: S
 component: monetization
-status: ready
+status: in-review
 related: [MON-006]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-10
-updated: 2026-08-26
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -55,3 +55,22 @@ passing — which is exactly the kind of false negative this item is about
 catching or explaining rather than leaving to guesswork.
 
 **Prioritization pass 2026-08-26:** No blockers; "unclear in detail" names a concrete shape (poll a build-time version string with backoff) that's enough to start from. Promoted `in-review` → `ready`.
+
+**Plan review (2026-11-13), flagged back to in-review:** Not implemented. The
+item asks for an investigation first ("Unclear in detail"), and the plan review
+found the signal it needs but also a contract change it doesn't decide:
+
+- A signal exists that only the new code can produce. Cloudflare's
+  `version_metadata` binding gives the running script's version id. `wrangler
+  deploy` prints the new one ("Current Version ID: …"). A Durable Object still
+  running old code would report the old id, which is exactly the observed case.
+- Using it means adding the binding to `lore/node/wrangler.jsonc` and putting
+  the id in what `discover` (or a new owner-only endpoint) answers. That is a
+  change to the public discover manifest (`contracts/`), and nothing here
+  decides whether buyers may see a deploy id.
+- The criteria need numbers: how long to poll (`FRESH_PROBES` already waits up
+  to minutes for a new workers.dev address), and the exact "deployed, still
+  propagating" wording and exit code. The existing smoke check lives in
+  `lore/deploy.py` around `remote_manifest(url)`.
+- Decide where the version is exposed, and the wait and wording, then this is
+  an S/M implementation.

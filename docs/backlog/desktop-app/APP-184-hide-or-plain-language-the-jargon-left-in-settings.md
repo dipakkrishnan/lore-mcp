@@ -4,13 +4,13 @@ title: Hide or plain-language the jargon left in Settings
 priority: P2
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-136, XC-025, APP-094, APP-188]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -36,3 +36,12 @@ Settings still shows things a seller doesn't understand or can't change:
 
 Filed from the 2026-10-06 new-seller audit. When the wallet row shows is
 covered by APP-188.
+
+**Prioritization (2026-11-12):** Priority P2. Moved back from ready to in-
+review. Before it can be ready: Rewrite against the current renderSettings
+(renderer.js ~4725): Paid answers is already hidden unless on (its price
+still can't be edited); "Where it lives" already has the plain sentence and
+Show in Finder but still shows the ~ path; the wallet is a short hex in Get
+paid > To your wallet; the address row has "Hosted on Cloudflare". Criterion
+2 ("every value editable or explained") can't be checked; list the exact
+rows. Consider merging with APP-188.

@@ -249,6 +249,27 @@ class OwnerFolderTest(LoreTestCase):
             path.write_text(text)
         return root
 
+    def test_sec_a_folder_note_with_a_fake_key_is_imported_verbatim(self) -> None:
+        """XC-052: Lore has no secret detector. A note holding a key or a phone number
+        is kept as written, private like every import, and found by it. This pins the
+        absence of a filter, so adding one changes this test on purpose; what Lore keeps
+        or drops belongs to the retention decisions of STO-002."""
+        key = "tw_live_sk_4f3c9a1e7b2d4e5f6a7b8c9d0e1f2a3b"
+        phone = "+1 (555) 013-4477"
+        root = self.vault(
+            keys_md=f"# Twilio\n\nThe test account uses TWILIO_KEY={key} for now.",
+            phone_md=f"# Priya\n\nCall Priya on {phone} about the vendor renewal.",
+        )
+        with Store() as store:
+            entry = sources_module.Registry(store).add(str(root))
+            self.assertEqual(entry["imported"], 2)
+            (found,) = store.search(key)
+            self.assertIn(f"TWILIO_KEY={key}", found.content)
+            self.assertIs(found.status, Status.PRIVATE)
+            (called,) = store.search("vendor renewal")
+            self.assertIn(phone, called.content)
+            self.assertIs(called.status, Status.PRIVATE)
+
     def test_a_folder_is_read_as_private_memories_the_moment_it_is_added(self) -> None:
         root = self.vault(
             dated_md="---\ndate: 2024-03-02\n---\n\n# Dated\n\n"
@@ -852,6 +873,115 @@ class ProvenanceLimitsTest(ProvenanceTest):
         self.assertTrue({"obsidian", "grok", "other", "claude", "codex"} <= known)
         self.assertTrue({"clock", "pen", "file", "lore", ""} <= known)
         self.assertNotIn("../../elsewhere", known)
+
+
+VAULT = (
+    Path(__file__).resolve().parents[1] / "support/seed/corpus/obsidian-vault/Tidewell"
+)
+
+
+class FolderGapsTest(LoreTestCase):
+    """CAP-022: what connecting the seed vault showed, pinned as tests."""
+
+    def note(self, name: str, text: str) -> Path:
+        path = Path(self.tmp.name) / "vault" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def items(self) -> dict[str, sources_module.Item]:
+        reader = Source.owner(str(Path(self.tmp.name) / "vault")).reader()
+        return {Path(item.source_path).name: item for item in reader.items()}
+
+    def test_a_quoted_front_matter_date_parses(self) -> None:
+        """obs-08: a quoted date, either quote, a `created` field, or none readable."""
+        unreadable = self.note(
+            "unreadable.md", "---\ndate: 14 Sep 2026\n---\n# U\n\nbody"
+        )
+        self.note("single.md", "---\ndate: '2026-09-14'\n---\n# S\n\nbody")
+        self.note("double.md", '---\ndate: "2026-09-14"\n---\n# D\n\nbody')
+        self.note("created.md", "---\ncreated: 2026-06-11\n---\n# C\n\nbody")
+        os.utime(unreadable, (0, datetime(2025, 5, 4, 12).timestamp()))
+        dated = {name: item.dated for name, item in self.items().items()}
+        self.assertEqual(
+            dated,
+            {
+                "single.md": "2026-09-14",
+                "double.md": "2026-09-14",
+                "created.md": "2026-06-11",
+                "unreadable.md": "2025-05-04",
+            },
+        )
+
+    def test_a_heading_with_brackets_emoji_and_quotes_is_the_title(self) -> None:
+        """obs-05, and obs-04 for a note with no heading."""
+        self.note("check.md", '# <Onboarding> 🐕 checklist & "quotes"\n\nSteps.')
+        self.note("suds-and-buds.md", "A customer note with no heading at all.")
+        titles = {name: item.title for name, item in self.items().items()}
+        self.assertEqual(titles["check.md"], '<Onboarding> 🐕 checklist & "quotes"')
+        self.assertEqual(titles["suds-and-buds.md"], "Suds And Buds")
+
+    def test_a_long_heading_alone_passes_the_floor(self) -> None:
+        """obs-09: a documented quirk. A note that is only a heading over the sentence
+        floor is kept on length alone; its content is the heading line."""
+        heading = "# " + "A heading-only note kept on length alone, sixty chars"
+        self.note("heading-only.md", heading)
+        reader = Source.owner(str(Path(self.tmp.name) / "vault")).reader()
+        (item,) = list(reader.items())
+        self.assertEqual(item.content, heading)
+        self.assertTrue(reader.keeps(item))
+
+    def test_a_symlinked_note_and_a_symlinked_folder_are_never_read(self) -> None:
+        """obs-16."""
+        root = Path(self.tmp.name)
+        self.note("a.md", "# A\n\nThe one real note in the vault.")
+        (root / "elsewhere").mkdir()
+        (root / "elsewhere" / "b.md").write_text(
+            "# B\n\nOutside the vault.", encoding="utf-8"
+        )
+        try:
+            (root / "vault" / "alias.md").symlink_to(root / "vault" / "a.md")
+            (root / "vault" / "linked").symlink_to(
+                root / "elsewhere", target_is_directory=True
+            )
+        except (OSError, NotImplementedError):
+            self.skipTest("this platform can't make symlinks")
+        reader = Source.owner(str(root / "vault")).reader()
+        self.assertEqual([path.name for path in reader.files], ["a.md"])
+
+    def test_every_spelling_of_a_folder_is_one_source(self) -> None:
+        """F-obs-03: a folder's name digests its resolved path, so `~`, a trailing `/`
+        and `..` spell one source."""
+        home = Path(self.tmp.name)
+        (home / "x").mkdir()
+        with patch.dict(os.environ, {"HOME": str(home)}):
+            sources = [
+                Source.owner(typed)
+                for typed in ("~/x", "~/x/", "~/x/../x", str(home / "x"))
+            ]
+        self.assertEqual(len({source.reader().name() for source in sources}), 1)
+        self.assertEqual({source.label for source in sources}, {"x"})
+
+    def test_the_corpus_vault_reads_nine_and_excludes_the_four_rule_cases(self) -> None:
+        """obs-01 to obs-16: 12 found, 9 kept, 3 dropped; obs-13 to obs-16 never read."""
+        reader = Source.owner(str(VAULT)).reader()
+        found = [str(path) for path in reader.files]
+        self.assertEqual(len(found), 12)
+        for excluded in (
+            "templates/daily.md",
+            ".trash/old-pricing.md",
+            ".obsidian/plugin-notes.md",
+            "lessons/alias-sms-timing.md",
+        ):
+            with self.subTest(excluded=excluded):
+                self.assertFalse([path for path in found if path.endswith(excluded)])
+        items = list(reader.items())
+        kept = [item for item in items if reader.keeps(item)]
+        self.assertEqual(len(kept), 9)
+        dropped = {
+            Path(item.source_path).name for item in items if not reader.keeps(item)
+        }
+        self.assertEqual(dropped, {"00-index.md", "stub-todo.md", "empty.md"})
 
 
 if __name__ == "__main__":

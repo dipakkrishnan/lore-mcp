@@ -221,3 +221,44 @@ class CollectionTest(LoreTestCase):
             self.assertNotEqual(cli.main(["collection", "new"]), 0)
         with Store() as store:
             self.assertEqual(store.collections(), [])
+
+    def test_a_document_that_cannot_be_converted_fails_in_one_plain_line(
+        self,
+    ) -> None:
+        """MON-050: textutil timing out or missing is the owner's one line, not a
+        traceback, and the failure is counted for `collection`."""
+        import subprocess
+
+        from lore import collection as collection_module
+        from lore import usage
+
+        made = self.run_cli("collection", "new")
+        page = Path(self.tmp.name) / "Saved page.html"
+        page.write_text("<p>hello</p>", encoding="utf-8")
+        drop = json.dumps({"files": [str(page)]})
+        timeout = subprocess.TimeoutExpired(["textutil"], 60)
+        missing = FileNotFoundError(2, "No such file or directory", "textutil")
+        for failure in (timeout, missing):
+            with self.subTest(failure=type(failure).__name__):
+                err = io.StringIO()
+                with (
+                    patch.object(cli, "_interactive", return_value=True),
+                    patch("sys.stdin", io.StringIO(drop)),
+                    patch.object(
+                        collection_module.subprocess, "run", side_effect=failure
+                    ),
+                    patch.object(usage, "record") as record,
+                    captured(),
+                    patch("sys.stderr", err),
+                ):
+                    code = cli.main(["collection", "add", str(made["id"]), "-"])
+                self.assertEqual(code, 1)
+                said = err.getvalue()
+                self.assertEqual(len(said.splitlines()), 1, said)
+                self.assertIn("Saved page.html", said)
+                self.assertIn("paste its text instead", said)
+                self.assertNotIn("Traceback", said)
+                self.assertNotIn("Errno", said)
+                record.assert_any_call("cli.failed", "collection")
+        with Store() as store:
+            self.assertEqual(store.collection(made["id"]).pieces, [])

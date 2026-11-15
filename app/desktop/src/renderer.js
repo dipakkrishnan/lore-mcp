@@ -5793,7 +5793,7 @@ function renderRequest(event) {
     });
   } else if (event.type === "memories") {
     const list = el("div", "card pad stack");
-    /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement}>} */
+    /** @type {Array<{entry: ProposedMemory, node: HTMLElement, title: HTMLInputElement | HTMLTextAreaElement, content: HTMLInputElement | HTMLTextAreaElement, links: ProposedLink[]}>} */
     let drafts = [];
     const keep = el("button", "btn primary sm");
     keep.type = "submit";
@@ -5804,15 +5804,38 @@ function renderRequest(event) {
       const content = draftField(node, "What to remember", entry.content);
       title.maxLength = 200;
       content.maxLength = 20_000;
+      // CAP-002: the earlier memories it grows out of, each with its reason; the owner strikes any that's wrong.
+      const links = [...(entry.related ?? [])];
+      if (links.length) {
+        const shown = el("div", "memory-links");
+        for (const link of links) {
+          const name = link.title || `Memory ${link.id}`;
+          const line = el("p", "read-line");
+          const strike = button("Remove", "quiet", () => {
+            links.splice(links.indexOf(link), 1);
+            line.remove();
+            if (!links.length) shown.remove();
+          });
+          strike.setAttribute("aria-label", `Remove the link to ${name}`);
+          const said = el("span", "link");
+          said.append(el("span", "", `${name} · ${link.reason}`), strike);
+          line.append(el("span", "read-label", "Grows out of"), said);
+          shown.append(line);
+        }
+        node.append(shown);
+      }
       const meta = el("div", "meta");
       if (entry.project) meta.append(chip(entry.project));
       meta.append(button("Drop", "quiet", () => { drafts = drafts.filter((draft) => draft.node !== node); node.remove(); relabel(); }));
       node.append(meta);
       list.append(node);
-      drafts.push({ entry, node, title, content });
+      drafts.push({ entry, node, title, content, links });
     }
     relabel();
-    const edited = () => drafts.map(({ entry, title, content }) => ({ ...entry, title: title.value.trim(), content: content.value.trim() }));
+    const edited = () => drafts.map(({ entry, title, content, links }) => {
+      const { related: _proposed, ...rest } = entry;
+      return { ...rest, title: title.value.trim(), content: content.value.trim(), ...(links.length ? { related: links } : {}) };
+    });
     current = edited;
     box.append(
       el("p", "q", event.entries.length === 1 ? "Keep this memory?" : "Keep these memories?"),

@@ -1,7 +1,7 @@
 ---
 id: MON-047
 title: Open a store that sells by card alone, with a payout address optional
-priority: P0
+priority: P2
 effort: S
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -37,3 +37,20 @@ The owner asked for this at launch (Oct 19): an address shouldn't be the price o
 - [x] With card payments on, `openStore` asks nothing and deploys `node deploy --network real` (desktop test).
 - [x] "By card" on the payout card opens the store only once card payments are on (desktop test).
 - [ ] Live: a new owner opens a store by card alone, and a card purchase on a piece page pays their Stripe account. This needs the owner's own Stripe and Cloudflare.
+
+## Notes
+
+**Prioritization (2026-11-12):** Priority P2 (was P0). Stays in-review.
+Before it can be ready: A person runs the live card-only open and a test
+purchase, or that criterion moves to a launch-validation item; then close.
+Prioritization flag (not acted on): done except the live criterion (#506,
+#510).
+
+**Close-out (2026-11-13):** Stays in-review. The four code criteria hold:
+PRs #506 and #510 are merged, and the Worker's `sellByCardOnly`
+(`lore/node/src/index.ts`) serves a store with no wallet. `tests/test_deploy.py`
+pins the deploy with no `--wallet` and the plain refusal when there is neither
+a wallet nor card payments. What remains is only the live criterion: a new
+owner with their own Stripe and Cloudflare opens a card-only store, and a card
+purchase on a piece page pays their Stripe account. Nothing to build. It could
+move to a launch-validation item if one is filed (see MON-044's close-out).

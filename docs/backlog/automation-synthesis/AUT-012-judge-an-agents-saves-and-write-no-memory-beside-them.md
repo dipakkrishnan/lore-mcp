@@ -4,13 +4,13 @@ title: Judge an agent's saves, and write no memory beside them
 priority: P1
 effort: S
 component: automation-synthesis
-status: in-review
+status: completed
 related: [AUT-005, APP-233, APP-235, APP-263]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -36,3 +36,12 @@ saves are already on. No new memory, no extra notification, and no change to the
 - [x] What Lore judged worth selling shows on the agent's own saves: the Today card reads "N new memories · 1 worth selling".
 - [x] A reading of an app's raw items still writes topic memories as before.
 - [x] Unit test: the judge prompt says to write nothing and lists the ids, and verdicts for ids the reading wasn't given are dropped.
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as completed:** PR #602 shipped every
+criterion and the code is unchanged on main: the judge-only prompt and tools
+are in agent.mjs and the per-id verdicts in reading.cjs. The unit test
+passes, and the agents walk checks both that no memory is written beside the
+saves and the "1 worth selling" card. The card now sits in the Inbox rather
+than on Today, which matches the current app. Closed as completed.

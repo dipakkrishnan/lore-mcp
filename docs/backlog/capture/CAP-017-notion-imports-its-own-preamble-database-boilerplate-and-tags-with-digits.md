@@ -1,8 +1,8 @@
 ---
 id: CAP-017
 title: "Bug: Notion pages import with Notion's preamble, database boilerplate and tags with digits"
-priority: P1
-effort: M
+priority: P3
+effort: XS
 component: capture
 status: in-review
 related: [CAP-009, CAP-016, XC-055, CAP-003]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -112,3 +112,11 @@ a different fetch shape anyway.
 Flakiness/safety: file-only. The next live run (`XC-055`) will show
 `imported` drop from 23 to the page count minus the blank page; update
 `manifest.json` `real_library.notion.imported` then, not now.
+
+**Prioritization (2026-11-12):** Priority P3 (was P1), effort XS (was M).
+Stays in-review. Before it can be ready: STO-005 (#415) fixed most of this.
+Close it, or rewrite to what is left: entries() still lists databases and
+costs a fetch each; the tag regex misses tags with digits outside the
+stripped blocks; docs/connectors.md doesn't say what is dropped; the four
+tests need re-deriving from current code. Prioritization flag (not acted
+on): mostly done.

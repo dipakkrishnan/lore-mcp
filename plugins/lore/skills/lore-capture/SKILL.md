@@ -80,10 +80,19 @@ Show each proposed title and content in conversation. Ask the owner to keep,
 correct, or drop them. Apply corrections and show the final changed wording.
 Save nothing until the owner clearly approves the final entries.
 
+When a proposed memory grows out of one already in the library (you read it with
+`lore search <terms> --json` or `lore memory show <id> --json`), name that link on the same card: the earlier
+memory's title and id, and one sentence that says how they connect ("Learned
+from the failed launch at Actively"). The owner can strike any link before
+approving; a struck link is not saved. Propose a link only to a kept memory you
+actually read, never one you guess at.
+
 ## 3. Save through Lore
 
 Structure the approved entries as a JSON array with `title`, `content`, and
-optional `project` and `source_path` fields. Use the exact local path plus a
+optional `project`, `source_path` and `related` fields. `related` is the links
+the owner kept, as `[{"id": 12, "reason": "Learned from the failed launch at
+Actively"}]`; leave it out when there are none. Use the exact local path plus a
 locator such as `#page=8` when available; for a dragged attachment without a
 stable path, use a label such as `attachment:IMG_2048.jpg`. Voice and paste may
 omit it. Save through this exact private process boundary, including
@@ -108,7 +117,9 @@ command shape.
 Never edit `lore.db`, write under `~/.lore` directly, call `Store.put` through
 Python, or add a write tool to the paid MCP surface. The command validates the
 whole batch, deduplicates exact replays, stores every entry as `private`, and
-returns the saved memory ids.
+returns the saved memory ids. A link to a memory that doesn't exist, was
+discarded, or is the entry itself refuses the whole batch and names the link:
+drop it with the owner and save again.
 
 Lore stores the approved memories and their private source references, not
 copies of PDFs, images, or other original artifacts. Do not imply that capture

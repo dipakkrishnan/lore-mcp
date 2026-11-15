@@ -1,16 +1,16 @@
 ---
 id: APP-041
 title: Guide a new desktop user through an onboarding flow
-priority: P2
+priority: P3
 effort: M
 component: desktop-app
-status: in-review
+status: obsolete
 related: [ONB-001, ONB-003, APP-030, APP-036]
 blockers: []
 dependencies: []
 github_issue: https://github.com/dipakkrishnan/lore-mcp/issues/176
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -49,3 +49,15 @@ concrete acceptance criterion could be written without inventing one that
 isn't actually in the issue.
 
 **Prioritization 2026-10-19:** stays `in-review`. The acceptance criteria are still "TBD"; it needs a follow-up question to the reporter before it can be handed to implementation.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: Criteria are TBD and APP-215's first-run chat has
+shipped; nothing to build unless the reporter of #176 names a gap in the
+current first run. Prioritization flag (not acted on): obsolete.
+
+**Close-out (2026-11-13):** Obsolete, superseded. The first-run onboarding this asked for shipped as
+APP-215 (completed, #486): a first-run chat that connects the owner's
+agent, then their apps, and shows what came in (`app/desktop/src/firstrun.cjs`,
+`firstrun.step` events in `renderer.js`). The criteria were never more than
+TBD, and #176's reporter named no gap beyond that. GitHub issue #176 is
+still open; closing it is left to the owner.

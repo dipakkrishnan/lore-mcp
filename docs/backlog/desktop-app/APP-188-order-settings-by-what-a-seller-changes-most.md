@@ -1,16 +1,16 @@
 ---
 id: APP-188
 title: Order Settings by what a seller changes most
-priority: P2
+priority: P3
 effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-136, APP-119, APP-184]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-06
-updated: 2026-10-06
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -35,3 +35,10 @@ marketplace listing off until the seller finds the setting.
 ## Notes
 
 Filed from the 2026-10-06 new-seller audit.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Moved back from ready
+to in-review. Before it can be ready: Criterion 1 no longer matches (By card
+isn't a row). Criterion 2 is still open (the wallet way always shows).
+Criterion 3 ("listed by default") is a product decision because listing goes
+through a GitHub request. Decide that, then rewrite against current rows,
+ideally merged with APP-184.

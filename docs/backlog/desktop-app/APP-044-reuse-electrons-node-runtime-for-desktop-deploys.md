@@ -1,8 +1,8 @@
 ---
 id: APP-044
 title: Reuse Electron's Node runtime for desktop deploys
-priority: P2
-effort: S
+priority: P3
+effort: XS
 component: desktop-app
 status: in-review
 related: [APP-005, APP-036]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -36,7 +36,7 @@ as one focused PR.
 - [ ] A fresh-account Desktop deployment completes without relying on Node or
       npm from the owner's PATH.
 - [x] Package checks cover the shim.
-- [ ] The rebuilt release artifact passes signature, stapling, and Gatekeeper
+- [x] The rebuilt release artifact passes signature, stapling, and Gatekeeper
       validation.
 
 ## Notes
@@ -54,3 +54,20 @@ npm 11.19.0 and wrangler 4.127.1 run through it, app 704 MB -> 585 MB
 (node 129 MB -> 14 MB), zip 362 MiB -> 289 MiB, 12,510 files.
 
 **Review 2026-10-19:** not completed. Shipped in 7c56032, 46e2932. Unmet: a fresh-account Desktop deploy without the owner's Node/npm, and signature/stapling/Gatekeeper validation of the rebuilt artifact. Both are manual release steps.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was S).
+Stays in-review. Before it can be ready: Tick criterion 5 from v0.1.25
+(notarized, stapled), hand criterion 3 (fresh-account deploy) to APP-005,
+and close. Prioritization flag (not acted on): done.
+
+**Close-out (2026-11-13):** Stays in-review. Criterion 5 is ticked. The shim commits (7c56032,
+46e2932) are ancestors of tag v0.1.25. That release's
+`Lore-macOS-arm64.zip`, downloaded on 2026-11-13, passed `spctl -a -vv -t
+exec` ("accepted, source=Notarized Developer ID") and `stapler validate`.
+The shim is tested in `app/desktop/test/component/sandbox.test.cjs` ("the
+bundled node is a shim that runs npm on Electron's embedded runtime").
+Criterion 3 is still open: no record shows a fresh-account Desktop deploy
+that worked without Node or npm on the owner's PATH. APP-005's criteria
+cover a clean install, not a deploy, so this can't be struck as moved. It
+needs one deploy from a fresh macOS account (owner step), or a deploy step
+added to APP-005.

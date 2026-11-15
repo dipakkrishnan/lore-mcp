@@ -1,7 +1,7 @@
 ---
 id: MON-030
 title: Give sellers a refund path and buyers clear terms before card disputes arrive
-priority: P1
+priority: P2
 effort: M
 component: monetization
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -53,3 +53,10 @@ issued by hand from the seller's Stripe dashboard; Checkout text and
 the desktop Refund button remain open.
 
 **Review 2026-10-19:** not completed. Seller support footer shipped (342526b). Unmet: refund terms in Checkout, a desktop Refund button, and the sale row showing the refund.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Criterion 1 (refund terms on /p/<id> and in
+Checkout) contradicts the 2026-10-06 note that Lore promises no refund terms
+on a seller's behalf; say exactly what Checkout custom_text to set. Say
+whether the desktop Refund button covers MON-054 bid charges, and how
+"record refunds in sales" relates to the existing refund_owed column.

@@ -1,7 +1,7 @@
 ---
 id: XC-104
 title: Start the Python stand-in node once per test class, not per test
-priority: P1
+priority: P2
 effort: S
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-30
-updated: 2026-10-31
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -93,3 +93,8 @@ Decisions for a maintainer:
 The plan-review check found nothing that depends on a per-test server: tests only
 read `self.node.url`, and a test's `clock` change stays on its own `Endpoint`. So
 the class-level design remains safe if it is still wanted.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Maintainer decisions: land the poll_interval line on
+its own; decide whether a class-level server is still wanted; restate the
+0.1 s per-test and 75 s CI targets against the 2026-10-31 measurements.

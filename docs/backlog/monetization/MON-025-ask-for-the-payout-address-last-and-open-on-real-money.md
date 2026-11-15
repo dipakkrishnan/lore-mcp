@@ -2,7 +2,7 @@
 id: MON-025
 title: Ask for the payout address last, and open the store on real money
 priority: P1
-effort: M
+effort: XS
 component: monetization
 status: in-review
 related: [MON-024, MON-022, MON-026, XC-024, APP-057, APP-098]
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-10-19
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -73,3 +73,24 @@ flow this way") is recorded and declined; the non-custodial line stays.
 The buyer side of the same gap is MON-026 and MON-027.
 
 **Review 2026-10-19:** not completed. Shipped in 5c0a96e. Unmet: the 1 cent real-money purchase settling to a Coinbase account, and a v0.1.3 store opening without stalling. XC-069 has since offered "Open your store" before any approved publication, so criterion 1 has partly lapsed.
+
+**Prioritization (2026-11-12):** Priority P1, effort XS (was M). Stays in-
+review. Before it can be ready: The code shipped (#339). A person runs the
+1-cent real-money purchase to a Coinbase deposit address; someone runs the
+Zane walk-through or drops that criterion; criterion 1 needs a decision
+because XC-069 now offers "Open your store" before any approved publication.
+Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review. The code shipped in #339
+(5c0a96e) and MON-042 (#422): keyless PayAI settlement and fail-closed half
+pairs in `lore/node/src/network.ts` and `lore/node/test/unit/network.test.ts`.
+MON-005 closed today as a duplicate, so this item's 1¢ real-money purchase
+is now the only live mainnet-settlement check. Three things remain:
+1. A person runs the 1¢ purchase on a real-money node to a Coinbase
+   USDC-on-Base deposit address and confirms it shows there.
+2. Someone runs the Zane walk-through, or the owner drops that criterion.
+3. The owner decides about criterion 1. It is ticked but has lapsed: XC-069
+   (completed) puts a store online before anything is for sale, and the app
+   offers "Open your store" from Settings › Address with no approved piece
+   (`app/desktop/src/renderer.js`, the `Not open` row). Also, MON-047 makes
+   the payout address optional for card-only stores.

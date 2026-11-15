@@ -1,7 +1,7 @@
 ---
 id: BP-002
 title: Replace a saved blueprint whole instead of writing over it in place
-priority: P2
+priority: P3
 effort: S
 component: blueprint
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -114,3 +114,8 @@ on the final paths will need those two rewritten against the fifth criterion.
 
 Moving a file onto a path that is a directory raises a raw
 `IsADirectoryError`; that message is `BP-003`'s kind of problem.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
+Before it can be ready: A maintainer has to settle the open question in
+Notes: whether a symlinked blueprint.json or lore-map.md gets replaced or
+written through. The answer decides whether the last criterion stays.

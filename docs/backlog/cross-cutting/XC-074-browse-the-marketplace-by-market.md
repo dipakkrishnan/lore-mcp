@@ -1,7 +1,7 @@
 ---
 id: XC-074
 title: Browse the marketplace by market, with sellers' pieces listed underneath
-priority: P1
+priority: P2
 effort: M
 component: cross-cutting
 status: in-review
@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -59,3 +59,20 @@ labelled "Updated".
 Out of scope here: a purchases feed (it needs an opt-in public route on the
 store), market creation without curation (it needs a stake and a reward for
 the creator), and Lore's fee.
+
+**Prioritization (2026-11-12):** Priority P2 (was P1). Stays in-review.
+Before it can be ready: Close the shipped part (#554, #561-563) and move AC5
+and AC6 into their own items or into XC-119 and MON-051, restated against
+the Inbox approval flow. Prioritization flag (not acted on): done (shipped
+scope).
+
+**Close-out (2026-11-13):** Stays in-review. Criteria 1-4 are on main from #554, #561, #562 and #563
+(`site/src/markets.js`, `site/src/worker.js`). Criterion 5 is not built:
+the app's approval flow has no market picker. In `app/desktop/src`, markets
+appear only for bids (`Inbox.market` in `inbox.js`; `stageBidAnswer` in
+`state.cjs` uses the bid's market as the answer draft's topic). Criterion 6
+is not built either: `site/src/markets.js` lists store pieces only, with no
+bid answers. Neither XC-119 (classifying bids) nor MON-051 (filling bids)
+has a criterion for either one today, so they can't be struck as moved.
+To close: give criteria 5 and 6 a home (a new item, or criteria added to
+XC-119 or MON-051), strike them here naming that id, and set completed.

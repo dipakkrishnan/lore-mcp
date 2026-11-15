@@ -4,13 +4,13 @@ title: Never change the store's inbox key from a Mac that doesn't hold it
 priority: P1
 effort: M
 component: capture
-status: in-review
+status: completed
 related: [CAP-036, CAP-038, XC-067, APP-224]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -52,16 +52,16 @@ match.
 
 ## Acceptance criteria
 
-- [ ] A push from a Mac with no inbox keys leaves the store's
+- [x] A push from a Mac with no inbox keys leaves the store's
       `inbox_public_key` and `inbox_salt` as they were.
       `test_a_push_before_any_agent_carries_no_keys` changes to pin this.
-- [ ] With the store holding a key this Mac doesn't have (empty Keychain or a
+- [x] With the store holding a key this Mac doesn't have (empty Keychain or a
       different key), `lore agents connect` and allowing a sign-in leave
       `node_settings` unchanged and fail with a message that names the cause.
-- [ ] A push from a Mac with a different key doesn't replace the store's key.
-- [ ] A store with no inbox key yet still gets one on the first connect. A Mac
+- [x] A push from a Mac with a different key doesn't replace the store's key.
+- [x] A store with no inbox key yet still gets one on the first connect. A Mac
       whose key matches the store's connects and pushes as today.
-- [ ] `contracts/inbox.md` states the new rule.
+- [x] `contracts/inbox.md` states the new rule.
 
 ## Notes
 
@@ -73,3 +73,23 @@ match.
   path and should carry the key over.
 - P1 is a first guess: the failure is silent and stops every agent at once.
   `prioritization` decides.
+
+**Prioritization (2026-11-12):** Priority P1. Promoted to ready: unblocked,
+criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-12):**
+
+- Push (`_push_sql`, `lore/cli.py`) no longer drops `node_settings`. It
+  deletes every row except `inbox_salt`/`inbox_public_key`, re-inserts the
+  other settings, and writes this Mac's keys only `WHERE NOT EXISTS` an
+  `inbox_public_key` (salt first, so the pair goes in together).
+- `Inbox.mint` (`lore/inbox.py`) reads the store's key before it makes any key
+  in the Keychain and refuses with "Your store's saves are sealed to another
+  Mac's key…" when this Mac doesn't hold it. The write is guarded in SQL too,
+  so a key another Mac writes between the read and the write isn't replaced.
+- Tradeoff: a push from a Mac with a different key keeps the store's key
+  silently rather than refusing, so a second Mac can still update the
+  store's pieces. Agents' saves stay sealed to the first Mac. Telling the
+  owner about it on push would take an extra read on every push; left for
+  APP-224, which owns moving the key.
+- Tests: `PushTest` and `StoreKeyTest` in `tests/test_agents.py`.

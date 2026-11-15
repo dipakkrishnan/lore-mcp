@@ -1,16 +1,16 @@
 ---
 id: XC-031
 title: Deploy the feedback relay, pin its address, and verify one real submission
-priority: P2
-effort: S
+priority: P3
+effort: XS
 component: cross-cutting
-status: ready
+status: in-review
 related: [XC-028, APP-105, CLI-003]
 blockers: []
 dependencies: [XC-028]
 github_issue: null
 created: 2026-09-09
-updated: 2026-09-27
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -57,14 +57,14 @@ The runbook is `feedback-relay/README.md`; this item is the doing of it.
 
 ## Acceptance criteria
 
-- [ ] The relay is deployed with a working token and a `feedback` label
+- [x] The relay is deployed with a working token and a `feedback` label
       exists on the repo.
-- [ ] The Worker answers on a custom route on a domain the project owns.
-- [ ] One real report, submitted from the CLI, becomes a labeled issue on
+- [x] The Worker answers on a custom route on a domain the project owns.
+- [x] One real report, submitted from the CLI, becomes a labeled issue on
       `dipakkrishnan/lore-mcp`, and its metadata table reads correctly.
 - [ ] The same, once, from the Desktop app — with the button now visible
       because `desktop-state` reports `feedback.available`.
-- [ ] `RELAY_URL` is pinned to the deployed address and the Python suite
+- [x] `RELAY_URL` is pinned to the deployed address and the Python suite
       still passes.
 - [ ] The token's expiry is recorded somewhere a maintainer will see it.
 
@@ -84,3 +84,22 @@ Pinning `RELAY_URL` un-hides both the feedback button and the Settings
 
 2026-09-27: `XC-036` removed marketplace listing from the relay. The two
 extra secrets above are no longer needed; the relay is feedback only.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2), effort XS (was S).
+Moved back from ready to in-review. Before it can be ready: The deploy and
+pin shipped (#328, relay.yourlore.dev). Confirm one real CLI report and one
+desktop report became labelled issues, record the PAT's expiry, then close.
+Prioritization flag (not acted on): done (code).
+
+**Close-out (2026-11-13):** Stays in-review; two items need a maintainer. Met:
+- `lore/feedback.py` `RELAY_URL = "https://relay.yourlore.dev/report"` (#328),
+  on a project domain, not `workers.dev`.
+- The `feedback` label exists on the repo.
+- Issue #332 ("Relay smoke test", 2026-09-28) was filed by the relay from the
+  CLI. Its metadata table reads correctly: Source `cli`, version, platform,
+  arch, Python, install id. It carries the `feedback` label.
+Open:
+- C4. No relay-filed issue comes from the desktop app. #332 is the only
+  `feedback`-labelled issue.
+- C6. The PAT's expiry is not recorded anywhere in the repo.
+  `feedback-relay/README.md` only says to record it.

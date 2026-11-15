@@ -10,7 +10,7 @@ blockers: [XC-049, CAP-015]
 dependencies: ["A Granola account with the four seed meetings recorded (manifest gr-01..04; not done yet)", "One attended sign-in per app on the machine that runs the suite, whose tokens live only in that machine's Keychain"]
 github_issue: null
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -117,3 +117,6 @@ not a failure.
 
 Sequencing: blocked by `XC-049` (guard) and `CAP-015` (the Granola
 listing fix must be committed, or the Granola test can only fail).
+
+**Prioritization (2026-11-12):** Priority P3. Stays in-review. Before it can
+be ready: Blockers XC-049 and CAP-015 are both in-review.

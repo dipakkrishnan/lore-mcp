@@ -4,13 +4,13 @@ title: Never let an older load undo newer task news
 priority: P1
 effort: XS
 component: desktop-app
-status: in-review
+status: completed
 related: [XC-072, XC-080]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-11-02
-updated: 2026-11-02
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -48,3 +48,11 @@ unfinished capture on disk as Lore does, so every later load agrees.
       three runs in a row.
 - [x] Every walk and `npm test` green, run serially.
 - [x] Layout scan: no view the walks scanned before is unscanned after.
+
+## Notes
+
+**Backlog audit (2026-11-12), closed as completed:** The renderer fix
+(heardTasks laid over a landing load) and the edge.cjs check merged in PR
+#639 with green desktop CI, and they are still on main. The item was filed
+as in-review alongside its own fix and never closed, so it moves to
+completed.

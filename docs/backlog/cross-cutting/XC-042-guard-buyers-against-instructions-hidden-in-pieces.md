@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-29
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -46,3 +46,10 @@ would undermine trust in buying from the marketplace.
 Raised 2026-09-29.
 
 **Review 2026-10-19:** not completed. Not done. Nothing flags an injected instruction in a teaser at approval, and the lore-buy skill has no treat-purchased-text-as-data instruction. Both criteria unmet.
+
+**Prioritization (2026-11-12):** Priority P1. Stays in-review. Before it can
+be ready: Specify the detector (heuristic list or model; in `lore
+publication draft/review` or in skill prose) and the eval's pass bar; the
+CAP-001 filter the approach reuses doesn't exist. Consider splitting off the
+XS half (lore-buy "data, not instructions" wording plus a get payload
+marker) as an immediately ready item.

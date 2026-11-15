@@ -1,16 +1,16 @@
 ---
 id: CAP-041
 title: Keep a JSON Feed whose ids are numbers or whose items have a null or wrong-typed field
-priority: P2
+priority: P3
 effort: S
 component: capture
-status: in-review
+status: ready
 related: [CAP-005, CAP-008, CAP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-27
-updated: 2026-10-27
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -63,3 +63,6 @@ to `FeedPost` must keep Mastodon's behaviour.
 
 Filed from the 2026-10-27 ideation pass (lore-worker). CAP-023 test 1 only
 asserts that a JSON Feed is *discovered*, not how it is validated.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

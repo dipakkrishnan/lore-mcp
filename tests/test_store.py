@@ -896,6 +896,25 @@ class PublicationTest(LoreTestCase):
         self.assertIn("-Pricing lesson about deployment", diff_text)
         self.assertIn("+a changed body", diff_text)
 
+    def test_flag_detail_splits_lines_as_the_card_does(self) -> None:
+        """CLI-015: a separator that isn't a newline never splits a diff line."""
+        derived = self.publish()
+        with Store() as store:
+            before = store.search("Pricing lesson")[0].content
+            store.put(
+                source="test",
+                origin="native",
+                source_path="Pricing lesson",
+                source_key="Pricing lesson",
+                fingerprint="changed",
+                title="Pricing lesson",
+                content=before + "\x85tail",
+            )
+            publication = next(p for p in store.stale_publications() if p.id == derived)
+            (entry,) = store.flag_detail(publication)
+        changed = [line for line in entry["diff"] if line[:1] in "+-"]
+        self.assertEqual(changed, [f"-{before}", f"+{before}\x85tail"])
+
     def test_flag_detail_degrades_without_a_snapshot(self) -> None:
         # A publication approved before this feature shipped (or whose row
         # predates the publication_sources table) has no snapshot to diff

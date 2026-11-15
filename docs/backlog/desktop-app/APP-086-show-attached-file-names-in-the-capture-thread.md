@@ -1,16 +1,16 @@
 ---
 id: APP-086
 title: Show attached file names in the capture thread
-priority: P3
-effort: XS
+priority: P2
+effort: S
 component: desktop-app
-status: ready
+status: in-review
 related: [APP-003]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-05
-updated: 2026-10-19
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -37,3 +37,10 @@ composer showed them before sending, and keep them in the closed thread.
 Screenshots `61-dogfood-dropped.png` and `62-dogfood-attach-submitted.png`.
 
 **Prioritization 2026-10-19:** promoted to `ready`. No open blockers, no commit on main implements it, and the acceptance criteria are concrete and checkable. Priority and effort unchanged.
+
+**Prioritization (2026-11-12):** Priority P2 (was P3), effort S (was XS).
+Moved back from ready to in-review. Before it can be ready: The bug is real
+(send() shows only "Please read the attached files."). Criterion 2 says
+"reopening the finished thread from Today", which is now the Inbox; restate
+it there, then it can go back to ready. Effort is S because names must
+survive in history.

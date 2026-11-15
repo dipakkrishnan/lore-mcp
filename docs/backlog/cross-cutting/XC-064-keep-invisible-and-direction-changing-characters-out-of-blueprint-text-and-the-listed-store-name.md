@@ -1,16 +1,16 @@
 ---
 id: XC-064
 title: Keep invisible and direction-changing characters out of blueprint text and the listed store name
-priority: P2
+priority: P3
 effort: M
 component: cross-cutting
-status: in-review
+status: ready
 related: [XC-042, CAP-001, XC-036, XC-040, MON-036, APP-119, BP-002]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-11-12
 ---
 
 ## Problem
@@ -127,3 +127,6 @@ none of them can collide with.
 
 Effort is `M` rather than `S` because the list has to be agreed before the
 code, which is small, can be written.
+
+**Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
+unblocked, criteria checkable, and the premise checked against the code.

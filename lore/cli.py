@@ -36,7 +36,7 @@ from . import usage
 from .agents import Agents
 from .collection import Collections, Drop
 from .hosted import Hosted
-from .inbox import AgentApp, Inbox, InboxError
+from .inbox import INBOX_SETTINGS, AgentApp, Inbox, InboxError
 from .paths import home, store_folder
 from .sources import Registry, available_sources
 from .store import (
@@ -2654,19 +2654,30 @@ def _push_sql(
         "support_email": support_email,
         # The store charges this from its next push, so a new price needs no redeploy.
         **({"price_usd": f"{price_usd:.6f}"} if price_usd > 0 else {}),
-        # Every push, since it replaces this table: without them agents can't save.
-        **(inbox or {}),
         # XC-069: the owner's choice, when there is one. A store from before it
         # sends no key, and its node sells as it always did.
         **({} if selling is None else {"selling": "true" if selling else "false"}),
     }
+    # CAP-039: every setting is replaced except the store's inbox key, which belongs
+    # to the Mac holding its private half. This Mac's key goes in only when the store
+    # has none yet, so a push from a Mac with no key, or another one, keeps the key
+    # every waiting save is sealed to.
+    inbox_keys = ", ".join(quote(key) for key in INBOX_SETTINGS)
     statements.extend(
         [
-            "DROP TABLE IF EXISTS node_settings;",
-            "CREATE TABLE node_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            "CREATE TABLE IF NOT EXISTS node_settings "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+            f"DELETE FROM node_settings WHERE key NOT IN ({inbox_keys});",
             *(
                 f"INSERT INTO node_settings(key,value) VALUES ({quote(key)},{quote(value)});"
                 for key, value in settings.items()
+            ),
+            *(
+                "INSERT OR REPLACE INTO node_settings(key,value) "
+                f"SELECT {quote(key)},{quote(inbox[key])} WHERE NOT EXISTS (SELECT 1 "
+                "FROM node_settings WHERE key = 'inbox_public_key');"
+                for key in INBOX_SETTINGS
+                if inbox and key in inbox
             ),
         ]
     )

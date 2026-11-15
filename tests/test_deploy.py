@@ -155,8 +155,10 @@ class _Wrangler:
             elif not self.deployed:
                 # Wrangler has no empty list for a Worker that was never deployed.
                 code, err = 1, self.not_found
+            elif self.has_wallet_secret:
+                out = '[{"name":"LORE_WALLET"}]'
             else:
-                out = '[{"name":"LORE_WALLET"}]' if self.has_wallet_secret else "[]"
+                out = "[]"
         elif tail[:2] == ("secret", "put"):
             failing = self.secret_put_fails or tail[2] == self.secret_put_fails_for
             code = 1 if failing else 0
@@ -1537,6 +1539,32 @@ class DeployTest(_NodeCase):
         with self.assertRaisesRegex(ValueError, "no way to be paid") as refused:
             self._deploy(None, has_wallet_secret=False)
         self.assertIn("lore cards connect", str(refused.exception))
+
+    def test_a_first_deploy_with_no_way_to_be_paid_says_so_not_worker_not_found(
+        self,
+    ) -> None:
+        """MON-057: on an account that never ran the Worker, `secret list` says
+        "not found"; that means no wallet, not a failed settings read."""
+        with Store() as store:
+            store.set_setting("price_usd", 0.37)
+        wrangler = _Wrangler(has_wallet_secret=False)
+        with (
+            patch("lore.deploy.subprocess.run", side_effect=wrangler),
+            patch("lore.deploy.shutil.which", return_value="/usr/bin/npm"),
+            patch("lore.cli.push_job"),
+            captured(),
+            self.assertRaises(ValueError) as refused,
+        ):
+            deploy_module.deploy(None)
+        self.assertIn("no way to be paid", str(refused.exception))
+        self.assertIn("--wallet", str(refused.exception))
+        self.assertNotIn("not found", str(refused.exception))
+        self.assertTrue(wrangler.named("secret", "list"))
+        self.assertEqual(
+            [c for c in wrangler.commands if c[1:3] == ("d1", "create")], []
+        )
+        self.assertEqual(wrangler.named("deploy"), [])
+        # Counted as no_payout: WhyTheStoreFailedTest's payout test runs this same path.
 
     def test_card_payments_open_a_store_with_no_payout_address(self) -> None:
         # XC-039 cards are enough to sell: the store opens selling by card alone,
