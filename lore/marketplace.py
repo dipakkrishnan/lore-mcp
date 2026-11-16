@@ -65,7 +65,7 @@ class Marketplace:
         )
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                sellers = json.loads(response.read())["sellers"]
+                sellers = _sellers(json.loads(response.read()))
         except (OSError, ValueError, KeyError) as error:
             raise OSError(
                 "could not read the public list of Lore sellers; check your connection"
@@ -110,6 +110,18 @@ class Marketplace:
                 store.set_setting(NAME_SETTING, self.name)
             raise
         self.name = name
+
+
+def _sellers(data: object) -> list[dict[str, object]]:
+    """The file's sellers, or ValueError when it is not {"sellers": [object, ...]}.
+
+    JSON that parses but has another shape must still read as "could not read",
+    not end in a traceback or tell a listed owner they are not listed (XC-076).
+    """
+    sellers = data["sellers"] if isinstance(data, dict) else None
+    if not isinstance(sellers, list) or not all(isinstance(s, dict) for s in sellers):
+        raise ValueError("the public list of Lore sellers has the wrong shape")
+    return sellers
 
 
 def _setup_name() -> str:

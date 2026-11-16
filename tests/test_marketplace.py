@@ -5,6 +5,8 @@ file. No test makes a real network call or runs wrangler."""
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import unittest
 from io import StringIO
 from pathlib import Path
@@ -16,6 +18,15 @@ from lore import blueprint, cli, deploy, marketplace
 from lore.store import Store
 
 NODE = "https://lore.example.workers.dev/mcp"
+WRONG_SHAPES: list[object] = [
+    [],
+    {"sellers": None},
+    {"sellers": ["x"]},
+    {"sellers": ["x", {"node": NODE}]},
+    {"sellers": {"k": {"node": NODE}}},
+    {"sellers": "x"},
+    "x",
+]
 
 
 class MarketplaceTest(LoreTestCase):
@@ -104,6 +115,51 @@ class MarketplaceTest(LoreTestCase):
         self.file.write_text("not json")
         with self.assertRaisesRegex(OSError, "public list"):
             self.market().status()
+
+    def test_a_wrong_shaped_list_is_an_oserror(self) -> None:
+        # XC-076: JSON that parses but is not {"sellers": [object, ...]}.
+        for body in WRONG_SHAPES:
+            with self.subTest(body=body):
+                self.file.write_text(json.dumps(body))
+                with self.assertRaisesRegex(OSError, "could not read the public list"):
+                    self.market().status()
+
+    def test_status_on_a_wrong_shaped_list_exits_cleanly(self) -> None:
+        for body in WRONG_SHAPES:
+            for flags in ([], ["--json"]):
+                with self.subTest(body=body, flags=flags):
+                    self.file.write_text(json.dumps(body))
+                    out, err = StringIO(), StringIO()
+                    with patch("sys.stdout", out), patch("sys.stderr", err):
+                        code = cli.main(["marketplace", "status", *flags])
+                    self.assertEqual(code, 1)
+                    self.assertIn("could not read the public list", err.getvalue())
+                    self.assertNotIn("Traceback", err.getvalue())
+                    self.assertEqual(out.getvalue(), "")
+
+    def test_the_status_command_prints_no_traceback(self) -> None:
+        # The desktop Settings row runs this command in its own process.
+        self.file.write_text(json.dumps({"sellers": None}))
+        ran = subprocess.run(
+            [sys.executable, "-m", "lore", "marketplace", "status", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn("could not read the public list", ran.stderr)
+        self.assertNotIn("Traceback", ran.stderr)
+        self.assertEqual(ran.stdout, "")
+
+    def test_sellers_that_are_all_objects_still_read(self) -> None:
+        market = self.market()
+        self.file.write_text(json.dumps({"sellers": []}))
+        self.assertEqual(market.status(), marketplace.Listing(state="none"))
+        others = [{"node": "https://other.dev/mcp"}, {"name": "no node"}]
+        self.file.write_text(json.dumps({"sellers": [*others, {"node": NODE}]}))
+        self.assertEqual(market.status().action, "delist")
+        market.name = "Ada"
+        self.assertEqual(market.status(), marketplace.Listing(state="listed"))
 
     def test_listing_pushes_the_setup_name(self) -> None:
         blueprint.blueprint_path().parent.mkdir(parents=True, exist_ok=True)

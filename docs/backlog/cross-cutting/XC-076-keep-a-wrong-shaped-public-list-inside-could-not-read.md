@@ -4,13 +4,13 @@ title: Keep a wrong-shaped public list inside "could not read"
 priority: P3
 effort: XS
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-036, XC-075]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-26
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 ## Problem
@@ -45,15 +45,15 @@ owner they are not listed and give them the request link (see `XC-075`).
 
 ## Acceptance criteria
 
-- [ ] For each of `[]`, `{"sellers": null}` and `{"sellers": ["x"]}`,
+- [x] For each of `[]`, `{"sellers": null}` and `{"sellers": ["x"]}`,
       `Marketplace.status()` raises `OSError` with "could not read the public
       list".
-- [ ] `lore marketplace status` on such a file exits 1. Its stderr has the
+- [x] `lore marketplace status` on such a file exits 1. Its stderr has the
       "could not read the public list" message and no `Traceback`.
-- [ ] `{"sellers": {}}` with a key, `{"sellers": "x"}` and a top-level
+- [x] `{"sellers": {}}` with a key, `{"sellers": "x"}` and a top-level
       scalar (`"x"`) raise the same `OSError`.
-- [ ] A file whose sellers are all objects still works as today.
-- [ ] `tests/test_marketplace.py` covers each line above.
+- [x] A file whose sellers are all objects still works as today.
+- [x] `tests/test_marketplace.py` covers each line above.
 
 ## Notes
 
@@ -68,3 +68,12 @@ those commands once it lands.
 
 **Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Done (2026-11-14):** `_on_file` now passes the parsed file through
+`_sellers`, which raises `ValueError` unless the top level is an object,
+`sellers` is a list and every seller is an object. The existing wrapper turns
+that into the same "could not read the public list" `OSError`, so `cli.main`
+prints it and exits 1 with nothing on stdout. An empty `{"sellers": {}}` now
+also reads as "could not read" rather than "not listed". Tests cover each
+shape in-process (`status()` and `lore marketplace status [--json]`) and one
+body in a real subprocess for the no-`Traceback` check.
