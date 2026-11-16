@@ -15,6 +15,7 @@ import httpx2
 from fixtures.hosted import Hosted as StandIn
 from fixtures.inbox import Endpoint, Node
 from helpers import LoreTestCase, captured
+from keyring.errors import KeyringError
 
 from lore import hosted
 from lore.agents import Agents
@@ -124,6 +125,21 @@ class ClaimTest(HostedCase):
         self.assertEqual(self.stand_in.owners, {})
         with Store() as store:
             self.assertIsNone(Hosted.of(store))
+
+    def test_a_keychain_lore_cant_use_says_so_and_claims_nothing(self) -> None:
+        # Reading the key, or keeping a new one: either failing stops before any claim.
+        for leg in ("keyring.get_password", "keyring.set_password"):
+            with self.subTest(leg=leg):
+                with patch(leg, side_effect=KeyringError("locked")):
+                    with self.assertRaises(HostedError) as said:
+                        self.claim()
+                self.assertEqual(
+                    str(said.exception), "Lore couldn't use the Keychain: locked"
+                )
+                self.assertEqual(self.stand_in.owners, {})
+                self.assertEqual(self.keyring.saved, {})
+                with Store() as store:
+                    self.assertIsNone(store.setting(hosted.SETTING, None))
 
     def test_a_store_lore_cant_reach_says_so(self) -> None:
         refused = urllib.error.URLError("nodename nor servname provided")
