@@ -5,12 +5,12 @@ priority: P3
 effort: M
 component: desktop-app
 status: in-review
-related: [APP-042, APP-046, APP-096, APP-107, APP-110, CAP-002]
+related: [APP-042, APP-046, APP-096, APP-107, APP-110, CAP-002, APP-297]
 blockers: []
 dependencies: [CAP-002]
 github_issue: null
 created: 2026-09-12
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -55,6 +55,7 @@ memory's links in both directions.
 - [ ] A memory with no links shows no Related section rather than an empty one.
 - [ ] The Memories list shows a connection count on rows that have one.
 - [ ] The snapshot carries links for every memory, and the renderer reads only the snapshot.
+- [ ] Related rows use the hover preview (`peekable()`), as memory rows do (moved from APP-110).
 
 ## Notes
 
@@ -73,3 +74,7 @@ back to its sources.
 **Prioritization (2026-11-12):** Priority P3 (was P2). Stays in-review.
 Before it can be ready: Add CAP-002 to blockers, and point the render half
 at the redesigned memory page, not the memory sheet.
+
+**Criterion added (2026-11-15):** The Related-row hover preview that APP-110
+struck as "moved to APP-108" is now criterion 5 here. The For Sale preview
+split from APP-110 is APP-297.

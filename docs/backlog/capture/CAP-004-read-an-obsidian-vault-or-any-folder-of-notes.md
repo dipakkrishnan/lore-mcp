@@ -5,12 +5,12 @@ priority: P3
 effort: XS
 component: capture
 status: in-review
-related: [STO-003, CAP-001, CAP-003, APP-120]
+related: [STO-003, CAP-001, CAP-003, APP-120, APP-296]
 blockers: []
 dependencies: ["STO-003 for the source kind and state; a folder can be dropped through lore-capture today"]
 github_issue: null
 created: 2026-09-17
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -85,3 +85,5 @@ folder prompt on the signed build). Prioritization flag (not acted on): done
   `NSDocumentsFolderUsageDescription`, `NSDesktopFolderUsageDescription` and
   `NSDownloadsFolderUsageDescription` with Lore's copy. Someone still has to see
   the prompt once on a signed build.
+
+**Follow-up filed (2026-11-15):** The app-side preview that keeps criteria 1 and 3 open is APP-296 (show a folder's preview before the app imports it). Criterion 4's remaining step is seeing the folder prompt once on a signed build.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-19
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -54,3 +54,5 @@ a wallet nor card payments. What remains is only the live criterion: a new
 owner with their own Stripe and Cloudflare opens a card-only store, and a card
 purchase on a piece page pays their Stripe account. Nothing to build. It could
 move to a launch-validation item if one is filed (see MON-044's close-out).
+
+**Launch validation (2026-11-15):** The live check in criterion 5 (the live card-only store and a real card purchase) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

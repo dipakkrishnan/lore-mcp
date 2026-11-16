@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-14
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -94,3 +94,5 @@ is now the only live mainnet-settlement check. Three things remain:
    offers "Open your store" from Settings › Address with no approved piece
    (`app/desktop/src/renderer.js`, the `Not open` row). Also, MON-047 makes
    the payout address optional for card-only stores.
+
+**Launch validation (2026-11-15):** The live check in criterion 5 (the 1¢ real-money purchase) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -71,3 +71,5 @@ that worked without Node or npm on the owner's PATH. APP-005's criteria
 cover a clean install, not a deploy, so this can't be struck as moved. It
 needs one deploy from a fresh macOS account (owner step), or a deploy step
 added to APP-005.
+
+**Launch validation (2026-11-15):** The live check in criterion 3 (a deploy from a fresh macOS account) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

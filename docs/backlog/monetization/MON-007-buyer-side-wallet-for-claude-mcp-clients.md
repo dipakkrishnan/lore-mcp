@@ -10,7 +10,7 @@ blockers: []
 dependencies: ["A worked example: an owner with a live node and a friend willing to test buy-side"]
 github_issue: null
 created: 2026-08-03
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -95,3 +95,5 @@ the live run nobody has done yet: a person adds the bridge to Claude Desktop
 or Code, runs `discover` then a paid `get` against a live node, and confirms
 the receipt shows in the conversation and the key never appears in the
 context or transcript. Nothing to build.
+
+**Launch validation (2026-11-15):** The live check in criteria 2-4 (the live bridge run, the receipt in the conversation, no key in context) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

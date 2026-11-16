@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-28
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -71,3 +71,5 @@ walk itself has never been recorded. No test or note shows one fresh-home
 run (first run, connect agent, save, draft, approve) that logs each event
 exactly once. One such run with a scratch `LORE_HOME`, reading
 `usage.log`, closes this.
+
+**Launch validation (2026-11-15):** The live check in criterion 1 (the fresh-home event run) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.
