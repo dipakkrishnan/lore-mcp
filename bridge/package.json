@@ -12,9 +12,9 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@x402/evm": "2.29.0",
-    "agents": "0.32.0",
-    "viem": "2.57.14"
+    "@x402/evm": "2.30.0",
+    "agents": "0.33.0",
+    "viem": "2.57.17"
   },
   "devDependencies": {
     "@types/node": "26.6.6",
