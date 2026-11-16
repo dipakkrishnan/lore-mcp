@@ -1,11 +1,12 @@
 """Create the seed Bluesky records from corpus/bluesky.json, in order.
 
-    BSKY_APP_PASSWORD=... uv run python support/seed/seed_bluesky.py [--dry-run]
+    BSKY_APP_PASSWORD=... uv run python support/seed/seed_bluesky.py [--dry-run] [--again]
 
 Run only against the seed account (its handle is in the corpus). The app password comes
 from the environment and is never printed; nor is the session it buys. Every record's
-returned uri and cid are written into manifest.json (`remote`). Unit-tested against a
-local stub server only.
+returned uri and cid are written into manifest.json (`remote`). A record the manifest
+already has a `remote.id` for is not created twice: the run, and a dry run, refuse and
+name it unless `--again` is passed. Unit-tested against a local stub server only.
 """
 
 from __future__ import annotations
@@ -138,6 +139,24 @@ def write_manifest(made: dict[str, dict[str, str]], path: Path = MANIFEST) -> No
     )
 
 
+def already_made(ids: list[str], path: Path = MANIFEST) -> list[str]:
+    """The corpus ids the manifest already records a remote record for."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    made = {
+        item["id"]
+        for item in document["items"]
+        if (item.get("remote") or {}).get("id") is not None
+    }
+    return [corpus_id for corpus_id in ids if corpus_id in made]
+
+
+def refusal(made: list[str], path: Path) -> str:
+    return (
+        f"refusing: {', '.join(made)} already have a remote.id in {path}; "
+        "pass --again to create them again"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create the seed Bluesky records.")
     parser.add_argument("--service", default=SERVICE)
@@ -146,18 +165,31 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--pause", type=float, default=2.0)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument(
+        "--again", action="store_true", help="create records the manifest already has"
+    )
     args = parser.parse_args(argv)
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    made_before = (
+        []
+        if args.again
+        else already_made([record["id"] for record in corpus["records"]], args.manifest)
+    )
     if args.dry_run:
         for record in corpus["records"]:
             print(record["id"], record["type"], (record["text"] or "")[:60])
+    if made_before:
+        print(refusal(made_before, args.manifest), file=sys.stderr)
+        return 1
+    if args.dry_run:
         return 0
     password = os.environ.get("BSKY_APP_PASSWORD", "")
     if not password:
         print("BSKY_APP_PASSWORD is not set", file=sys.stderr)
         return 2
     made = seed(corpus, args.service, password, args.pause, args.handle)
-    write_manifest(made)
+    write_manifest(made, args.manifest)
     for corpus_id, ref in made.items():
         print(corpus_id, ref["uri"])
     return 0

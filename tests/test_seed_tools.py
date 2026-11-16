@@ -10,6 +10,8 @@ from __future__ import annotations
 import functools
 import io
 import json
+import os
+import re
 import shutil
 import sys
 import tempfile
@@ -46,6 +48,9 @@ import seed_notion  # noqa: E402
 from lore import sources as sources_module  # noqa: E402
 
 RULES = scrub.load_rules()
+LIVE = ROOT / "tests" / "fixtures" / "live"
+# Built in pieces so no file spells an address the scrubber would have to catch.
+EMAIL = "jo.doe" + "@" + "acme.org"
 # Not a real password: only its shape matters, and it is built so no file spells it.
 PASSWORD = "-".join(["ab3d", "efgh", "ijkl", "mnop"])
 
@@ -85,6 +90,23 @@ class Stub(ThreadingHTTPServer):
     def stop(self) -> None:
         self.shutdown()
         self.server_close()
+
+
+def fresh_manifest(tmp: str, prefix: str, made: tuple[str, ...] = ()) -> Path:
+    """A copy of the manifest with no `prefix` item created yet, except those in `made`."""
+    document = json.loads((SEED / "manifest.json").read_text(encoding="utf-8"))
+    for item in document["items"]:
+        if item["id"].startswith(prefix):
+            item["remote"] = {"id": None, "url": None, "created_at": None}
+            if item["id"] in made:
+                item["remote"] = {
+                    "id": f"remote-{item['id']}",
+                    "url": None,
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+    path = Path(tmp) / "manifest.json"
+    path.write_text(json.dumps(document, indent=2), encoding="utf-8")
+    return path
 
 
 class BuildersTest(unittest.TestCase):
@@ -198,6 +220,165 @@ class RecorderTest(LoreTestCase):
         self.assertEqual(sorted(stub.read), ["m-1", "m-2"])
         self.assertEqual(fake.saved, {})
 
+    def test_feed_recordings_are_named_by_order_and_type_never_by_handle(
+        self,
+    ) -> None:
+        class Quiet(SimpleHTTPRequestHandler):
+            def log_message(self, *args: object) -> None:
+                pass
+
+        handler = functools.partial(Quiet, directory=str(SEED / "corpus" / "blog"))
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        page = (LIVE / "bluesky" / "01-feed.json").read_bytes()
+        asked: list[str] = []
+
+        def fetch(reader: object, url: str) -> bytes:
+            asked.append(url)
+            return page
+
+        handle = "tidewell-bsky-lore.bsky.social"
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out = Path(tmp) / "raw", Path(tmp) / "out"
+            with redirect_stdout(io.StringIO()):
+                record.record_feed(
+                    "blog",
+                    f"http://127.0.0.1:{server.server_address[1]}",
+                    raw,
+                    out,
+                    RULES,
+                )
+                with unittest.mock.patch.object(
+                    sources_module.FeedReader, "fetch", fetch
+                ):
+                    counts = record.record_feed(
+                        "bluesky", f"@{handle}", raw, out, RULES
+                    )
+            blog = sorted(p.name for p in (out / "blog").iterdir())
+            bluesky = sorted(p.name for p in (out / "bluesky").iterdir())
+            raw_bluesky = sorted(p.name for p in (raw / "bluesky").iterdir())
+        self.assertEqual(blog, ["01-index.html", "02-feed.xml", "meta.json"])
+        self.assertEqual(bluesky, ["01-feed.json", "meta.json"])
+        self.assertEqual(raw_bluesky, ["01-feed.json"])
+        self.assertEqual(len(asked), 1)
+        self.assertIn("app.bsky.feed.getAuthorFeed", asked[0])
+        self.assertEqual(counts["found"], 7)
+        for part in ("tidewell", "bsky", "lore", "social"):
+            self.assertFalse(any(part in name for name in bluesky), (part, bluesky))
+
+    def test_the_committed_feed_recordings_are_named_by_order_and_type(self) -> None:
+        name = re.compile(r"\d{2}-(index|feed)\.(html|xml|json)")
+        generic = {"www", "com", "app", "dev", "social", "feed", "https", "http"}
+        seen = set()
+        for meta_path in sorted(LIVE.glob("*/meta.json")):
+            connector = meta_path.parent.name
+            if connector not in {"blog", "bluesky", "medium", "substack"}:
+                continue
+            seen.add(connector)
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            words = set(re.split(r"[^a-z0-9]+", meta["locator"].lower())) - generic
+            words.discard("")
+            for request in meta["requests"]:
+                with self.subTest(connector=connector, file=request["file"]):
+                    self.assertRegex(request["file"], name)
+                    self.assertTrue((meta_path.parent / request["file"]).is_file())
+                    found = [w for w in words if w in request["file"].lower()]
+                    self.assertEqual(found, [])
+        self.assertEqual(seen, {"blog", "bluesky", "medium", "substack"})
+
+    def test_meta_arguments_are_scrubbed_like_urls(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            recording = record.Recording(
+                "x", "here", Path(tmp) / "raw", Path(tmp) / "out", RULES
+            )
+            recording.keep("a.json", b"{}", "tool", {"who": [EMAIL]})
+            meta = json.loads(recording.finish().read_text(encoding="utf-8"))
+        request = meta["requests"][0]
+        self.assertEqual(request["arguments"], {"who": ["redacted@example.com"]})
+        self.assertEqual(request["scrub_hits"], {"email": 1})
+
+    def test_meta_keeps_an_email_hit_count_as_a_number(self) -> None:
+        # A rule keyed on the field name `email` rewrites `"email": 1` into text
+        # that is not JSON when meta.json is scrubbed as a whole.
+        with tempfile.TemporaryDirectory() as tmp:
+            recording = record.Recording(
+                "x", "here", Path(tmp) / "raw", Path(tmp) / "out", RULES
+            )
+            recording.keep("a.txt", f"from {EMAIL}".encode(), "tool")
+            meta = json.loads(recording.finish().read_text(encoding="utf-8"))
+        self.assertEqual(meta["requests"][0]["scrub_hits"], {"email": 1})
+
+    def test_arguments_a_rule_leaves_unparseable_are_kept_as_scrubbed_text(
+        self,
+    ) -> None:
+        rule = scrub.Rule("number", re.compile(r"\b5\b"), "REDACTED", ())
+        with tempfile.TemporaryDirectory() as tmp:
+            recording = record.Recording(
+                "x", "here", Path(tmp) / "raw", Path(tmp) / "out", [rule]
+            )
+            recording.keep("a.json", b"{}", "tool", {"user_id": 5})
+            meta = json.loads(recording.finish().read_text(encoding="utf-8"))
+        request = meta["requests"][0]
+        self.assertEqual(request["arguments"], '{"user_id": REDACTED}')
+        self.assertEqual(request["scrub_hits"], {"number": 1})
+
+    def test_a_hosted_recording_scrubs_the_arguments_it_sent(self) -> None:
+        fake = FakeKeyring()
+        previous = keyring.get_keyring()
+        keyring.set_keyring(fake)
+        self.addCleanup(keyring.set_keyring, previous)
+        key = f"m-{EMAIL}"
+        stub = Granola({key: ("Standup", "Jan 2, 2026 3:04 PM", "Notes.")})
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out = Path(tmp) / "raw", Path(tmp) / "out"
+            with serving(stub.server), redirect_stdout(io.StringIO()):
+                record.record_hosted("granola", raw, out, RULES)
+            text = (out / "granola" / "meta.json").read_text(encoding="utf-8")
+        meta = json.loads(text)
+        self.assertNotIn(EMAIL, text)
+        fetched = next(r for r in meta["requests"] if r["file"].startswith("fetch-"))
+        self.assertEqual(
+            fetched["arguments"], {"meeting_ids": ["redacted@example.com"]}
+        )
+        # One address in the answer, one in the arguments.
+        self.assertEqual(fetched["scrub_hits"]["email"], 2)
+        self.assertEqual(stub.read, [key])
+
+    def test_record_obsidian_copies_the_app_file_scrubbed_and_the_choices(
+        self,
+    ) -> None:
+        user = "zq" + "xample"
+        vault = f"/Users/{user}/Vaults/Tidewell"
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "obsidian-home"
+            home.mkdir()
+            (home / "obsidian.json").write_text(
+                json.dumps({"vaults": {"a1": {"path": vault, "ts": 1, "open": True}}}),
+                encoding="utf-8",
+            )
+            raw, out = Path(tmp) / "raw", Path(tmp) / "out"
+            with unittest.mock.patch.dict(os.environ, {"OBSIDIAN_HOME": str(home)}):
+                record.record_obsidian(raw, out, RULES)
+            app = (out / "obsidian" / "obsidian.json").read_text(encoding="utf-8")
+            choices_text = (out / "obsidian" / "choices.json").read_text(
+                encoding="utf-8"
+            )
+            meta = json.loads(
+                (out / "obsidian" / "meta.json").read_text(encoding="utf-8")
+            )
+        self.assertNotIn(user, app + choices_text + json.dumps(meta))
+        self.assertIn("/Users/owner/Vaults/Tidewell", app)
+        choices = json.loads(choices_text)
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0]["label"], "Tidewell")
+        self.assertTrue(choices[0]["open"])
+        self.assertTrue(choices[0]["locator"].startswith("/Users/owner/"))
+        self.assertEqual(
+            [r["file"] for r in meta["requests"]], ["obsidian.json", "choices.json"]
+        )
+
 
 class SeedBlueskyTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -276,13 +457,55 @@ class SeedBlueskyTest(unittest.TestCase):
         self.assertNotIn("session-value", text)
 
     def test_a_dry_run_makes_no_request_and_a_missing_password_stops(self) -> None:
-        with redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(seed_bluesky.main(["--dry-run"]), 0)
-        self.assertIn("bs-01", printed.getvalue())
-        with unittest.mock.patch.dict("os.environ", {"BSKY_APP_PASSWORD": ""}):
-            with redirect_stderr(io.StringIO()):
-                self.assertEqual(seed_bluesky.main(["--service", self.stub.base]), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = ["--manifest", str(fresh_manifest(tmp, "bs-"))]
+            with redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(seed_bluesky.main(["--dry-run", *manifest]), 0)
+            self.assertIn("bs-01", printed.getvalue())
+            with unittest.mock.patch.dict("os.environ", {"BSKY_APP_PASSWORD": ""}):
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(
+                        seed_bluesky.main(["--service", self.stub.base, *manifest]), 2
+                    )
         self.assertEqual(self.stub.calls, [])
+
+    def test_a_seeder_refuses_to_recreate_an_item_that_already_has_a_remote_id(
+        self,
+    ) -> None:
+        committed = (SEED / "manifest.json").read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = fresh_manifest(tmp, "bs-", made=("bs-01",))
+            run = ["--service", self.stub.base, "--pause", "0", "--manifest", str(path)]
+            with unittest.mock.patch.dict(
+                "os.environ", {"BSKY_APP_PASSWORD": PASSWORD}
+            ):
+                with redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(seed_bluesky.main(run), 1)
+                self.assertIn("bs-01", errors.getvalue())
+                self.assertIn("--again", errors.getvalue())
+                self.assertEqual(self.stub.calls, [])
+                with (
+                    redirect_stdout(io.StringIO()),
+                    redirect_stderr(io.StringIO()) as errors,
+                ):
+                    self.assertEqual(seed_bluesky.main([*run, "--dry-run"]), 1)
+                self.assertIn("bs-01", errors.getvalue())
+                self.assertEqual(self.stub.calls, [])
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(seed_bluesky.main([*run, "--again"]), 0)
+            written = json.loads(path.read_text(encoding="utf-8"))
+        created = [c for c in self.stub.calls if c["path"].endswith("createRecord")]
+        self.assertEqual(len(created), len(self.corpus["records"]))
+        remote = next(i["remote"] for i in written["items"] if i["id"] == "bs-01")
+        self.assertTrue(remote["id"].startswith("at://did:plc:stub/"))
+        self.assertEqual((SEED / "manifest.json").read_bytes(), committed)
+
+    def test_the_committed_manifest_refuses_a_rerun(self) -> None:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(seed_bluesky.main(["--dry-run"]), 1)
+        self.assertIn("bs-01", errors.getvalue())
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(seed_bluesky.main(["--dry-run", "--again"]), 0)
 
 
 class SeedNotionTest(unittest.TestCase):
@@ -377,12 +600,48 @@ class SeedNotionTest(unittest.TestCase):
         self.assertNotIn("tok-value", text)
 
     def test_a_dry_run_lists_pages_and_a_missing_token_stops(self) -> None:
-        with redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(seed_notion.main(["--dry-run"]), 0)
-        self.assertIn("nt-01", printed.getvalue())
-        with unittest.mock.patch.dict("os.environ", {"NOTION_TOKEN": ""}):
-            with redirect_stderr(io.StringIO()):
-                self.assertEqual(seed_notion.main(["--parent", "p"]), 2)
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = ["--manifest", str(fresh_manifest(tmp, "nt-"))]
+            with redirect_stdout(io.StringIO()) as printed:
+                self.assertEqual(seed_notion.main(["--dry-run", *manifest]), 0)
+            self.assertIn("nt-01", printed.getvalue())
+            with unittest.mock.patch.dict("os.environ", {"NOTION_TOKEN": ""}):
+                with redirect_stderr(io.StringIO()):
+                    self.assertEqual(seed_notion.main(["--parent", "p", *manifest]), 2)
+
+    def test_a_seeder_refuses_to_recreate_an_item_that_already_has_a_remote_id(
+        self,
+    ) -> None:
+        stub = self.stub()
+        committed = (SEED / "manifest.json").read_bytes()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = fresh_manifest(tmp, "nt-", made=("nt-01",))
+            run = ["--api", stub.base, "--parent", "p", "--manifest", str(path)]
+            with unittest.mock.patch.dict("os.environ", {"NOTION_TOKEN": "tok"}):
+                with redirect_stderr(io.StringIO()) as errors:
+                    self.assertEqual(seed_notion.main(run), 1)
+                self.assertIn("nt-01", errors.getvalue())
+                self.assertIn("--again", errors.getvalue())
+                self.assertEqual(stub.calls, [])
+                with (
+                    redirect_stdout(io.StringIO()),
+                    redirect_stderr(io.StringIO()) as errors,
+                ):
+                    self.assertEqual(seed_notion.main([*run, "--dry-run"]), 1)
+                self.assertIn("nt-01", errors.getvalue())
+                self.assertEqual(stub.calls, [])
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    self.assertEqual(seed_notion.main([*run, "--again"]), 0)
+            written = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(stub.calls)
+        remote = next(i["remote"] for i in written["items"] if i["id"] == "nt-01")
+        self.assertTrue(remote["id"].startswith("id-"))
+        self.assertEqual((SEED / "manifest.json").read_bytes(), committed)
+
+    def test_the_committed_manifest_refuses_a_rerun(self) -> None:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(seed_notion.main(["--dry-run"]), 1)
+        self.assertIn("nt-01", errors.getvalue())
 
     def test_the_stub_reports_http_errors_the_way_urllib_raises_them(self) -> None:
         stub = self.stub(database_status=400)

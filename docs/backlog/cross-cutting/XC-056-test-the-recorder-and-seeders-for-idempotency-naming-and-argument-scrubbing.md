@@ -4,13 +4,13 @@ title: Test the recorder and seeders for idempotency, file naming and argument s
 priority: P3
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-053, XC-049, XC-054]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -77,14 +77,14 @@ were found the hard way with no test since:
 
 ## Acceptance criteria
 
-- [ ] Tests 1-4 exist and pass; the committed recordings' filenames already
+- [x] Tests 1-4 exist and pass; the committed recordings' filenames already
       satisfy rule 1 (no rename needed), asserted by a walk over
       `tests/fixtures/live/*/meta.json` `file` fields.
-- [ ] Both seeders refuse a rerun over an item with `remote.id` set and
+- [x] Both seeders refuse a rerun over an item with `remote.id` set and
       accept `--again`; `--dry-run` shows the refusal without a request.
-- [ ] `meta.json` `arguments` pass the scrub rules; `hygiene_check.py`
+- [x] `meta.json` `arguments` pass the scrub rules; `hygiene_check.py`
       stays green on the committed tree.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`, which include
       `support/seed`) pass.
 
@@ -104,3 +104,38 @@ noted in `XC-054`.
 unblocked, criteria checkable, and the premise checked against the code.
 Implementer note: Run the Python checks with tests/gate.py, not `unittest
 discover`.
+
+**Implemented (2026-11-15).**
+
+- *The "(no rename needed)" premise was wrong.* Bluesky's recording was
+  `01-app-bsky-feed.json` (the XRPC method name, whose `bsky` is part of the
+  handle) and Medium's `meta.json` still named its file `01-owner.xml`, the
+  scrubbed handle, though the file itself had been renamed to `01-feed.xml`
+  (F-md-03). The Bluesky file is renamed to `01-feed.json` and both `file`
+  fields are fixed, so the walk holds. Only the name changed: `sha256_raw` is
+  of the raw bytes. `connectors-notes.md` and the path in `APP-179` are
+  updated. `CAP-019` mentions the old name in prose and is left alone.
+- *`meta.json` with an email hit was not JSON.* `Recording.finish()` scrubs
+  the whole dumped meta again, and the rule keyed on the field name `email`
+  turned `"email": 1` into `"email": REDACTED`. This is why the committed
+  Medium and Substack metas carry a hand-patched `"email": null`. `finish()`
+  now sets the hit counts aside while it scrubs. `XC-053`'s allow entry for
+  numeric emails fixes the same thing from the rules side; the two do not
+  conflict.
+- *Arguments.* They are scrubbed with the URL rules and their hits are added
+  to `scrub_hits`. If a rule leaves them unparseable (an unquoted value
+  rewritten), the scrubbed text is kept instead. Notion page ids in arguments
+  still pass, because no rule matches them (R-12). A `fetch-<key>` filename
+  can still carry parts of an entry key that no rule catches, for example a
+  key with an address in it. That is the same family as R-12 and is not
+  fixed here.
+- *Seeders.* `--manifest PATH` (default `manifest.json`) and `--again` are
+  new. The refusal is checked before any secret is read or request made, and
+  a dry run prints its listing and then the same refusal (exit 1). The
+  committed manifest already records `bs-*` and `nt-01` to `nt-06`, so a bare
+  rerun now refuses. The existing dry-run and missing-secret tests run on a
+  temporary manifest with no remote ids.
+- *Naming.* Every HTML page is now `NN-index` and every feed or JSON page is
+  `NN-feed`, so a non-index HTML candidate or a Mastodon account lookup gets
+  a generic name. That is acceptable under "by order and type".
+

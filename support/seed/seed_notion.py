@@ -1,11 +1,13 @@
 """Create the seed Notion pages from corpus/notion.json through the REST API.
 
-    NOTION_TOKEN=... uv run python support/seed/seed_notion.py --parent PAGE_ID [--dry-run]
+    NOTION_TOKEN=... uv run python support/seed/seed_notion.py --parent PAGE_ID [--dry-run] [--again]
 
 PAGE_ID is the hand-made "Tidewell HQ" page the seed integration was connected to; the
 pages are created under it. The token comes from the environment and is never printed.
 The nt-05 child database is skipped, and logged, if Notion refuses it. Every created
-page id is written into manifest.json (`remote`). Unit-tested against a local stub only.
+page id is written into manifest.json (`remote`). A page the manifest already has a
+`remote.id` for is not created twice: the run, and a dry run, refuse and name it unless
+`--again` is passed. Unit-tested against a local stub only.
 """
 
 from __future__ import annotations
@@ -154,23 +156,54 @@ def write_manifest(made: dict[str, str], path: Path = MANIFEST) -> None:
     )
 
 
+def already_made(ids: list[str], path: Path = MANIFEST) -> list[str]:
+    """The corpus ids the manifest already records a remote record for."""
+    document = json.loads(path.read_text(encoding="utf-8"))
+    made = {
+        item["id"]
+        for item in document["items"]
+        if (item.get("remote") or {}).get("id") is not None
+    }
+    return [corpus_id for corpus_id in ids if corpus_id in made]
+
+
+def refusal(made: list[str], path: Path) -> str:
+    return (
+        f"refusing: {', '.join(made)} already have a remote.id in {path}; "
+        "pass --again to create them again"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Create the seed Notion pages.")
     parser.add_argument("--parent", help="id of the Tidewell HQ page")
     parser.add_argument("--api", default=API)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--manifest", type=Path, default=MANIFEST)
+    parser.add_argument(
+        "--again", action="store_true", help="create records the manifest already has"
+    )
     args = parser.parse_args(argv)
     corpus = json.loads(CORPUS.read_text(encoding="utf-8"))
+    made_before = (
+        []
+        if args.again
+        else already_made([page["id"] for page in corpus["pages"]], args.manifest)
+    )
     if args.dry_run:
         for page in corpus["pages"]:
             print(page["id"], page["title"], f"{len(page['blocks'])} blocks")
+    if made_before:
+        print(refusal(made_before, args.manifest), file=sys.stderr)
+        return 1
+    if args.dry_run:
         return 0
     token = os.environ.get("NOTION_TOKEN", "")
     if not token or not args.parent:
         print("set NOTION_TOKEN and pass --parent", file=sys.stderr)
         return 2
     made, notes = seed(corpus, args.api, token, args.parent)
-    write_manifest(made)
+    write_manifest(made, args.manifest)
     for corpus_id, page in made.items():
         print(corpus_id, page)
     for note in notes:
