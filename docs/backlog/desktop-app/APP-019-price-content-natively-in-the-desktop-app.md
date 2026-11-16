@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-08-23
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -125,3 +125,5 @@ not a price change, so the walk can't be struck as moved there unless
 APP-005 gains that step. To close: the owner changes the price on a live
 store, presses Update store and sees `discover` report the new amount; or
 add that step to APP-005 and strike criterion 6 here naming it.
+
+**Launch validation (2026-11-15):** The live check in criterion 6 (the live price-change walk) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 597
 created: 2026-10-29
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -61,3 +61,5 @@ key exclusion, save, receipt, recurring offer and re-key. What remains is only
 the last criterion: a person runs the live Instinct dogfood (secure key
 handoff, one approved save, receipt on the Mac, private item inspected,
 disconnect revokes) and ticks it. Nothing to build.
+
+**Launch validation (2026-11-15):** The live check in criterion 7 (the live Instinct dogfood) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

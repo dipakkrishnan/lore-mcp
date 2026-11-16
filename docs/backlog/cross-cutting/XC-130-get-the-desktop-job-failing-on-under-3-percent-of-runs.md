@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-080, XC-083, XC-109, XC-124, XC-126, XC-128]
+related: [XC-080, XC-083, XC-109, XC-124, XC-126, XC-128, XC-072]
 blockers: [XC-124, XC-126]
 dependencies: []
 github_issue: null
 created: 2026-11-09
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -41,6 +41,9 @@ While the job fails this often, XC-109 keeps it out of the required checks.
 
 - Land XC-124 and XC-126, the two known causes still open.
 - Find the cause of run 40818098677's `npm test` failure.
+- Before the measuring window opens, upload each failed walk's folder as a
+  workflow artifact, so every failure in the window can be named from its
+  files rather than from the truncated log (carried over from XC-072).
 - Measure main pushes only, which have no work-in-progress failures. Use the
   first 50 main runs after XC-124 and XC-126 have both merged. Count a walk that
   passes on retry as a flake, as XC-080 does, and report that count alongside.
@@ -51,6 +54,10 @@ While the job fails this often, XC-109 keeps it out of the required checks.
       merge, `Desktop macOS checks` fails on fewer than 3% (at most 1 run). The
       reading records the retried-walk count.
 - [ ] Each failure in that window is named, with its cause.
+- [ ] When a desktop walk fails, `Desktop macOS checks` uploads that walk's
+      folder (the `lore-edge.*` `$root` from `support/edge.sh`: `walk.log`,
+      `app.log`, `hang.txt`, the stand-in logs and screenshots) with
+      `actions/upload-artifact`, and uploads nothing when every walk passes.
 - [ ] Layout scan: this item touches no walk; no view scanned by the desktop
       walks before this change is unscanned after it.
 
@@ -66,3 +73,12 @@ While the job fails this often, XC-109 keeps it out of the required checks.
 **Prioritization (2026-11-12):** Priority P2. Stays in-review. Before it can
 be ready: Blockers XC-124 (still ideation; needs filling in and promoting)
 and XC-126 (ready) must complete.
+
+**Folded in (2026-11-15):** XC-072's criterion 1, uploading each failed
+walk's folder as a CI artifact, now lives here as criterion 3; XC-072 is
+obsolete and named this item as its home. `.github/workflows/tests.yml` has
+no `upload-artifact` step today. `support/edge.sh` prints `walk.log`, the head
+of `hang.txt` and the tail of each stand-in log on failure, but the full hang
+sample and the screenshots are lost with the runner. The upload touches no
+walk, so criterion 4's layout scan is unaffected, and it does not depend on
+XC-124 or XC-126.

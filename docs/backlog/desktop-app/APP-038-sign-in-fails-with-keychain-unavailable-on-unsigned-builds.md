@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-01
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -126,3 +126,5 @@ dogfood:new` is still in `app/desktop/package.json`, so the premise stands.
 What remains is criterion 3, a human step: one person clicks through
 provider sign-in in `npm run dogfood:new` and it completes. An agent can't
 close it.
+
+**Launch validation (2026-11-15):** The live check in criterion 3 (the provider sign-in click-through in `npm run dogfood:new`) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.
