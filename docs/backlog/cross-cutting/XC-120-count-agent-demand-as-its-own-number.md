@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-31
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -102,3 +102,5 @@ someone with PostHog access: confirm that a known-User-Agent request to
 each live endpoint arrives with the right `agent` and `$ip: null`, then
 save the "Agent demand, weekly" insight described above. No code is
 missing for the endpoints that exist.
+
+**Launch validation (2026-11-15):** The live check in criteria 1-2 (confirming the PostHog events and saving the weekly insight) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

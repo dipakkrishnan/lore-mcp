@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: 421
 created: 2026-10-09
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -79,3 +79,5 @@ item exists to move it to (a search of `docs/backlog/` found none). Either the
 owner lists a collection and waits for a sale, or a launch-validation item is
 filed for this and similar market-event checks (MON-047's live card sale,
 MON-025's 1¢ purchase) and this item closes.
+
+**Launch validation (2026-11-15):** The live check in criterion 5 (a real buyer buys a collection) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

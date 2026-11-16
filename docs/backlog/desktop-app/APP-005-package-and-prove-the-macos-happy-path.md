@@ -10,7 +10,7 @@ blockers: [APP-004, APP-006, APP-007]
 dependencies: ["Apple Developer signing credentials for public distribution", "A testnet-funded buyer wallet for the live paid-path proof"]
 github_issue: null
 created: 2026-08-21
-updated: 2026-11-12
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -92,3 +92,5 @@ MON-025 (real money) and MON-054 (card-on-bid) make wrong. Rewrite them as
 one real-money live-proof item that also takes in the leftover live walks
 from APP-019, APP-030, APP-044 and APP-098. Version-bump PRs (#399-#662)
 also use this id and need their own home.
+
+**Launch validation (2026-11-15):** The live check in criteria 1 and 3 (the clean-account install and the live paid run, restated for real money); criterion 2, the automated temp-home test, stays here is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

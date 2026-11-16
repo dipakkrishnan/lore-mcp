@@ -10,7 +10,7 @@ blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-17
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -83,3 +83,5 @@ and from ChatGPT, then record the plan here. No record of such a run exists in
 the repo: the only "Free plan" mentions are this item and
 `docs/hosted-nodes.md`, about Cloudflare. Once that note is written this
 closes with no code change.
+
+**Launch validation (2026-11-15):** The live check in criterion 3 (a save through the private link from Claude and from ChatGPT) is gathered in XC-135, one item for the launch checks only a person or live money can run. Once that move is accepted, strike it here naming XC-135 and close this item as code-complete. Status not changed in this pass.

@@ -5,12 +5,12 @@ priority: P2
 effort: M
 component: cross-cutting
 status: in-review
-related: [XC-040, MON-036, APP-119]
+related: [XC-040, MON-036, APP-119, XC-133, XC-134]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-25
-updated: 2026-11-13
+updated: 2026-11-15
 ---
 
 ## Problem
@@ -76,3 +76,5 @@ bid answers. Neither XC-119 (classifying bids) nor MON-051 (filling bids)
 has a criterion for either one today, so they can't be struck as moved.
 To close: give criteria 5 and 6 a home (a new item, or criteria added to
 XC-119 or MON-051), strike them here naming that id, and set completed.
+
+**Follow-up filed (2026-11-15):** Criterion 5 now lives in XC-133 (choose a piece's markets on the approval card, and propose new ones). Criterion 6 now lives in XC-134 (bid answers on each market's page, beside its pieces). Strike both here naming those ids, then this item can close.
