@@ -39,17 +39,19 @@ MANY_ACCOUNTS = (
     "    `Lab`: `fedcba9876543210fedcba9876543210`\n\n"
 )
 
-# `secret list` for a Worker that was never deployed, or was deleted (MON-057).
+# `secret list` on an account the store's Worker was never deployed to (MON-057).
 WORKER_NOT_FOUND = (
     '\n✘ [ERROR] Worker "lore" not found.\n\n'
     "  If this is a new Worker, run `wrangler deploy` first to create it.\n"
-    "  Otherwise, check that the Worker name is correct and you're logged into the "
-    "right account.\n\n"
+    "  Otherwise, check that the Worker name is correct and you're logged into "
+    "the right account.\n\n"
 )
 
 SOURCES = {
     "VERIFY_EMAIL": "Please verify your account's email address and try again.",
     "NO_SUBDOMAIN": "or register a workers.dev subdomain here:",
     "MANY_ACCOUNTS": "More than one account available but unable to select one in non-interactive mode.",
-    "WORKER_NOT_FOUND": "If this is a new Worker, run",
+    # cli.js escapes the backticks around `wrangler deploy` (a template literal),
+    # so the shared sentence stops before them; WorkerNotFoundTest checks the rest.
+    "WORKER_NOT_FOUND": "If this is a new Worker, run ",
 }

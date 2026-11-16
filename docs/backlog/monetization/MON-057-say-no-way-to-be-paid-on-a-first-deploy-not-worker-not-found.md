@@ -41,8 +41,10 @@ missing. That would let a store with no wallet and no cards deploy and open for 
 
 - [x] The fake wrangler in `tests/test_deploy.py` answers `secret list` with wrangler's not-found error until
       a `deploy` has run (today it answers `[]`, tests/test_deploy.py:140-144).
-- [x] With that fake, `lore node deploy` with no wallet and no cards raises `StoreFailed` with reason
-      `no_payout` and the "no way to be paid" sentence, and runs neither `d1 create` nor `deploy`.
+- [x] With that fake, `lore node deploy` with no wallet and no cards is refused with the "no way to be paid"
+      sentence, classed `no_payout` (the `store.failed` usage reason and the store log line), and runs neither
+      `d1 create` nor `deploy`. The refusal stays the plain `ValueError` that `_recorded_deploy` re-raises for
+      every payout refusal (`test_a_payout_refusal_is_counted_and_stays_a_plain_refusal`), not a `StoreFailed`.
 - [x] A listing refused for another reason (auth 10000) still stops with the settings-read error
       (existing test around tests/test_deploy.py:1151-1159 still passes).
 - [x] A first deploy with `--wallet`, or with card payments on, is unchanged.
@@ -55,20 +57,20 @@ wording there when implementing.
 
 **Prioritization pass 2026-11-11:** Promoted `in-review` → `ready` and P3 → P2: no blockers, concrete criteria against the fake wrangler, and it is the first message a new seller without a payout sees (XC-085 is P0 on the same theme).
 
-**Implementation (2026-11-13):**
+**Implemented 2026-11-12 (lore-worker):** `_deploy` runs the payout check's `secret list` without `fail=` and
+reads a non-zero answer as "no Worker yet, so no wallet" only when wrangler's words say so (`_never_deployed`:
+`Worker "<name>" … not found` *and* its advice to run `wrangler deploy` first, after stripping colour codes);
+every other failure raises the same settings-read error as before. Confirmed the wording on the pinned
+wrangler 4.151.1 (`wrangler-dist/cli.js`, telemetry "secret list worker not found"), identical to 4.147. The
+quote lives in `tests/fixtures/wrangler.py` as `WORKER_NOT_FOUND`, so `WranglerWordsTest` catches a rewording;
+`SOURCES` holds only the backtick-free lead-in because cli.js escapes those backticks, and
+`WorkerNotFoundTest` checks the rest of the advice against the installed source. AC2 was reworded: its
+"raises `StoreFailed`" contradicted the deliberate plain-`ValueError` payout refusal. Not changed:
+`secret_names()` (`lore node secrets`) on a never-deployed account still says reading the secrets failed —
+a possible follow-up.
 
-- `_deploy` (`lore/deploy.py`) runs `secret list` without `fail=`. It reads
-  wrangler's not-found answer (both "not found" and "wrangler deploy" in the
-  output) as no `LORE_WALLET`, so the `no_payout` refusal follows, and runs
-  neither `d1 create` nor `deploy`. Any other non-zero listing still raises
-  "reading your store's settings from Cloudflare failed".
-- The fake wrangler in `tests/test_deploy.py` now answers `secret list` with
-  wrangler 4.151.1's not-found error (`refusals.WORKER_NOT_FOUND`) until a
-  `deploy` has run, unless the Worker has a wallet secret. The existing payout
-  tests, including the one that counts `store.failed` with reason `no_payout`,
-  therefore run the not-found path, and they failed before the fix.
-- `refusals.SOURCES` pins the wording against wrangler's own source.
-- One deviation: the refusal surfaces as the existing plain `ValueError` with
-  the "no way to be paid" sentence, which the store-failure path counts as
-  `no_payout` (`StoreFailed.of`). That matches the existing tests, rather than
-  a `StoreFailed` raised directly.
+**Merged with main 2026-11-15:** main had landed a second, cruder implementation of this same change
+(a `"not found" in said and "wrangler deploy" in said` substring test inside `_deploy`). This branch keeps
+`_never_deployed`, which matches wrangler's `Worker "<name>" … not found` sentence and its deploy-first advice
+after stripping colour codes, and the shared fake in `tests/test_deploy.py` now answers not-found until a deploy
+has run or the Worker has a wallet secret.
