@@ -396,6 +396,138 @@ class FeedReadTest(unittest.TestCase):
             self.assertEqual(preview("bomb.example.com")["state"], "unreachable")
 
 
+class JsonFeedFieldsTest(LoreTestCase):
+    """CAP-041: one odd field is not a reason to call a JSON Feed no feed."""
+
+    LESSON = "A lesson long enough to be kept as a memory of its own, number"
+
+    def body(self, payload: object) -> bytes:
+        return json.dumps(payload).encode()
+
+    def read(self, payload: object) -> FeedReader:
+        found = reader("https://example.com/feed.json")
+        with patch.object(FeedReader, "fetch", return_value=self.body(payload)):
+            found.posts  # noqa: B018 - the read is the point
+        return found
+
+    def test_a_numeric_id_is_read_as_text_and_keys_a_post_without_a_url(self) -> None:
+        payload = {
+            "version": "https://jsonfeed.org/version/1.1",
+            "items": [
+                {
+                    "id": 1001,
+                    "url": "https://example.com/1",
+                    "content_text": f"{self.LESSON} one.",
+                },
+                {"id": 1002, "content_text": f"{self.LESSON} two."},
+            ],
+        }
+        reading = self.read(payload)
+        self.assertEqual(reading.errors, 0)
+        self.assertEqual(
+            [(post.key, post.source_path) for post in reading.posts],
+            [("https://example.com/1", "https://example.com/1"), ("1002", "1002")],
+        )
+        with (
+            patch.object(FeedReader, "fetch", return_value=self.body(payload)),
+            Store() as store,
+        ):
+            entry = sources_module.Registry(store).add(
+                "https://example.com/feed.json", kind="feed"
+            )
+            self.assertEqual((entry["state"], entry["imported"]), ("connected", 2))
+            keys = store.source_keys(str(entry["name"]))
+        self.assertEqual(sorted(keys), ["1002", "https://example.com/1"])
+
+    def test_a_null_field_is_the_fields_default(self) -> None:
+        payload = {
+            "title": None,
+            "items": [
+                {
+                    "id": "a",
+                    "url": "https://example.com/a",
+                    "title": None,
+                    "content_text": f"{self.LESSON} one.\nAnd a second line.",
+                },
+                {
+                    "id": "b",
+                    "url": None,
+                    "content_html": None,
+                    "content_text": f"{self.LESSON} two.",
+                    "date_published": None,
+                },
+            ],
+        }
+        reading = self.read(payload)
+        self.assertEqual(reading.errors, 0)
+        first, second = reading.posts
+        self.assertEqual(first.title, f"{self.LESSON} one.")
+        self.assertEqual(second.source_path, "b")
+        self.assertIsNone(second.dated)
+        with patch.object(FeedReader, "fetch", return_value=self.body(payload)):
+            found = preview("https://example.com/feed.json")
+        # A feed with no title keeps the name the source already had.
+        self.assertEqual((found["label"], found["count"]), ("example.com", 2))
+        self.assertEqual(found["state"], "connected")
+
+    def test_an_unreadable_item_is_counted_and_the_rest_import(self) -> None:
+        payload = {
+            "title": "Notes",
+            "items": [
+                {
+                    "id": "1",
+                    "url": "https://example.com/1",
+                    "content_text": f"{self.LESSON} one.",
+                },
+                {"id": "2", "title": 5, "content_text": f"{self.LESSON} two."},
+                42,
+                {
+                    "id": "4",
+                    "url": "https://example.com/4",
+                    "content_text": f"{self.LESSON} four.",
+                },
+            ],
+        }
+        reading = self.read(payload)
+        self.assertEqual(reading.errors, 2)
+        self.assertEqual(
+            [post.source_path for post in reading.posts],
+            ["https://example.com/1", "https://example.com/4"],
+        )
+        with (
+            patch.object(FeedReader, "fetch", return_value=self.body(payload)),
+            Store() as store,
+        ):
+            registry = sources_module.Registry(store)
+            entry = registry.add("https://example.com/feed.json", kind="feed")
+            self.assertEqual(entry["imported"], 2)
+            report = registry.read([str(entry["name"])])[0]
+        self.assertEqual((report["errors"], report["unchanged"]), (2, 2))
+
+    def test_a_feed_whose_every_item_fails_is_empty_not_absent(self) -> None:
+        payload = {"items": [42, {"id": "1", "title": ["not", "text"]}]}
+        found = reader("https://example.com/feed.json")
+        self.assertEqual(found._json_feed(self.body(payload)), [])
+        self.assertEqual(found.errors, 2)
+        reading = self.read(payload)
+        self.assertEqual((reading.posts, reading.errors), ([], 2))
+        with patch.object(FeedReader, "fetch", return_value=self.body(payload)):
+            self.assertEqual(
+                preview("https://example.com/feed.json")["state"], "nothing_found"
+            )
+
+    def test_json_that_is_not_a_json_feed_is_still_no_feed(self) -> None:
+        # A regression guard: discovery goes on past these to the next guess.
+        found = reader("https://example.com/feed.json")
+        for payload in ([], {}, {"items": 3}, "x", None, {"feed": []}, [{"id": "1"}]):
+            with self.subTest(payload=payload):
+                self.assertIsNone(found._json_feed(self.body(payload)))
+        self.assertIsNone(
+            found._json_feed((FIXTURES / "mastodon-statuses.json").read_bytes())
+        )
+        self.assertEqual(found.errors, 0)
+
+
 class FeedImportTest(LoreTestCase):
     def test_guid_and_anonymous_rss_items_do_not_overwrite_each_other(self) -> None:
         body = """<rss><channel><title>Notes</title>

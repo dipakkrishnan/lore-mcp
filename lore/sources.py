@@ -833,10 +833,26 @@ class FeedPost(BaseModel):
     reblog: dict[str, object] | None = None
     in_reply_to_id: str | None = None
 
+    @field_validator("id", "title", "html", "text", "url", "at", mode="before")
+    @classmethod
+    def null_is_empty(cls, value: object) -> object:
+        # CAP-041: a field sent as null is a field not sent.
+        return "" if value is None else value
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def id_as_text(cls, value: object) -> object:
+        # JSON Feed 1.1: a reader coerces an id that is a number to a string.
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return value
+
 
 class JsonFeed(BaseModel):
-    title: str = ""
-    items: list[FeedPost]
+    """Only the shape of a JSON Feed: its items are read one at a time."""
+
+    title: object = None
+    items: list[object]
 
 
 class BlueskyPost(BaseModel):
@@ -1021,16 +1037,26 @@ class FeedReader(Reader):
             payload = JsonFeed.model_validate_json(body)
         except ValueError:
             return None
-        self.label = payload.title or self.label
-        return [
-            self._post(
-                post.title,
-                _Html(post.html).text() or post.text,
-                post.url or post.id,
-                post.at,
+        if isinstance(payload.title, str) and payload.title:
+            self.label = payload.title
+        posts = []
+        for raw in payload.items:
+            # CAP-041: one item that can't be read is counted, as an RSS or
+            # Atom entry is, and the rest of the feed still imports.
+            try:
+                post = FeedPost.model_validate(raw)
+            except ValidationError:
+                self.errors += 1
+                continue
+            posts.append(
+                self._post(
+                    post.title,
+                    _Html(post.html).text() or post.text,
+                    post.url or post.id,
+                    post.at,
+                )
             )
-            for post in payload.items
-        ]
+        return posts
 
     def _item(self, entry: Element, index: int) -> Item:
         # `content:encoded` is the whole post where a feed carries both.

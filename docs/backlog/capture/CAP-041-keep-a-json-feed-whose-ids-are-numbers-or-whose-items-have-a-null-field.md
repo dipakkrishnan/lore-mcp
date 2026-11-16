@@ -4,13 +4,13 @@ title: Keep a JSON Feed whose ids are numbers or whose items have a null or wron
 priority: P3
 effort: S
 component: capture
-status: ready
+status: completed
 related: [CAP-005, CAP-008, CAP-023]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-27
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 ## Problem
@@ -46,17 +46,17 @@ to `FeedPost` must keep Mastodon's behaviour.
 
 ## Acceptance criteria
 
-- [ ] A JSON Feed item with `"id": 1001` imports, keyed by its `url` (or by
+- [x] A JSON Feed item with `"id": 1001` imports, keyed by its `url` (or by
       `"1001"` when it has no url).
-- [ ] An item with `"title": null` imports, titled from its first line. A
+- [x] An item with `"title": null` imports, titled from its first line. A
       feed-level `"title": null` falls back to the source's label.
-- [ ] An item that still can't be read is counted in `errors` and the other
+- [x] An item that still can't be read is counted in `errors` and the other
       items import.
-- [ ] A feed where every item fails returns `[]` with `errors` set, not
+- [x] A feed where every item fails returns `[]` with `errors` set, not
       `None`.
-- [ ] A JSON body that isn't a JSON Feed still returns `None`, so discovery
+- [x] A JSON body that isn't a JSON Feed still returns `None`, so discovery
       goes on to the next candidate.
-- [ ] New tests in `tests/test_feed.py` pass, and the existing Mastodon and
+- [x] New tests in `tests/test_feed.py` pass, and the existing Mastodon and
       JSON Feed tests stay green.
 
 ## Notes
@@ -66,3 +66,17 @@ asserts that a JSON Feed is *discovered*, not how it is validated.
 
 **Prioritization (2026-11-12):** Priority P3 (was P2). Promoted to ready:
 unblocked, criteria checkable, and the premise checked against the code.
+
+**Done (2026-11-14):** `_json_feed` now checks only the envelope (a JSON
+object with an `items` array) and validates each item with `FeedPost` on its
+own; an item that fails is counted in `errors` and the rest import, so a feed
+whose every item fails is `[]` (nothing found), not `None`. `FeedPost` reads a
+null text field as `""` and a numeric `id` as its string (JSON Feed 1.1); a
+feed-level `title` that is null or not a string leaves the source's label.
+Side effects worth knowing: a body like `{"items": [1, 2]}` now stops
+discovery as an empty feed instead of falling through to the guesses (what
+the fourth criterion asks), and a Mastodon status with `"url": null` now
+imports keyed by its id instead of failing its page (`AliasChoices` takes the
+present-but-null `url`, not `uri`). Left as they were: an item with neither
+`url` nor `id` is still keyed by `""`, and `MediumFeed`'s generator check
+still does not apply to a JSON body.
