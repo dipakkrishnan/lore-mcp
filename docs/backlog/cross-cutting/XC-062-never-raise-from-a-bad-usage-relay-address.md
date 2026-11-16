@@ -4,13 +4,13 @@ title: Never raise from a bad usage relay address
 priority: P3
 effort: XS
 component: cross-cutting
-status: ready
+status: completed
 related: [APP-058, CLI-004, XC-060, XC-061]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-10
-updated: 2026-11-12
+updated: 2026-11-13
 ---
 
 ## Problem
@@ -43,13 +43,13 @@ nothing, return normally.
 
 ## Acceptance criteria
 
-- [ ] With `LORE_USAGE_URL=not-a-url`, `record("cli.failed", "other")`
+- [x] With `LORE_USAGE_URL=not-a-url`, `record("cli.failed", "other")`
       returns without raising and makes no request.
-- [ ] With that override, a failing `lore` command prints its own error and
+- [x] With that override, a failing `lore` command prints its own error and
       no traceback.
-- [ ] With that override, a succeeding command that reaches a milestone for
+- [x] With that override, a succeeding command that reaches a milestone for
       the first time exits 0 with its normal output.
-- [ ] `tests/test_usage.py` or `tests/test_cli.py` covers each line above.
+- [x] `tests/test_usage.py` or `tests/test_cli.py` covers each line above.
 
 ## Notes
 
@@ -68,3 +68,14 @@ and test.
 
 **Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Shipped (2026-11-13):** `usage._send` treats an address `urllib` can't
+build a request for as no relay and returns before starting the sender
+thread. Beyond the proposed approach, the sender thread's `post()` now also
+drops `ValueError` and `http.client.HTTPException`: an address such as
+`http://127.0.0.1:notaport/events` builds a request but fails inside
+`urlopen` with `InvalidURL`, which printed a thread traceback. The tests are
+in `tests/test_usage.py` `SendTest` (real `_send`, sender-thread exceptions
+fail the test). `tests/test_cli.py` is untouched because open PR #626 edits
+it. `XC-060` is still in-review, so a bad address still marks a `once`
+milestone sent, exactly as a dead relay does today.
