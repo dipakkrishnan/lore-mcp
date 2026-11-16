@@ -4,13 +4,13 @@ title: Close the hygiene blind spots in the scrubber, the recordings and the cor
 priority: P3
 effort: S
 component: cross-cutting
-status: ready
+status: completed
 related: [XC-049, XC-056, XC-048, CAP-018]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-09-30
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 ## Problem
@@ -86,14 +86,14 @@ four things they do not check have each already bitten or nearly bitten:
 
 ## Acceptance criteria
 
-- [ ] Tests 1-5 exist in `tests/test_seed_hygiene.py` and pass on the
+- [x] Tests 1-5 exist in `tests/test_seed_hygiene.py` and pass on the
       committed trees.
-- [ ] `uv run python support/seed/hygiene_check.py` exits 1 on an
+- [x] `uv run python support/seed/hygiene_check.py` exits 1 on an
       unparseable recording and on a disallowed `real_library` key
       (unit-tested with temp trees), and exits 0 on the committed trees.
-- [ ] Reverting the F-tool-01 rule fix (re-widen the pattern to match a
+- [x] Reverting the F-tool-01 rule fix (re-widen the pattern to match a
       brace) makes test 1 fail.
-- [ ] `uv run python -m unittest discover -s tests` passes; ruff check,
+- [x] `uv run python -m unittest discover -s tests` passes; ruff check,
       ruff format --check and mypy (paths as in `XC-048`) pass.
 
 ## Notes
@@ -110,3 +110,45 @@ not, so compare canaries, not bodies).
 unblocked, criteria checkable, and the premise checked against the code.
 Implementer note: Run the Python checks with tests/gate.py, not `unittest
 discover`.
+
+**Implementation (2026-11-14, lore-worker):**
+
+- Test 1 was red on main for the number case: `granola-account-field`
+  still turned `"email": 0` into `"email": REDACTED` (invalid JSON). That
+  is the second half of F-tool-01 — `record.py:89` scrubs
+  `json.dumps(meta)`, whose `scrub_hits` dict is keyed by rule name, so the
+  `email` hit count was eaten and the two `meta.json` files were repaired
+  by hand to `null`. Fixed in the rule, not the files: a new allow entry
+  keeps a bare number after a quoted `email` key (an address is never a
+  number). Numeric `user_id`/`account_id` values are still redacted on
+  purpose (a numeric id may be real); they still produce invalid JSON,
+  which the new parse check now catches instead of a contract test.
+- So `support/seed/scrub-rules.json` changed too, beyond the files listed
+  above; recordings and corpus are untouched.
+- Parse check: `.json`, every `.jsonl` line and `.xml` (via `defusedxml`)
+  → `path:line:not-parseable`. `manifest.json` is skipped there because it
+  already reports `manifest-not-json`. `.html` is covered by the existing
+  `not-utf8` check.
+- `real_library`: top-level keys outside `REAL_LIBRARY_KEYS` →
+  `real-library-key:<source>.<key>`; any string under an allowed key that
+  looks like an id (32 hex characters, or a dashed UUID — the Notion and
+  Claude shape) → `real-library-id:<source>.<key>`.
+- Test 3 adapts to the corpus shapes: JSON corpora (Bluesky, Substack,
+  Medium, Notion `pages` + `top_level`) are read per record with the
+  `canary` field left out, so "exactly once" means once in the text.
+  ChatGPT and Claude exports hold several items per file, and a Claude
+  conversation repeats its canary (`text` and `content[].text`) while
+  cg-01's conversation holds cg-91's regenerated sibling, so for those the
+  rule is "the canary is in exactly one conversation". obs-16 is a symlink
+  (an alias of another item's file) and is skipped. The marker is required
+  on every public item except three without text of their own, named in
+  the test with their manifest `why`: bs-08 (repost), nt-06 (empty page),
+  nt-00 (the hand-made home page). A companion test fails if one of those
+  gains a canary or the marker.
+- Test 4 checks both `build_blog.build()["index.html"]` and the committed
+  `corpus/blog/index.html`.
+- Verification: `unittest discover -s tests` has two failures, both
+  outside this change and red on unmodified main (`test_hosted`
+  LoopbackDeadline, `test_hosted_store` BrokenAnswer on Python 3.14);
+  `tests/test_seed_hygiene.py` passes in full, and ruff, ruff format and
+  mypy on the CI paths are clean.

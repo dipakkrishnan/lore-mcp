@@ -90,7 +90,7 @@
       "name": "granola-account-field",
       "pattern": "(?i)\\b((?:account|workspace|user)[_-]?id|email)([\"']\\s*:\\s*[\"']?|\\s*=\\s*[\"']?)[^\"'\\s<,}{\\[]+",
       "replacement": "\\1\\2REDACTED",
-      "allow": ["REDACTED$", "null$"]
+      "allow": ["REDACTED$", "null$", "(?i)^email[\"']\\s*:\\s*\\d+$"]
     },
     {
       "name": "granola-account-tag",

@@ -8,17 +8,24 @@ sample secret is assembled at run time so this file does not itself contain one.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
+
+from defusedxml.ElementTree import fromstring
 
 ROOT = Path(__file__).resolve().parent.parent
 SEED = ROOT / "support" / "seed"
 sys.path.insert(0, str(SEED))
 
+import build_blog  # noqa: E402
 import hygiene_check  # noqa: E402
 import scrub  # noqa: E402
+
+from lore.sources import _Html  # noqa: E402
 
 RULES = scrub.load_rules()
 JWT = (
@@ -27,6 +34,20 @@ JWT = (
 NOTION = "n" + "tn_" + "A1b2C3d4E5f6G7h8I9j0K1l2"
 OWNER = "s" + "dasbach"
 OWNER_PATH = "/Users/" + "s" + "hane" + "dasbach" + "/code"
+LIVE = ROOT / "tests" / "fixtures" / "live"
+PUBLIC = {"bluesky", "substack", "medium", "blog", "notion", "granola"}
+# Public items with no text of their own to carry the marker (each one's manifest `why`).
+NO_MARKER = {
+    "bs-08": "a repost; it has no text of its own",
+    "nt-06": "an empty page; no blocks",
+    "nt-00": "the hand-made workspace home page",
+}
+JSON_CORPUS = {
+    "bluesky": ("bluesky.json", ("records",)),
+    "substack": ("substack.json", ("posts",)),
+    "medium": ("medium.json", ("stories",)),
+    "notion": ("notion.json", ("pages", "top_level")),
+}
 
 
 def cleaned(text: str) -> str:
@@ -101,6 +122,19 @@ class ScrubRulesTest(unittest.TestCase):
         self.assertNotIn(fake, out)
         self.assertIn('url="user://REDACTED"', out)
 
+    def test_a_brace_null_or_number_after_a_scrubbed_key_is_untouched(self) -> None:
+        """F-tool-01 regression (XC-053): a scrubbed key only ever loses a string value."""
+        for kept in (
+            '{"user_id": {"name": "Priya"}}',
+            '{"email": 0}',
+            '{"email": null}',
+        ):
+            self.assertEqual(cleaned(kept), kept)
+            json.loads(cleaned(kept))
+        redacted = cleaned('{"owner_id": "' + "a1b2c3d4e5f6" + '"}')
+        self.assertNotIn("a1b2c3d4e5f6", redacted)
+        json.loads(redacted)
+
     def test_scrubbing_twice_changes_nothing(self) -> None:
         once = cleaned(f"{JWT} {NOTION} {OWNER_PATH} +1 (415) 555-0134")
         self.assertEqual(cleaned(once), once)
@@ -131,6 +165,73 @@ class HygieneCheckTest(unittest.TestCase):
         self.assertIn("leak.txt:1:notion-secret", joined)
         self.assertIn("bundle.zip:0:zip-archive", joined)
         self.assertIn(f"manifest.json:0:credential-key:{bad_key}", joined)
+
+    def test_every_committed_recording_still_parses(self) -> None:
+        for path in sorted(LIVE.rglob("*")):
+            if not path.is_file():
+                continue
+            with self.subTest(path=str(path.relative_to(ROOT))):
+                if path.suffix == ".html":
+                    path.read_bytes().decode("utf-8")
+                    continue
+                text = path.read_text(encoding="utf-8")
+                if path.suffix == ".json":
+                    json.loads(text)
+                elif path.suffix == ".jsonl":
+                    for line in text.splitlines():
+                        if line.strip():
+                            json.loads(line)
+                elif path.suffix == ".xml":
+                    fromstring(text)
+
+    def test_it_flags_an_unparseable_recording(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tools.json").write_text('{"a": ', encoding="utf-8")
+            (root / "cli.jsonl").write_text('{"ok": 1}\n{"a": \n', encoding="utf-8")
+            (root / "feed.xml").write_text("<rss><channel>", encoding="utf-8")
+            (root / "fine.json").write_text('{"a": 1}', encoding="utf-8")
+            problems = hygiene_check.check([root], root)
+            self.assertEqual(hygiene_check.main([tmp]), 1)
+        self.assertEqual(
+            sorted(problems),
+            [
+                "cli.jsonl:2:not-parseable",
+                "feed.xml:0:not-parseable",
+                "tools.json:0:not-parseable",
+            ],
+        )
+
+    def test_it_flags_a_real_library_key_or_id_outside_the_allow_list(self) -> None:
+        hex_id = "0123456789abcdef" * 2
+        dashed = "-".join(["0123abcd", "4567", "89ab", "cdef", "0123456789ab"])
+        manifest = {
+            "sources": {
+                "notion": {
+                    "real_library": {
+                        "name": "notion",
+                        "imported": 3,
+                        "memory_ids": ["m1", "m2"],
+                        "note": f"first memory {hex_id}",
+                        "recorded": {"page": dashed},
+                    }
+                },
+                "chatgpt": {"note": "no real_library block"},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+            problems = hygiene_check.check([root], root)
+            self.assertEqual(hygiene_check.main([tmp]), 1)
+        self.assertEqual(
+            problems,
+            [
+                "manifest.json:0:real-library-key:notion.memory_ids",
+                "manifest.json:0:real-library-id:notion.note",
+                "manifest.json:0:real-library-id:notion.recorded",
+            ],
+        )
 
     def test_it_flags_a_file_over_two_megabytes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -186,6 +287,74 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(len(canaries), len(set(canaries)))
         for canary in canaries:
             self.assertRegex(canary, r"^canary-[a-z]+-\d\d$")
+
+    def item_text(self, item: dict[str, Any]) -> str:
+        """The item's own text: its corpus file, or its record minus the `canary` field."""
+        if item["connector"] not in JSON_CORPUS:
+            return (ROOT / str(item["corpus_path"])).read_text(encoding="utf-8")
+        name, lists = JSON_CORPUS[item["connector"]]
+        corpus = json.loads((SEED / "corpus" / name).read_text(encoding="utf-8"))
+        (record,) = [r for key in lists for r in corpus[key] if r["id"] == item["id"]]
+        return json.dumps({k: v for k, v in record.items() if k != "canary"})
+
+    def test_every_corpus_item_carries_its_canary_once_and_public_items_the_marker(
+        self,
+    ) -> None:
+        """XC-053: canary presence per item, not just uniqueness in the manifest.
+
+        A symlinked corpus file is an alias of another item's file (obs-16), so it is
+        skipped. ChatGPT and Claude exports hold several items in one file, and a
+        conversation repeats its canary (Claude) or holds a regenerated sibling's
+        (cg-91 inside cg-01), so for them the rule is: the canary is in exactly one
+        conversation of the export.
+        """
+        canaries = {i["canary"] for i in self.manifest["items"] if i["canary"]}
+        for item in self.manifest["items"]:
+            path = ROOT / item["corpus_path"]
+            canary = item["canary"]
+            with self.subTest(item=item["id"]):
+                if path.is_symlink():
+                    continue
+                if item["connector"] in ("chatgpt", "claude"):
+                    if canary:
+                        conversations = json.loads(path.read_text(encoding="utf-8"))
+                        holding = [c for c in conversations if canary in json.dumps(c)]
+                        self.assertEqual(len(holding), 1)
+                    continue
+                text = self.item_text(item)
+                found = set(re.findall(r"canary-[a-z]+-\d\d", text))
+                if canary:
+                    self.assertEqual(text.count(canary), 1)
+                    self.assertEqual(found & canaries, {canary})
+                else:
+                    self.assertNotIn("canary-", text)
+                if item["connector"] in PUBLIC and item["id"] not in NO_MARKER:
+                    self.assertIn("tidewell-seed", text)
+
+    def test_the_marker_exemptions_are_still_items_without_text(self) -> None:
+        ids = {i["id"]: i for i in self.manifest["items"]}
+        for item_id in NO_MARKER:
+            self.assertIsNone(ids[item_id]["canary"], item_id)
+            self.assertNotIn("tidewell-seed", self.item_text(ids[item_id]), item_id)
+
+    def test_the_built_index_advertises_only_the_public_feed(self) -> None:
+        built = build_blog.build()["index.html"]
+        committed = (SEED / "corpus" / "blog" / "index.html").read_text(
+            encoding="utf-8"
+        )
+        for index in (built, committed):
+            self.assertEqual(_Html(index).links, ["/feed.xml"])
+            self.assertNotIn("import/substack.xml", index)
+            self.assertNotIn("import/medium/", index)
+
+    def test_real_library_blocks_hold_only_names_and_counts(self) -> None:
+        for name, source in self.manifest["sources"].items():
+            block = source.get("real_library") or {}
+            with self.subTest(source=name):
+                self.assertLessEqual(set(block), hygiene_check.REAL_LIBRARY_KEYS)
+        self.assertEqual(
+            hygiene_check.real_library_problems(self.manifest, "manifest.json"), []
+        )
 
     def test_the_proven_connectors_count_what_the_manifest_expects(self) -> None:
         for connector in ("obsidian", "chatgpt", "claude", "blog"):
