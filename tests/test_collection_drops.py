@@ -9,6 +9,7 @@ helpers, so the tests describe what the owner sees.
 from __future__ import annotations
 
 import io
+import os
 import subprocess
 from contextlib import redirect_stderr
 from pathlib import Path
@@ -180,8 +181,6 @@ class CollectionDropTest(LoreTestCase):
     def test_a_dropped_folder_yields_its_text_files_and_skips_hidden_ones(
         self,
     ) -> None:
-        if any(part.startswith(".") for part in self.drops.resolve().parts):
-            self.skipTest("temporary directory sits under a dot-folder (MON-048)")
         folder = self.drops / "notes"
         (folder / "sub").mkdir(parents=True)
         (folder / ".git").mkdir()
@@ -196,6 +195,53 @@ class CollectionDropTest(LoreTestCase):
 
         self.assertEqual([a["title"] for a in added], ["b", "a"])
         self.assertEqual(self.pieces(collection.id), [("b", "bee"), ("a", "ay")])
+
+    def test_a_folder_under_a_dot_folder_is_still_read(self) -> None:
+        essays = self.drops / ".notes" / "essays"
+        (essays / ".hidden").mkdir(parents=True)
+        (essays / "a.md").write_text("ay", encoding="utf-8")
+        (essays / ".x.md").write_text("hidden note", encoding="utf-8")
+        (essays / ".hidden" / "x.md").write_text("hidden folder", encoding="utf-8")
+        collection = self.collections.new("Essays")
+
+        added = self.drop_files(collection.id, essays)
+
+        self.assertEqual([a["title"] for a in added], ["a"])
+        self.assertEqual(self.pieces(collection.id), [("a", "ay")])
+
+    def test_a_dropped_dot_folder_is_read_because_the_owner_picked_it(self) -> None:
+        notes = self.drops / ".notes"
+        (notes / ".hidden").mkdir(parents=True)
+        (notes / "a.md").write_text("ay", encoding="utf-8")
+        (notes / ".hidden" / "x.md").write_text("hidden folder", encoding="utf-8")
+        collection = self.collections.new("Notes")
+
+        added = self.drop_files(collection.id, notes)
+
+        self.assertEqual([a["title"] for a in added], ["a"])
+
+    def test_a_relative_folder_named_with_dot_dot_is_read(self) -> None:
+        plain = self.drops / "plain"
+        plain.mkdir()
+        (plain / "a.md").write_text("ay", encoding="utf-8")
+        (plain / ".x.md").write_text("hidden note", encoding="utf-8")
+        collection = self.collections.new("Plain")
+        self.addCleanup(os.chdir, os.getcwd())
+        os.chdir(plain)
+
+        added = self.drop_files(collection.id, Path("../plain"))
+
+        self.assertEqual([a["title"] for a in added], ["a"])
+        self.assertEqual(self.pieces(collection.id), [("a", "ay")])
+
+    def test_a_hidden_file_dropped_on_its_own_is_read(self) -> None:
+        hidden = self.drops / ".direct.md"
+        hidden.write_text("picked on purpose", encoding="utf-8")
+        collection = self.collections.new("Notes")
+
+        added = self.drop_files(collection.id, hidden)
+
+        self.assertEqual([a["title"] for a in added], [".direct"])
 
     def test_a_file_that_is_gone_is_named_in_the_refusal(self) -> None:
         collection = self.collections.new("Notes")

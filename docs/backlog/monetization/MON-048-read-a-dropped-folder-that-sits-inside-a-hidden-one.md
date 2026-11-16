@@ -4,13 +4,13 @@ title: Read a dropped folder that sits inside a hidden folder or is named with .
 priority: P3
 effort: XS
 component: monetization
-status: ready
+status: completed
 related: [MON-044, MON-049, MON-050]
 blockers: []
 dependencies: []
 github_issue: null
 created: 2026-10-23
-updated: 2026-11-12
+updated: 2026-11-14
 ---
 
 ## Problem
@@ -38,11 +38,11 @@ owner picked it.
 
 ## Acceptance criteria
 
-- [ ] `_files([dropped])` returns the `.md` files of `dropped` when a folder
+- [x] `_files([dropped])` returns the `.md` files of `dropped` when a folder
       above it is dot-named (e.g. `tmp/.notes/essays`).
-- [ ] `_files(["../plain"])` run from inside `plain/` returns its files.
-- [ ] `dropped/.hidden/x.md` and `dropped/.x.md` are still skipped.
-- [ ] `tests/test_collection_drops.py` covers all three cases, and the
+- [x] `_files(["../plain"])` run from inside `plain/` returns its files.
+- [x] `dropped/.hidden/x.md` and `dropped/.x.md` are still skipped.
+- [x] `tests/test_collection_drops.py` covers all three cases, and the
       dot-folder `skipTest` in
       `test_a_dropped_folder_yields_its_text_files_and_skips_hidden_ones` is gone.
 
@@ -58,3 +58,13 @@ hides dot-folders by default, so the CLI is the likelier trigger. Hence P3.
 
 **Prioritization (2026-11-12):** Priority P3. Promoted to ready: unblocked,
 criteria checkable, and the premise checked against the code.
+
+**Implementation (2026-11-14):** `Collections._files` now tests
+`child.relative_to(path).parts`, so only folders and files below the drop
+count as hidden. One consequence beyond the criteria: dropping a dot-named
+folder itself (e.g. `~/.notes`) now reads its non-hidden files, where before
+it yielded nothing. That follows the same "the owner picked it" rule as a
+hidden file dropped directly, and
+`test_a_dropped_dot_folder_is_read_because_the_owner_picked_it` pins it.
+PR #427 never merged (`Collections.entries()` doesn't exist on main), so the
+"land after #427" note above no longer applies.

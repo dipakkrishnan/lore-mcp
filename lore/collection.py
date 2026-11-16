@@ -134,7 +134,10 @@ class Collections:
                     for child in path.rglob("*")
                     if child.is_file()
                     and child.suffix.lower() in TEXT | CONVERTIBLE
-                    and not any(part.startswith(".") for part in child.parts)
+                    # Only what sits below the drop: the owner picked the folder itself.
+                    and not any(
+                        part.startswith(".") for part in child.relative_to(path).parts
+                    )
                 )
             elif path.is_file():
                 found.append(path)
