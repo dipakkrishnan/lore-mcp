@@ -15,6 +15,7 @@ import time
 import unittest
 import urllib.request
 from contextlib import asynccontextmanager, redirect_stderr, redirect_stdout
+from datetime import datetime
 from http.client import HTTPConnection
 from typing import AsyncIterator
 from unittest.mock import patch
@@ -210,9 +211,20 @@ class HostedTest(LoreTestCase):
         with failing(OSError("offline")), Store() as store:
             registry = Registry(store)
             registry.read()
+            (failed,) = store.setting("source_reads", {}).values()
+        self.assertNotEqual(failed["state"], "connected")
         with serving(self.granola.server):
             again = self.connect(show=print)
         self.assertEqual(again["state"], "connected")
+        # CAP-026: the sign-in was a read, kept as the source's one read record.
+        with Store() as store:
+            reads = store.setting("source_reads", {})
+        self.assertEqual(list(reads), [again["name"]])
+        self.assertEqual(reads[again["name"]]["state"], "connected")
+        self.assertGreater(
+            datetime.fromisoformat(reads[again["name"]]["at"]),
+            datetime.fromisoformat(failed["at"]),
+        )
 
     def test_signing_in_refuses_an_app_that_changed_its_tools(self) -> None:
         stub = MCPServer("granola")
