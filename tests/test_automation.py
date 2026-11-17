@@ -545,6 +545,43 @@ class TakeOverTest(LoreTestCase):
         remove.assert_not_called()
         self.assertFalse((self.lore_home / "automation/moved.log").exists())
 
+    def test_a_take_over_another_launch_already_made_changes_nothing(self) -> None:
+        # The app looks twice at launch; the second look read the profile before
+        # the first moved it, and re-reads it under the lock.
+        automation.save_profile(automation_profile(executor="claude", cadence="daily"))
+        stale = automation.Routines(clock=lambda: local(14, 12))
+        self.assertEqual(stale.profile["executor"], "claude")
+        with (
+            patch.dict(os.environ),
+            patch("lore.automation.remove_task") as remove,
+        ):
+            os.environ.pop("LORE_SKIP_SCHEDULE", None)
+            automation.Routines(clock=lambda: local(14, 12)).take_over()
+            stale.take_over()
+        self.assertEqual(remove.call_count, 2, "only the first look removes tasks")
+        log = (self.lore_home / "automation/moved.log").read_text()
+        self.assertEqual(
+            log.splitlines(),
+            [f"{local(14, 12).isoformat()} reading moved from claude to Lore"],
+        )
+        self.assertEqual(automation.Routines().profile["executor"], "lore")
+
+    def test_with_scheduling_off_the_reading_moves_but_no_task_comes_down(
+        self,
+    ) -> None:
+        automation.save_profile(automation_profile(executor="claude", cadence="daily"))
+        with (
+            patch.dict(os.environ, {"LORE_SKIP_SCHEDULE": "1"}),
+            patch("lore.automation.remove_task") as remove,
+        ):
+            automation.Routines(clock=lambda: local(14, 12)).take_over()
+        remove.assert_not_called()
+        self.assertEqual(automation.Routines().profile["executor"], "lore")
+        self.assertIn(
+            "from claude to Lore",
+            (self.lore_home / "automation/moved.log").read_text(),
+        )
+
     def test_a_task_never_moved_off_monday_stays_on_monday(self) -> None:
         self.assertEqual(automation.codex_day(), 0)
         self.codex_task("FREQ=WEEKLY;BYDAY=MO;BYHOUR=21;BYMINUTE=0")

@@ -43,6 +43,22 @@ class NormalizeTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "valid string"):
                     normalize([{"title": "t", "content": "c", field: value}])
 
+    def test_a_link_reason_that_is_not_a_string_is_refused_not_coerced(self) -> None:
+        # CAP-002: the one-line cleaner only touches strings; the field's own type
+        # check still turns a number or a null reason away.
+        for reason in (42, None):
+            with self.subTest(reason=reason):
+                with self.assertRaisesRegex(ValueError, r"reason\n.*valid string"):
+                    normalize(
+                        [
+                            {
+                                "title": "t",
+                                "content": "c",
+                                "related": [{"id": 1, "reason": reason}],
+                            }
+                        ]
+                    )
+
     def test_batch_size_and_required_fields_are_bounded(self) -> None:
         cases = [
             ([], "at least 1 item"),
