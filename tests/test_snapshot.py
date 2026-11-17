@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 import unittest
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -352,6 +354,41 @@ class DesktopSnapshotTest(LoreTestCase):
                 self.assertEqual(cli.main(["desktop-state"]), 0)
         state = json.loads(output.getvalue())
         self.assertEqual(state["node"]["live"]["state"], "unreachable")
+
+    def test_a_node_that_opens_no_session_is_asked_nothing_more(self) -> None:
+        asked: list[str] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                size = int(self.headers.get("Content-Length", "0"))
+                asked.append(json.loads(self.rfile.read(size))["method"])
+                body = b'{"jsonrpc":"2.0","id":1,"result":{}}'
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_: object) -> None:
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        url = f"http://127.0.0.1:{server.server_address[1]}/mcp"
+        with self.assertRaisesRegex(ValueError, "no MCP session"):
+            snapshot.remote_manifest(url)
+        self.assertEqual(asked, ["initialize"])
+
+    def test_a_broken_line_before_the_cwd_does_not_hide_it(self) -> None:
+        session = Path(self.tmp.name) / "session.jsonl"
+        session.write_text('not json\n{"cwd": "/Users/owner/code/juniper"}\n')
+        self.assertEqual(snapshot._session_cwd(session), "/Users/owner/code/juniper")
+        session.write_text('{"type":"x"}\n' * 40 + '{"cwd": "/too/late"}\n')
+        self.assertIsNone(snapshot._session_cwd(session), "only the first 40 lines")
 
 
 class SnapshotSecretsTest(LoreTestCase):

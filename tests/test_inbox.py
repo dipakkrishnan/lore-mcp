@@ -290,6 +290,38 @@ class StandInNodeTest(NodeCase):
         self.assertEqual(httpx2.get(f"{self.node.url}/agent").status_code, 405)
         self.assertEqual(httpx2.post(f"{self.node.url}/mcp").status_code, 404)
 
+    def test_collecting_stops_at_the_page_cap_and_at_the_first_short_page(
+        self,
+    ) -> None:
+        # One `store` call stamps all five with one saved_at, so the pages follow
+        # the id half of the (saved_at, id) cursor.
+        self.save(
+            self.key,
+            *({"title": f"T{n}", "content": f"c{n}", "key": f"k{n}"} for n in range(5)),
+        )
+        agent = self.inbox.agents()[0].id
+        in_order = [
+            row[0]
+            for row in self.d1.connect().execute(
+                "SELECT id FROM inbox ORDER BY saved_at, id"
+            )
+        ]
+        self.assertEqual(len(in_order), 5)
+        for pages, count, asked in ((2, 4, 2), (3, 5, 3), (4, 5, 3)):
+            with self.subTest(pages=pages):
+                self.d1.commands.clear()
+                with (
+                    patch("lore.inbox.PAGE", 2),
+                    patch("lore.inbox.PAGES", pages),
+                ):
+                    items = self.inbox.items(agent)
+                self.assertEqual([item.id for item in items], in_order[:count])
+                self.assertEqual(
+                    sum("FROM inbox WHERE agent" in sql for sql in self.d1.commands),
+                    asked,
+                    "a full page asks again, a short one ends it, the cap ends it all",
+                )
+
 
 class PromptTest(LoreTestCase):
     def test_the_paste_block_is_the_skill_with_the_connection_filled_in(self) -> None:
